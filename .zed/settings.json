@@ -1,0 +1,29 @@
+{
+  "languages": {
+    "Python": {
+      "language_servers": ["pyright", "ruff"],
+      "formatter": "ruff"
+    }
+  },
+  "lsp": {
+    "pyright": {
+      "settings": {
+        "python": {
+          "pythonPath": "./venv/bin/python"
+        },
+        "python.analysis": {
+          "extraPaths": ["./venv/lib/python3.12/site-packages"]
+        }
+      }
+    }
+  },
+  "formatter": {
+    "external": {
+      "command": "./venv/bin/python",
+      "arguments": ["-m", "black", "-"]
+    }
+  },
+  "code_actions_on_format": {
+    "source.organizeImports": true
+  }
+}
