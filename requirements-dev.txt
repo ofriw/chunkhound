@@ -1,0 +1,18 @@
+# ChunkHound Development Dependencies
+# Install with: pip install -r requirements-dev.txt
+# Or use: pip install -e ".[dev]"
+
+# Include production dependencies
+-r requirements.txt
+
+# Development and testing
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+black>=23.0.0
+ruff>=0.1.0
+mypy>=1.6.0
+
+# Additional dev tools
+pip-tools>=7.0.0
+pre-commit>=3.0.0
+build>=0.10.0

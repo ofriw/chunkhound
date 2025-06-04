@@ -1,0 +1,13 @@
+# ChunkHound Production Dependencies
+# Install with: pip install -r requirements.txt
+
+# Core dependencies
+duckdb>=0.8.0
+openai>=1.0.0
+tree-sitter>=0.20.0
+tree-sitter-python>=0.20.0
+fastapi>=0.100.0
+uvicorn>=0.20.0
+pydantic>=2.0.0
+click>=8.0.0
+loguru>=0.6.0
