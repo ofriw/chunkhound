@@ -237,12 +237,8 @@ class Database:
             ).fetchone()
 
             if existing:
-                # Update existing
-                self.connection.execute("""
-                    UPDATE files
-                    SET mtime = to_timestamp(?), language = ?, size_bytes = ?, updated_at = CURRENT_TIMESTAMP
-                    WHERE path = ?
-                """, [mtime, language, size_bytes, path])
+                # File exists - return existing ID without update to avoid foreign key constraint
+                # The mtime checking happens at the process_file level
                 return existing[0]
             else:
                 # Insert new - use simple auto-increment
@@ -467,7 +463,7 @@ class Database:
             raise
 
     def delete_file_chunks(self, file_id: int) -> None:
-        """Delete all chunks for a file (cascades to embeddings).
+        """Delete all chunks for a file (manual cascade for embeddings).
 
         Args:
             file_id: File ID
@@ -476,10 +472,55 @@ class Database:
             if self.connection is None:
                 raise RuntimeError("Database connection not established")
 
+            # First delete embeddings to avoid foreign key constraint violations
+            self.connection.execute("""
+                DELETE FROM embeddings 
+                WHERE chunk_id IN (SELECT id FROM chunks WHERE file_id = ?)
+            """, [file_id])
+
+            # Then delete chunks
             self.connection.execute("DELETE FROM chunks WHERE file_id = ?", [file_id])
+            
+            logger.debug(f"Deleted chunks and embeddings for file {file_id}")
 
         except Exception as e:
             logger.error(f"Failed to delete chunks for file {file_id}: {e}")
+            raise
+
+    def delete_file_completely(self, file_path: str) -> bool:
+        """Delete a file and all its chunks/embeddings completely.
+
+        Args:
+            file_path: Path to the file to delete
+
+        Returns:
+            True if file was deleted, False if not found
+        """
+        try:
+            if self.connection is None:
+                raise RuntimeError("Database connection not established")
+
+            # Get file ID
+            existing = self.connection.execute(
+                "SELECT id FROM files WHERE path = ?", [file_path]
+            ).fetchone()
+
+            if not existing:
+                return False
+
+            file_id = existing[0]
+
+            # Delete chunks and embeddings first
+            self.delete_file_chunks(file_id)
+
+            # Delete the file record
+            self.connection.execute("DELETE FROM files WHERE id = ?", [file_id])
+            
+            logger.debug(f"Completely deleted file {file_path} and all associated data")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to completely delete file {file_path}: {e}")
             raise
 
     def get_stats(self) -> Dict[str, int]:
@@ -534,9 +575,13 @@ class Database:
             
             # Check if file needs to be reprocessed
             existing_file = self.get_file_by_path(str(file_path))
-            if existing_file and existing_file["mtime"] and existing_file["mtime"].timestamp() >= mtime:
-                logger.debug(f"File {file_path} is up to date, skipping")
-                return {"status": "up_to_date", "chunks": 0}
+            if existing_file and existing_file["mtime"]:
+                existing_mtime = existing_file["mtime"].timestamp()
+                if existing_mtime >= mtime:
+                    logger.debug(f"File {file_path} is up to date, skipping")
+                    return {"status": "up_to_date", "chunks": 0}
+                else:
+                    logger.debug(f"File {file_path} modified (existing: {existing_mtime}, current: {mtime}), reprocessing")
             
             # Initialize parser and chunker
             parser = CodeParser()
@@ -563,11 +608,12 @@ class Database:
                 size_bytes=size_bytes
             )
             
-            # If file was updated, delete old chunks
+            # If file was updated, delete old chunks first (outside transaction)
             if existing_file:
+                logger.debug(f"Deleting old chunks for updated file {file_path}")
                 self.delete_file_chunks(file_id)
             
-            # Insert chunks
+            # Insert new chunks
             chunk_ids = []
             for chunk in chunks:
                 chunk_id = self.insert_chunk(

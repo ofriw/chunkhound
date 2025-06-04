@@ -81,7 +81,7 @@ class Chunker:
             "file_path": str(file_path),
             "line_count": line_count,
             "char_count": len(cleaned_code),
-            "relative_path": str(file_path.relative_to(Path.cwd())) if file_path.is_absolute() else str(file_path),
+            "relative_path": self._get_relative_path(file_path),
         }
         
     def _filter_chunks(self, chunks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -122,6 +122,17 @@ class Chunker:
         
         logger.debug(f"Filtered {len(chunks)} chunks to {len(unique_chunks)} unique chunks")
         return unique_chunks
+    
+    def _get_relative_path(self, file_path: Path) -> str:
+        """Get relative path safely, handling files outside working directory."""
+        try:
+            if file_path.is_absolute():
+                return str(file_path.relative_to(Path.cwd()))
+            else:
+                return str(file_path)
+        except ValueError:
+            # File is outside current working directory, just use the filename
+            return file_path.name
     
     def _clean_code(self, code: str) -> str:
         """Clean up code by removing excessive whitespace while preserving structure."""
