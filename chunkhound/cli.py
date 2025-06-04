@@ -213,6 +213,14 @@ def run_command(args: argparse.Namespace) -> None:
         "*/node_modules/*",
         "*/dist/*",
         "*/build/*",
+        # Python dependency directories
+        "*/site-packages/*",
+        "*/.tox/*",
+        "*/.pytest_cache/*",
+        "*/eggs/*",
+        "*/.eggs/*",
+        "*/pip-cache/*",
+        "*/.mypy_cache/*",
     ]
     args.exclude.extend(default_excludes)
     
@@ -253,7 +261,7 @@ def run_command(args: argparse.Namespace) -> None:
         
         # Process directory
         logger.info("Starting file processing...")
-        result = db.process_directory(args.path, pattern="**/*.py")
+        result = db.process_directory(args.path, pattern="**/*.py", exclude_patterns=args.exclude)
         
         if result["status"] == "complete":
             logger.info(f"✅ Processing complete:")

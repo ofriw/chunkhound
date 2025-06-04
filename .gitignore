@@ -195,3 +195,6 @@ cython_debug/
 
 # LLM Notes
 .mem
+
+# Code Index MCP cache directory
+.code_indexer/

@@ -647,21 +647,41 @@ class Database:
             logger.error(f"Failed to process file {file_path}: {e}")
             return {"status": "error", "error": str(e), "chunks": 0}
 
-    def process_directory(self, directory: Path, pattern: str = "**/*.py") -> Dict[str, Any]:
+    def process_directory(self, directory: Path, pattern: str = "**/*.py", exclude_patterns: List[str] = None) -> Dict[str, Any]:
         """Process all Python files in a directory.
         
         Args:
             directory: Directory to process
             pattern: Glob pattern for files to process
+            exclude_patterns: List of glob patterns to exclude
             
         Returns:
             Dictionary with processing summary
         """
         try:
             logger.info(f"Processing directory: {directory} with pattern: {pattern}")
+            if exclude_patterns:
+                logger.info(f"Exclude patterns: {exclude_patterns}")
             
             # Find all matching files
             files = list(directory.glob(pattern))
+            
+            # Filter out excluded files
+            if exclude_patterns:
+                from fnmatch import fnmatch
+                filtered_files = []
+                for file_path in files:
+                    # Convert to relative path from directory for pattern matching
+                    rel_path = file_path.relative_to(directory)
+                    excluded = False
+                    for exclude_pattern in exclude_patterns:
+                        if fnmatch(str(rel_path), exclude_pattern) or fnmatch(str(file_path), exclude_pattern):
+                            excluded = True
+                            break
+                    if not excluded:
+                        filtered_files.append(file_path)
+                files = filtered_files
+            
             if not files:
                 logger.warning(f"No files found matching pattern {pattern} in {directory}")
                 return {"status": "no_files", "processed": 0, "errors": 0}
