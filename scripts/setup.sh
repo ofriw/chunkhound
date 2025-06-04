@@ -7,55 +7,34 @@ set -e
 echo "🔧 ChunkHound Development Setup"
 echo "================================="
 
-# Check Python version
-python_version=$(python3 --version 2>&1 | grep -oE '[0-9]+\.[0-9]+' | head -1)
-required_version="3.8"
-
-if ! python3 -c "import sys; exit(0 if sys.version_info >= (3, 8) else 1)"; then
-    echo "❌ Python 3.8+ required. Found: Python $python_version"
-    echo "   Please install Python 3.8 or higher"
+# Check if uv is installed
+if ! command -v uv &> /dev/null; then
+    echo "❌ uv is required but not installed"
+    echo "   Install uv: curl -LsSf https://astral.sh/uv/install.sh | sh"
     exit 1
 fi
 
-echo "✅ Python $python_version detected"
+echo "✅ uv detected"
 
-# Create virtual environment if it doesn't exist
-if [ ! -d "venv" ]; then
-    echo "📦 Creating virtual environment..."
-    python3 -m venv venv
-    echo "✅ Virtual environment created"
-else
-    echo "✅ Virtual environment already exists"
-fi
-
-# Activate virtual environment
-echo "🔌 Activating virtual environment..."
-source venv/bin/activate
-
-# Upgrade pip
-echo "⬆️  Upgrading pip..."
-pip install --upgrade pip
-
-# Install package in development mode
-echo "📥 Installing ChunkHound in development mode..."
-pip install -e ".[dev]"
+# Sync dependencies with uv
+echo "📦 Installing dependencies with uv..."
+uv sync
 
 # Verify installation
 echo "🧪 Verifying installation..."
-chunkhound --version
+uv run chunkhound --version
 
 echo ""
 echo "🎉 Setup Complete!"
 echo "==================="
 echo ""
-echo "To activate the environment:"
-echo "  source venv/bin/activate"
+echo "To use ChunkHound:"
+echo "  uv run chunkhound run .    # Index current directory"
+echo "  uv run chunkhound mcp      # Start MCP server"
 echo ""
-echo "Common commands:"
-echo "  chunkhound run .           # Index current directory"
-echo "  chunkhound server          # Start API server"
+echo "Development commands:"
 echo "  make test                  # Run tests"
-echo "  make dev                   # Start development server"
+echo "  make dev                   # Index current directory"
 echo "  make help                  # See all available commands"
 echo ""
 echo "Happy coding! 🚀"

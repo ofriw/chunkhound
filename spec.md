@@ -119,7 +119,7 @@ class EmbeddingProvider(Protocol):
 
     async def embed(self, texts: list[str]) -> list[list[float]]: ...
 ```
-Providers register via `entry_points="mcp_embeddings"` so a simple `pip install` makes it discoverable.
+Providers register via `entry_points="mcp_embeddings"` so a simple `uv pip install` makes it discoverable.
 ## Built-ins
 
 | Provider           | Default model          | Dims           | Required env / CLI                  |

@@ -13,7 +13,7 @@ try:
     OPENAI_AVAILABLE = True
 except ImportError:
     OPENAI_AVAILABLE = False
-    logger.warning("OpenAI not available - install with: pip install openai")
+    logger.warning("OpenAI not available - install with: uv pip install openai")
 
 
 class EmbeddingProvider(Protocol):
@@ -85,7 +85,7 @@ class OpenAIEmbeddingProvider:
             batch_size: Maximum batch size for API requests
         """
         if not OPENAI_AVAILABLE:
-            raise ImportError("OpenAI package not available. Install with: pip install openai")
+            raise ImportError("OpenAI package not available. Install with: uv pip install openai")
         
         self._api_key = api_key or os.getenv("OPENAI_API_KEY")
         self._base_url = base_url or os.getenv("OPENAI_BASE_URL")

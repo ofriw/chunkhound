@@ -1,6 +1,6 @@
 # ChunkHound Development Dependencies
-# Install with: pip install -r requirements-dev.txt
-# Or use: pip install -e ".[dev]"
+# Install with: uv sync --group dev
+# Or use: uv pip install -r requirements-dev.txt
 
 # Include production dependencies
 -r requirements.txt

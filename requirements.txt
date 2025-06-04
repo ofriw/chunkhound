@@ -1,5 +1,6 @@
 # ChunkHound Production Dependencies
-# Install with: pip install -r requirements.txt
+# Install with: uv pip install -r requirements.txt
+# Or use: uv sync (recommended)
 
 # Core dependencies
 duckdb>=0.8.0

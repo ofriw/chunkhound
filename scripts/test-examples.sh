@@ -9,7 +9,7 @@ echo "=========================="
 
 # Check if ChunkHound is installed
 if ! command -v chunkhound &> /dev/null; then
-    echo "❌ chunkhound command not found. Install with: pip install ."
+    echo "❌ chunkhound command not found. Install with: uv pip install ."
     exit 1
 fi
 

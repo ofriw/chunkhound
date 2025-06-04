@@ -8,7 +8,7 @@ Dead simple to use. Dead simple to develop.
 
 ### Install & Use
 ```bash
-pip install chunkhound
+uv pip install chunkhound
 chunkhound run .        # Index your code
 chunkhound mcp          # Start MCP server for AI assistants
 ```
@@ -166,7 +166,7 @@ chunkhound mcp --db ./my-project.duckdb
 
 | Problem | Solution |
 |---------|----------|
-| Command not found | Run `pip install chunkhound` or use `uv run chunkhound` |
+| Command not found | Run `uv pip install chunkhound` or use `uv run chunkhound` |
 | Database errors | Delete `~/.cache/chunkhound/` and re-index |
 | MCP not connecting | Check config file syntax and paths |
 | Semantic search fails | Set `OPENAI_API_KEY` environment variable |
