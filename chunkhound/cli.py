@@ -141,6 +141,23 @@ Examples:
         help="Enable auto-reload for development",
     )
     
+    # MCP command - Model Context Protocol server
+    mcp_parser = subparsers.add_parser(
+        "mcp",
+        help="Start MCP server for AI assistant integration (stdin/stdout)",
+    )
+    mcp_parser.add_argument(
+        "--db",
+        type=Path,
+        default=Path.home() / ".cache" / "chunkhound" / "chunks.duckdb",
+        help="Database file path",
+    )
+    mcp_parser.add_argument(
+        "--verbose", "-v",
+        action="store_true",
+        help="Enable verbose logging",
+    )
+    
     return parser
 
 
@@ -177,6 +194,10 @@ def validate_args(args: argparse.Namespace) -> None:
             
         # Ensure database directory exists
         args.db.parent.mkdir(parents=True, exist_ok=True)
+    
+    elif args.command in ["server", "mcp"]:
+        # Ensure database directory exists
+        args.db.parent.mkdir(parents=True, exist_ok=True)
 
 
 def server_command(args: argparse.Namespace) -> None:
@@ -190,6 +211,23 @@ def server_command(args: argparse.Namespace) -> None:
         verbose=args.verbose,
         reload=args.reload
     )
+
+
+def mcp_command(args: argparse.Namespace) -> None:
+    """Execute the MCP server command."""
+    import os
+    
+    # Set database path in environment for MCP server
+    os.environ["CHUNKHOUND_DB_PATH"] = str(args.db)
+    
+    logger.info(f"Starting ChunkHound MCP Server v{__version__}")
+    logger.info(f"Database: {args.db}")
+    logger.info("MCP server will communicate via stdin/stdout")
+    logger.info("Press Ctrl+C to stop")
+    
+    # Import and run MCP server
+    from .mcp_server import main as run_mcp_server
+    run_mcp_server()
 
 
 def run_command(args: argparse.Namespace) -> None:
@@ -311,6 +349,8 @@ def main() -> None:
             run_command(args)
         elif args.command == "server":
             server_command(args)
+        elif args.command == "mcp":
+            mcp_command(args)
     except KeyboardInterrupt:
         logger.info("Shutting down...")
         sys.exit(0)

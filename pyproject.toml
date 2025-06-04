@@ -34,6 +34,7 @@ dependencies = [
     "pydantic>=2.0.0",
     "click>=8.0.0",
     "loguru>=0.6.0",
+    "fastmcp>=1.0.0",
 ]
 
 [project.optional-dependencies]
