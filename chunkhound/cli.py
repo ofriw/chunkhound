@@ -10,6 +10,7 @@ from loguru import logger
 from . import __version__
 from .database import Database
 from .embeddings import EmbeddingManager, create_openai_provider
+from .server import run_server
 
 
 def create_parser() -> argparse.ArgumentParser:
@@ -107,6 +108,39 @@ Examples:
         help="Skip embedding generation (index code only)",
     )
     
+    # Server command - API server only
+    server_parser = subparsers.add_parser(
+        "server",
+        help="Start API server without file watching",
+    )
+    server_parser.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="Host to bind to (default: 127.0.0.1)",
+    )
+    server_parser.add_argument(
+        "--port",
+        type=int,
+        default=7474,
+        help="Port to listen on (default: 7474)",
+    )
+    server_parser.add_argument(
+        "--db",
+        type=Path,
+        default=Path.home() / ".cache" / "chunkhound" / "chunks.duckdb",
+        help="Database file path",
+    )
+    server_parser.add_argument(
+        "--verbose", "-v",
+        action="store_true",
+        help="Enable verbose logging",
+    )
+    server_parser.add_argument(
+        "--reload",
+        action="store_true",
+        help="Enable auto-reload for development",
+    )
+    
     return parser
 
 
@@ -143,6 +177,19 @@ def validate_args(args: argparse.Namespace) -> None:
             
         # Ensure database directory exists
         args.db.parent.mkdir(parents=True, exist_ok=True)
+
+
+def server_command(args: argparse.Namespace) -> None:
+    """Execute the server command."""
+    logger.info(f"Starting ChunkHound API Server v{__version__}")
+    
+    run_server(
+        host=args.host,
+        port=args.port,
+        db_path=str(args.db),
+        verbose=args.verbose,
+        reload=args.reload
+    )
 
 
 def run_command(args: argparse.Namespace) -> None:
@@ -254,6 +301,8 @@ def main() -> None:
     try:
         if args.command == "run":
             run_command(args)
+        elif args.command == "server":
+            server_command(args)
     except KeyboardInterrupt:
         logger.info("Shutting down...")
         sys.exit(0)
