@@ -8,6 +8,8 @@ from typing import Optional
 from loguru import logger
 
 from . import __version__
+from .database import Database
+from .embeddings import EmbeddingManager, create_openai_provider
 
 
 def create_parser() -> argparse.ArgumentParser:
@@ -82,6 +84,28 @@ Examples:
         action="store_true",
         help="Enable verbose logging",
     )
+    run_parser.add_argument(
+        "--provider",
+        default="openai",
+        help="Embedding provider to use (default: openai)",
+    )
+    run_parser.add_argument(
+        "--model",
+        help="Embedding model to use (defaults to provider default)",
+    )
+    run_parser.add_argument(
+        "--api-key",
+        help="API key for embedding provider (uses env var if not specified)",
+    )
+    run_parser.add_argument(
+        "--base-url",
+        help="Base URL for embedding API (uses env var if not specified)",
+    )
+    run_parser.add_argument(
+        "--no-embeddings",
+        action="store_true",
+        help="Skip embedding generation (index code only)",
+    )
     
     return parser
 
@@ -148,8 +172,71 @@ def run_command(args: argparse.Namespace) -> None:
     logger.info(f"Include patterns: {args.include}")
     logger.info(f"Exclude patterns: {args.exclude}")
     
-    # TODO: Phase 1 - For now, just log the configuration
-    logger.info("Phase 1: Configuration validated. Ready for database and parsing implementation.")
+    # Initialize embedding manager if embeddings are enabled
+    embedding_manager = None
+    if not args.no_embeddings:
+        try:
+            if args.provider == "openai":
+                model = args.model or "text-embedding-3-small"
+                provider = create_openai_provider(
+                    api_key=args.api_key,
+                    base_url=args.base_url,
+                    model=model,
+                )
+                embedding_manager = EmbeddingManager()
+                embedding_manager.register_provider(provider, set_default=True)
+                logger.info(f"✅ Embedding provider: {args.provider}/{model}")
+            else:
+                logger.warning(f"Unknown embedding provider: {args.provider}")
+        except Exception as e:
+            logger.warning(f"Failed to initialize embedding provider: {e}")
+            logger.info("Continuing without embeddings...")
+    else:
+        logger.info("Embeddings disabled")
+    
+    # Initialize database
+    try:
+        db = Database(args.db, embedding_manager)
+        db.connect()
+        logger.info(f"✅ Database: {args.db}")
+        
+        # Get initial stats
+        stats = db.get_stats()
+        logger.info(f"Database stats: {stats['files']} files, {stats['chunks']} chunks, {stats['embeddings']} embeddings")
+        
+        # Process directory
+        logger.info("Starting file processing...")
+        result = db.process_directory(args.path, pattern="**/*.py")
+        
+        if result["status"] == "complete":
+            logger.info(f"✅ Processing complete:")
+            logger.info(f"   • Processed: {result['processed']} files")
+            logger.info(f"   • Skipped: {result['skipped']} files")
+            logger.info(f"   • Errors: {result['errors']} files")
+            logger.info(f"   • Total chunks: {result['total_chunks']}")
+            
+            # Show updated stats
+            final_stats = db.get_stats()
+            logger.info(f"Final database stats: {final_stats['files']} files, {final_stats['chunks']} chunks, {final_stats['embeddings']} embeddings")
+            
+            # Generate missing embeddings if embedding manager is available
+            if embedding_manager:
+                logger.info("Checking for missing embeddings...")
+                embed_result = db.generate_missing_embeddings()
+                if embed_result["status"] == "success":
+                    logger.info(f"✅ Generated {embed_result['generated']} missing embeddings")
+                elif embed_result["status"] == "up_to_date":
+                    logger.info("All embeddings up to date")
+                else:
+                    logger.warning(f"Embedding generation failed: {embed_result}")
+        else:
+            logger.error(f"Processing failed: {result}")
+        
+        db.close()
+        
+    except Exception as e:
+        logger.error(f"Database error: {e}")
+        sys.exit(1)
 
 
 def main() -> None:

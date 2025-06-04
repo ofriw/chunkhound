@@ -1,21 +1,28 @@
 """Database module for ChunkHound - DuckDB connection and schema management."""
 
+import asyncio
 from pathlib import Path
 from typing import Optional, List, Dict, Any, Union
 import duckdb
 from loguru import logger
 
+from .parser import CodeParser
+from .chunker import Chunker
+from .embeddings import EmbeddingManager, EmbeddingProvider
+
 class Database:
     """Database connection manager with DuckDB and vss extension."""
 
-    def __init__(self, db_path: Path):
+    def __init__(self, db_path: Path, embedding_manager: Optional[EmbeddingManager] = None):
         """Initialize database connection.
 
         Args:
             db_path: Path to DuckDB database file
+            embedding_manager: Optional embedding manager for vector generation
         """
         self.db_path = db_path
         self.connection: Optional[Any] = None
+        self.embedding_manager = embedding_manager
 
     def connect(self) -> None:
         """Connect to DuckDB and load required extensions."""
@@ -233,7 +240,7 @@ class Database:
                 # Update existing
                 self.connection.execute("""
                     UPDATE files
-                    SET mtime = ?::TIMESTAMP, language = ?, size_bytes = ?, updated_at = CURRENT_TIMESTAMP
+                    SET mtime = to_timestamp(?), language = ?, size_bytes = ?, updated_at = CURRENT_TIMESTAMP
                     WHERE path = ?
                 """, [mtime, language, size_bytes, path])
                 return existing[0]
@@ -241,7 +248,7 @@ class Database:
                 # Insert new - use simple auto-increment
                 result = self.connection.execute("""
                     INSERT INTO files (path, mtime, language, size_bytes)
-                    VALUES (?, ?::TIMESTAMP, ?, ?)
+                    VALUES (?, to_timestamp(?), ?, ?)
                     RETURNING id
                 """, [path, mtime, language, size_bytes]).fetchone()
                 return result[0]
@@ -498,6 +505,245 @@ class Database:
         except Exception as e:
             logger.error(f"Failed to get stats: {e}")
             raise
+
+    def process_file(self, file_path: Path) -> Dict[str, Any]:
+        """Process a file end-to-end: parse, chunk, and store in database.
+        
+        Args:
+            file_path: Path to the file to process
+            
+        Returns:
+            Dictionary with processing results
+        """
+        try:
+            logger.info(f"Processing file: {file_path}")
+            
+            # Check if file exists and is readable
+            if not file_path.exists() or not file_path.is_file():
+                raise ValueError(f"File not found or not readable: {file_path}")
+            
+            # Only process Python files for now
+            if file_path.suffix != '.py':
+                logger.debug(f"Skipping non-Python file: {file_path}")
+                return {"status": "skipped", "reason": "not_python", "chunks": 0}
+            
+            # Get file metadata
+            stat = file_path.stat()
+            mtime = stat.st_mtime
+            size_bytes = stat.st_size
+            
+            # Check if file needs to be reprocessed
+            existing_file = self.get_file_by_path(str(file_path))
+            if existing_file and existing_file["mtime"] and existing_file["mtime"].timestamp() >= mtime:
+                logger.debug(f"File {file_path} is up to date, skipping")
+                return {"status": "up_to_date", "chunks": 0}
+            
+            # Initialize parser and chunker
+            parser = CodeParser()
+            parser.setup()
+            chunker = Chunker()
+            
+            # Parse the file
+            parsed_data = parser.parse_file(file_path)
+            if not parsed_data:
+                logger.debug(f"No parseable content in {file_path}")
+                return {"status": "no_content", "chunks": 0}
+            
+            # Create chunks
+            chunks = chunker.chunk_file(file_path, parsed_data)
+            if not chunks:
+                logger.debug(f"No chunks created from {file_path}")
+                return {"status": "no_chunks", "chunks": 0}
+            
+            # Store in database
+            file_id = self.insert_file(
+                path=str(file_path),
+                mtime=mtime,
+                language="python",
+                size_bytes=size_bytes
+            )
+            
+            # If file was updated, delete old chunks
+            if existing_file:
+                self.delete_file_chunks(file_id)
+            
+            # Insert chunks
+            chunk_ids = []
+            for chunk in chunks:
+                chunk_id = self.insert_chunk(
+                    file_id=file_id,
+                    symbol=chunk["symbol"],
+                    start_line=chunk["start_line"],
+                    end_line=chunk["end_line"],
+                    code=chunk["code"],
+                    chunk_type=chunk["chunk_type"]
+                )
+                chunk_ids.append(chunk_id)
+
+            # Generate embeddings if embedding manager is available
+            embeddings_generated = 0
+            if self.embedding_manager and chunk_ids:
+                try:
+                    embeddings_generated = asyncio.run(self._generate_embeddings_for_chunks(chunk_ids, chunks))
+                except Exception as e:
+                    logger.warning(f"Failed to generate embeddings for {file_path}: {e}")
+
+            logger.info(f"Successfully processed {file_path}: {len(chunks)} chunks, {embeddings_generated} embeddings")
+            return {
+                "status": "success",
+                "file_id": file_id,
+                "chunks": len(chunks),
+                "chunk_ids": chunk_ids,
+                "embeddings": embeddings_generated
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to process file {file_path}: {e}")
+            return {"status": "error", "error": str(e), "chunks": 0}
+
+    def process_directory(self, directory: Path, pattern: str = "**/*.py") -> Dict[str, Any]:
+        """Process all Python files in a directory.
+        
+        Args:
+            directory: Directory to process
+            pattern: Glob pattern for files to process
+            
+        Returns:
+            Dictionary with processing summary
+        """
+        try:
+            logger.info(f"Processing directory: {directory} with pattern: {pattern}")
+            
+            # Find all matching files
+            files = list(directory.glob(pattern))
+            if not files:
+                logger.warning(f"No files found matching pattern {pattern} in {directory}")
+                return {"status": "no_files", "processed": 0, "errors": 0}
+            
+            # Process each file
+            results = {"processed": 0, "errors": 0, "skipped": 0, "total_chunks": 0}
+            
+            for file_path in files:
+                result = self.process_file(file_path)
+                
+                if result["status"] == "success":
+                    results["processed"] += 1
+                    results["total_chunks"] += result["chunks"]
+                elif result["status"] == "error":
+                    results["errors"] += 1
+                else:
+                    results["skipped"] += 1
+            
+            logger.info(f"Directory processing complete: {results}")
+            return {"status": "complete", **results}
+            
+        except Exception as e:
+            logger.error(f"Failed to process directory {directory}: {e}")
+            return {"status": "error", "error": str(e)}
+
+    async def _generate_embeddings_for_chunks(self, chunk_ids: List[int], chunks: List[Dict[str, Any]]) -> int:
+        """Generate embeddings for a list of chunks.
+        
+        Args:
+            chunk_ids: List of chunk IDs from database
+            chunks: List of chunk data dictionaries
+            
+        Returns:
+            Number of embeddings generated
+        """
+        if not self.embedding_manager:
+            return 0
+            
+        try:
+            # Extract code text from chunks
+            texts = [chunk["code"] for chunk in chunks]
+            
+            # Generate embeddings
+            result = await self.embedding_manager.embed_texts(texts)
+            
+            # Store embeddings in database
+            stored_count = 0
+            for chunk_id, embedding in zip(chunk_ids, result.embeddings):
+                try:
+                    self.insert_embedding(
+                        chunk_id=chunk_id,
+                        provider=result.provider,
+                        model=result.model,
+                        dims=result.dims,
+                        vector=embedding
+                    )
+                    stored_count += 1
+                except Exception as e:
+                    logger.warning(f"Failed to store embedding for chunk {chunk_id}: {e}")
+            
+            return stored_count
+            
+        except Exception as e:
+            logger.error(f"Failed to generate embeddings: {e}")
+            return 0
+
+    def generate_missing_embeddings(self, provider_name: Optional[str] = None) -> Dict[str, Any]:
+        """Generate embeddings for chunks that don't have them yet.
+        
+        Args:
+            provider_name: Specific provider to use (uses default if None)
+            
+        Returns:
+            Dictionary with generation results
+        """
+        if not self.embedding_manager:
+            return {"status": "no_embedding_manager", "generated": 0}
+        
+        try:
+            # Find chunks without embeddings for the specified provider
+            provider = self.embedding_manager.get_provider(provider_name)
+            
+            query = """
+                SELECT c.id, c.code 
+                FROM chunks c
+                LEFT JOIN embeddings e ON c.id = e.chunk_id 
+                    AND e.provider = ? AND e.model = ?
+                WHERE e.chunk_id IS NULL
+            """
+            
+            if self.connection is None:
+                raise RuntimeError("Database connection not established")
+            
+            results = self.connection.execute(query, [provider.name, provider.model]).fetchall()
+            
+            if not results:
+                logger.info("No missing embeddings found")
+                return {"status": "up_to_date", "generated": 0}
+            
+            chunk_ids = [row[0] for row in results]
+            texts = [row[1] for row in results]
+            
+            logger.info(f"Generating embeddings for {len(chunk_ids)} chunks using {provider.name}/{provider.model}")
+            
+            # Generate embeddings
+            embedding_result = asyncio.run(self.embedding_manager.embed_texts(texts, provider_name))
+            
+            # Store embeddings
+            stored_count = 0
+            for chunk_id, embedding in zip(chunk_ids, embedding_result.embeddings):
+                try:
+                    self.insert_embedding(
+                        chunk_id=chunk_id,
+                        provider=embedding_result.provider,
+                        model=embedding_result.model,
+                        dims=embedding_result.dims,
+                        vector=embedding
+                    )
+                    stored_count += 1
+                except Exception as e:
+                    logger.warning(f"Failed to store embedding for chunk {chunk_id}: {e}")
+            
+            logger.info(f"Generated and stored {stored_count} embeddings")
+            return {"status": "success", "generated": stored_count}
+            
+        except Exception as e:
+            logger.error(f"Failed to generate missing embeddings: {e}")
+            return {"status": "error", "error": str(e), "generated": 0}
 
     def close(self) -> None:
         """Close database connection."""
