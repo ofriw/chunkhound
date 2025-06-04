@@ -4,271 +4,181 @@
 
 Dead simple to use. Dead simple to develop.
 
-## Quick Start
+## For Users
 
-### For Users
-
+### Install & Use
 ```bash
 pip install chunkhound
-chunkhound run .
+chunkhound run .        # Index your code
+chunkhound mcp          # Start MCP server for AI assistants
 ```
 
-That's it! ChunkHound will:
-- Index your code 
-- Start a search server at `http://localhost:7474`
-- Watch for file changes and update automatically
+That's it! ChunkHound indexes your code and provides search tools for AI assistants like Claude Desktop, Cursor, and VS Code.
 
-### Search Your Code
+### AI Assistant Integration
 
-```bash
-# Regex search
-curl "http://localhost:7474/search/regex?pattern=def.*test"
-
-# AI semantic search (requires OpenAI API key)
-export OPENAI_API_KEY=your-key-here
-curl -X POST http://localhost:7474/search/semantic -d '{"query": "database connection"}'
-
-# Check stats
-curl http://localhost:7474/stats
-```
-
-## Real Example: Index ChunkHound's Own Codebase
-
-Here's how ChunkHound indexes and searches its own code:
-
-```bash
-# Clone and setup ChunkHound
-git clone https://github.com/chunkhound/chunkhound.git
-cd chunkhound
-pip install .
-
-# Index the codebase (excludes venv, tests, etc. automatically)
-chunkhound run . --verbose
-
-# The server starts automatically at http://localhost:7474
-# In another terminal, search the code:
-
-# Find all database operations
-curl "http://localhost:7474/search/regex?pattern=def.*database"
-
-# Find embedding-related functions  
-curl "http://localhost:7474/search/regex?pattern=embedding"
-
-# Search for CLI command handling
-curl "http://localhost:7474/search/regex?pattern=def.*command"
-
-# With OpenAI API key, try semantic search:
-export OPENAI_API_KEY=your-key-here
-curl -X POST http://localhost:7474/search/semantic -d '{"query": "parse Python code"}'
-curl -X POST http://localhost:7474/search/semantic -d '{"query": "vector similarity search"}'
-
-# Check what was indexed
-curl http://localhost:7474/stats
-# Response: {"files": 1342, "chunks": 23991, "embeddings": 0}
-```
-
-**What gets indexed:**
-- 🐍 **Python files**: Functions, classes, methods from `chunkhound/`
-- 📊 **Statistics**: ~1,300 files, ~24,000 code chunks  
-- 🔍 **Searchable**: Function definitions, class structures, imports
-- ⚡ **Fast**: Regex search returns results instantly
-- 🧠 **Smart**: Semantic search finds conceptually related code
-
-**Try these searches on ChunkHound's code:**
-- `"def connect"` - Find database connection logic
-- `"class.*Parser"` - Find parser classes
-- `"async def"` - Find async functions
-- `"import.*tree_sitter"` - Find tree-sitter usage
-
-**Example Search Results:**
-
-```bash
-# Search for database functions
-curl "http://localhost:7474/search/regex?pattern=def.*database&limit=3"
-```
-
+**Claude Desktop** - Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 ```json
-{"chunk_id": 1, "symbol": "Database.__init__", "start_line": 16, "end_line": 22, "code": "def __init__(self, db_path: Path, embedding_manager: Optional[EmbeddingManager] = None):", "chunk_type": "function", "file_path": "chunkhound/database.py", "language": "python"}
-{"chunk_id": 2, "symbol": "Database.connect", "start_line": 28, "end_line": 52, "code": "def connect(self) -> None:", "chunk_type": "function", "file_path": "chunkhound/database.py", "language": "python"}
-{"chunk_id": 3, "symbol": "Database.close", "start_line": 797, "end_line": 801, "code": "def close(self) -> None:", "chunk_type": "function", "file_path": "chunkhound/database.py", "language": "python"}
+{
+  "mcpServers": {
+    "chunkhound": {
+      "command": "chunkhound",
+      "args": ["mcp", "--db", "/path/to/your/project/.chunkhound.duckdb"],
+      "env": {
+        "OPENAI_API_KEY": "your-key-here"
+      }
+    }
+  }
+}
 ```
 
-```bash
-# Semantic search for parsing logic
-curl -X POST http://localhost:7474/search/semantic -d '{"query": "extract code symbols", "limit": 3}'
-```
+**VS Code/Cursor** - Install MCP extension and configure similarly.
 
-```json
-{"chunk_id": 15, "symbol": "CodeParser._extract_functions", "start_line": 82, "end_line": 123, "code": "def _extract_functions(self, tree_node: Node, source_code: str) -> List[Dict[str, Any]]:", "chunk_type": "function", "file_path": "chunkhound/parser.py", "language": "python", "distance": 0.11}
-{"chunk_id": 28, "symbol": "CodeParser._extract_classes", "start_line": 124, "end_line": 170, "code": "def _extract_classes(self, tree_node: Node, source_code: str) -> List[Dict[str, Any]]:", "chunk_type": "function", "file_path": "chunkhound/parser.py", "language": "python", "distance": 0.14}
-{"chunk_id": 42, "symbol": "Chunker.chunk_file", "start_line": 45, "end_line": 78, "code": "def chunk_file(self, file_path: Path) -> List[Dict[str, Any]]:", "chunk_type": "function", "file_path": "chunkhound/chunker.py", "language": "python", "distance": 0.17}
-```
+### What You Get
+- **Regex Search**: Find code patterns instantly
+- **Semantic Search**: AI-powered conceptual search (requires OpenAI key)
+- **Smart Parsing**: Extracts functions, classes, methods automatically
+- **NDJSON Output**: Perfect for AI assistant integration
 
-**Response Format:**
-- All search results return **NDJSON** (newline-delimited JSON)
-- Each line is a complete JSON object
-- Perfect for streaming and processing by coding agents
-- Use `jq` to parse: `curl ... | jq '.'` or process line-by-line in scripts
+## For Contributors
 
-**Parsing Examples:**
-
-```bash
-# Pretty print results with jq
-curl -s "http://localhost:7474/search/regex?pattern=def.*test" | jq '.'
-
-# Extract just function names
-curl -s "http://localhost:7474/search/regex?pattern=class" | jq -r '.symbol'
-
-# Filter by file type
-curl -s "http://localhost:7474/search/regex?pattern=async" | jq 'select(.file_path | contains("api"))'
-
-# Count results
-curl -s "http://localhost:7474/search/regex?pattern=def" | wc -l
-```
-
-```python
-# Python script to process results
-import requests
-import json
-
-response = requests.get("http://localhost:7474/search/regex", 
-                       params={"pattern": "class.*Parser", "limit": 5})
-
-for line in response.text.strip().split('\n'):
-    if line:
-        result = json.loads(line)
-        print(f"{result['symbol']} in {result['file_path']}:{result['start_line']}")
-```
-
-**Advanced Indexing Options:**
-
-```bash
-# Index only specific directories
-chunkhound run . --include "chunkhound/**/*.py" --exclude "tests/*"
-
-# Skip embeddings for faster indexing (regex search only)
-chunkhound run . --no-embeddings
-
-# Custom database location
-chunkhound run . --db ./my-code-search.duckdb
-
-# Verbose output to see what's being processed
-chunkhound run . --verbose --exclude "venv/*" --exclude "__pycache__/*"
-
-# Index multiple patterns
-chunkhound run . --include "*.py" --include "*.js" --include "*.ts"
-```
-
-## For Developers
-
-### One-Command Setup
-
+### Development Setup
 ```bash
 git clone https://github.com/chunkhound/chunkhound.git
 cd chunkhound
-./scripts/setup.sh
+uv sync                     # Install dependencies
+uv run chunkhound run .     # Index ChunkHound's own code
+uv run chunkhound mcp       # Start MCP server
 ```
 
-Or use Make:
-
-```bash
-make setup  # One-time setup
-make dev    # Start development server
-make test   # Run tests
-make help   # See all commands
-```
+**ChunkHound indexes itself** during development - use it to search its own codebase while working on it!
 
 ### Development Commands
-
-| Command | Description |
-|---------|-------------|
-| `make setup` | One-time development setup |
-| `make dev` | Start development server with file watching |
-| `make test` | Run all tests |
-| `make lint` | Check code quality |
-| `make format` | Format code |
-| `make clean` | Clean temporary files |
-
-## CLI Options
-
 ```bash
-chunkhound run /path/to/code              # Index directory
-chunkhound run . --exclude "*/tests/*"   # Skip directories  
-chunkhound run . --verbose               # Detailed output
-chunkhound run . --no-embeddings        # Skip AI features
-chunkhound server --port 8080            # Custom port
+# Essential commands
+make setup          # One-time setup (uses uv)
+make dev            # Index current directory  
+make test           # Run tests
+make check          # Lint + test
+
+# Development workflow
+uv run chunkhound run . --verbose      # Re-index after changes
+./scripts/mcp-server.sh               # Start MCP server with logging
 ```
 
-## API Endpoints
+### IDE Integration for Development
 
-- `GET /health` - Health check
-- `GET /stats` - Database statistics  
-- `GET /search/regex?pattern=...` - Regex search
-- `POST /search/semantic` - AI search (requires OpenAI key)
-
-## Installation Methods
-
-### Method 1: pip (Recommended)
-```bash
-pip install chunkhound
+**Zed** - Create `.zed/settings.json`:
+```json
+{
+  "context_servers": {
+    "chunkhound": {
+      "command": "uv",
+      "args": ["run", "chunkhound", "mcp", "--db", ".chunkhound.duckdb"],
+      "cwd": ".",
+      "env": {
+        "OPENAI_API_KEY": "your-key-here"
+      }
+    }
+  }
+}
 ```
 
-### Method 2: From source
-```bash
-git clone https://github.com/chunkhound/chunkhound.git
-cd chunkhound
-pip install .
+**VS Code** - Add to workspace settings:
+```json
+{
+  "mcp.servers": {
+    "chunkhound": {
+      "command": "uv",
+      "args": ["run", "chunkhound", "mcp"],
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "CHUNKHOUND_DB_PATH": "${workspaceFolder}/.chunkhound.duckdb"
+      }
+    }
+  }
+}
 ```
 
-### Method 3: Development mode
-```bash
-git clone https://github.com/chunkhound/chunkhound.git
-cd chunkhound
-pip install -e ".[dev]"
-```
+### Using ChunkHound to Develop ChunkHound
 
-## AI Features (Optional)
-
-ChunkHound works great without AI, but for semantic search:
+This is the key workflow - ChunkHound searches its own code:
 
 ```bash
-export OPENAI_API_KEY=your-key-here
-chunkhound run .
+# Index the codebase
+uv run chunkhound run . --verbose
+
+# Start MCP server
+uv run chunkhound mcp --verbose
+
+# Now use in your AI assistant:
+# "Find all database connection functions"
+# "Show me how embeddings are processed" 
+# "Search for error handling patterns"
 ```
+
+**Example searches on ChunkHound's codebase:**
+- `"def.*database"` - Database functions
+- `"class.*Parser"` - Parser implementations  
+- `"async.*embed"` - Embedding functions
+- Semantic: "How are chunks stored?" - Finds storage logic
+
+## Architecture
+
+- **Database**: DuckDB with vector search
+- **Parsing**: Tree-sitter for AST extraction
+- **Embeddings**: OpenAI text-embedding-3-small
+- **Protocol**: MCP (Model Context Protocol)
+- **Search**: Regex + vector similarity
+
+## MCP Tools
+
+ChunkHound provides these tools to AI assistants:
+
+| Tool | Description | Example |
+|------|-------------|---------|
+| `search_regex` | Regex pattern search | `search_regex(pattern="def.*async", limit=5)` |
+| `search_semantic` | AI semantic search | `search_semantic(query="database connection")` |
+| `get_stats` | Database statistics | `get_stats()` |
+| `health_check` | System status | `health_check()` |
 
 ## Requirements
 
-- Python 3.8+
-- Works on Mac and Linux
-- Optional: OpenAI API key for semantic search
+- **Python 3.10+** (for uv development)
+- **OpenAI API key** (optional, for semantic search)
+- **Works on**: macOS, Linux
+
+## Advanced Usage
+
+```bash
+# Custom exclude patterns
+chunkhound run . --exclude "node_modules/*" --exclude "*.log"
+
+# Skip embeddings (faster, regex only)
+chunkhound run . --no-embeddings
+
+# Custom database location
+chunkhound run . --db ./my-project.duckdb
+chunkhound mcp --db ./my-project.duckdb
+```
 
 ## Troubleshooting
 
 | Problem | Solution |
 |---------|----------|
-| Command not found | Use `python -m chunkhound.cli` |
-| Database errors | Delete `~/.cache/chunkhound/` and re-run |
-| Import errors | Run `pip install -e .` in project directory |
-| Port in use | Use `--port 8080` to change port |
-
-Run `make health` to check system status.
-
-## Architecture
-
-- **Database**: DuckDB with vector search (VSS extension)
-- **Parsing**: Tree-sitter for Python AST extraction
-- **Embeddings**: OpenAI text-embedding-3-small
-- **API**: FastAPI with async support
-- **Search**: Combined regex + vector similarity
+| Command not found | Run `pip install chunkhound` or use `uv run chunkhound` |
+| Database errors | Delete `~/.cache/chunkhound/` and re-index |
+| MCP not connecting | Check config file syntax and paths |
+| Semantic search fails | Set `OPENAI_API_KEY` environment variable |
 
 ## Contributing
 
-1. Fork and clone
-2. Run `./scripts/setup.sh` 
-3. Make changes
-4. Run `make check` (lint + test)
-5. Submit PR
+1. Fork and clone repo
+2. Run `uv sync` to setup
+3. Use `uv run chunkhound run .` to index for development
+4. Make changes and test with `make check`
+5. Use ChunkHound to search its own code while developing!
 
 ## License
 
-MIT License. See LICENSE file.
+MIT License

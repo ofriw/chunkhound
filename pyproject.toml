@@ -7,7 +7,7 @@ name = "chunkhound"
 version = "0.1.0"
 description = "Local-first semantic code search with vector and regex capabilities"
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 authors = [
     {name = "ChunkHound Team"},
 ]
@@ -16,11 +16,10 @@ classifiers = [
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Topic :: Text Processing :: Indexing",
 ]
@@ -29,8 +28,6 @@ dependencies = [
     "openai>=1.0.0",
     "tree-sitter>=0.20.0",
     "tree-sitter-python>=0.20.0",
-    "fastapi>=0.100.0",
-    "uvicorn>=0.20.0",
     "pydantic>=2.0.0",
     "click>=8.0.0",
     "loguru>=0.6.0",
@@ -59,10 +56,10 @@ packages = ["chunkhound"]
 
 [tool.black]
 line-length = 88
-target-version = ["py38"]
+target-version = ["py310"]
 
 [tool.ruff]
-target-version = "py38"
+target-version = "py310"
 line-length = 88
 select = [
     "E",  # pycodestyle errors
@@ -75,7 +72,7 @@ select = [
 ignore = []
 
 [tool.mypy]
-python_version = "3.8"
+python_version = "3.10"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true

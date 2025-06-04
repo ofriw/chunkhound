@@ -10,7 +10,6 @@ from loguru import logger
 from . import __version__
 from .database import Database
 from .embeddings import EmbeddingManager, create_openai_provider
-from .server import run_server
 
 
 def create_parser() -> argparse.ArgumentParser:
@@ -51,17 +50,7 @@ Examples:
         default=Path.home() / ".cache" / "chunkhound" / "chunks.duckdb",
         help="DuckDB database file path (default: ~/.cache/chunkhound/chunks.duckdb)",
     )
-    run_parser.add_argument(
-        "--host",
-        default="127.0.0.1",
-        help="API server host (default: 127.0.0.1)",
-    )
-    run_parser.add_argument(
-        "--port",
-        type=int,
-        default=7474,
-        help="API server port (default: 7474)",
-    )
+
     run_parser.add_argument(
         "--include",
         action="append",
@@ -108,39 +97,7 @@ Examples:
         help="Skip embedding generation (index code only)",
     )
     
-    # Server command - API server only
-    server_parser = subparsers.add_parser(
-        "server",
-        help="Start API server without file watching",
-    )
-    server_parser.add_argument(
-        "--host",
-        default="127.0.0.1",
-        help="Host to bind to (default: 127.0.0.1)",
-    )
-    server_parser.add_argument(
-        "--port",
-        type=int,
-        default=7474,
-        help="Port to listen on (default: 7474)",
-    )
-    server_parser.add_argument(
-        "--db",
-        type=Path,
-        default=Path.home() / ".cache" / "chunkhound" / "chunks.duckdb",
-        help="Database file path",
-    )
-    server_parser.add_argument(
-        "--verbose", "-v",
-        action="store_true",
-        help="Enable verbose logging",
-    )
-    server_parser.add_argument(
-        "--reload",
-        action="store_true",
-        help="Enable auto-reload for development",
-    )
-    
+
     # MCP command - Model Context Protocol server
     mcp_parser = subparsers.add_parser(
         "mcp",
@@ -195,22 +152,10 @@ def validate_args(args: argparse.Namespace) -> None:
         # Ensure database directory exists
         args.db.parent.mkdir(parents=True, exist_ok=True)
     
-    elif args.command in ["server", "mcp"]:
+    elif args.command == "mcp":
         # Ensure database directory exists
         args.db.parent.mkdir(parents=True, exist_ok=True)
 
-
-def server_command(args: argparse.Namespace) -> None:
-    """Execute the server command."""
-    logger.info(f"Starting ChunkHound API Server v{__version__}")
-    
-    run_server(
-        host=args.host,
-        port=args.port,
-        db_path=str(args.db),
-        verbose=args.verbose,
-        reload=args.reload
-    )
 
 
 def mcp_command(args: argparse.Namespace) -> None:
@@ -233,9 +178,8 @@ def mcp_command(args: argparse.Namespace) -> None:
 def run_command(args: argparse.Namespace) -> None:
     """Execute the run command."""
     logger.info(f"Starting ChunkHound v{__version__}")
-    logger.info(f"Watching directory: {args.path}")
+    logger.info(f"Processing directory: {args.path}")
     logger.info(f"Database: {args.db}")
-    logger.info(f"API server: http://{args.host}:{args.port}")
     
     # Default file patterns for Python files if none specified
     if not args.include:
@@ -243,22 +187,22 @@ def run_command(args: argparse.Namespace) -> None:
     
     # Default exclusion patterns
     default_excludes = [
-        "*/.git/*",
-        "*/__pycache__/*", 
-        "*/venv/*",
-        "*/env/*",
-        "*/.venv/*",
-        "*/node_modules/*",
-        "*/dist/*",
-        "*/build/*",
+        "*/.git/*", ".git/*",
+        "*/__pycache__/*", "__pycache__/*",
+        "*/venv/*", "venv/*",
+        "*/env/*", "env/*",
+        "*/.venv/*", ".venv/*",
+        "*/node_modules/*", "node_modules/*",
+        "*/dist/*", "dist/*",
+        "*/build/*", "build/*",
         # Python dependency directories
-        "*/site-packages/*",
-        "*/.tox/*",
-        "*/.pytest_cache/*",
-        "*/eggs/*",
-        "*/.eggs/*",
-        "*/pip-cache/*",
-        "*/.mypy_cache/*",
+        "*/site-packages/*", "site-packages/*",
+        "*/.tox/*", ".tox/*",
+        "*/.pytest_cache/*", ".pytest_cache/*",
+        "*/eggs/*", "eggs/*",
+        "*/.eggs/*", ".eggs/*",
+        "*/pip-cache/*", "pip-cache/*",
+        "*/.mypy_cache/*", ".mypy_cache/*",
     ]
     args.exclude.extend(default_excludes)
     
@@ -347,8 +291,6 @@ def main() -> None:
     try:
         if args.command == "run":
             run_command(args)
-        elif args.command == "server":
-            server_command(args)
         elif args.command == "mcp":
             mcp_command(args)
     except KeyboardInterrupt:

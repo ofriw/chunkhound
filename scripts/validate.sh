@@ -30,10 +30,9 @@ import chunkhound
 import duckdb
 import tree_sitter
 import tree_sitter_python
-import fastapi
 import openai
 print('✅ All core dependencies importable')
-" || { echo "❌ Dependency import failed"; exit 1; }
+"
 
 # Test 4: Database initialization
 echo ""

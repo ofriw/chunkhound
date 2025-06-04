@@ -9,7 +9,7 @@ A local-first “code-grep on steroids”: watches any directory, slices code in
 | Storage & ANN | DuckDB 0.10.x + vss extension (HNSW) | Embedded, zero-config, ~Postgres-speed; HNSW index built-in. |
 | Code parsing  | tree-sitter-languages wheels         | Pre-built grammars; no C toolchain hassle.                   |
 | File watching | watchfiles 1.x                       | Rust-powered, cross-platform, async.                         |
-| HTTP layer    | FastAPI + Uvicorn                    | Self-docs, async I/O, tiny footprint.                        |
+| MCP Protocol  | FastMCP + stdin/stdout               | Model Context Protocol for AI assistant integration.          |
 # Runtime topology
   ```mermaid
   flowchart TB
@@ -28,7 +28,7 @@ A local-first “code-grep on steroids”: watches any directory, slices code in
         Chunker["Chunker<br/>(funcs / classes / blocks)"]
         Embedder["Embedder<br/>(dynamic provider)"]
         DB["DuckDB<br/>(tables + HNSW)"]
-        API["API Server<br/>(FastAPI)"]
+        MCP["MCP Server<br/>(FastMCP)"]
         Query["Query Engine<br/>(vector &amp; regex)"]
     end
 
