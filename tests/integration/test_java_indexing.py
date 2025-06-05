@@ -31,7 +31,7 @@ def java_test_fixture_path():
 
 
 @pytest.fixture
-def db_with_java(temp_db_path, java_test_fixture_path):
+async def db_with_java(temp_db_path, java_test_fixture_path):
     """Create a database with Java files indexed."""
     # Check if Java test fixture exists
     if not java_test_fixture_path.exists():
@@ -43,7 +43,7 @@ def db_with_java(temp_db_path, java_test_fixture_path):
     
     try:
         # Process Java files in fixtures
-        result = db.process_directory(
+        result = await db.process_directory(
             java_test_fixture_path, 
             patterns=["**/*.java"], 
             exclude_patterns=[]
@@ -53,15 +53,16 @@ def db_with_java(temp_db_path, java_test_fixture_path):
             pytest.skip(f"Failed to process Java files: {result}")
             
         yield db
-        
     finally:
+        if db.connection:
+            db.connection.close()
         db.close()
 
 
 class TestJavaIndexing:
     """Integration tests for Java indexing."""
     
-    def test_java_indexing_database_integration(self, db_with_java):
+    async def test_java_indexing_database_integration(self, db_with_java):
         """Test Java files are properly indexed in the database."""
         # Check that we have files in the database
         stats = db_with_java.get_stats()
@@ -96,7 +97,7 @@ class TestJavaIndexing:
         has_methods = any(t in type_dict for t in method_types)
         assert has_methods, "No Java methods or constructors found"
     
-    def test_java_regex_search(self, db_with_java):
+    async def test_java_regex_search(self, db_with_java):
         """Test regex search works with Java code."""
         # Search for class declaration
         query = """
@@ -122,7 +123,7 @@ class TestJavaIndexing:
         "OPENAI_API_KEY" not in os.environ,
         reason="OpenAI API key required for embedding tests"
     )
-    def test_java_embedding_generation(self, temp_db_path, java_test_fixture_path):
+    async def test_java_embedding_generation(self, temp_db_path, java_test_fixture_path):
         """Test embedding generation for Java code."""
         # Skip if OpenAI API key not set
         if "OPENAI_API_KEY" not in os.environ:
@@ -142,7 +143,7 @@ class TestJavaIndexing:
         
         try:
             # Process Java files
-            result = db.process_directory(
+            result = await db.process_directory(
                 java_test_fixture_path, 
                 patterns=["**/*.java"], 
                 exclude_patterns=[]

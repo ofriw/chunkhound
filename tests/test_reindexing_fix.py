@@ -5,7 +5,7 @@ import pytest
 from chunkhound.database import Database
 
 
-def test_unchanged_file_not_reprocessed():
+async def test_unchanged_file_not_reprocessed(tmpdir):
     """Test that unchanged files are not reprocessed after initial indexing."""
     with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
         f.write("""def hello():
@@ -22,13 +22,13 @@ def test_unchanged_file_not_reprocessed():
         db.connect()
         
         # First processing - should succeed
-        result1 = db.process_file(file_path)
+        result1 = await db.process_file(file_path)
         assert result1["status"] == "success"
         assert result1["chunks"] > 0
         first_chunks = result1["chunks"]
         
         # Second processing (unchanged file) - should be skipped
-        result2 = db.process_file(file_path)
+        result2 = await db.process_file(file_path)
         assert result2["status"] == "up_to_date"
         assert result2["chunks"] == 0
         
@@ -46,7 +46,7 @@ def test_unchanged_file_not_reprocessed():
         file_path.unlink(missing_ok=True)
 
 
-def test_changed_file_gets_reprocessed():
+async def test_changed_file_gets_reprocessed(tmpdir):
     """Test that changed files are reprocessed with updated mtime."""
     with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
         f.write("""def hello():
@@ -63,7 +63,7 @@ def test_changed_file_gets_reprocessed():
         db.connect()
         
         # First processing
-        result1 = db.process_file(file_path)
+        result1 = await db.process_file(file_path)
         assert result1["status"] == "success"
         original_chunks = result1["chunks"]
         
@@ -88,7 +88,7 @@ def goodbye():
 """)
         
         # Second processing (changed file) - should reprocess
-        result2 = db.process_file(file_path)
+        result2 = await db.process_file(file_path)
         assert result2["status"] == "success"
         assert result2["chunks"] > original_chunks  # Should have more chunks now
         
@@ -105,7 +105,7 @@ def goodbye():
         file_path.unlink(missing_ok=True)
 
 
-def test_new_file_processing():
+async def test_new_file_processing(tmpdir):
     """Test that new files are processed normally."""
     with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
         f.write("""def new_function():
@@ -122,7 +122,7 @@ def test_new_file_processing():
         db.connect()
         
         # Processing new file should succeed
-        result = db.process_file(file_path)
+        result = await db.process_file(file_path)
         assert result["status"] == "success"
         assert result["chunks"] > 0
         
@@ -139,7 +139,7 @@ def test_new_file_processing():
         file_path.unlink(missing_ok=True)
 
 
-def test_mtime_update_logic():
+async def test_mtime_update_logic(tmpdir):
     """Test the mtime update logic through the integrated process_file workflow."""
     with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
         f.write("""def test():
@@ -156,7 +156,7 @@ def test_mtime_update_logic():
         db.connect()
         
         # Process file first time
-        result1 = db.process_file(file_path)
+        result1 = await db.process_file(file_path)
         assert result1["status"] == "success"
         
         # Verify initial record
@@ -168,7 +168,7 @@ def test_mtime_update_logic():
         file_path.touch()
         
         # Process same file with newer mtime
-        result2 = db.process_file(file_path)
+        result2 = await db.process_file(file_path)
         assert result2["status"] == "success"
         
         # Verify mtime was updated in database
@@ -184,7 +184,7 @@ def test_mtime_update_logic():
         file_path.unlink(missing_ok=True)
 
 
-def test_directory_processing_efficiency():
+async def test_directory_processing_efficiency(tmpdir):
     """Test that directory processing only handles changed files."""
     with tempfile.TemporaryDirectory() as tmpdir:
         tmpdir = Path(tmpdir)
@@ -210,12 +210,12 @@ def test_directory_processing_efficiency():
         db.connect()
         
         # First processing - should process both files
-        result1 = db.process_directory(tmpdir)
+        result1 = await db.process_directory(tmpdir)
         assert result1["processed"] == 2
         assert result1["total_chunks"] > 0
         
         # Second processing (no changes) - should skip both files
-        result2 = db.process_directory(tmpdir)
+        result2 = await db.process_directory(tmpdir)
         assert result2["processed"] == 0  # No files should be processed
         assert result2["skipped"] == 2    # Both files should be skipped
         
@@ -235,12 +235,12 @@ def func1_modified():
 """)
         
         # Third processing - should only process modified file
-        result3 = db.process_directory(tmpdir)
+        result3 = await db.process_directory(tmpdir)
         assert result3["processed"] == 1  # Only modified file
         assert result3["skipped"] == 1    # Unchanged file skipped
 
 
-def test_performance_improvement():
+async def test_performance_improvement(tmpdir):
     """Test that processing time improves significantly for unchanged files."""
     with tempfile.TemporaryDirectory() as tmpdir:
         tmpdir = Path(tmpdir)
@@ -265,14 +265,14 @@ class Class_{i}:
         # First processing (baseline)
         import time as time_module
         start_time = time_module.time()
-        result1 = db.process_directory(tmpdir)
+        result1 = await db.process_directory(tmpdir)
         first_duration = time_module.time() - start_time
         
         assert result1["processed"] == 10
         
         # Second processing (should be much faster)
         start_time = time_module.time()
-        result2 = db.process_directory(tmpdir)
+        result2 = await db.process_directory(tmpdir)
         second_duration = time_module.time() - start_time
         
         assert result2["processed"] == 0

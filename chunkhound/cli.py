@@ -173,7 +173,7 @@ def mcp_command(args: argparse.Namespace) -> None:
     asyncio.run(run_mcp_server())
 
 
-def run_command(args: argparse.Namespace) -> None:
+async def run_command(args: argparse.Namespace) -> None:
     """Execute the run command."""
     logger.info(f"Starting ChunkHound v{__version__}")
     logger.info(f"Processing directory: {args.path}")
@@ -241,7 +241,7 @@ def run_command(args: argparse.Namespace) -> None:
         
         # Process directory - include Python, Java, and Markdown files
         logger.info("Starting file processing...")
-        result = db.process_directory(args.path, patterns=["**/*.py", "**/*.java", "**/*.md", "**/*.markdown"], exclude_patterns=args.exclude)
+        result = await db.process_directory(args.path, patterns=["**/*.py", "**/*.java", "**/*.md", "**/*.markdown"], exclude_patterns=args.exclude)
         
         if result["status"] == "complete":
             logger.info(f"✅ Processing complete:")
@@ -288,7 +288,7 @@ def main() -> None:
     
     try:
         if args.command == "run":
-            run_command(args)
+            asyncio.run(run_command(args))
         elif args.command == "mcp":
             mcp_command(args)
     except KeyboardInterrupt:

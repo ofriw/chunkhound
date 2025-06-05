@@ -585,7 +585,7 @@ class Database:
             logger.error(f"Failed to get stats: {e}")
             raise
 
-    def process_file(self, file_path: Path) -> Dict[str, Any]:
+    async def process_file(self, file_path: Path) -> Dict[str, Any]:
         """Process a file end-to-end: parse, chunk, and store in database.
         
         Args:
@@ -686,7 +686,7 @@ class Database:
             embeddings_generated = 0
             if self.embedding_manager and chunk_ids:
                 try:
-                    embeddings_generated = asyncio.run(self._generate_embeddings_for_chunks(chunk_ids, chunks))
+                    embeddings_generated = await self._generate_embeddings_for_chunks(chunk_ids, chunks)
                 except Exception as e:
                     logger.warning(f"Failed to generate embeddings for {file_path}: {e}")
 
@@ -703,7 +703,7 @@ class Database:
             logger.error(f"Failed to process file {file_path}: {e}")
             return {"status": "error", "error": str(e), "chunks": 0}
 
-    def process_directory(self, directory: Path, patterns: Optional[List[str]] = None, exclude_patterns: Optional[List[str]] = None) -> Dict[str, Any]:
+    async def process_directory(self, directory: Path, patterns: Optional[List[str]] = None, exclude_patterns: Optional[List[str]] = None) -> Dict[str, Any]:
         """Process all supported files in a directory.
         
         Args:
@@ -759,7 +759,7 @@ class Database:
             results = {"processed": 0, "errors": 0, "skipped": 0, "total_chunks": 0}
             
             for file_path in files:
-                result = self.process_file(file_path)
+                result = await self.process_file(file_path)
                 
                 if result["status"] == "success":
                     results["processed"] += 1
