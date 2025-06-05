@@ -203,9 +203,7 @@ cython_debug/
 .code_indexer/
 
 # ChunkHound database files
-*.duckdb
-.chunkhound.duckdb
-*.duckdb.wal
+.chunkhound.*
 
 # MCP configuration files (may contain API keys)
 .vscode/mcp.json
