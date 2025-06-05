@@ -71,7 +71,7 @@ async def handle_coordination_signal(signum, frame):
     try:
         # Store original database path
         if _database:
-            _original_db_path = _database.db_path
+            _original_db_path = Path(_database.db_path)
         
         # Gracefully detach database for coordination
         if _database:
@@ -127,13 +127,13 @@ async def handle_restore_signal(signum, frame):
         pass
 
 
-def setup_signal_handlers():
+def setup_signal_handlers(db_path: Path):
     """Setup signal handlers for process coordination."""
     global _coordination_ready_file
     
-    # Create coordination ready file path
+    # Create coordination ready file path using resolved absolute path
     temp_dir = Path(tempfile.gettempdir())
-    db_hash = hash(str(os.environ.get("CHUNKHOUND_DB_PATH", "default")))
+    db_hash = hash(str(db_path.resolve()))
     _coordination_ready_file = temp_dir / f"chunkhound-ready-{abs(db_hash)}.signal"
     
     # Setup signal handlers
@@ -152,13 +152,13 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
     global _database, _embedding_manager, _file_watcher, _original_db_path
     
     try:
-        # Setup signal handlers for coordination
-        setup_signal_handlers()
-        
-        # Initialize database
+        # Initialize database path
         db_path = Path(os.environ.get("CHUNKHOUND_DB_PATH", Path.home() / ".cache" / "chunkhound" / "chunks.duckdb"))
         db_path.parent.mkdir(parents=True, exist_ok=True)
         _original_db_path = db_path
+
+        # Setup signal handlers for coordination with resolved path
+        setup_signal_handlers(db_path)
         
         _database = Database(db_path)
         _database.connect()
@@ -193,18 +193,21 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
     finally:
         # Cleanup coordination files
         try:
-            temp_dir = Path(tempfile.gettempdir())
-            db_hash = hash(str(os.environ.get("CHUNKHOUND_DB_PATH", "default")))
-            
-            # Remove PID file
-            pid_file = temp_dir / f"chunkhound-mcp-{abs(db_hash)}.pid"
-            if pid_file.exists():
-                pid_file.unlink()
-            
-            # Remove ready signal file
-            ready_file = temp_dir / f"chunkhound-ready-{abs(db_hash)}.signal"
-            if ready_file.exists():
-                ready_file.unlink()
+            if _original_db_path:
+                temp_dir = Path(tempfile.gettempdir())
+                # Ensure we have a Path object for consistent resolution
+                db_path_obj = Path(_original_db_path) if not isinstance(_original_db_path, Path) else _original_db_path
+                db_hash = hash(str(db_path_obj.resolve()))
+
+                # Remove PID file
+                pid_file = temp_dir / f"chunkhound-mcp-{abs(db_hash)}.pid"
+                if pid_file.exists():
+                    pid_file.unlink()
+
+                # Remove ready signal file
+                ready_file = temp_dir / f"chunkhound-ready-{abs(db_hash)}.signal"
+                if ready_file.exists():
+                    ready_file.unlink()
         except Exception:
             pass
         

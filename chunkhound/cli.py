@@ -178,12 +178,15 @@ def mcp_command(args: argparse.Namespace) -> None:
 
 
 def detect_mcp_server(db_path: str) -> Optional[int]:
-    """Detect if MCP server is running for the given database."""
-    temp_dir = Path(tempfile.gettempdir())
-    db_hash = hash(str(db_path))
-    pid_file = temp_dir / f"chunkhound-mcp-{abs(db_hash)}.pid"
-    
-    if not pid_file.exists():
+    """Detect if an MCP server is running for the given database."""
+    try:
+        temp_dir = Path(tempfile.gettempdir())
+        db_hash = hash(str(Path(db_path).resolve()))
+        pid_file = temp_dir / f"chunkhound-mcp-{abs(db_hash)}.pid"
+        
+        if not pid_file.exists():
+            return None
+    except Exception:
         return None
     
     try:
@@ -206,11 +209,11 @@ def detect_mcp_server(db_path: str) -> Optional[int]:
 
 def coordinate_database_access(db_path: str, mcp_pid: int) -> bool:
     """Coordinate database access with MCP server."""
-    temp_dir = Path(tempfile.gettempdir())
-    db_hash = hash(str(db_path))
-    ready_file = temp_dir / f"chunkhound-ready-{abs(db_hash)}.signal"
-    
     try:
+        temp_dir = Path(tempfile.gettempdir())
+        db_hash = hash(str(Path(db_path).resolve()))
+        ready_file = temp_dir / f"chunkhound-ready-{abs(db_hash)}.signal"
+        
         logger.info(f"🔄 Coordinating database access with MCP server (PID {mcp_pid})")
         
         # Remove any existing ready file
@@ -243,14 +246,14 @@ def restore_database_access(db_path: str, mcp_pid: int) -> None:
         
         # Clean up ready file
         temp_dir = Path(tempfile.gettempdir())
-        db_hash = hash(str(db_path))
+        db_hash = hash(str(Path(db_path).resolve()))
         ready_file = temp_dir / f"chunkhound-ready-{abs(db_hash)}.signal"
         if ready_file.exists():
             ready_file.unlink()
             
         logger.info("✅ Database access restored")
         
-    except OSError as e:
+    except (OSError, Exception) as e:
         logger.warning(f"⚠️  Failed to restore database access: {e}")
 
 
@@ -350,7 +353,7 @@ async def run_command(args: argparse.Namespace) -> None:
             # Generate missing embeddings if embedding manager is available
             if embedding_manager:
                 logger.info("Checking for missing embeddings...")
-                embed_result = db.generate_missing_embeddings()
+                embed_result = await db.generate_missing_embeddings()
                 if embed_result["status"] == "success":
                     logger.info(f"✅ Generated {embed_result['generated']} missing embeddings")
                 elif embed_result["status"] == "up_to_date":

@@ -153,7 +153,7 @@ class TestJavaIndexing:
                 pytest.skip(f"Failed to process Java files: {result}")
             
             # Generate embeddings
-            embed_result = db.generate_missing_embeddings()
+            embed_result = await db.generate_missing_embeddings()
             assert embed_result["status"] in ["success", "up_to_date"]
             
             # Check that embeddings were generated

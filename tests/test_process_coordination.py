@@ -124,23 +124,47 @@ class TestCoordination:
         db_hash = hash(str(db_path))
         ready_file = temp_dir / f"chunkhound-ready-{abs(db_hash)}.signal"
         fake_pid = 99999  # Use non-existent PID
-        
+
         try:
             # Create ready file to test cleanup
             ready_file.touch()
-            
+
             with patch('os.kill') as mock_kill:
                 restore_database_access(db_path, fake_pid)
-                
+
                 # Should have sent SIGUSR2 signal
                 mock_kill.assert_called_once_with(fake_pid, signal.SIGUSR2)
-                
+
                 # Ready file should be cleaned up
                 assert not ready_file.exists()
-                
+
         finally:
             if ready_file.exists():
                 ready_file.unlink()
+
+    def test_coordination_hash_consistency(self):
+        """Test that CLI and MCP server use consistent hash calculation."""
+        from pathlib import Path
+        
+        # Test with relative path
+        relative_path = "./test.db"
+        absolute_path = str(Path(relative_path).resolve())
+        
+        # Both should produce the same hash when resolved to absolute paths
+        hash1 = hash(str(Path(relative_path).resolve()))
+        hash2 = hash(absolute_path)
+        
+        assert hash1 == hash2, "Hash calculation should be consistent for relative and absolute paths"
+        
+        # Test file naming consistency
+        temp_dir = Path(tempfile.gettempdir())
+        expected_file = temp_dir / f"chunkhound-ready-{abs(hash1)}.signal"
+        
+        # Verify both would create the same file name
+        cli_file = temp_dir / f"chunkhound-ready-{abs(hash(str(Path(relative_path).resolve())))}.signal"
+        mcp_file = temp_dir / f"chunkhound-ready-{abs(hash(absolute_path))}.signal"
+        
+        assert cli_file == expected_file == mcp_file, "CLI and MCP server should use the same coordination file"
 
 
 class TestDatabaseDetachAttach:

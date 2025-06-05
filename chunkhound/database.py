@@ -817,7 +817,7 @@ class Database:
             logger.error(f"Failed to generate embeddings: {e}")
             return 0
 
-    def generate_missing_embeddings(self, provider_name: Optional[str] = None) -> Dict[str, Any]:
+    async def generate_missing_embeddings(self, provider_name: Optional[str] = None) -> Dict[str, Any]:
         """Generate embeddings for chunks that don't have them yet.
         
         Args:
@@ -856,7 +856,7 @@ class Database:
             logger.info(f"Generating embeddings for {len(chunk_ids)} chunks using {provider.name}/{provider.model}")
             
             # Generate embeddings
-            embedding_result = asyncio.run(self.embedding_manager.embed_texts(texts, provider_name))
+            embedding_result = await self.embedding_manager.embed_texts(texts, provider_name)
             
             # Store embeddings
             stored_count = 0
