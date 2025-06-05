@@ -1,8 +1,8 @@
 # ChunkHound
 
-**AI-powered code search for your projects.**
+**Semantic and Regex search for your projects via MCP.**
 
-ChunkHound indexes your code and lets AI assistants search it intelligently.
+ChunkHound indexes your code and lets AI assistants search it intelligently. It uses Tree-Sitter to parse code and DuckDB for search. Everything is done fully locally.
 
 ## Quick Start
 
@@ -10,7 +10,7 @@ ChunkHound indexes your code and lets AI assistants search it intelligently.
 # Install
 uv pip install chunkhound
 
-# Index your code  
+# Index your code
 chunkhound run .
 
 # Start search server for AI assistants
@@ -22,16 +22,11 @@ That's it! Your code is now searchable by AI assistants.
 ## What It Does
 
 - **Indexes your code** - Finds functions, classes, and methods automatically
-- **Regex search** - Find exact patterns like `def.*async` 
+- **Regex search** - Find exact patterns like `def.*async`
 - **Semantic search** - Ask questions like "How do I connect to the database?"
 - **Works with AI assistants** - Claude, Cursor, VS Code, etc.
 
 ## AI Assistant Setup
-
-### Claude Desktop
-
-Add this to `~/Library/Application Support/Claude/claude_desktop_config.json`:
-
 ```json
 {
   "mcpServers": {
@@ -46,10 +41,6 @@ Add this to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 }
 ```
 
-### VS Code / Cursor
-
-Install the MCP extension and add similar config.
-
 ## How It Works
 
 1. **Scan** - ChunkHound reads your Python files
@@ -63,7 +54,7 @@ Install the MCP extension and add similar config.
 Once running, ask your AI assistant:
 
 - "Find all database connection functions"
-- "Show me error handling patterns"  
+- "Show me error handling patterns"
 - "How is user authentication implemented?"
 - "Find functions that process files"
 
@@ -100,7 +91,7 @@ chunkhound mcp --verbose           # Start server with logging
 - Try `uv run chunkhound` instead
 - Or install with `uv pip install chunkhound`
 
-**Semantic search not working?** 
+**Semantic search not working?**
 - Set your `OPENAI_API_KEY` environment variable
 
 **Database errors?**
