@@ -880,6 +880,50 @@ class Database:
             logger.error(f"Failed to generate missing embeddings: {e}")
             return {"status": "error", "error": str(e), "generated": 0}
 
+    def detach_database(self) -> bool:
+        """
+        Detach the database for coordination with other processes.
+        
+        Returns:
+            True if successfully detached, False otherwise
+        """
+        if not self.connection:
+            return True
+            
+        try:
+            # Force checkpoint to ensure all changes are written
+            self.connection.execute("FORCE CHECKPOINT")
+            
+            # Close the connection to release file lock
+            self.connection.close()
+            self.connection = None
+            logger.info("Database connection closed for coordination")
+            return True
+            
+        except Exception as e:
+            logger.warning(f"Failed to detach database: {e}")
+            return False
+
+    def reattach_database(self) -> bool:
+        """
+        Reattach the database after coordination.
+        
+        Returns:
+            True if successfully reattached, False otherwise
+        """
+        if self.connection:
+            return True  # Already connected
+            
+        try:
+            # Reconnect to the database
+            self.connect()
+            logger.info("Database reconnected after coordination")
+            return True
+            
+        except Exception as e:
+            logger.warning(f"Failed to reattach database: {e}")
+            return False
+
     def close(self) -> None:
         """Close database connection."""
         if self.connection:

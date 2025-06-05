@@ -2,7 +2,11 @@
 
 import argparse
 import asyncio
+import os
+import signal
 import sys
+import tempfile
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -173,11 +177,100 @@ def mcp_command(args: argparse.Namespace) -> None:
     asyncio.run(run_mcp_server())
 
 
+def detect_mcp_server(db_path: str) -> Optional[int]:
+    """Detect if MCP server is running for the given database."""
+    temp_dir = Path(tempfile.gettempdir())
+    db_hash = hash(str(db_path))
+    pid_file = temp_dir / f"chunkhound-mcp-{abs(db_hash)}.pid"
+    
+    if not pid_file.exists():
+        return None
+    
+    try:
+        with open(pid_file, 'r') as f:
+            pid = int(f.read().strip())
+        
+        # Check if process exists and is actually chunkhound mcp
+        try:
+            os.kill(pid, 0)  # Signal 0 checks if process exists
+            # TODO: Add more robust process validation here
+            return pid
+        except OSError:
+            # Process doesn't exist, clean up stale PID file
+            pid_file.unlink()
+            return None
+            
+    except (ValueError, FileNotFoundError):
+        return None
+
+
+def coordinate_database_access(db_path: str, mcp_pid: int) -> bool:
+    """Coordinate database access with MCP server."""
+    temp_dir = Path(tempfile.gettempdir())
+    db_hash = hash(str(db_path))
+    ready_file = temp_dir / f"chunkhound-ready-{abs(db_hash)}.signal"
+    
+    try:
+        logger.info(f"🔄 Coordinating database access with MCP server (PID {mcp_pid})")
+        
+        # Remove any existing ready file
+        if ready_file.exists():
+            ready_file.unlink()
+        
+        # Send SIGUSR1 to request database access
+        os.kill(mcp_pid, signal.SIGUSR1)
+        
+        # Wait for ready signal (up to 10 seconds)
+        for i in range(100):  # 10 seconds with 0.1s intervals
+            if ready_file.exists():
+                logger.info("✅ Database access granted")
+                return True
+            time.sleep(0.1)
+        
+        logger.warning("⚠️  Timeout waiting for database access")
+        return False
+        
+    except OSError as e:
+        logger.warning(f"⚠️  Failed to coordinate with MCP server: {e}")
+        return False
+
+
+def restore_database_access(db_path: str, mcp_pid: int) -> None:
+    """Restore database access to MCP server."""
+    try:
+        logger.info("🔄 Restoring database access to MCP server")
+        os.kill(mcp_pid, signal.SIGUSR2)
+        
+        # Clean up ready file
+        temp_dir = Path(tempfile.gettempdir())
+        db_hash = hash(str(db_path))
+        ready_file = temp_dir / f"chunkhound-ready-{abs(db_hash)}.signal"
+        if ready_file.exists():
+            ready_file.unlink()
+            
+        logger.info("✅ Database access restored")
+        
+    except OSError as e:
+        logger.warning(f"⚠️  Failed to restore database access: {e}")
+
+
 async def run_command(args: argparse.Namespace) -> None:
     """Execute the run command."""
     logger.info(f"Starting ChunkHound v{__version__}")
     logger.info(f"Processing directory: {args.path}")
     logger.info(f"Database: {args.db}")
+    
+    # Check for running MCP server and coordinate if needed
+    mcp_pid = detect_mcp_server(str(args.db))
+    coordination_active = False
+    
+    if mcp_pid:
+        logger.info(f"🔍 Detected running MCP server (PID {mcp_pid})")
+        if coordinate_database_access(str(args.db), mcp_pid):
+            coordination_active = True
+        else:
+            logger.error("❌ Failed to coordinate database access. Please stop the MCP server or use a different database file.")
+            sys.exit(1)
     
     # Default file patterns for Python and Java files if none specified
     if not args.include:
@@ -271,7 +364,13 @@ async def run_command(args: argparse.Namespace) -> None:
         
     except Exception as e:
         logger.error(f"Database error: {e}")
+        if coordination_active and mcp_pid:
+            restore_database_access(str(args.db), mcp_pid)
         sys.exit(1)
+    finally:
+        # Restore database access to MCP server if coordination was active
+        if coordination_active and mcp_pid:
+            restore_database_access(str(args.db), mcp_pid)
 
 
 def main() -> None:
