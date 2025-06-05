@@ -96,8 +96,14 @@ class Chunker:
         filtered_chunks = []
         
         for chunk in chunks:
-            # Size filtering
-            if chunk["line_count"] < self.min_chunk_lines:
+            # Size filtering - different rules for markdown content
+            chunk_type = chunk.get("chunk_type", "")
+            is_markdown = chunk_type in ["header_1", "header_2", "header_3", "header_4", "header_5", "header_6", "paragraph"]
+            
+            # For markdown, allow smaller chunks (headers can be 1 line)
+            min_lines = 1 if is_markdown else self.min_chunk_lines
+            
+            if chunk["line_count"] < min_lines:
                 logger.debug(f"Skipping chunk {chunk['symbol']}: too small ({chunk['line_count']} lines)")
                 continue
                 

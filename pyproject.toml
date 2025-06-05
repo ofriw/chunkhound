@@ -28,6 +28,7 @@ dependencies = [
     "openai>=1.0.0",
     "tree-sitter>=0.20.0",
     "tree-sitter-python>=0.20.0",
+    "tree-sitter-markdown",
     "pydantic>=2.0.0",
     "click>=8.0.0",
     "loguru>=0.6.0",

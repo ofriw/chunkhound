@@ -103,7 +103,9 @@ class Database:
                     start_line INT NOT NULL,
                     end_line INT NOT NULL,
                     code TEXT NOT NULL,
-                    chunk_type TEXT,  -- 'function', 'class', 'method', 'block'
+                    chunk_type TEXT,  -- 'function', 'class', 'method', 'block', 'header_1', 'header_2', 'header_3', 'header_4', 'header_5', 'header_6', 'code_block', 'paragraph'
+                    language_info TEXT,  -- Additional language/type information (e.g., 'python', 'javascript', 'markdown')
+                    parent_header TEXT,  -- For nested content, reference to parent header
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
@@ -254,7 +256,8 @@ class Database:
             raise
 
     def insert_chunk(self, file_id: int, symbol: str, start_line: int, end_line: int,
-                    code: str, chunk_type: str) -> int:
+                    code: str, chunk_type: str, language_info: Optional[str] = None,
+                    parent_header: Optional[str] = None) -> int:
         """Insert a code chunk.
 
         Args:
@@ -263,7 +266,9 @@ class Database:
             start_line: Starting line number
             end_line: Ending line number
             code: Code content
-            chunk_type: Type of chunk ('function', 'class', 'method', 'block')
+            chunk_type: Type of chunk ('function', 'class', 'method', 'block', 'header_1', etc.)
+            language_info: Additional language/type information
+            parent_header: Reference to parent header for nested content
 
         Returns:
             Chunk ID
@@ -273,10 +278,10 @@ class Database:
                 raise RuntimeError("Database connection not established")
 
             result = self.connection.execute("""
-                INSERT INTO chunks (file_id, symbol, start_line, end_line, code, chunk_type)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO chunks (file_id, symbol, start_line, end_line, code, chunk_type, language_info, parent_header)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 RETURNING id
-            """, [file_id, symbol, start_line, end_line, code, chunk_type]).fetchone()
+            """, [file_id, symbol, start_line, end_line, code, chunk_type, language_info, parent_header]).fetchone()
 
             return result[0]
 
@@ -563,10 +568,15 @@ class Database:
             if not file_path.exists() or not file_path.is_file():
                 raise ValueError(f"File not found or not readable: {file_path}")
             
-            # Only process Python files for now
-            if file_path.suffix != '.py':
-                logger.debug(f"Skipping non-Python file: {file_path}")
-                return {"status": "skipped", "reason": "not_python", "chunks": 0}
+            # Determine file language based on extension
+            suffix = file_path.suffix.lower()
+            if suffix == '.py':
+                language = "python"
+            elif suffix in ['.md', '.markdown']:
+                language = "markdown"
+            else:
+                logger.debug(f"Skipping unsupported file type: {file_path}")
+                return {"status": "skipped", "reason": "unsupported_type", "chunks": 0}
             
             # Get file metadata
             stat = file_path.stat()
@@ -604,7 +614,7 @@ class Database:
             file_id = self.insert_file(
                 path=str(file_path),
                 mtime=mtime,
-                language="python",
+                language=language,
                 size_bytes=size_bytes
             )
             
@@ -622,7 +632,9 @@ class Database:
                     start_line=chunk["start_line"],
                     end_line=chunk["end_line"],
                     code=chunk["code"],
-                    chunk_type=chunk["chunk_type"]
+                    chunk_type=chunk["chunk_type"],
+                    language_info=chunk.get("language_info"),
+                    parent_header=chunk.get("parent_header")
                 )
                 chunk_ids.append(chunk_id)
 
@@ -647,24 +659,37 @@ class Database:
             logger.error(f"Failed to process file {file_path}: {e}")
             return {"status": "error", "error": str(e), "chunks": 0}
 
-    def process_directory(self, directory: Path, pattern: str = "**/*.py", exclude_patterns: List[str] = None) -> Dict[str, Any]:
-        """Process all Python files in a directory.
+    def process_directory(self, directory: Path, patterns: List[str] = None, exclude_patterns: List[str] = None) -> Dict[str, Any]:
+        """Process all supported files in a directory.
         
         Args:
             directory: Directory to process
-            pattern: Glob pattern for files to process
+            patterns: List of glob patterns for files to process
             exclude_patterns: List of glob patterns to exclude
             
         Returns:
             Dictionary with processing summary
         """
+        if patterns is None:
+            patterns = ["**/*.py"]
         try:
-            logger.info(f"Processing directory: {directory} with pattern: {pattern}")
+            logger.info(f"Processing directory: {directory} with patterns: {patterns}")
             if exclude_patterns:
                 logger.info(f"Exclude patterns: {exclude_patterns}")
             
-            # Find all matching files
-            files = list(directory.glob(pattern))
+            # Find all matching files from all patterns
+            files = []
+            for pattern in patterns:
+                files.extend(directory.glob(pattern))
+            
+            # Remove duplicates while preserving order
+            seen = set()
+            unique_files = []
+            for file_path in files:
+                if file_path not in seen:
+                    seen.add(file_path)
+                    unique_files.append(file_path)
+            files = unique_files
             
             # Filter out excluded files
             if exclude_patterns:
@@ -683,7 +708,7 @@ class Database:
                 files = filtered_files
             
             if not files:
-                logger.warning(f"No files found matching pattern {pattern} in {directory}")
+                logger.warning(f"No files found matching patterns {patterns} in {directory}")
                 return {"status": "no_files", "processed": 0, "errors": 0}
             
             # Process each file

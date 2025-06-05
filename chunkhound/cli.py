@@ -239,9 +239,9 @@ def run_command(args: argparse.Namespace) -> None:
         stats = db.get_stats()
         logger.info(f"Database stats: {stats['files']} files, {stats['chunks']} chunks, {stats['embeddings']} embeddings")
         
-        # Process directory
+        # Process directory - include both Python and Markdown files
         logger.info("Starting file processing...")
-        result = db.process_directory(args.path, pattern="**/*.py", exclude_patterns=args.exclude)
+        result = db.process_directory(args.path, patterns=["**/*.py", "**/*.md", "**/*.markdown"], exclude_patterns=args.exclude)
         
         if result["status"] == "complete":
             logger.info(f"✅ Processing complete:")
