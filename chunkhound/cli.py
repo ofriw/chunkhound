@@ -346,6 +346,13 @@ async def run_command(args: argparse.Namespace) -> None:
             logger.info(f"   • Errors: {result['errors']} files")
             logger.info(f"   • Total chunks: {result['total_chunks']}")
             
+            # Report cleanup statistics
+            cleanup = result.get('cleanup', {})
+            if cleanup.get('deleted_files', 0) > 0 or cleanup.get('deleted_chunks', 0) > 0:
+                logger.info(f"🧹 Cleanup summary:")
+                logger.info(f"   • Deleted files: {cleanup.get('deleted_files', 0)}")
+                logger.info(f"   • Removed chunks: {cleanup.get('deleted_chunks', 0)}")
+            
             # Show updated stats
             final_stats = db.get_stats()
             logger.info(f"Final database stats: {final_stats['files']} files, {final_stats['chunks']} chunks, {final_stats['embeddings']} embeddings")

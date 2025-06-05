@@ -2,7 +2,7 @@
 
 import asyncio
 from pathlib import Path
-from typing import Optional, List, Dict, Any, Union
+from typing import Optional, List, Dict, Any, Union, Set
 import duckdb
 from loguru import logger
 
@@ -751,12 +751,35 @@ class Database:
                         filtered_files.append(file_path)
                 files = filtered_files
             
+            # CLEANUP PHASE: Detect and remove chunks from deleted files (offline detection)
+            logger.info("🧹 Checking for deleted files...")
+            current_files = {str(f) for f in files}
+            indexed_files = self.get_indexed_files(str(directory))
+            deleted_files = indexed_files - current_files
+            
+            cleanup_stats = {"deleted_files": 0, "deleted_chunks": 0}
+            if deleted_files:
+                logger.info(f"🧹 Found {len(deleted_files)} deleted files, cleaning up...")
+                for file_path in deleted_files:
+                    deleted_chunks = self.cleanup_deleted_file(file_path)
+                    cleanup_stats["deleted_files"] += 1
+                    cleanup_stats["deleted_chunks"] += deleted_chunks
+                logger.info(f"🧹 Cleanup complete: {cleanup_stats['deleted_files']} files, {cleanup_stats['deleted_chunks']} chunks removed")
+            else:
+                logger.debug("🧹 No deleted files found")
+            
+            # Also clean up any orphaned chunks
+            orphaned_chunks = self.cleanup_orphaned_chunks()
+            if orphaned_chunks > 0:
+                logger.info(f"🧹 Cleaned up {orphaned_chunks} orphaned chunks")
+                cleanup_stats["deleted_chunks"] += orphaned_chunks
+            
             if not files:
                 logger.warning(f"No files found matching patterns {patterns} in {directory}")
-                return {"status": "no_files", "processed": 0, "errors": 0}
+                return {"status": "no_files", "processed": 0, "errors": 0, "cleanup": cleanup_stats}
             
             # Process each file
-            results = {"processed": 0, "errors": 0, "skipped": 0, "total_chunks": 0}
+            results = {"processed": 0, "errors": 0, "skipped": 0, "total_chunks": 0, "cleanup": cleanup_stats}
             
             for file_path in files:
                 result = await self.process_file(file_path)
@@ -923,6 +946,122 @@ class Database:
         except Exception as e:
             logger.warning(f"Failed to reattach database: {e}")
             return False
+
+    def get_indexed_files(self, base_path: Optional[str] = None) -> Set[str]:
+        """Get all file paths currently in database for given path.
+        
+        Args:
+            base_path: Optional base path to filter files
+            
+        Returns:
+            Set of file paths currently indexed in database
+        """
+        try:
+            if self.connection is None:
+                raise RuntimeError("Database connection not established")
+            
+            if base_path:
+                # Get files under the base path
+                result = self.connection.execute(
+                    "SELECT path FROM files WHERE path LIKE ?", 
+                    [f"{base_path}%"]
+                ).fetchall()
+            else:
+                # Get all files
+                result = self.connection.execute("SELECT path FROM files").fetchall()
+            
+            return {row[0] for row in result}
+            
+        except Exception as e:
+            logger.error(f"Failed to get indexed files: {e}")
+            raise
+
+    def cleanup_deleted_file(self, file_path: str) -> int:
+        """Remove file and all associated chunks/embeddings for a deleted file.
+        
+        Args:
+            file_path: Path to the deleted file
+            
+        Returns:
+            Number of chunks deleted
+        """
+        try:
+            if self.connection is None:
+                raise RuntimeError("Database connection not established")
+            
+            # Get file ID and chunk count
+            existing = self.connection.execute(
+                "SELECT id FROM files WHERE path = ?", [file_path]
+            ).fetchone()
+            
+            if not existing:
+                logger.debug(f"File {file_path} not found in database")
+                return 0
+            
+            file_id = existing[0]
+            
+            # Count chunks before deletion
+            chunk_count = self.connection.execute(
+                "SELECT COUNT(*) FROM chunks WHERE file_id = ?", [file_id]
+            ).fetchone()[0]
+            
+            # Delete using existing method
+            success = self.delete_file_completely(file_path)
+            
+            if success:
+                logger.info(f"Cleaned up deleted file {file_path} ({chunk_count} chunks)")
+                return chunk_count
+            else:
+                return 0
+                
+        except Exception as e:
+            logger.error(f"Failed to cleanup deleted file {file_path}: {e}")
+            raise
+
+    def cleanup_orphaned_chunks(self) -> int:
+        """Remove chunks that reference non-existent files.
+        
+        Returns:
+            Number of chunks removed
+        """
+        try:
+            if self.connection is None:
+                raise RuntimeError("Database connection not established")
+            
+            # Find orphaned chunks (chunks whose file_id doesn't exist in files table)
+            orphaned_chunks = self.connection.execute("""
+                SELECT c.id, c.file_id 
+                FROM chunks c 
+                LEFT JOIN files f ON c.file_id = f.id 
+                WHERE f.id IS NULL
+            """).fetchall()
+            
+            if not orphaned_chunks:
+                logger.debug("No orphaned chunks found")
+                return 0
+            
+            chunk_ids = [row[0] for row in orphaned_chunks]
+            logger.info(f"Found {len(chunk_ids)} orphaned chunks")
+            
+            # Delete embeddings for orphaned chunks
+            placeholders = ','.join(['?' for _ in chunk_ids])
+            self.connection.execute(
+                f"DELETE FROM embeddings WHERE chunk_id IN ({placeholders})", 
+                chunk_ids
+            )
+            
+            # Delete orphaned chunks
+            self.connection.execute(
+                f"DELETE FROM chunks WHERE id IN ({placeholders})", 
+                chunk_ids
+            )
+            
+            logger.info(f"Cleaned up {len(chunk_ids)} orphaned chunks")
+            return len(chunk_ids)
+            
+        except Exception as e:
+            logger.error(f"Failed to cleanup orphaned chunks: {e}")
+            raise
 
     def close(self) -> None:
         """Close database connection."""
