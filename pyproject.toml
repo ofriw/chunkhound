@@ -24,44 +24,26 @@ classifiers = [
     "Topic :: Text Processing :: Indexing",
 ]
 dependencies = [
-    "duckdb>=0.8.0,<2.0.0",
-    "openai>=1.0.0,<2.0.0",
-    "tree-sitter>=0.20.0,<1.0.0",
-    "tree-sitter-python>=0.20.0,<1.0.0",
-    "tree-sitter-markdown>=0.7.0,<1.0.0",
-    "tree-sitter-language-pack>=0.7.3,<1.0.0",
-    "pydantic>=2.0.0,<3.0.0",
-    "click>=8.0.0,<9.0.0",
-    "loguru>=0.6.0,<1.0.0",
-    "mcp>=1.0.0,<2.0.0",
-    "watchdog>=4.0.0,<5.0.0",
+    "duckdb>=0.8.0",
+    "openai>=1.0.0",
+    "tree-sitter>=0.20.0",
+    "tree-sitter-python>=0.20.0",
+    "tree-sitter-markdown",
+    "tree-sitter-language-pack>=0.7.3",
+    "pydantic>=2.0.0",
+    "click>=8.0.0",
+    "loguru>=0.6.0",
+    "mcp>=1.0.0",
+    "watchdog>=4.0.0",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=7.4.0",
     "pytest-asyncio>=0.21.0",
-    "pytest-cov>=4.1.0",
     "black>=23.0.0",
     "ruff>=0.1.0",
     "mypy>=1.6.0",
-    "safety>=2.3.0",
-    "pip-audit>=2.6.0",
-    "pip-licenses>=4.3.0",
-]
-test = [
-    "pytest>=7.4.0",
-    "pytest-asyncio>=0.21.0",
-    "pytest-cov>=4.1.0",
-]
-lint = [
-    "black>=23.0.0",
-    "ruff>=0.1.0",
-    "mypy>=1.6.0",
-]
-security = [
-    "safety>=2.3.0",
-    "pip-audit>=2.6.0",
 ]
 
 [project.scripts]
@@ -71,30 +53,9 @@ chunkhound = "chunkhound.cli:main"
 Homepage = "https://github.com/chunkhound/chunkhound"
 Repository = "https://github.com/chunkhound/chunkhound"
 Issues = "https://github.com/chunkhound/chunkhound/issues"
-Documentation = "https://github.com/chunkhound/chunkhound/blob/main/README.md"
-Changelog = "https://github.com/chunkhound/chunkhound/blob/main/CHANGELOG.md"
 
 [tool.hatch.build.targets.wheel]
 packages = ["chunkhound"]
-
-[tool.uv]
-# Enable packaging for uv
-package = true
-# Enable trusted publishing for GitHub Actions
-trusted-publishing = "always"
-# Compile bytecode for better performance
-compile-bytecode = true
-# Exclude unnecessary files from the package
-exclude = [
-    "tests/",
-    "docs/",
-    ".github/",
-    ".mem/",
-    "*.md",
-    ".gitignore",
-    ".ruff_cache/",
-    "__pycache__/",
-]
 
 [tool.black]
 line-length = 88
@@ -137,16 +98,8 @@ addopts = [
     "--tb=short",
     "--strict-markers",
     "--disable-warnings",
-    "--cov=chunkhound",
-    "--cov-report=term-missing",
-    "--cov-report=xml",
 ]
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "integration: marks tests as integration tests",
-    "ci: marks tests that should run in CI environment",
-]
-filterwarnings = [
-    "ignore::DeprecationWarning",
-    "ignore::PendingDeprecationWarning",
 ]
