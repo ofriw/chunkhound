@@ -8,7 +8,7 @@ from loguru import logger
 
 from .parser import CodeParser
 from .chunker import Chunker
-from .embeddings import EmbeddingManager, EmbeddingProvider
+from .embeddings import EmbeddingManager
 
 class Database:
     """Database connection manager with DuckDB and vss extension."""
@@ -659,7 +659,7 @@ class Database:
             logger.error(f"Failed to process file {file_path}: {e}")
             return {"status": "error", "error": str(e), "chunks": 0}
 
-    def process_directory(self, directory: Path, patterns: List[str] = None, exclude_patterns: List[str] = None) -> Dict[str, Any]:
+    def process_directory(self, directory: Path, patterns: Optional[List[str]] = None, exclude_patterns: Optional[List[str]] = None) -> Dict[str, Any]:
         """Process all supported files in a directory.
         
         Args:

@@ -35,17 +35,18 @@ except ImportError:
 try:
     from .database import Database
     from .embeddings import EmbeddingManager
+    from .file_watcher import FileWatcherManager
 except ImportError:
     # Handle running as standalone script
-    import sys
-    from pathlib import Path
     sys.path.append(str(Path(__file__).parent))
     from database import Database
     from embeddings import EmbeddingManager
+    from file_watcher import FileWatcherManager
 
-# Global database and embedding manager instances
+# Global database, embedding manager, and file watcher instances
 _database: Optional[Database] = None
 _embedding_manager: Optional[EmbeddingManager] = None
+_file_watcher: Optional[FileWatcherManager] = None
 
 # Initialize MCP server with explicit stdio
 server = Server("ChunkHound Code Search")
@@ -54,7 +55,7 @@ server = Server("ChunkHound Code Search")
 @asynccontextmanager
 async def server_lifespan(server: Server) -> AsyncIterator[dict]:
     """Manage server startup and shutdown lifecycle."""
-    global _database, _embedding_manager
+    global _database, _embedding_manager, _file_watcher
     
     try:
         # Initialize database
@@ -75,21 +76,62 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
                 from embeddings import create_openai_provider
             openai_provider = create_openai_provider()
             _embedding_manager.register_provider(openai_provider, set_default=True)
-        except Exception as e:
+        except Exception:
             # Silently fail - MCP server will run without semantic search capabilities
             pass
         
-        yield {"db": _database, "embeddings": _embedding_manager}
+        # Initialize filesystem watcher with offline catch-up
+        _file_watcher = FileWatcherManager()
+        try:
+            await _file_watcher.initialize(process_file_change)
+        except Exception:
+            # Silently fail - MCP server will run without filesystem watching
+            pass
+        
+        yield {"db": _database, "embeddings": _embedding_manager, "watcher": _file_watcher}
         
     except Exception as e:
         raise Exception(f"Failed to initialize database and embeddings: {e}")
     finally:
-        # Cleanup
+        # Cleanup filesystem watcher
+        if _file_watcher:
+            try:
+                await _file_watcher.cleanup()
+            except Exception:
+                pass
+        
+        # Cleanup database
         if _database:
             try:
                 _database.close()
             except Exception:
                 pass
+
+
+async def process_file_change(file_path: Path, event_type: str):
+    """
+    Process a file change event by updating the database.
+    
+    This function is called by the filesystem watcher when files change.
+    It runs in the main thread to ensure single-threaded database access.
+    """
+    global _database, _embedding_manager
+    
+    if not _database:
+        return
+    
+    try:
+        if event_type == 'deleted':
+            # Remove file from database
+            _database.delete_file_completely(str(file_path))
+        else:
+            # Process file (created, modified, moved)
+            if file_path.exists() and file_path.is_file():
+                # Use existing database process_file method with incremental updates
+                _database.process_file(file_path=file_path)
+    except Exception:
+        # Silently fail - don't let file processing errors crash the MCP server
+        pass
 
 
 def convert_to_ndjson(results: List[Dict[str, Any]]) -> str:
@@ -219,7 +261,7 @@ async def main():
     # Use the official MCP Python SDK stdio server pattern
     async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
         # Initialize with lifespan context (not used in this implementation but available)
-        async with server_lifespan(server) as context:
+        async with server_lifespan(server) as _:
             await server.run(
                 read_stream,
                 write_stream,

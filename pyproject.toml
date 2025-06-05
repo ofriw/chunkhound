@@ -33,6 +33,7 @@ dependencies = [
     "click>=8.0.0",
     "loguru>=0.6.0",
     "mcp>=1.0.0",
+    "watchdog>=4.0.0",
 ]
 
 [project.optional-dependencies]

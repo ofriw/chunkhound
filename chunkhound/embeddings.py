@@ -2,7 +2,7 @@
 
 import asyncio
 import os
-from abc import ABC, abstractmethod
+
 from typing import List, Optional, Protocol, Dict, Any
 from dataclasses import dataclass
 
@@ -12,6 +12,7 @@ try:
     import openai
     OPENAI_AVAILABLE = True
 except ImportError:
+    openai = None  # type: ignore
     OPENAI_AVAILABLE = False
     logger.warning("OpenAI not available - install with: uv pip install openai")
 
@@ -100,7 +101,10 @@ class OpenAIEmbeddingProvider:
         if self._base_url:
             client_kwargs["base_url"] = self._base_url
             
-        self._client = openai.AsyncOpenAI(**client_kwargs)
+        if openai is not None:
+            self._client = openai.AsyncOpenAI(**client_kwargs)
+        else:
+            raise ImportError("OpenAI package not available")
         
         # Model dimensions mapping
         self._model_dims = {
