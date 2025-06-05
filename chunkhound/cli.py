@@ -1,6 +1,7 @@
 """ChunkHound CLI - Command-line interface for directory watching and indexing."""
 
 import argparse
+import asyncio
 import sys
 from pathlib import Path
 from typing import Optional
@@ -165,14 +166,11 @@ def mcp_command(args: argparse.Namespace) -> None:
     # Set database path in environment for MCP server
     os.environ["CHUNKHOUND_DB_PATH"] = str(args.db)
     
-    logger.info(f"Starting ChunkHound MCP Server v{__version__}")
-    logger.info(f"Database: {args.db}")
-    logger.info("MCP server will communicate via stdin/stdout")
-    logger.info("Press Ctrl+C to stop")
+    # No logging output for MCP server - must maintain clean stdin/stdout for JSON-RPC
     
     # Import and run MCP server
     from .mcp_server import main as run_mcp_server
-    run_mcp_server()
+    asyncio.run(run_mcp_server())
 
 
 def run_command(args: argparse.Namespace) -> None:
