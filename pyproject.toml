@@ -29,6 +29,7 @@ dependencies = [
     "tree-sitter>=0.20.0",
     "tree-sitter-python>=0.20.0",
     "tree-sitter-markdown",
+    "tree-sitter-language-pack>=0.7.3",
     "pydantic>=2.0.0",
     "click>=8.0.0",
     "loguru>=0.6.0",

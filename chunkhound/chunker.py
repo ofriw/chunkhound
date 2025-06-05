@@ -35,11 +35,11 @@ class Chunker:
         chunks = []
         for item in parsed_data:
             chunk = self._create_chunk(
-                symbol=item["symbol"],
+                symbol=item.get("name", item.get("symbol", "unknown")),
                 start_line=item["start_line"],
                 end_line=item["end_line"],
-                code=item["code"],
-                chunk_type=item["chunk_type"],
+                code=item.get("content", item.get("code", "")),
+                chunk_type=item.get("type", item.get("chunk_type", "unknown")),
                 file_path=file_path
             )
             chunks.append(chunk)

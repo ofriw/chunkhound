@@ -13,11 +13,11 @@ from .embeddings import EmbeddingManager
 class Database:
     """Database connection manager with DuckDB and vss extension."""
 
-    def __init__(self, db_path: Path, embedding_manager: Optional[EmbeddingManager] = None):
+    def __init__(self, db_path: Union[Path, str], embedding_manager: Optional[EmbeddingManager] = None):
         """Initialize database connection.
 
         Args:
-            db_path: Path to DuckDB database file
+            db_path: Path to DuckDB database file or ":memory:" for in-memory database
             embedding_manager: Optional embedding manager for vector generation
         """
         self.db_path = db_path
@@ -28,8 +28,9 @@ class Database:
         """Connect to DuckDB and load required extensions."""
         logger.info(f"Connecting to database: {self.db_path}")
 
-        # Ensure parent directory exists
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        # Ensure parent directory exists for file-based databases
+        if isinstance(self.db_path, Path):
+            self.db_path.parent.mkdir(parents=True, exist_ok=True)
 
         try:
             if duckdb is None:
@@ -239,8 +240,7 @@ class Database:
             ).fetchone()
 
             if existing:
-                # File exists - return existing ID without update to avoid foreign key constraint
-                # The mtime checking happens at the process_file level
+                # File exists - return existing ID, mtime will be updated after chunk cleanup
                 return existing[0]
             else:
                 # Insert new - use simple auto-increment
@@ -528,6 +528,39 @@ class Database:
             logger.error(f"Failed to completely delete file {file_path}: {e}")
             raise
 
+    def execute_query(self, query: str, params: Optional[List[Any]] = None) -> List[Dict[str, Any]]:
+        """Execute a SQL query and return results as dictionaries.
+        
+        Args:
+            query: SQL query string
+            params: Optional list of parameters for the query
+            
+        Returns:
+            List of dictionaries with column names as keys
+        """
+        try:
+            if self.connection is None:
+                raise RuntimeError("Database connection not established")
+
+            if params is None:
+                params = []
+
+            results = self.connection.execute(query, params).fetchall()
+
+            # Get column names from the connection description
+            # DuckDB cursor description format: [(name, type_info), ...]
+            column_names = [desc[0] for desc in self.connection.description]
+
+            # Convert to dictionaries
+            return [
+                {column_names[i]: row[i] for i in range(len(column_names))}
+                for row in results
+            ]
+
+        except Exception as e:
+            logger.error(f"Failed to execute query: {e}")
+            raise
+
     def get_stats(self) -> Dict[str, int]:
         """Get database statistics.
 
@@ -574,6 +607,8 @@ class Database:
                 language = "python"
             elif suffix in ['.md', '.markdown']:
                 language = "markdown"
+            elif suffix == '.java':
+                language = "java"
             else:
                 logger.debug(f"Skipping unsupported file type: {file_path}")
                 return {"status": "skipped", "reason": "unsupported_type", "chunks": 0}
@@ -587,7 +622,8 @@ class Database:
             existing_file = self.get_file_by_path(str(file_path))
             if existing_file and existing_file["mtime"]:
                 existing_mtime = existing_file["mtime"].timestamp()
-                if existing_mtime >= mtime:
+                # Use tolerance for floating-point precision (1 second tolerance)
+                if abs(existing_mtime - mtime) < 1.0:
                     logger.debug(f"File {file_path} is up to date, skipping")
                     return {"status": "up_to_date", "chunks": 0}
                 else:
@@ -618,10 +654,18 @@ class Database:
                 size_bytes=size_bytes
             )
             
-            # If file was updated, delete old chunks first (outside transaction)
+            # If file was updated, delete old chunks and update file record
             if existing_file:
                 logger.debug(f"Deleting old chunks for updated file {file_path}")
                 self.delete_file_chunks(file_id)
+                
+                # Now update the file record with new mtime
+                self.connection.execute("""
+                    UPDATE files 
+                    SET mtime = to_timestamp(?), language = ?, size_bytes = ? 
+                    WHERE id = ?
+                """, [mtime, language, size_bytes, file_id])
+                logger.debug(f"Updated file record for {file_path}")
             
             # Insert new chunks
             chunk_ids = []

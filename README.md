@@ -25,6 +25,7 @@ That's it! Your code is now searchable by AI assistants.
 - **Regex search** - Find exact patterns like `def.*async`
 - **Semantic search** - Ask questions like "How do I connect to the database?"
 - **Works with AI assistants** - Claude, Cursor, VS Code, etc.
+- **Multi-language support** - Python, Java, and Markdown
 
 ## AI Assistant Setup
 ```json
@@ -43,7 +44,7 @@ That's it! Your code is now searchable by AI assistants.
 
 ## How It Works
 
-1. **Scan** - ChunkHound reads your Python files
+1. **Scan** - ChunkHound reads your Python, Java, and Markdown files
 2. **Parse** - Extracts functions, classes, methods using tree-sitter
 3. **Index** - Stores code chunks in a local database
 4. **Embed** - Creates AI embeddings for semantic search (optional)
@@ -57,6 +58,7 @@ Once running, ask your AI assistant:
 - "Show me error handling patterns"
 - "How is user authentication implemented?"
 - "Find functions that process files"
+- "Find Java interfaces that implement Comparable"
 
 ## Requirements
 

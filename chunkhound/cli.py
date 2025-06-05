@@ -179,9 +179,9 @@ def run_command(args: argparse.Namespace) -> None:
     logger.info(f"Processing directory: {args.path}")
     logger.info(f"Database: {args.db}")
     
-    # Default file patterns for Python files if none specified
+    # Default file patterns for Python and Java files if none specified
     if not args.include:
-        args.include = ["*.py"]
+        args.include = ["*.py", "*.java"]
     
     # Default exclusion patterns
     default_excludes = [
@@ -239,9 +239,9 @@ def run_command(args: argparse.Namespace) -> None:
         stats = db.get_stats()
         logger.info(f"Database stats: {stats['files']} files, {stats['chunks']} chunks, {stats['embeddings']} embeddings")
         
-        # Process directory - include both Python and Markdown files
+        # Process directory - include Python, Java, and Markdown files
         logger.info("Starting file processing...")
-        result = db.process_directory(args.path, patterns=["**/*.py", "**/*.md", "**/*.markdown"], exclude_patterns=args.exclude)
+        result = db.process_directory(args.path, patterns=["**/*.py", "**/*.java", "**/*.md", "**/*.markdown"], exclude_patterns=args.exclude)
         
         if result["status"] == "complete":
             logger.info(f"✅ Processing complete:")
