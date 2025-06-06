@@ -1,7 +1,8 @@
 """Chunker module for ChunkHound - extracts semantic code units from parsed AST."""
 
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Set
+from dataclasses import dataclass
 
 from loguru import logger
 
@@ -195,3 +196,166 @@ class Chunker:
                 logger.debug(f"Removing duplicate chunk: {chunk['symbol']}")
         
         return unique_chunks
+
+
+@dataclass
+class ChunkDiff:
+    """Represents the difference between old and new chunks for incremental updates."""
+    chunks_to_delete: List[int]      # Chunk IDs to remove from database
+    chunks_to_insert: List[Dict[str, Any]]  # New chunks to add to database
+    chunks_to_update: List[Dict[str, Any]]  # Modified chunks to update in database
+    unchanged_count: int             # Number of chunks preserved (for stats)
+
+
+class IncrementalChunker:
+    """Chunker that processes only modified regions for efficient incremental updates."""
+    
+    def __init__(self):
+        """Initialize the incremental chunker."""
+        self.base_chunker = Chunker()
+        
+    def chunk_file_differential(self, 
+                               file_path: Path, 
+                               old_chunks: List[Dict[str, Any]], 
+                               changed_ranges: List[Dict[str, Any]], 
+                               new_parsed_data: List[Dict[str, Any]]) -> ChunkDiff:
+        """Generate minimal chunk changes by comparing old chunks with new parsed data.
+        
+        Args:
+            file_path: Path to the source file
+            old_chunks: Previously stored chunks for this file
+            changed_ranges: List of changed regions from CodeParser.get_changed_regions()
+            new_parsed_data: New parsed AST data from CodeParser
+            
+        Returns:
+            ChunkDiff containing minimal set of database operations needed
+        """
+        logger.debug(f"Computing differential chunks for {file_path}")
+        logger.debug(f"Old chunks: {len(old_chunks)}, Changed ranges: {len(changed_ranges)}")
+        
+        # If no changed ranges, nothing to update
+        if not changed_ranges:
+            logger.debug("No changed ranges detected, preserving all chunks")
+            return ChunkDiff(
+                chunks_to_delete=[],
+                chunks_to_insert=[],
+                chunks_to_update=[],
+                unchanged_count=len(old_chunks)
+            )
+        
+        # Generate new chunks from the complete parsed data
+        new_chunks = self.base_chunker.chunk_file(file_path, new_parsed_data)
+        logger.debug(f"Generated {len(new_chunks)} new chunks from parsed data")
+        
+        # If we have a full file change or structural change, replace everything
+        has_structural_change = any(
+            change.get('type') in ['full_change', 'structural_change'] 
+            for change in changed_ranges
+        )
+        
+        if has_structural_change:
+            logger.debug("Structural change detected, replacing all chunks")
+            old_chunk_ids = [chunk.get('id') for chunk in old_chunks if chunk.get('id')]
+            return ChunkDiff(
+                chunks_to_delete=old_chunk_ids,
+                chunks_to_insert=new_chunks,
+                chunks_to_update=[],
+                unchanged_count=0
+            )
+        
+        # Identify which old chunks are affected by the changes
+        affected_chunk_ids = self.identify_affected_chunks(old_chunks, changed_ranges)
+        logger.debug(f"Identified {len(affected_chunk_ids)} affected chunks")
+        
+        # Find new chunks that overlap with affected regions
+        affected_new_chunks = self.identify_new_chunks_in_ranges(new_chunks, changed_ranges)
+        logger.debug(f"Found {len(affected_new_chunks)} new chunks in changed ranges")
+        
+        # Build the diff
+        chunks_to_delete = list(affected_chunk_ids)
+        chunks_to_insert = affected_new_chunks
+        unchanged_count = len(old_chunks) - len(affected_chunk_ids)
+        
+        return ChunkDiff(
+            chunks_to_delete=chunks_to_delete,
+            chunks_to_insert=chunks_to_insert,
+            chunks_to_update=[],  # For now, we delete+insert rather than update
+            unchanged_count=unchanged_count
+        )
+    
+    def identify_affected_chunks(self, 
+                                old_chunks: List[Dict[str, Any]], 
+                                changed_ranges: List[Dict[str, Any]]) -> Set[int]:
+        """Find chunks that overlap with changed regions and need updating.
+        
+        Args:
+            old_chunks: Previously stored chunks
+            changed_ranges: List of changed byte/line ranges
+            
+        Returns:
+            Set of chunk IDs that need to be removed/updated
+        """
+        affected_ids = set()
+        
+        for chunk in old_chunks:
+            chunk_id = chunk.get('id')
+            if not chunk_id:
+                continue
+                
+            chunk_start = chunk.get('start_line', 0)
+            chunk_end = chunk.get('end_line', 0)
+            
+            # Check if chunk overlaps with any changed range
+            for change in changed_ranges:
+                # Convert byte positions to approximate line positions
+                # This is a simplified approach - in production we'd want more precise mapping
+                change_start_byte = change.get('start_byte', 0)
+                change_end_byte = change.get('end_byte', float('inf'))
+                
+                # Simple heuristic: assume ~50 chars per line for byte-to-line conversion
+                # This is rough but works for detecting overlaps
+                change_start_line = max(1, change_start_byte // 50)
+                change_end_line = change_end_byte // 50 if change_end_byte != float('inf') else float('inf')
+                
+                # Check for overlap: chunk intersects with changed range
+                if (chunk_start <= change_end_line and chunk_end >= change_start_line):
+                    affected_ids.add(chunk_id)
+                    logger.debug(f"Chunk {chunk_id} ({chunk_start}-{chunk_end}) overlaps with change ({change_start_line}-{change_end_line})")
+                    break
+        
+        return affected_ids
+    
+    def identify_new_chunks_in_ranges(self, 
+                                     new_chunks: List[Dict[str, Any]], 
+                                     changed_ranges: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Find new chunks that fall within changed regions.
+        
+        Args:
+            new_chunks: Newly generated chunks
+            changed_ranges: List of changed byte/line ranges
+            
+        Returns:
+            List of new chunks that should be inserted
+        """
+        chunks_in_ranges = []
+        
+        for chunk in new_chunks:
+            chunk_start = chunk.get('start_line', 0)
+            chunk_end = chunk.get('end_line', 0)
+            
+            # Check if chunk falls within any changed range
+            for change in changed_ranges:
+                # Convert byte positions to approximate line positions
+                change_start_byte = change.get('start_byte', 0)
+                change_end_byte = change.get('end_byte', float('inf'))
+                
+                change_start_line = max(1, change_start_byte // 50)
+                change_end_line = change_end_byte // 50 if change_end_byte != float('inf') else float('inf')
+                
+                # Check if chunk overlaps with changed range
+                if (chunk_start <= change_end_line and chunk_end >= change_start_line):
+                    chunks_in_ranges.append(chunk)
+                    logger.debug(f"New chunk '{chunk.get('symbol', 'unknown')}' ({chunk_start}-{chunk_end}) falls in changed range")
+                    break
+        
+        return chunks_in_ranges

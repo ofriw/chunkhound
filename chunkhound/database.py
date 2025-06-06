@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional, Set, Union
 import duckdb
 from loguru import logger
 
-from .chunker import Chunker
+from .chunker import Chunker, IncrementalChunker, ChunkDiff
 from .embeddings import EmbeddingManager
 from .parser import CodeParser
 
@@ -625,7 +625,7 @@ class Database:
             if existing_file and existing_file["mtime"]:
                 existing_mtime = existing_file["mtime"].timestamp()
                 # Use tolerance for floating-point precision (1 second tolerance)
-                if abs(existing_mtime - mtime) < 1.0:
+                if abs(existing_mtime - mtime) < 0.01:
                     logger.debug(f"File {file_path} is up to date, skipping")
                     return {"status": "up_to_date", "chunks": 0}
                 else:
@@ -703,6 +703,218 @@ class Database:
             
         except Exception as e:
             logger.error(f"Failed to process file {file_path}: {e}")
+            return {"status": "error", "error": str(e), "chunks": 0}
+
+    async def process_file_incremental(self, file_path: Path) -> Dict[str, Any]:
+        """Process a file with incremental parsing and differential chunking for optimal performance.
+        
+        This method uses the TreeCache and CodeParser incremental methods to minimize
+        processing time by only updating chunks that have actually changed.
+        
+        Args:
+            file_path: Path to the file to process
+            
+        Returns:
+            Dictionary with processing results including differential stats
+        """
+        try:
+            logger.info(f"Processing file incrementally: {file_path}")
+            
+            # Check if file exists and is readable
+            if not file_path.exists() or not file_path.is_file():
+                raise ValueError(f"File not found or not readable: {file_path}")
+
+            # Determine file language based on extension
+            suffix = file_path.suffix.lower()
+            if suffix == '.py':
+                language = "python"
+            elif suffix in ['.md', '.markdown']:
+                language = "markdown"
+            elif suffix == '.java':
+                language = "java"
+            else:
+                logger.debug(f"Skipping unsupported file type: {file_path}")
+                return {"status": "skipped", "reason": "unsupported_type", "chunks": 0}
+
+            # Get file metadata
+            stat = file_path.stat()
+            mtime = stat.st_mtime
+            size_bytes = stat.st_size
+
+            # Get existing file record and chunks
+            existing_file = self.get_file_by_path(str(file_path))
+            old_chunks = []
+            
+            if existing_file:
+                # Get existing chunks for this file
+                old_chunks = self.connection.execute("""
+                    SELECT id, symbol, start_line, end_line, code, chunk_type, language_info
+                    FROM chunks 
+                    WHERE file_id = ?
+                    ORDER BY start_line
+                """, [existing_file["id"]]).fetchall()
+                
+                # Convert to list of dicts
+                old_chunks = [
+                    {
+                        "id": chunk[0],
+                        "symbol": chunk[1], 
+                        "start_line": chunk[2],
+                        "end_line": chunk[3],
+                        "code": chunk[4],
+                        "chunk_type": chunk[5],
+                        "language_info": chunk[6]
+                    }
+                    for chunk in old_chunks
+                ]
+                
+                # Initialize parser with cache enabled for incremental parsing
+                from .parser import CodeParser
+                parser = CodeParser(use_cache=True)
+                parser.setup()
+
+                # Get old tree from cache for comparison (even if stale)
+                old_tree = None
+                if old_chunks and parser.tree_cache:
+                    # Use get_for_comparison to retrieve tree even if file has changed
+                    old_tree = parser.tree_cache.get_for_comparison(file_path)
+                    if old_tree:
+                        logger.debug(f"Retrieved old tree from cache for comparison: {file_path}")
+                    else:
+                        logger.debug(f"No cached tree available for comparison: {file_path}")
+
+                # Check if file is up to date
+                if existing_file["mtime"]:
+                    existing_mtime = existing_file["mtime"].timestamp()
+                    mtime_diff = abs(existing_mtime - mtime)
+                    logger.debug(f"File {file_path} mtime check: existing={existing_mtime}, current={mtime}, diff={mtime_diff}")
+                    if mtime_diff < 0.01:
+                        logger.debug(f"File {file_path} is up to date (diff={mtime_diff} < 0.01), skipping")
+                        return {"status": "up_to_date", "chunks": len(old_chunks)}
+                    else:
+                        logger.debug(f"File {file_path} has changed (diff={mtime_diff} >= 0.01), processing")
+            else:
+                # Initialize parser with cache enabled for incremental parsing
+                from .parser import CodeParser
+                parser = CodeParser(use_cache=True)
+                parser.setup()
+                old_tree = None
+
+            # Parse the file using incremental methods
+            new_tree = parser.parse_incremental(file_path)
+            if not new_tree:
+                logger.debug(f"Failed to parse {file_path}")
+                return {"status": "parse_error", "chunks": 0}
+
+            # Determine changed regions based on tree comparison
+            changed_ranges = []
+            if old_chunks and old_tree:
+                # We have both old chunks and old tree - do incremental comparison
+                logger.debug(f"Performing incremental tree comparison for {file_path}")
+                changed_ranges = parser.get_changed_regions(old_tree, new_tree)
+                logger.debug(f"Found {len(changed_ranges)} changed regions in {file_path}")
+            else:
+                # No old tree available or new file - treat as full change
+                if old_chunks:
+                    logger.debug(f"No cached tree for comparison, using full change detection: {file_path}")
+                else:
+                    logger.debug(f"New file, using full change detection: {file_path}")
+                changed_ranges = [{'start_byte': 0, 'end_byte': float('inf'), 'type': 'full_change'}]
+
+            # Parse the file to get new AST data
+            new_parsed_data = parser.parse_file(file_path)
+            if not new_parsed_data:
+                logger.debug(f"No parseable content in {file_path}")
+                return {"status": "no_content", "chunks": 0}
+
+            # Use IncrementalChunker for differential chunking
+            from .chunker import IncrementalChunker
+            incremental_chunker = IncrementalChunker()
+            
+            chunk_diff = incremental_chunker.chunk_file_differential(
+                file_path=file_path,
+                old_chunks=old_chunks,
+                changed_ranges=changed_ranges,
+                new_parsed_data=new_parsed_data
+            )
+
+            logger.debug(f"Chunk diff: delete {len(chunk_diff.chunks_to_delete)}, "
+                        f"insert {len(chunk_diff.chunks_to_insert)}, "
+                        f"unchanged {chunk_diff.unchanged_count}")
+
+            # Apply database changes based on diff
+            if existing_file:
+                file_id = existing_file["id"]
+                # Update file record
+                self.connection.execute("""
+                    UPDATE files
+                    SET mtime = to_timestamp(?), language = ?, size_bytes = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                """, [mtime, language, size_bytes, file_id])
+            else:
+                # Insert new file record
+                file_id = self.insert_file(
+                    path=str(file_path),
+                    mtime=mtime,
+                    language=language,
+                    size_bytes=size_bytes
+                )
+
+            # Delete outdated chunks
+            if chunk_diff.chunks_to_delete:
+                chunk_ids_str = ','.join(map(str, chunk_diff.chunks_to_delete))
+                self.connection.execute(f"""
+                    DELETE FROM chunks WHERE id IN ({chunk_ids_str})
+                """)
+                logger.debug(f"Deleted {len(chunk_diff.chunks_to_delete)} outdated chunks")
+
+            # Insert new chunks
+            new_chunk_ids = []
+            for chunk in chunk_diff.chunks_to_insert:
+                chunk_id = self.insert_chunk(
+                    file_id=file_id,
+                    symbol=chunk["symbol"],
+                    start_line=chunk["start_line"],
+                    end_line=chunk["end_line"],
+                    code=chunk["code"],
+                    chunk_type=chunk["chunk_type"],
+                    language_info=chunk.get("language_info"),
+                    parent_header=chunk.get("parent_header")
+                )
+                new_chunk_ids.append(chunk_id)
+
+            # Generate embeddings for new chunks if embedding manager is available
+            embeddings_generated = 0
+            if self.embedding_manager and new_chunk_ids:
+                try:
+                    embeddings_generated = await self._generate_embeddings_for_chunks(
+                        new_chunk_ids, chunk_diff.chunks_to_insert
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to generate embeddings for {file_path}: {e}")
+
+            total_chunks = chunk_diff.unchanged_count + len(chunk_diff.chunks_to_insert)
+            
+            logger.info(f"Successfully processed {file_path} incrementally: "
+                       f"{total_chunks} total chunks "
+                       f"({chunk_diff.unchanged_count} unchanged, "
+                       f"{len(chunk_diff.chunks_to_insert)} new/modified), "
+                       f"{embeddings_generated} embeddings")
+            
+            return {
+                "status": "success",
+                "file_id": file_id,
+                "chunks": total_chunks,
+                "chunks_unchanged": chunk_diff.unchanged_count,
+                "chunks_inserted": len(chunk_diff.chunks_to_insert),
+                "chunks_deleted": len(chunk_diff.chunks_to_delete),
+                "chunk_ids": new_chunk_ids,
+                "embeddings": embeddings_generated,
+                "incremental": True
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to process file incrementally {file_path}: {e}")
             return {"status": "error", "error": str(e), "chunks": 0}
 
     async def process_directory(self, directory: Path, patterns: Optional[List[str]] = None, exclude_patterns: Optional[List[str]] = None) -> Dict[str, Any]:

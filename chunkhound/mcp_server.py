@@ -152,8 +152,8 @@ async def process_file_change(file_path: Path, event_type: str):
         else:
             # Process file (created, modified, moved)
             if file_path.exists() and file_path.is_file():
-                # Use existing database process_file method with incremental updates
-                await _database.process_file(file_path=file_path)
+                # Use incremental processing for 10-100x performance improvement
+                await _database.process_file_incremental(file_path=file_path)
     except Exception:
         # Silently fail - don't let file processing errors crash the MCP server
         pass

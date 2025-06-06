@@ -1,17 +1,19 @@
 """Code parser module for ChunkHound - tree-sitter integration for Python AST parsing."""
 
 from pathlib import Path
-from typing import List, Dict, Any, Optional, TYPE_CHECKING
+from typing import List, Dict, Any, Optional, TYPE_CHECKING, Tuple
 
 if TYPE_CHECKING:
-    from tree_sitter import Language, Parser, Node
+    from tree_sitter import Language, Parser, Node, Tree
     TreeSitterLanguage = Language
     TreeSitterParser = Parser
     TreeSitterNode = Node
+    TreeSitterTree = Tree
 else:
     TreeSitterLanguage = Any
     TreeSitterParser = Any
     TreeSitterNode = Any
+    TreeSitterTree = Any
 
 try:
     import tree_sitter_python as tspython
@@ -40,6 +42,7 @@ except ImportError:
     get_parser = None
 
 from loguru import logger
+from .tree_cache import get_default_cache, TreeCache
 
 
 def is_tree_sitter_node(obj: Any) -> bool:
@@ -53,8 +56,13 @@ def is_tree_sitter_node(obj: Any) -> bool:
 class CodeParser:
     """Tree-sitter based code parser for extracting semantic units."""
     
-    def __init__(self):
-        """Initialize the code parser."""
+    def __init__(self, use_cache: bool = True, cache: Optional[TreeCache] = None):
+        """Initialize the code parser.
+        
+        Args:
+            use_cache: Whether to use TreeCache for performance optimization
+            cache: Custom TreeCache instance, uses default if None
+        """
         self.python_language: Optional[TreeSitterLanguage] = None
         self.python_parser: Optional[TreeSitterParser] = None
         self.markdown_language: Optional[TreeSitterLanguage] = None
@@ -64,6 +72,10 @@ class CodeParser:
         self._python_initialized = False
         self._markdown_initialized = False
         self._java_initialized = False
+        
+        # TreeCache integration
+        self.use_cache = use_cache
+        self.tree_cache = cache or get_default_cache() if use_cache else None
         
     def setup(self) -> None:
         """Set up tree-sitter parsers for Python, Markdown, and Java."""
@@ -111,11 +123,12 @@ class CodeParser:
         else:
             logger.warning("Java parser not available - tree_sitter_language_pack not installed")
         
-    def parse_file(self, file_path: Path) -> List[Dict[str, Any]]:
+    def parse_file(self, file_path: Path, source: Optional[str] = None) -> List[Dict[str, Any]]:
         """Parse a file and extract semantic chunks based on file type.
         
         Args:
             file_path: Path to file to parse
+            source: Optional source code string (if None, reads from file)
             
         Returns:
             List of extracted chunks with metadata
@@ -124,16 +137,148 @@ class CodeParser:
         suffix = file_path.suffix.lower()
         
         if suffix == '.py':
-            return self._parse_python_file(file_path)
+            return self._parse_python_file(file_path, source)
         elif suffix in ['.md', '.markdown']:
-            return self._parse_markdown_file(file_path)
+            return self._parse_markdown_file(file_path, source)
         elif suffix == '.java':
-            return self._parse_java_file(file_path)
+            return self._parse_java_file(file_path, source)
         else:
             logger.warning(f"Unsupported file type: {suffix}")
             return []
+    
+    def parse_incremental(self, file_path: Path, source: Optional[str] = None) -> Optional[TreeSitterTree]:
+        """Parse file using TreeCache for performance optimization.
+        
+        Args:
+            file_path: Path to file to parse
+            source: Optional source code string (if None, reads from file)
             
-    def _parse_java_file(self, file_path: Path) -> List[Dict[str, Any]]:
+        Returns:
+            Parsed syntax tree, or None if parsing failed
+        """
+        if not self.use_cache:
+            return self._parse_tree_only(file_path, source)
+        
+        # Check cache first
+        cached_tree = self.tree_cache.get(file_path)
+        if cached_tree:
+            logger.debug(f"TreeCache hit for {file_path}")
+            return cached_tree
+        
+        # Cache miss - parse and store
+        logger.debug(f"TreeCache miss for {file_path}")
+        tree = self._parse_tree_only(file_path, source)
+        if tree:
+            self.tree_cache.put(file_path, tree)
+        return tree
+    
+    def invalidate_cache(self, file_path: Path) -> bool:
+        """Invalidate cached tree for file.
+        
+        Args:
+            file_path: Path to source file
+            
+        Returns:
+            True if entry was found and removed, False otherwise
+        """
+        if self.tree_cache:
+            return self.tree_cache.invalidate(file_path)
+        return False
+    
+    def get_changed_regions(self, old_tree: TreeSitterTree, new_tree: TreeSitterTree) -> List[Dict[str, Any]]:
+        """Compare syntax trees and return changed regions for differential updates.
+        
+        Args:
+            old_tree: Previous syntax tree
+            new_tree: New syntax tree
+            
+        Returns:
+            List of changed regions with start/end positions
+        """
+        if old_tree is None or new_tree is None:
+            return [{'start_byte': 0, 'end_byte': float('inf'), 'type': 'full_change'}]
+        
+        # Simple implementation: compare root node ranges
+        # In a more sophisticated implementation, we would do deep tree comparison
+        old_root = old_tree.root_node
+        new_root = new_tree.root_node
+        
+        changed_regions = []
+        
+        # Compare children of root nodes to find changes
+        old_children = [child for child in old_root.children]
+        new_children = [child for child in new_root.children]
+        
+        # Basic approach: if different number of children or any child differs significantly
+        if len(old_children) != len(new_children):
+            # Major structural change
+            return [{'start_byte': 0, 'end_byte': new_root.end_byte, 'type': 'structural_change'}]
+        
+        # Compare each child
+        for old_child, new_child in zip(old_children, new_children):
+            if (old_child.type != new_child.type or 
+                old_child.start_byte != new_child.start_byte or
+                old_child.end_byte != new_child.end_byte):
+                changed_regions.append({
+                    'start_byte': new_child.start_byte,
+                    'end_byte': new_child.end_byte,
+                    'type': 'node_change',
+                    'old_type': old_child.type,
+                    'new_type': new_child.type
+                })
+        
+        return changed_regions
+    
+    def _parse_tree_only(self, file_path: Path, source: Optional[str] = None) -> Optional[TreeSitterTree]:
+        """Parse file and return only the syntax tree (without chunking).
+        
+        Args:
+            file_path: Path to file to parse
+            source: Optional source code string (if None, reads from file)
+            
+        Returns:
+            Parsed syntax tree, or None if parsing failed
+        """
+        # Determine file type and get appropriate parser
+        suffix = file_path.suffix.lower()
+        parser = None
+        
+        if suffix == '.py':
+            if not self._python_initialized:
+                self.setup()
+            parser = self.python_parser
+        elif suffix in ['.md', '.markdown']:
+            if not self._markdown_initialized:
+                self.setup()
+            parser = self.markdown_parser
+        elif suffix == '.java':
+            if not self._java_initialized:
+                self.setup()
+            parser = self.java_parser
+        else:
+            logger.warning(f"Unsupported file type for tree parsing: {suffix}")
+            return None
+        
+        if parser is None:
+            logger.error(f"Parser not available for {suffix}")
+            return None
+        
+        try:
+            # Read source code if not provided
+            if source is None:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    source = f.read()
+            
+            # Parse with tree-sitter
+            tree = parser.parse(bytes(source, 'utf8'))
+            logger.debug(f"Parsed syntax tree for {file_path}")
+            return tree
+            
+        except Exception as e:
+            logger.error(f"Failed to parse tree for {file_path}: {e}")
+            return None
+            
+    def _parse_java_file(self, file_path: Path, source: Optional[str] = None) -> List[Dict[str, Any]]:
         """Parse a Java file and extract semantic chunks.
         
         Args:
@@ -152,16 +297,23 @@ class CodeParser:
         logger.debug(f"Parsing Java file: {file_path}")
 
         try:
-            # Read file content
-            with open(file_path, 'r', encoding='utf-8') as f:
-                source_code = f.read()
-
-            # Parse with tree-sitter
-            if self.java_parser is not None:
-                tree = self.java_parser.parse(bytes(source_code, 'utf8'))
+            # Read file content if not provided
+            if source is None:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    source_code = f.read()
             else:
-                logger.error("Java parser is None after initialization check")
-                return []
+                source_code = source
+            
+            # Use incremental parsing if cache is enabled
+            if self.use_cache:
+                tree = self.parse_incremental(file_path, source_code)
+            else:
+                # Parse with tree-sitter directly
+                if self.java_parser is not None:
+                    tree = self.java_parser.parse(bytes(source_code, 'utf8'))
+                else:
+                    logger.error("Java parser is None after initialization check")
+                    return []
 
             # Extract semantic units
             chunks = []
@@ -1187,7 +1339,7 @@ class CodeParser:
             logger.error(f"Failed to extract Java method return type: {e}")
             return None
     
-    def _parse_python_file(self, file_path: Path) -> List[Dict[str, Any]]:
+    def _parse_python_file(self, file_path: Path, source: Optional[str] = None) -> List[Dict[str, Any]]:
         """Parse a Python file and extract semantic chunks."""
         if not self._python_initialized:
             logger.warning("Python parser not initialized, attempting setup")
@@ -1198,15 +1350,22 @@ class CodeParser:
         logger.debug(f"Parsing Python file: {file_path}")
         
         try:
-            # Read file content
-            with open(file_path, 'r', encoding='utf-8') as f:
-                source_code = f.read()
-            
-            # Parse with tree-sitter
-            if self.python_parser is not None:
-                tree = self.python_parser.parse(bytes(source_code, 'utf8'))
+            # Read file content if not provided
+            if source is None:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    source_code = f.read()
             else:
-                return []
+                source_code = source
+            
+            # Use incremental parsing if cache is enabled
+            if self.use_cache:
+                tree = self.parse_incremental(file_path, source_code)
+            else:
+                # Parse with tree-sitter directly
+                if self.python_parser is not None:
+                    tree = self.python_parser.parse(bytes(source_code, 'utf8'))
+                else:
+                    return []
             
             # Extract semantic units
             chunks = []
@@ -1220,7 +1379,7 @@ class CodeParser:
             logger.error(f"Failed to parse Python file {file_path}: {e}")
             return []
     
-    def _parse_markdown_file(self, file_path: Path) -> List[Dict[str, Any]]:
+    def _parse_markdown_file(self, file_path: Path, source: Optional[str] = None) -> List[Dict[str, Any]]:
         """Parse a Markdown file and extract semantic chunks."""
         if not self._markdown_initialized:
             logger.warning("Markdown parser not initialized, attempting setup")
@@ -1231,15 +1390,22 @@ class CodeParser:
         logger.debug(f"Parsing Markdown file: {file_path}")
         
         try:
-            # Read file content
-            with open(file_path, 'r', encoding='utf-8') as f:
-                source_code = f.read()
-            
-            # Parse with tree-sitter
-            if self.markdown_parser is not None:
-                tree = self.markdown_parser.parse(bytes(source_code, 'utf8'))
+            # Read file content if not provided
+            if source is None:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    source_code = f.read()
             else:
-                return []
+                source_code = source
+            
+            # Use incremental parsing if cache is enabled
+            if self.use_cache:
+                tree = self.parse_incremental(file_path, source_code)
+            else:
+                # Parse with tree-sitter directly
+                if self.markdown_parser is not None:
+                    tree = self.markdown_parser.parse(bytes(source_code, 'utf8'))
+                else:
+                    return []
             
             # Extract semantic units
             chunks = []
