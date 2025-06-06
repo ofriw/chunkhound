@@ -2,13 +2,15 @@
 
 import asyncio
 from pathlib import Path
-from typing import Optional, List, Dict, Any, Union, Set
+from typing import Any, Dict, List, Optional, Set, Union
+
 import duckdb
 from loguru import logger
 
-from .parser import CodeParser
 from .chunker import Chunker
 from .embeddings import EmbeddingManager
+from .parser import CodeParser
+
 
 class Database:
     """Database connection manager with DuckDB and vss extension."""
@@ -1062,6 +1064,78 @@ class Database:
         except Exception as e:
             logger.error(f"Failed to cleanup orphaned chunks: {e}")
             raise
+
+    def disconnect(self) -> bool:
+        """
+        Disconnect from the database gracefully for coordination.
+        
+        This method performs a complete disconnection with proper cleanup,
+        ensuring the database is in a consistent state before releasing.
+        
+        Returns:
+            True if successfully disconnected, False otherwise
+        """
+        logger.info("Initiating database disconnection")
+        
+        try:
+            if not self.connection:
+                logger.debug("Database already disconnected")
+                return True
+            
+            # Force checkpoint to ensure all changes are written to disk
+            try:
+                self.connection.execute("FORCE CHECKPOINT")
+                logger.debug("Database checkpoint completed before disconnect")
+            except Exception as e:
+                logger.warning(f"Checkpoint failed during disconnect (continuing): {e}")
+            
+            # Close the connection to release all locks
+            self.connection.close()
+            self.connection = None
+            
+            logger.info("Database disconnected successfully")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to disconnect database: {e}")
+            # Ensure connection is cleared even on error
+            self.connection = None
+            return False
+
+    def reconnect(self) -> bool:
+        """
+        Reconnect to the database after coordination.
+        
+        This method reestablishes the database connection with full
+        initialization including extensions and schema validation.
+        
+        Returns:
+            True if successfully reconnected, False otherwise
+        """
+        logger.info("Initiating database reconnection")
+        
+        try:
+            if self.connection:
+                logger.debug("Database already connected")
+                return True
+            
+            # Reconnect with full initialization
+            self.connect()
+            
+            # Verify connection is working by testing a simple query
+            if self.connection:
+                # Test connection with a simple query
+                self.connection.execute("SELECT 1").fetchone()
+                logger.info("Database reconnected and verified successfully")
+                return True
+            else:
+                logger.error("Reconnection failed - no connection established")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Failed to reconnect to database: {e}")
+            self.connection = None
+            return False
 
     def close(self) -> None:
         """Close database connection."""

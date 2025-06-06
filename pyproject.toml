@@ -35,6 +35,7 @@ dependencies = [
     "loguru>=0.6.0",
     "mcp>=1.0.0",
     "watchdog>=4.0.0",
+    "psutil>=5.8.0",
 ]
 
 [project.optional-dependencies]

@@ -8,8 +8,7 @@ import os
 import json
 import asyncio
 import logging
-import signal
-import tempfile
+
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 from contextlib import asynccontextmanager
@@ -19,7 +18,7 @@ import mcp.types as types
 from mcp.server import Server
 from mcp.server.lowlevel import NotificationOptions
 from mcp.server.models import InitializationOptions
-import sys
+
 
 # Disable all logging for MCP server to prevent interference with JSON-RPC
 logging.disable(logging.CRITICAL)
@@ -37,131 +36,54 @@ except ImportError:
 try:
     from .database import Database
     from .embeddings import EmbeddingManager
+    from .signal_coordinator import SignalCoordinator
     from .file_watcher import FileWatcherManager
 except ImportError:
     # Handle running as standalone script
-    sys.path.append(str(Path(__file__).parent))
     from database import Database
     from embeddings import EmbeddingManager
+    from signal_coordinator import SignalCoordinator
     from file_watcher import FileWatcherManager
 
 # Global database, embedding manager, and file watcher instances
+# Global state management
 _database: Optional[Database] = None
 _embedding_manager: Optional[EmbeddingManager] = None
 _file_watcher: Optional[FileWatcherManager] = None
-
-# Process coordination globals
-_coordination_active = False
-_coordination_ready_file = None
-_original_db_path = None
+_signal_coordinator: Optional[SignalCoordinator] = None
 
 # Initialize MCP server with explicit stdio
 server = Server("ChunkHound Code Search")
 
 
-async def handle_coordination_signal(signum, frame):
-    """Handle SIGUSR1 signal for process coordination."""
-    global _database, _coordination_active, _coordination_ready_file, _original_db_path
-    
-    if _coordination_active:
-        return  # Already coordinating
-    
-    _coordination_active = True
+def setup_signal_coordination(db_path: Path, database: Database):
+    """Setup signal coordination for process coordination."""
+    global _signal_coordinator
     
     try:
-        # Store original database path
-        if _database:
-            _original_db_path = Path(_database.db_path)
-        
-        # Gracefully detach database for coordination
-        if _database:
-            if not _database.detach_database():
-                # If detach fails, try closing connection completely
-                _database.close()
-                _database = None
-        
-        # Create ready signal file
-        if _coordination_ready_file:
-            Path(_coordination_ready_file).touch()
-        
+        _signal_coordinator = SignalCoordinator(db_path, database)
+        _signal_coordinator.setup_mcp_signal_handling()
+        # Signal coordination initialized (logging disabled for MCP server)
     except Exception:
-        # If coordination fails, restore connection
-        _coordination_active = False
-        if _original_db_path and not _database:
-            try:
-                _database = Database(_original_db_path)
-                _database.connect()
-            except Exception:
-                pass
-
-
-async def handle_restore_signal(signum, frame):
-    """Handle SIGUSR2 signal to restore database connection."""
-    global _database, _coordination_active, _coordination_ready_file, _original_db_path
-    
-    if not _coordination_active:
-        return  # Not coordinating
-    
-    try:
-        # Remove ready signal file
-        if _coordination_ready_file and Path(_coordination_ready_file).exists():
-            Path(_coordination_ready_file).unlink()
-        
-        # Restore database connection
-        if _database and _original_db_path:
-            # Try to reattach first
-            if not _database.reattach_database():
-                # If reattach fails, reconnect completely
-                _database.close()
-                _database = Database(_original_db_path)
-                _database.connect()
-        elif _original_db_path and not _database:
-            # Database was closed completely, reconnect
-            _database = Database(_original_db_path)
-            _database.connect()
-        
-        _coordination_active = False
-        
-    except Exception:
-        # Failed to restore - leave in coordination mode
-        pass
-
-
-def setup_signal_handlers(db_path: Path):
-    """Setup signal handlers for process coordination."""
-    global _coordination_ready_file
-    
-    # Create coordination ready file path using resolved absolute path
-    temp_dir = Path(tempfile.gettempdir())
-    db_hash = hash(str(db_path.resolve()))
-    _coordination_ready_file = temp_dir / f"chunkhound-ready-{abs(db_hash)}.signal"
-    
-    # Setup signal handlers
-    signal.signal(signal.SIGUSR1, lambda s, f: asyncio.create_task(handle_coordination_signal(s, f)))
-    signal.signal(signal.SIGUSR2, lambda s, f: asyncio.create_task(handle_restore_signal(s, f)))
-    
-    # Create PID file for process detection
-    pid_file = temp_dir / f"chunkhound-mcp-{abs(db_hash)}.pid"
-    with open(pid_file, 'w') as f:
-        f.write(str(os.getpid()))
+        # Failed to setup signal coordination (logging disabled for MCP server)
+        raise
 
 
 @asynccontextmanager
 async def server_lifespan(server: Server) -> AsyncIterator[dict]:
     """Manage server startup and shutdown lifecycle."""
-    global _database, _embedding_manager, _file_watcher, _original_db_path
+    global _database, _embedding_manager, _file_watcher, _signal_coordinator
     
     try:
         # Initialize database path
         db_path = Path(os.environ.get("CHUNKHOUND_DB_PATH", Path.home() / ".cache" / "chunkhound" / "chunks.duckdb"))
         db_path.parent.mkdir(parents=True, exist_ok=True)
-        _original_db_path = db_path
 
-        # Setup signal handlers for coordination with resolved path
-        setup_signal_handlers(db_path)
-        
         _database = Database(db_path)
         _database.connect()
+        
+        # Setup signal coordination for process coordination
+        setup_signal_coordination(db_path, _database)
         
         # Initialize embedding manager
         _embedding_manager = EmbeddingManager()
@@ -192,23 +114,8 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
         raise Exception(f"Failed to initialize database and embeddings: {e}")
     finally:
         # Cleanup coordination files
-        try:
-            if _original_db_path:
-                temp_dir = Path(tempfile.gettempdir())
-                # Ensure we have a Path object for consistent resolution
-                db_path_obj = Path(_original_db_path) if not isinstance(_original_db_path, Path) else _original_db_path
-                db_hash = hash(str(db_path_obj.resolve()))
-
-                # Remove PID file
-                pid_file = temp_dir / f"chunkhound-mcp-{abs(db_hash)}.pid"
-                if pid_file.exists():
-                    pid_file.unlink()
-
-                # Remove ready signal file
-                ready_file = temp_dir / f"chunkhound-ready-{abs(db_hash)}.signal"
-                if ready_file.exists():
-                    ready_file.unlink()
-        except Exception:
+        if _signal_coordinator:
+            _signal_coordinator.cleanup_coordination_files()
             pass
         
         # Cleanup filesystem watcher
@@ -266,7 +173,7 @@ async def call_tool(
 ) -> list[types.TextContent | types.ImageContent | types.EmbeddedResource]:
     """Handle tool calls"""
     if not _database:
-        if _coordination_active:
+        if _signal_coordinator and _signal_coordinator.is_coordination_active():
             raise Exception("Database temporarily unavailable during coordination")
         else:
             raise Exception("Database not initialized")

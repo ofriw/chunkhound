@@ -15,6 +15,7 @@ from loguru import logger
 from . import __version__
 from .database import Database
 from .embeddings import EmbeddingManager, create_openai_provider
+from .signal_coordinator import CLICoordinator
 
 
 def create_parser() -> argparse.ArgumentParser:
@@ -177,63 +178,25 @@ def mcp_command(args: argparse.Namespace) -> None:
     asyncio.run(run_mcp_server())
 
 
+# Legacy coordination functions are replaced by CLICoordinator class
+# These are kept for backwards compatibility but delegate to CLICoordinator
+
 def detect_mcp_server(db_path: str) -> Optional[int]:
     """Detect if an MCP server is running for the given database."""
     try:
-        temp_dir = Path(tempfile.gettempdir())
-        db_hash = hash(str(Path(db_path).resolve()))
-        pid_file = temp_dir / f"chunkhound-mcp-{abs(db_hash)}.pid"
-        
-        if not pid_file.exists():
-            return None
-    except Exception:
-        return None
-    
-    try:
-        with open(pid_file, 'r') as f:
-            pid = int(f.read().strip())
-        
-        # Check if process exists and is actually chunkhound mcp
-        try:
-            os.kill(pid, 0)  # Signal 0 checks if process exists
-            # TODO: Add more robust process validation here
-            return pid
-        except OSError:
-            # Process doesn't exist, clean up stale PID file
-            pid_file.unlink()
-            return None
-            
-    except (ValueError, FileNotFoundError):
+        coordinator = CLICoordinator(Path(db_path))
+        return coordinator.signal_coordinator.process_detector.get_server_pid()
+    except Exception as e:
+        logger.debug(f"Error detecting MCP server: {e}")
         return None
 
 
 def coordinate_database_access(db_path: str, mcp_pid: int) -> bool:
     """Coordinate database access with MCP server."""
     try:
-        temp_dir = Path(tempfile.gettempdir())
-        db_hash = hash(str(Path(db_path).resolve()))
-        ready_file = temp_dir / f"chunkhound-ready-{abs(db_hash)}.signal"
-        
-        logger.info(f"🔄 Coordinating database access with MCP server (PID {mcp_pid})")
-        
-        # Remove any existing ready file
-        if ready_file.exists():
-            ready_file.unlink()
-        
-        # Send SIGUSR1 to request database access
-        os.kill(mcp_pid, signal.SIGUSR1)
-        
-        # Wait for ready signal (up to 10 seconds)
-        for i in range(100):  # 10 seconds with 0.1s intervals
-            if ready_file.exists():
-                logger.info("✅ Database access granted")
-                return True
-            time.sleep(0.1)
-        
-        logger.warning("⚠️  Timeout waiting for database access")
-        return False
-        
-    except OSError as e:
+        coordinator = CLICoordinator(Path(db_path))
+        return coordinator.request_database_access()
+    except Exception as e:
         logger.warning(f"⚠️  Failed to coordinate with MCP server: {e}")
         return False
 
@@ -241,19 +204,9 @@ def coordinate_database_access(db_path: str, mcp_pid: int) -> bool:
 def restore_database_access(db_path: str, mcp_pid: int) -> None:
     """Restore database access to MCP server."""
     try:
-        logger.info("🔄 Restoring database access to MCP server")
-        os.kill(mcp_pid, signal.SIGUSR2)
-        
-        # Clean up ready file
-        temp_dir = Path(tempfile.gettempdir())
-        db_hash = hash(str(Path(db_path).resolve()))
-        ready_file = temp_dir / f"chunkhound-ready-{abs(db_hash)}.signal"
-        if ready_file.exists():
-            ready_file.unlink()
-            
-        logger.info("✅ Database access restored")
-        
-    except (OSError, Exception) as e:
+        coordinator = CLICoordinator(Path(db_path))
+        coordinator.release_database_access()
+    except Exception as e:
         logger.warning(f"⚠️  Failed to restore database access: {e}")
 
 
@@ -263,15 +216,15 @@ async def run_command(args: argparse.Namespace) -> None:
     logger.info(f"Processing directory: {args.path}")
     logger.info(f"Database: {args.db}")
     
-    # Check for running MCP server and coordinate if needed
-    mcp_pid = detect_mcp_server(str(args.db))
-    coordination_active = False
+    # Initialize CLI coordinator for database access coordination
+    cli_coordinator = CLICoordinator(Path(args.db))
     
-    if mcp_pid:
+    # Check for running MCP server and coordinate if needed
+    if cli_coordinator.signal_coordinator.is_mcp_server_running():
+        mcp_pid = cli_coordinator.signal_coordinator.process_detector.get_server_pid()
         logger.info(f"🔍 Detected running MCP server (PID {mcp_pid})")
-        if coordinate_database_access(str(args.db), mcp_pid):
-            coordination_active = True
-        else:
+        
+        if not cli_coordinator.request_database_access():
             logger.error("❌ Failed to coordinate database access. Please stop the MCP server or use a different database file.")
             sys.exit(1)
     
@@ -374,13 +327,11 @@ async def run_command(args: argparse.Namespace) -> None:
         
     except Exception as e:
         logger.error(f"Database error: {e}")
-        if coordination_active and mcp_pid:
-            restore_database_access(str(args.db), mcp_pid)
+        cli_coordinator.release_database_access()
         sys.exit(1)
     finally:
         # Restore database access to MCP server if coordination was active
-        if coordination_active and mcp_pid:
-            restore_database_access(str(args.db), mcp_pid)
+        cli_coordinator.release_database_access()
 
 
 def main() -> None:
