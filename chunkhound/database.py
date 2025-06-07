@@ -351,6 +351,61 @@ class Database:
             logger.error(f"Failed to insert embedding for chunk {chunk_id}: {e}")
             raise
 
+    def insert_embeddings_batch(self, embeddings_data: List[Dict]) -> int:
+        """Insert multiple embedding vectors in a single batch operation.
+        
+        Args:
+            embeddings_data: List of dicts with keys: chunk_id, provider, model, dims, vector
+            
+        Returns:
+            Number of successfully inserted embeddings
+        """
+        if not embeddings_data:
+            return 0
+            
+        try:
+            if self.connection is None:
+                raise RuntimeError("Database connection not established")
+
+            # Prepare batch data for executemany
+            batch_values = []
+            for embedding_data in embeddings_data:
+                batch_values.append([
+                    embedding_data['chunk_id'],
+                    embedding_data['provider'],
+                    embedding_data['model'],
+                    embedding_data['dims'],
+                    embedding_data['vector']
+                ])
+
+            # Execute batch insert
+            cursor = self.connection.executemany("""
+                INSERT OR REPLACE INTO embeddings (chunk_id, provider, model, dims, vector)
+                VALUES (?, ?, ?, ?, ?)
+            """, batch_values)
+            
+            # DuckDB executemany may not return accurate rowcount, use batch size
+            return len(batch_values)
+
+        except Exception as e:
+            logger.error(f"Failed to insert embedding batch: {e}")
+            # Fall back to individual insertions for error isolation
+            successful_count = 0
+            for embedding_data in embeddings_data:
+                try:
+                    self.insert_embedding(
+                        chunk_id=embedding_data['chunk_id'],
+                        provider=embedding_data['provider'],
+                        model=embedding_data['model'],
+                        dims=embedding_data['dims'],
+                        vector=embedding_data['vector']
+                    )
+                    successful_count += 1
+                except Exception as individual_error:
+                    logger.warning(f"Failed to store embedding for chunk {embedding_data['chunk_id']}: {individual_error}")
+            
+            return successful_count
+
     def search_semantic(self, query_vector: List[float], provider: str, model: str,
                        limit: int = 10, threshold: Optional[float] = None) -> List[Dict[str, Any]]:
         """Perform semantic search using vector similarity.
@@ -1178,20 +1233,18 @@ class Database:
             # Generate embeddings
             result = await self.embedding_manager.embed_texts(texts)
             
-            # Store embeddings in database
-            stored_count = 0
+            # Store embeddings in database using batch insertion
+            embeddings_data = []
             for chunk_id, embedding in zip(chunk_ids, result.embeddings):
-                try:
-                    self.insert_embedding(
-                        chunk_id=chunk_id,
-                        provider=result.provider,
-                        model=result.model,
-                        dims=result.dims,
-                        vector=embedding
-                    )
-                    stored_count += 1
-                except Exception as e:
-                    logger.warning(f"Failed to store embedding for chunk {chunk_id}: {e}")
+                embeddings_data.append({
+                    'chunk_id': chunk_id,
+                    'provider': result.provider,
+                    'model': result.model,
+                    'dims': result.dims,
+                    'vector': embedding
+                })
+            
+            stored_count = self.insert_embeddings_batch(embeddings_data)
             
             return stored_count
             
@@ -1324,20 +1377,18 @@ class Database:
             # Generate embeddings
             embedding_result = await self.embedding_manager.embed_texts(texts, provider_name)
             
-            # Store embeddings
-            stored_count = 0
+            # Store embeddings using batch insertion
+            embeddings_data = []
             for chunk_id, embedding in zip(chunk_ids, embedding_result.embeddings):
-                try:
-                    self.insert_embedding(
-                        chunk_id=chunk_id,
-                        provider=embedding_result.provider,
-                        model=embedding_result.model,
-                        dims=embedding_result.dims,
-                        vector=embedding
-                    )
-                    stored_count += 1
-                except Exception as e:
-                    logger.warning(f"Failed to store embedding for chunk {chunk_id}: {e}")
+                embeddings_data.append({
+                    'chunk_id': chunk_id,
+                    'provider': embedding_result.provider,
+                    'model': embedding_result.model,
+                    'dims': embedding_result.dims,
+                    'vector': embedding
+                })
+            
+            stored_count = self.insert_embeddings_batch(embeddings_data)
             
             logger.info(f"Generated and stored {stored_count} embeddings")
             return {"status": "success", "generated": stored_count}
