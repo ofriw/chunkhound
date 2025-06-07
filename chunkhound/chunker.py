@@ -35,13 +35,17 @@ class Chunker:
         # Process each parsed item into standardized chunks
         chunks = []
         for item in parsed_data:
+            # Extract language info from both old and new formats
+            language_info = item.get("language_info") or item.get("language")
+            
             chunk = self._create_chunk(
                 symbol=item.get("name", item.get("symbol", "unknown")),
                 start_line=item["start_line"],
                 end_line=item["end_line"],
                 code=item.get("content", item.get("code", "")),
                 chunk_type=item.get("type", item.get("chunk_type", "unknown")),
-                file_path=file_path
+                file_path=file_path,
+                language_info=language_info
             )
             chunks.append(chunk)
         
@@ -52,7 +56,8 @@ class Chunker:
         return filtered_chunks
         
     def _create_chunk(self, symbol: str, start_line: int, end_line: int, 
-                     code: str, chunk_type: str, file_path: Path) -> Dict[str, Any]:
+                     code: str, chunk_type: str, file_path: Path, 
+                     language_info: Optional[str] = None) -> Dict[str, Any]:
         """Create a standardized chunk object.
         
         Args:
@@ -62,6 +67,7 @@ class Chunker:
             code: Raw code text
             chunk_type: Type of chunk (function, method, class)
             file_path: Source file path
+            language_info: Language information for the chunk
             
         Returns:
             Standardized chunk dictionary
@@ -72,7 +78,7 @@ class Chunker:
         # Clean up the code - remove excessive whitespace
         cleaned_code = self._clean_code(code)
         
-        return {
+        chunk = {
             "id": self.chunk_id_counter,
             "symbol": symbol,
             "start_line": start_line,
@@ -84,6 +90,12 @@ class Chunker:
             "char_count": len(cleaned_code),
             "relative_path": self._get_relative_path(file_path),
         }
+        
+        # Add language_info if provided
+        if language_info:
+            chunk["language_info"] = language_info
+            
+        return chunk
         
     def _filter_chunks(self, chunks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Filter chunks based on size and quality criteria.

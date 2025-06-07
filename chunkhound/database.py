@@ -927,9 +927,9 @@ class Database:
                     logger.error(f"Foreign key constraint violation during chunk deletion: {e}")
                     raise
 
-            # Now update file record after chunks are deleted (avoids foreign key constraint)
-            if existing_file:
-                logger.debug(f"Updating existing file record (ID: {file_id}) after chunk cleanup")
+            # Only update file record if there were actual changes to avoid foreign key constraint issues
+            if existing_file and (chunk_diff.chunks_to_delete or chunk_diff.chunks_to_insert):
+                logger.debug(f"Updating existing file record (ID: {file_id}) after chunk changes")
                 try:
                     # Update file record
                     self.connection.execute("""

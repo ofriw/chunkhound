@@ -16,6 +16,10 @@ def temp_db_path():
     with tempfile.NamedTemporaryFile(suffix=".duckdb", delete=False) as temp_file:
         db_path = Path(temp_file.name)
     
+    # Remove the empty file so DuckDB can create a new database
+    if db_path.exists():
+        os.unlink(db_path)
+    
     yield db_path
     
     # Clean up after test
@@ -69,27 +73,36 @@ class TestJavaIndexing:
         assert stats["files"] > 0, "No files found in database"
         assert stats["chunks"] > 0, "No chunks found in database"
         
+        # First check what language_info values exist
+        debug_query = """
+            SELECT DISTINCT language_info, COUNT(*) as count
+            FROM chunks 
+            GROUP BY language_info
+        """
+        debug_results = db_with_java.execute_query(debug_query)
+        print(f"Language info values in database: {debug_results}")
+        
         # Query for Java chunks
         query = """
             SELECT * FROM chunks 
-            WHERE language = 'java'
+            WHERE language_info = 'java'
             LIMIT 100
         """
         results = db_with_java.execute_query(query)
-        assert len(results) > 0, "No Java chunks found in database"
+        assert len(results) > 0, f"No Java chunks found in database. Available language_info values: {debug_results}"
         
         # Verify we have different chunk types
         query = """
-            SELECT type, COUNT(*) as count 
+            SELECT chunk_type, COUNT(*) as count 
             FROM chunks 
-            WHERE language = 'java'
-            GROUP BY type
+            WHERE language_info = 'java'
+            GROUP BY chunk_type
         """
         type_counts = db_with_java.execute_query(query)
         assert len(type_counts) > 0, "No Java chunk types found"
         
         # Check for expected chunk types
-        type_dict = {row["type"]: row["count"] for row in type_counts}
+        type_dict = {row["chunk_type"]: row["count"] for row in type_counts}
         assert "class" in type_dict, "No Java classes found"
         
         # At least one of these should exist
@@ -102,8 +115,8 @@ class TestJavaIndexing:
         # Search for class declaration
         query = """
             SELECT * FROM chunks 
-            WHERE language = 'java'
-            AND content REGEXP 'public class'
+            WHERE language_info = 'java'
+            AND regexp_matches(code, 'public class')
             LIMIT 10
         """
         results = db_with_java.execute_query(query)
@@ -112,8 +125,8 @@ class TestJavaIndexing:
         # Search for methods with annotation
         query = """
             SELECT * FROM chunks 
-            WHERE language = 'java'
-            AND content REGEXP '@Override'
+            WHERE language_info = 'java'
+            AND regexp_matches(code, '@Override')
             LIMIT 10
         """
         results = db_with_java.execute_query(query)

@@ -63,11 +63,9 @@ def test_embedding_manager():
         print(f"   • Registered providers: {providers}")
         print(f"   • Default provider: {retrieved.name}/{retrieved.model}")
         
-        return manager
-        
     except Exception as e:
         print(f"❌ Embedding manager test failed: {e}")
-        return None
+        assert False, f"Embedding manager test failed: {e}"
 
 async def test_mock_embedding_generation():
     """Test embedding generation with mock data (no API call)."""
