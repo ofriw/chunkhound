@@ -10,6 +10,7 @@ from loguru import logger
 from .chunker import Chunker, IncrementalChunker, ChunkDiff
 from .embeddings import EmbeddingManager
 from .parser import CodeParser
+from .file_discovery_cache import FileDiscoveryCache
 
 
 class Database:
@@ -31,6 +32,9 @@ class Database:
         self._incremental_parser: Optional[CodeParser] = None
         self._chunker: Optional[Chunker] = None
         self._incremental_chunker: Optional[IncrementalChunker] = None
+        
+        # File discovery cache for performance optimization
+        self._file_discovery_cache = FileDiscoveryCache()
 
     def connect(self) -> None:
         """Connect to DuckDB and load required extensions."""
@@ -1005,35 +1009,8 @@ class Database:
             if exclude_patterns:
                 logger.info(f"Exclude patterns: {exclude_patterns}")
             
-            # Find all matching files from all patterns
-            files = []
-            for pattern in patterns:
-                files.extend(directory.glob(pattern))
-            
-            # Remove duplicates while preserving order
-            seen = set()
-            unique_files = []
-            for file_path in files:
-                if file_path not in seen:
-                    seen.add(file_path)
-                    unique_files.append(file_path)
-            files = unique_files
-            
-            # Filter out excluded files
-            if exclude_patterns:
-                from fnmatch import fnmatch
-                filtered_files = []
-                for file_path in files:
-                    # Convert to relative path from directory for pattern matching
-                    rel_path = file_path.relative_to(directory)
-                    excluded = False
-                    for exclude_pattern in exclude_patterns:
-                        if fnmatch(str(rel_path), exclude_pattern) or fnmatch(str(file_path), exclude_pattern):
-                            excluded = True
-                            break
-                    if not excluded:
-                        filtered_files.append(file_path)
-                files = filtered_files
+            # Use cached file discovery for performance optimization
+            files = self._file_discovery_cache.get_files(directory, patterns, exclude_patterns)
             
             # CLEANUP PHASE: Detect and remove chunks from deleted files (offline detection)
             logger.info("🧹 Checking for deleted files...")
@@ -1082,6 +1059,22 @@ class Database:
         except Exception as e:
             logger.error(f"Failed to process directory {directory}: {e}")
             return {"status": "error", "error": str(e)}
+
+    def get_file_discovery_cache_stats(self) -> Dict[str, Any]:
+        """Get file discovery cache statistics.
+        
+        Returns:
+            Dictionary with cache performance metrics
+        """
+        return self._file_discovery_cache.get_stats()
+
+    def clear_file_discovery_cache(self) -> None:
+        """Clear the file discovery cache.
+        
+        Useful for testing or when filesystem changes are detected.
+        """
+        self._file_discovery_cache.clear()
+        logger.info("File discovery cache cleared")
 
     async def _generate_embeddings_for_chunks(self, chunk_ids: List[int], chunks: List[Dict[str, Any]]) -> int:
         """Generate embeddings for a list of chunks.
