@@ -146,6 +146,38 @@ class CodeParser:
             logger.warning(f"Unsupported file type: {suffix}")
             return []
     
+    def parse_file_incremental(self, file_path: Path, source: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Parse file incrementally using TreeCache for performance optimization.
+        
+        This method uses cached syntax trees when possible to achieve 10-100x
+        performance improvement over full parsing for unchanged files.
+        
+        Args:
+            file_path: Path to file to parse
+            source: Optional source code string (if None, reads from file)
+            
+        Returns:
+            List of extracted chunks with metadata
+        """
+        if not self.use_cache:
+            # Fallback to regular parsing if caching disabled
+            return self.parse_file(file_path, source)
+        
+        logger.debug(f"Incremental parsing: {file_path}")
+        
+        # Determine file type
+        suffix = file_path.suffix.lower()
+        
+        if suffix == '.py':
+            return self._parse_python_file_incremental(file_path, source)
+        elif suffix in ['.md', '.markdown']:
+            return self._parse_markdown_file_incremental(file_path, source)
+        elif suffix == '.java':
+            return self._parse_java_file_incremental(file_path, source)
+        else:
+            logger.warning(f"Unsupported file type for incremental parsing: {suffix}")
+            return []
+    
     def parse_incremental(self, file_path: Path, source: Optional[str] = None) -> Optional[TreeSitterTree]:
         """Parse file using TreeCache for performance optimization.
         
@@ -228,6 +260,172 @@ class CodeParser:
                 })
         
         return changed_regions
+    
+    def get_cache_stats(self) -> Dict[str, Any]:
+        """Get TreeCache performance statistics.
+        
+        Returns:
+            Dictionary with cache hit rate, memory usage, and other metrics
+        """
+        if not self.tree_cache:
+            return {
+                'cache_enabled': False,
+                'hit_rate': 0.0,
+                'total_requests': 0,
+                'hits': 0,
+                'misses': 0
+            }
+        
+        stats = self.tree_cache.get_stats()
+        return {
+            'cache_enabled': True,
+            'hit_rate': stats.get('hit_rate_percent', 0.0) / 100.0,
+            'total_requests': stats.get('total_requests', 0),
+            'hits': stats.get('hits', 0),
+            'misses': stats.get('misses', 0),
+            'evictions': stats.get('evictions', 0),
+            'invalidations': stats.get('invalidations', 0),
+            'cache_size': stats.get('entries', 0),
+            'estimated_memory_mb': stats.get('estimated_memory_mb', 0)
+        }
+    
+    def _parse_python_file_incremental(self, file_path: Path, source: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Parse Python file incrementally using TreeCache.
+        
+        Args:
+            file_path: Path to Python file
+            source: Optional source code string
+            
+        Returns:
+            List of extracted chunks with metadata
+        """
+        if not self._python_initialized:
+            logger.warning("Python parser not initialized, attempting setup")
+            self.setup()
+            if not self._python_initialized:
+                return []
+        
+        logger.debug(f"Incremental parsing Python file: {file_path}")
+        
+        try:
+            # Read file content if not provided
+            if source is None:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    source_code = f.read()
+            else:
+                source_code = source
+            
+            # Get cached tree or parse new one
+            tree = self.parse_incremental(file_path, source_code)
+            if tree is None:
+                logger.error(f"Failed to parse syntax tree for {file_path}")
+                return []
+            
+            # Extract semantic units
+            chunks = []
+            chunks.extend(self._extract_functions(tree.root_node, source_code))
+            chunks.extend(self._extract_classes(tree.root_node, source_code))
+            
+            logger.debug(f"Incremental parsing extracted {len(chunks)} chunks from {file_path}")
+            return chunks
+            
+        except Exception as e:
+            logger.error(f"Failed to parse Python file incrementally {file_path}: {e}")
+            return []
+    
+    def _parse_java_file_incremental(self, file_path: Path, source: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Parse Java file incrementally using TreeCache.
+        
+        Args:
+            file_path: Path to Java file
+            source: Optional source code string
+            
+        Returns:
+            List of extracted chunks with metadata
+        """
+        if not self._java_initialized:
+            logger.warning("Java parser not initialized, attempting setup")
+            self.setup()
+            if not self._java_initialized:
+                return []
+        
+        logger.debug(f"Incremental parsing Java file: {file_path}")
+        
+        try:
+            # Read file content if not provided
+            if source is None:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    source_code = f.read()
+            else:
+                source_code = source
+            
+            # Get cached tree or parse new one
+            tree = self.parse_incremental(file_path, source_code)
+            if tree is None:
+                logger.error(f"Failed to parse syntax tree for {file_path}")
+                return []
+            
+            # Extract package name
+            package_name = self._extract_java_package(tree.root_node, source_code)
+            
+            # Extract semantic units
+            chunks = []
+            chunks.extend(self._extract_java_classes(tree.root_node, source_code, file_path, package_name))
+            chunks.extend(self._extract_java_interfaces(tree.root_node, source_code, file_path, package_name))
+            chunks.extend(self._extract_java_enums(tree.root_node, source_code, file_path, package_name))
+            chunks.extend(self._extract_java_methods(tree.root_node, source_code, file_path, package_name))
+            
+            logger.debug(f"Incremental parsing extracted {len(chunks)} chunks from {file_path}")
+            return chunks
+            
+        except Exception as e:
+            logger.error(f"Failed to parse Java file incrementally {file_path}: {e}")
+            return []
+    
+    def _parse_markdown_file_incremental(self, file_path: Path, source: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Parse Markdown file incrementally using TreeCache.
+        
+        Args:
+            file_path: Path to Markdown file
+            source: Optional source code string
+            
+        Returns:
+            List of extracted chunks with metadata
+        """
+        if not self._markdown_initialized:
+            logger.warning("Markdown parser not initialized, attempting setup")
+            self.setup()
+            if not self._markdown_initialized:
+                return []
+        
+        logger.debug(f"Incremental parsing Markdown file: {file_path}")
+        
+        try:
+            # Read file content if not provided
+            if source is None:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    source_code = f.read()
+            else:
+                source_code = source
+            
+            # Get cached tree or parse new one
+            tree = self.parse_incremental(file_path, source_code)
+            if tree is None:
+                logger.error(f"Failed to parse syntax tree for {file_path}")
+                return []
+            
+            # Extract semantic units
+            chunks = []
+            chunks.extend(self._extract_headers(tree.root_node, source_code))
+            chunks.extend(self._extract_code_blocks(tree.root_node, source_code))
+            chunks.extend(self._extract_paragraphs(tree.root_node, source_code))
+            
+            logger.debug(f"Incremental parsing extracted {len(chunks)} chunks from {file_path}")
+            return chunks
+            
+        except Exception as e:
+            logger.error(f"Failed to parse Markdown file incrementally {file_path}: {e}")
+            return []
     
     def _parse_tree_only(self, file_path: Path, source: Optional[str] = None) -> Optional[TreeSitterTree]:
         """Parse file and return only the syntax tree (without chunking).

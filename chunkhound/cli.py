@@ -16,6 +16,7 @@ from . import __version__
 from .database import Database
 from .embeddings import EmbeddingManager, create_openai_provider
 from .signal_coordinator import CLICoordinator
+from .file_watcher import FileWatcherManager
 
 
 def create_parser() -> argparse.ArgumentParser:
@@ -101,6 +102,11 @@ Examples:
         "--no-embeddings",
         action="store_true",
         help="Skip embedding generation (index code only)",
+    )
+    run_parser.add_argument(
+        "--watch",
+        action="store_true",
+        help="Enable continuous file watching and real-time indexing",
     )
     
 
@@ -309,7 +315,7 @@ async def run_command(args: argparse.Namespace) -> None:
             # Show updated stats
             final_stats = db.get_stats()
             logger.info(f"Final database stats: {final_stats['files']} files, {final_stats['chunks']} chunks, {final_stats['embeddings']} embeddings")
-            
+        
             # Generate missing embeddings if embedding manager is available
             if embedding_manager:
                 logger.info("Checking for missing embeddings...")
@@ -320,6 +326,11 @@ async def run_command(args: argparse.Namespace) -> None:
                     logger.info("All embeddings up to date")
                 else:
                     logger.warning(f"Embedding generation failed: {embed_result}")
+        
+            # Check if watch mode is enabled
+            if args.watch:
+                logger.info("Initial indexing complete. Starting watch mode...")
+                await watch_mode(args, db)
         else:
             logger.error(f"Processing failed: {result}")
         
@@ -332,6 +343,57 @@ async def run_command(args: argparse.Namespace) -> None:
     finally:
         # Restore database access to MCP server if coordination was active
         cli_coordinator.release_database_access()
+
+
+async def watch_mode(args: argparse.Namespace, db: Database) -> None:
+    """Run in continuous file watching mode."""
+    logger.info("🔍 Starting file watching mode...")
+    
+    # Initialize file watcher
+    file_watcher = FileWatcherManager()
+    
+    async def process_file_change(file_path: Path, event_type: str):
+        """Process file changes detected by the watcher."""
+        try:
+            if event_type == 'deleted':
+                # Remove file from database
+                db.cleanup_deleted_file(str(file_path))
+                logger.info(f"🗑️  Removed deleted file: {file_path}")
+            else:
+                # Process file (created, modified, moved)
+                if file_path.exists() and file_path.is_file():
+                    # Use incremental processing for performance
+                    result = await db.process_file_incremental(file_path=file_path)
+                    if result.get("status") == "success":
+                        if result.get("incremental"):
+                            logger.info(f"📝 Updated file incrementally: {file_path} ({result.get('chunks', 0)} chunks)")
+                        else:
+                            logger.info(f"📝 Processed file: {file_path} ({result.get('chunks', 0)} chunks)")
+        except Exception as e:
+            logger.warning(f"⚠️  Failed to process {file_path}: {e}")
+    
+    # Set up watch paths - use the run directory as the watch path
+    watch_paths = [args.path]
+    
+    try:
+        # Initialize file watcher with the callback
+        success = await file_watcher.initialize(process_file_change, watch_paths)
+        
+        if success:
+            logger.info(f"👀 Watching for changes in: {args.path}")
+            logger.info("Press Ctrl+C to stop watching...")
+            
+            # Keep the watcher running
+            while True:
+                await asyncio.sleep(1)
+                
+        else:
+            logger.error("❌ Failed to initialize file watcher")
+            
+    except KeyboardInterrupt:
+        logger.info("🛑 Stopping file watcher...")
+    finally:
+        await file_watcher.cleanup()
 
 
 def main() -> None:

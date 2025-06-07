@@ -25,6 +25,12 @@ class Database:
         self.db_path = db_path
         self.connection: Optional[Any] = None
         self.embedding_manager = embedding_manager
+        
+        # Shared parser and chunker instances for performance optimization
+        self._parser: Optional[CodeParser] = None
+        self._incremental_parser: Optional[CodeParser] = None
+        self._chunker: Optional[Chunker] = None
+        self._incremental_chunker: Optional[IncrementalChunker] = None
 
     def connect(self) -> None:
         """Connect to DuckDB and load required extensions."""
@@ -52,10 +58,36 @@ class Database:
             # Create schema
             self._create_schema()
 
+            # Initialize shared parser and chunker instances for performance
+            self._initialize_shared_instances()
+
             logger.info("Database initialization complete")
 
         except Exception as e:
             logger.error(f"Database connection failed: {e}")
+            raise
+
+    def _initialize_shared_instances(self) -> None:
+        """Initialize shared parser and chunker instances for performance optimization."""
+        logger.debug("Initializing shared parser and chunker instances")
+        
+        try:
+            # Initialize regular parser for non-incremental processing
+            self._parser = CodeParser()
+            self._parser.setup()
+            
+            # Initialize incremental parser with cache enabled
+            self._incremental_parser = CodeParser(use_cache=True)
+            self._incremental_parser.setup()
+            
+            # Initialize chunkers
+            self._chunker = Chunker()
+            self._incremental_chunker = IncrementalChunker()
+            
+            logger.debug("Shared instances initialized successfully")
+            
+        except Exception as e:
+            logger.error(f"Failed to initialize shared instances: {e}")
             raise
 
     def _load_extensions(self) -> None:
@@ -631,19 +663,18 @@ class Database:
                 else:
                     logger.debug(f"File {file_path} modified (existing: {existing_mtime}, current: {mtime}), reprocessing")
             
-            # Initialize parser and chunker
-            parser = CodeParser()
-            parser.setup()
-            chunker = Chunker()
-            
+            # Use shared parser and chunker instances for performance
+            if not self._parser or not self._chunker:
+                raise RuntimeError("Shared parser instances not initialized")
+
             # Parse the file
-            parsed_data = parser.parse_file(file_path)
+            parsed_data = self._parser.parse_file(file_path)
             if not parsed_data:
                 logger.debug(f"No parseable content in {file_path}")
                 return {"status": "no_content", "chunks": 0}
             
             # Create chunks
-            chunks = chunker.chunk_file(file_path, parsed_data)
+            chunks = self._chunker.chunk_file(file_path, parsed_data)
             if not chunks:
                 logger.debug(f"No chunks created from {file_path}")
                 return {"status": "no_chunks", "chunks": 0}
@@ -768,16 +799,15 @@ class Database:
                     for chunk in old_chunks
                 ]
                 
-                # Initialize parser with cache enabled for incremental parsing
-                from .parser import CodeParser
-                parser = CodeParser(use_cache=True)
-                parser.setup()
+                # Use shared incremental parser instance for performance
+                if not self._incremental_parser:
+                    raise RuntimeError("Shared incremental parser not initialized")
 
                 # Get old tree from cache for comparison (even if stale)
                 old_tree = None
-                if old_chunks and parser.tree_cache:
+                if old_chunks and self._incremental_parser.tree_cache:
                     # Use get_for_comparison to retrieve tree even if file has changed
-                    old_tree = parser.tree_cache.get_for_comparison(file_path)
+                    old_tree = self._incremental_parser.tree_cache.get_for_comparison(file_path)
                     if old_tree:
                         logger.debug(f"Retrieved old tree from cache for comparison: {file_path}")
                     else:
@@ -794,14 +824,13 @@ class Database:
                     else:
                         logger.debug(f"File {file_path} has changed (diff={mtime_diff} >= 0.01), processing")
             else:
-                # Initialize parser with cache enabled for incremental parsing
-                from .parser import CodeParser
-                parser = CodeParser(use_cache=True)
-                parser.setup()
+                # Use shared incremental parser instance for performance
+                if not self._incremental_parser:
+                    raise RuntimeError("Shared incremental parser not initialized")
                 old_tree = None
 
             # Parse the file using incremental methods
-            new_tree = parser.parse_incremental(file_path)
+            new_tree = self._incremental_parser.parse_incremental(file_path)
             if not new_tree:
                 logger.debug(f"Failed to parse {file_path}")
                 return {"status": "parse_error", "chunks": 0}
@@ -811,7 +840,7 @@ class Database:
             if old_chunks and old_tree:
                 # We have both old chunks and old tree - do incremental comparison
                 logger.debug(f"Performing incremental tree comparison for {file_path}")
-                changed_ranges = parser.get_changed_regions(old_tree, new_tree)
+                changed_ranges = self._incremental_parser.get_changed_regions(old_tree, new_tree)
                 logger.debug(f"Found {len(changed_ranges)} changed regions in {file_path}")
             else:
                 # No old tree available or new file - treat as full change
@@ -822,16 +851,16 @@ class Database:
                 changed_ranges = [{'start_byte': 0, 'end_byte': float('inf'), 'type': 'full_change'}]
 
             # Parse the file to get new AST data
-            new_parsed_data = parser.parse_file(file_path)
+            new_parsed_data = self._incremental_parser.parse_file(file_path)
             if not new_parsed_data:
                 logger.debug(f"No parseable content in {file_path}")
                 return {"status": "no_content", "chunks": 0}
 
-            # Use IncrementalChunker for differential chunking
-            from .chunker import IncrementalChunker
-            incremental_chunker = IncrementalChunker()
-            
-            chunk_diff = incremental_chunker.chunk_file_differential(
+            # Use shared IncrementalChunker for differential chunking
+            if not self._incremental_chunker:
+                raise RuntimeError("Shared incremental chunker not initialized")
+
+            chunk_diff = self._incremental_chunker.chunk_file_differential(
                 file_path=file_path,
                 old_chunks=old_chunks,
                 changed_ranges=changed_ranges,
@@ -843,45 +872,86 @@ class Database:
                         f"unchanged {chunk_diff.unchanged_count}")
 
             # Apply database changes based on diff
+            # First handle file record (get file_id for new chunks)
             if existing_file:
                 file_id = existing_file["id"]
-                # Update file record
-                self.connection.execute("""
-                    UPDATE files
-                    SET mtime = to_timestamp(?), language = ?, size_bytes = ?, updated_at = CURRENT_TIMESTAMP
-                    WHERE id = ?
-                """, [mtime, language, size_bytes, file_id])
+                logger.debug(f"Using existing file record (ID: {file_id})")
             else:
-                # Insert new file record
-                file_id = self.insert_file(
-                    path=str(file_path),
-                    mtime=mtime,
-                    language=language,
-                    size_bytes=size_bytes
-                )
+                logger.debug("Inserting new file record")
+                try:
+                    # Insert new file record
+                    file_id = self.insert_file(
+                        path=str(file_path),
+                        mtime=mtime,
+                        language=language,
+                        size_bytes=size_bytes
+                    )
+                    logger.debug(f"New file record inserted with ID: {file_id}")
+                except Exception as e:
+                    logger.error(f"Foreign key constraint violation during file insertion: {e}")
+                    raise
 
-            # Delete outdated chunks
+            # Delete outdated chunks first (before updating file record to avoid constraint violations)
             if chunk_diff.chunks_to_delete:
                 chunk_ids_str = ','.join(map(str, chunk_diff.chunks_to_delete))
-                self.connection.execute(f"""
-                    DELETE FROM chunks WHERE id IN ({chunk_ids_str})
-                """)
-                logger.debug(f"Deleted {len(chunk_diff.chunks_to_delete)} outdated chunks")
+                logger.debug(f"About to delete chunks: {chunk_diff.chunks_to_delete}")
+                
+                try:
+                    # First delete embeddings for these chunks
+                    logger.debug(f"Deleting embeddings for chunk IDs: {chunk_ids_str}")
+                    self.connection.execute(f"""
+                        DELETE FROM embeddings 
+                        WHERE chunk_id IN ({chunk_ids_str})
+                    """)
+                    logger.debug("Embeddings deletion completed successfully")
+                    
+                    # Then delete the chunks themselves
+                    logger.debug(f"Deleting chunks with IDs: {chunk_ids_str}")
+                    self.connection.execute(f"""
+                        DELETE FROM chunks WHERE id IN ({chunk_ids_str})
+                    """)
+                    logger.debug("Chunks deletion completed successfully")
+                    logger.debug(f"Deleted {len(chunk_diff.chunks_to_delete)} outdated chunks and their embeddings")
+                except Exception as e:
+                    logger.error(f"Foreign key constraint violation during chunk deletion: {e}")
+                    raise
+
+            # Now update file record after chunks are deleted (avoids foreign key constraint)
+            if existing_file:
+                logger.debug(f"Updating existing file record (ID: {file_id}) after chunk cleanup")
+                try:
+                    # Update file record
+                    self.connection.execute("""
+                        UPDATE files
+                        SET mtime = to_timestamp(?), language = ?, size_bytes = ?, updated_at = CURRENT_TIMESTAMP
+                        WHERE id = ?
+                    """, [mtime, language, size_bytes, file_id])
+                    logger.debug("File record update completed successfully")
+                except Exception as e:
+                    logger.error(f"Foreign key constraint violation during file update: {e}")
+                    raise
 
             # Insert new chunks
             new_chunk_ids = []
-            for chunk in chunk_diff.chunks_to_insert:
-                chunk_id = self.insert_chunk(
-                    file_id=file_id,
-                    symbol=chunk["symbol"],
-                    start_line=chunk["start_line"],
-                    end_line=chunk["end_line"],
-                    code=chunk["code"],
-                    chunk_type=chunk["chunk_type"],
-                    language_info=chunk.get("language_info"),
-                    parent_header=chunk.get("parent_header")
-                )
-                new_chunk_ids.append(chunk_id)
+            logger.debug(f"About to insert {len(chunk_diff.chunks_to_insert)} new chunks")
+            try:
+                for chunk in chunk_diff.chunks_to_insert:
+                    logger.debug(f"Inserting chunk: {chunk['symbol']} (lines {chunk['start_line']}-{chunk['end_line']})")
+                    chunk_id = self.insert_chunk(
+                        file_id=file_id,
+                        symbol=chunk["symbol"],
+                        start_line=chunk["start_line"],
+                        end_line=chunk["end_line"],
+                        code=chunk["code"],
+                        chunk_type=chunk["chunk_type"],
+                        language_info=chunk.get("language_info"),
+                        parent_header=chunk.get("parent_header")
+                    )
+                    new_chunk_ids.append(chunk_id)
+                    logger.debug(f"Successfully inserted chunk with ID: {chunk_id}")
+            except Exception as e:
+                logger.error(f"Foreign key constraint violation during chunk insertion: {e}")
+                raise
 
             # Generate embeddings for new chunks if embedding manager is available
             embeddings_generated = 0
