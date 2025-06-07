@@ -623,14 +623,15 @@ class Database:
             logger.error(f"Failed to get stats: {e}")
             raise
 
-    async def process_file(self, file_path: Path) -> Dict[str, Any]:
+    async def process_file(self, file_path: Path, skip_embeddings: bool = False) -> Dict[str, Any]:
         """Process a file end-to-end: parse, chunk, and store in database.
-        
+
         Args:
             file_path: Path to the file to process
-            
+            skip_embeddings: If True, skip embedding generation for batch processing
+
         Returns:
-            Dictionary with processing results
+            Dictionary with processing results including chunk data when skip_embeddings=True
         """
         try:
             logger.info(f"Processing file: {file_path}")
@@ -719,22 +720,28 @@ class Database:
                 )
                 chunk_ids.append(chunk_id)
 
-            # Generate embeddings if embedding manager is available
+            # Generate embeddings if embedding manager is available and not skipped
             embeddings_generated = 0
-            if self.embedding_manager and chunk_ids:
+            if self.embedding_manager and chunk_ids and not skip_embeddings:
                 try:
                     embeddings_generated = await self._generate_embeddings_for_chunks(chunk_ids, chunks)
                 except Exception as e:
                     logger.warning(f"Failed to generate embeddings for {file_path}: {e}")
 
-            logger.info(f"Successfully processed {file_path}: {len(chunks)} chunks, {embeddings_generated} embeddings")
-            return {
+            result = {
                 "status": "success",
                 "file_id": file_id,
                 "chunks": len(chunks),
                 "chunk_ids": chunk_ids,
                 "embeddings": embeddings_generated
             }
+            
+            # Include chunk data for batch processing
+            if skip_embeddings:
+                result["chunk_data"] = chunks
+
+            logger.info(f"Successfully processed {file_path}: {len(chunks)} chunks, {embeddings_generated} embeddings")
+            return result
             
         except Exception as e:
             logger.error(f"Failed to process file {file_path}: {e}")
@@ -969,13 +976,7 @@ class Database:
 
             total_chunks = chunk_diff.unchanged_count + len(chunk_diff.chunks_to_insert)
             
-            logger.info(f"Successfully processed {file_path} incrementally: "
-                       f"{total_chunks} total chunks "
-                       f"({chunk_diff.unchanged_count} unchanged, "
-                       f"{len(chunk_diff.chunks_to_insert)} new/modified), "
-                       f"{embeddings_generated} embeddings")
-            
-            return {
+            result = {
                 "status": "success",
                 "file_id": file_id,
                 "chunks": total_chunks,
@@ -986,6 +987,14 @@ class Database:
                 "embeddings": embeddings_generated,
                 "incremental": True
             }
+
+            logger.info(f"Successfully processed {file_path} incrementally: "
+                       f"{total_chunks} total chunks "
+                       f"({chunk_diff.unchanged_count} unchanged, "
+                       f"{len(chunk_diff.chunks_to_insert)} new/modified), "
+                       f"{embeddings_generated} embeddings")
+
+            return result
 
         except Exception as e:
             logger.error(f"Failed to process file incrementally {file_path}: {e}")
@@ -1039,19 +1048,92 @@ class Database:
                 logger.warning(f"No files found matching patterns {patterns} in {directory}")
                 return {"status": "no_files", "processed": 0, "errors": 0, "cleanup": cleanup_stats}
             
-            # Process each file
-            results = {"processed": 0, "errors": 0, "skipped": 0, "total_chunks": 0, "cleanup": cleanup_stats}
+            # Process files with cross-file embedding batching for optimal performance
+            results = {"processed": 0, "errors": 0, "skipped": 0, "total_chunks": 0, "total_embeddings": 0, "cleanup": cleanup_stats}
             
+            # Batch configuration for parallel processing
+            BATCH_SIZE = 8  # Number of files per embedding batch
+            MAX_CHUNKS_PER_BATCH = 400  # Maximum chunks per API call to prevent mega-batches
+            MAX_CONCURRENT_BATCHES = 3  # Maximum concurrent embedding batches
+            
+            # Process files and collect all chunks for parallel batch embedding generation
+            all_file_chunks = []  # List of (chunk_ids, chunks) from all files
+            
+            # First pass: Process all files without embeddings
             for file_path in files:
-                result = await self.process_file(file_path)
+                # Process file without embeddings (batch mode)
+                result = await self.process_file(file_path, skip_embeddings=True)
                 
                 if result["status"] == "success":
                     results["processed"] += 1
                     results["total_chunks"] += result["chunks"]
+                    
+                    # Collect chunks for parallel batch embedding generation
+                    if result["chunks"] > 0 and "chunk_data" in result:
+                        all_file_chunks.append((result["chunk_ids"], result["chunk_data"]))
+                    
                 elif result["status"] == "error":
                     results["errors"] += 1
                 else:
                     results["skipped"] += 1
+            
+            # Second pass: Create optimal batches and process in parallel
+            if all_file_chunks and self.embedding_manager:
+                # Create batches from all collected chunks
+                all_batches = []
+                current_batch_chunks = []
+                current_batch_files = 0
+                
+                for chunk_ids, chunks in all_file_chunks:
+                    current_batch_chunks.append((chunk_ids, chunks))
+                    current_batch_files += 1
+                    
+                    # Create batch when we reach limits
+                    total_chunks_in_batch = sum(len(chunks) for _, chunks in current_batch_chunks)
+                    should_create_batch = (
+                        current_batch_files >= BATCH_SIZE or 
+                        total_chunks_in_batch >= MAX_CHUNKS_PER_BATCH
+                    )
+                    
+                    if should_create_batch:
+                        # Flatten chunks for this batch
+                        batch_chunk_ids = []
+                        batch_chunks = []
+                        for cids, cdata in current_batch_chunks:
+                            batch_chunk_ids.extend(cids)
+                            batch_chunks.extend(cdata)
+                        
+                        all_batches.append({
+                            "chunk_ids": batch_chunk_ids,
+                            "chunks": batch_chunks,
+                            "batch_size": current_batch_files,
+                            "chunk_count": len(batch_chunks)
+                        })
+                        
+                        # Reset for next batch
+                        current_batch_chunks = []
+                        current_batch_files = 0
+                
+                # Handle remaining chunks in final batch
+                if current_batch_chunks:
+                    batch_chunk_ids = []
+                    batch_chunks = []
+                    for cids, cdata in current_batch_chunks:
+                        batch_chunk_ids.extend(cids)
+                        batch_chunks.extend(cdata)
+                    
+                    all_batches.append({
+                        "chunk_ids": batch_chunk_ids,
+                        "chunks": batch_chunks,
+                        "batch_size": current_batch_files,
+                        "chunk_count": len(batch_chunks)
+                    })
+                
+                # Process all batches in parallel for maximum performance
+                total_embeddings = await self._process_embedding_batches_parallel(
+                    all_batches, MAX_CONCURRENT_BATCHES
+                )
+                results["total_embeddings"] = total_embeddings
             
             logger.info(f"Directory processing complete: {results}")
             return {"status": "complete", **results}
@@ -1116,6 +1198,90 @@ class Database:
         except Exception as e:
             logger.error(f"Failed to generate embeddings: {e}")
             return 0
+    
+    async def _process_embedding_batches_parallel(
+        self, 
+        batches: List[Dict[str, Any]], 
+        max_concurrent: int = 3
+    ) -> int:
+        """Process multiple embedding batches in parallel for maximum performance.
+        
+        Args:
+            batches: List of batch dictionaries with chunk_ids, chunks, etc.
+            max_concurrent: Maximum number of concurrent API calls
+            
+        Returns:
+            Total number of embeddings generated across all batches
+        """
+        if not batches:
+            return 0
+        
+        logger.info(f"🚀 Starting parallel embedding generation for {len(batches)} batches (max {max_concurrent} concurrent)")
+        
+        # Process batches in parallel with controlled concurrency
+        total_embeddings = 0
+        
+        # Use semaphore to limit concurrent API calls
+        semaphore = asyncio.Semaphore(max_concurrent)
+        
+        async def process_single_batch(batch_info: Dict[str, Any], batch_num: int) -> int:
+            """Process a single batch with rate limiting and error handling."""
+            async with semaphore:
+                try:
+                    chunk_ids = batch_info["chunk_ids"]
+                    chunks = batch_info["chunks"]
+                    batch_size = batch_info["batch_size"]
+                    chunk_count = batch_info["chunk_count"]
+                    
+                    logger.info(f"🔄 Processing batch {batch_num + 1}/{len(batches)}: {chunk_count} chunks from {batch_size} files")
+                    
+                    # Add jitter to prevent thundering herd
+                    await asyncio.sleep(batch_num * 0.1)
+                    
+                    embeddings_generated = await self._generate_embeddings_for_chunks(chunk_ids, chunks)
+                    
+                    logger.info(f"✅ Batch {batch_num + 1} complete: {embeddings_generated} embeddings generated")
+                    return embeddings_generated
+                    
+                except Exception as e:
+                    logger.warning(f"❌ Batch {batch_num + 1} failed: {e}")
+                    # Individual batch failure shouldn't kill the whole process
+                    return 0
+        
+        # Create tasks for all batches
+        tasks = [
+            process_single_batch(batch, i) 
+            for i, batch in enumerate(batches)
+        ]
+        
+        # Execute all batches in parallel with error handling
+        try:
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            
+            # Sum up successful results
+            for i, result in enumerate(results):
+                if isinstance(result, Exception):
+                    logger.warning(f"Batch {i + 1} failed with exception: {result}")
+                else:
+                    total_embeddings += result
+            
+            logger.info(f"🎯 Parallel embedding generation complete: {total_embeddings} total embeddings generated from {len(batches)} batches")
+            
+        except Exception as e:
+            logger.error(f"Critical error in parallel batch processing: {e}")
+            # Fallback to sequential processing
+            logger.info("📋 Falling back to sequential batch processing...")
+            for i, batch in enumerate(batches):
+                try:
+                    embeddings_generated = await self._generate_embeddings_for_chunks(
+                        batch["chunk_ids"], batch["chunks"]
+                    )
+                    total_embeddings += embeddings_generated
+                    logger.info(f"✅ Sequential batch {i + 1}/{len(batches)}: {embeddings_generated} embeddings")
+                except Exception as batch_error:
+                    logger.warning(f"Sequential batch {i + 1} failed: {batch_error}")
+        
+        return total_embeddings
 
     async def generate_missing_embeddings(self, provider_name: Optional[str] = None) -> Dict[str, Any]:
         """Generate embeddings for chunks that don't have them yet.
