@@ -1888,10 +1888,58 @@ class CodeParser:
         
         return chunks
     
-    def _extract_paragraphs(self, tree_node: TreeSitterNode, source_code: str) -> List[Dict[str, Any]]:
-        """Extract markdown paragraphs from AST."""
-        chunks = []
+    def _merge_consecutive_paragraphs(self, paragraphs: List[Dict], source_code: str) -> List[Dict]:
+        """Merge consecutive paragraphs that are closely related."""
+        if not paragraphs:
+            return []
         
+        merged = []
+        current_group = [paragraphs[0]]
+    
+        for i in range(1, len(paragraphs)):
+            prev_para = current_group[-1]
+            curr_para = paragraphs[i]
+        
+            # Check if paragraphs are consecutive (within 2 lines of each other)
+            line_gap = curr_para["start_line"] - prev_para["end_line"]
+        
+            # Merge if they're very close and both are short
+            if (line_gap <= 2 and 
+                len(prev_para["text"]) < 100 and 
+                len(curr_para["text"]) < 100 and
+                len(current_group) < 3):  # Don't merge more than 3 paragraphs
+                current_group.append(curr_para)
+            else:
+                # Finalize current group
+                if len(current_group) == 1:
+                    merged.append(current_group[0])
+                else:
+                    # Merge the group into a single paragraph
+                    merged_text = "\n\n".join([p["text"] for p in current_group])
+                    merged.append({
+                        "text": merged_text,
+                        "start_line": current_group[0]["start_line"], 
+                        "end_line": current_group[-1]["end_line"]
+                    })
+                current_group = [curr_para]
+    
+        # Handle the last group
+        if len(current_group) == 1:
+            merged.append(current_group[0])
+        else:
+            merged_text = "\n\n".join([p["text"] for p in current_group])
+            merged.append({
+                "text": merged_text,
+                "start_line": current_group[0]["start_line"],
+                "end_line": current_group[-1]["end_line"]
+            })
+        
+        return merged
+
+    def _extract_paragraphs(self, tree_node: TreeSitterNode, source_code: str) -> List[Dict[str, Any]]:
+        """Extract markdown paragraphs from AST with intelligent filtering."""
+        chunks = []
+
         # Query for paragraph nodes
         if self.markdown_language is not None:
             query = self.markdown_language.query("""
@@ -1899,38 +1947,58 @@ class CodeParser:
             """)
         else:
             return chunks
-        
+
         try:
             matches = query.matches(tree_node)
             logger.debug(f"Paragraph query found {len(matches)} matches")
-            
+
+            # Collect and filter potential paragraphs
+            potential_paragraphs = []
             for match in matches:
                 pattern_index, captures = match
-                
+
                 if "paragraph" in captures:
                     para_node = captures["paragraph"][0]
                     para_text = self._get_node_text(para_node, source_code).strip()
                     
-                    # Skip very short paragraphs
-                    if len(para_text) < 20:
+                    # More stringent filtering for meaningful paragraphs
+                    if (len(para_text) < 30 or  # Minimum 30 characters
+                        len(para_text.split()) < 5 or  # Minimum 5 words
+                        para_node.start_point[0] == para_node.end_point[0]):  # Skip single-line spans
                         continue
                     
-                    # Create a brief symbol from first few words
-                    words = para_text.split()[:5]
-                    symbol = " ".join(words) + ("..." if len(words) == 5 else "")
-                    
-                    chunk = {
-                        "symbol": symbol,
+                    # Skip if it's mostly punctuation or very short sentences
+                    words = para_text.split()
+                    if len([w for w in words if len(w) > 2]) < 3:  # Need at least 3 meaningful words
+                        continue
+                        
+                    potential_paragraphs.append({
+                        "node": para_node,
+                        "text": para_text,
                         "start_line": para_node.start_point[0] + 1,
-                        "end_line": para_node.end_point[0] + 1,
-                        "code": para_text,
-                        "chunk_type": "paragraph",
-                        "language_info": "markdown"
-                    }
-                    chunks.append(chunk)
-                    logger.debug(f"Found paragraph at lines {chunk['start_line']}-{chunk['end_line']}")
-        
+                        "end_line": para_node.end_point[0] + 1
+                    })
+
+            # Merge consecutive paragraphs if they're closely related
+            merged_paragraphs = self._merge_consecutive_paragraphs(potential_paragraphs, source_code)
+            
+            # Create chunks from merged paragraphs
+            for para_info in merged_paragraphs:
+                words = para_info["text"].split()[:5]
+                symbol = " ".join(words) + ("..." if len(words) == 5 else "")
+                
+                chunk = {
+                    "symbol": symbol,
+                    "start_line": para_info["start_line"],
+                    "end_line": para_info["end_line"],
+                    "code": para_info["text"],
+                    "chunk_type": "paragraph",
+                    "language_info": "markdown"
+                }
+                chunks.append(chunk)
+                logger.debug(f"Found paragraph at lines {chunk['start_line']}-{chunk['end_line']}")
+
         except Exception as e:
             logger.error(f"Failed to extract paragraphs: {e}")
-        
+
         return chunks
