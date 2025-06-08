@@ -1,0 +1,143 @@
+# Advanced Multi-Server Configuration
+# This configuration demonstrates advanced features for production and development environments
+
+# Default server - primary production server
+default_server: primary-tei
+
+servers:
+  # Primary production server - High performance TEI
+  primary-tei:
+    type: tei
+    base_url: http://embeddings-primary.company.com:8080
+    model: ""  # Auto-detected
+    enabled: true
+    
+    # High-performance settings
+    batch_size: 64
+    timeout: 45
+    health_check_interval: 60
+    max_retries: 3
+    
+    metadata:
+      environment: production
+      priority: high
+      description: "Primary production embedding server"
+      
+  # Secondary production server - Load balancing
+  secondary-tei:
+    type: tei
+    base_url: http://embeddings-secondary.company.com:8080
+    model: ""
+    enabled: true
+    batch_size: 64
+    timeout: 45
+    health_check_interval: 60
+    max_retries: 3
+    
+    metadata:
+      environment: production
+      priority: medium
+      description: "Secondary production server for load balancing"
+      
+  # Development server - Local testing
+  dev-local:
+    type: tei
+    base_url: http://localhost:8080
+    model: ""
+    enabled: true
+    batch_size: 16
+    timeout: 30
+    health_check_interval: 300
+    
+    metadata:
+      environment: development
+      priority: low
+      description: "Local development server"
+      
+  # Custom OpenAI-compatible server
+  custom-embeddings:
+    type: openai-compatible
+    base_url: https://api.custom-provider.com/v1
+    model: custom-embeddings-v2
+    api_key: "${CUSTOM_API_KEY}"  # Environment variable
+    enabled: true
+    batch_size: 32
+    timeout: 60
+    health_check_interval: 120
+    
+    metadata:
+      environment: production
+      provider: custom
+      description: "Custom embedding service with specialized models"
+      
+  # OpenAI for specific models
+  openai-large:
+    type: openai
+    base_url: https://api.openai.com/v1
+    model: text-embedding-3-large
+    enabled: true
+    batch_size: 16
+    timeout: 30
+    health_check_interval: 300
+    max_retries: 3
+    
+    metadata:
+      environment: production
+      cost: high
+      quality: premium
+      description: "OpenAI large model for high-quality embeddings"
+      
+  # Backup OpenAI server
+  openai-backup:
+    type: openai
+    base_url: https://api.openai.com/v1
+    model: text-embedding-3-small
+    enabled: false  # Disabled unless needed
+    batch_size: 16
+    timeout: 30
+    
+    metadata:
+      environment: production
+      priority: backup
+      description: "Emergency fallback to OpenAI"
+
+# Advanced Usage Examples:
+#
+# 1. Health monitoring of all servers:
+#    chunkhound config health --monitor
+#
+# 2. Benchmark all servers:
+#    chunkhound config benchmark
+#
+# 3. Test specific environment servers:
+#    chunkhound config batch-test
+#
+# 4. Switch between environments:
+#    chunkhound config switch dev-local      # Development
+#    chunkhound config switch primary-tei    # Production
+#
+# 5. Export configuration for backup:
+#    chunkhound config export backup-config.yaml
+#
+# 6. Validate entire setup:
+#    chunkhound config validate --fix
+#
+# 7. Enable/disable servers dynamically:
+#    chunkhound config disable openai-backup
+#    chunkhound config enable secondary-tei
+#
+# Load Balancing Strategy:
+# - Use primary-tei as default for best performance
+# - Enable secondary-tei for high-load scenarios
+# - Keep custom-embeddings for specialized workloads
+# - OpenAI servers as premium/backup options
+#
+# Monitoring Strategy:
+# - Monitor health every 60s for production servers
+# - Monitor development servers less frequently (300s)
+# - Set up alerts for health check failures
+#
+# Cost Optimization:
+# - Prioritize local/self-hosted servers (primary-tei, secondary-tei)
+# - Use OpenAI selectively for specific use cases
+# - Disable expensive servers when not needed

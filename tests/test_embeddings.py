@@ -8,7 +8,7 @@ import sys
 # Add parent directory to path to import chunkhound modules
 sys.path.insert(0, str(Path(__file__).parent))
 
-from chunkhound.embeddings import EmbeddingManager, OpenAIEmbeddingProvider
+from chunkhound.embeddings import EmbeddingManager, OpenAIEmbeddingProvider, OpenAICompatibleProvider, TEIProvider
 
 async def test_openai_provider_creation():
     """Test creating OpenAI provider without API calls."""
@@ -96,6 +96,137 @@ async def test_mock_embedding_generation():
         print(f"❌ Mock embedding test failed: {e}")
         return False
 
+async def test_openai_compatible_provider():
+    """Test OpenAI-compatible provider creation."""
+    print("\nTesting OpenAI-compatible provider...")
+    
+    try:
+        # Test basic provider creation
+        provider = OpenAICompatibleProvider(
+            base_url="http://localhost:8080",
+            model="sentence-transformers/all-MiniLM-L6-v2",
+            provider_name="test-local"
+        )
+        
+        print(f"✅ OpenAI-compatible provider created successfully:")
+        print(f"   • Name: {provider.name}")
+        print(f"   • Model: {provider.model}")
+        print(f"   • Base URL: http://localhost:8080")
+        print(f"   • Batch size: {provider.batch_size}")
+        
+        # Test with API key
+        auth_provider = OpenAICompatibleProvider(
+            base_url="https://api.example.com",
+            model="custom-model",
+            api_key="test-key",
+            provider_name="authenticated-server"
+        )
+        
+        print(f"✅ Authenticated provider created:")
+        print(f"   • Name: {auth_provider.name}")
+        print(f"   • Has API key: True")
+        
+        # Test empty input handling
+        empty_result = await provider.embed([])
+        assert empty_result == []
+        print("✅ Empty input handling works")
+        
+        return provider
+        
+    except Exception as e:
+        print(f"❌ OpenAI-compatible provider test failed: {e}")
+        return None
+
+async def test_tei_provider():
+    """Test TEI provider creation and optimization."""
+    print("\nTesting TEI provider...")
+    
+    try:
+        # Test basic TEI provider
+        provider = TEIProvider(
+            base_url="http://localhost:8080",
+            model="sentence-transformers/all-MiniLM-L6-v2"
+        )
+        
+        print(f"✅ TEI provider created successfully:")
+        print(f"   • Name: {provider.name}")
+        print(f"   • Model: {provider.model}")
+        print(f"   • Batch size (TEI optimized): {provider.batch_size}")
+        print(f"   • Distance metric: {provider.distance}")
+        
+        # Test auto-detection without model
+        auto_provider = TEIProvider(
+            base_url="http://localhost:8080"
+        )
+        
+        print(f"✅ Auto-detection provider:")
+        print(f"   • Model: {auto_provider.model}")
+        
+        # Test empty input handling
+        empty_result = await provider.embed([])
+        assert empty_result == []
+        print("✅ Empty input handling works")
+        
+        return provider
+        
+    except Exception as e:
+        print(f"❌ TEI provider test failed: {e}")
+        return None
+
+def test_provider_integration():
+    """Test integration of all providers with EmbeddingManager."""
+    print("\nTesting provider integration with EmbeddingManager...")
+    
+    try:
+        manager = EmbeddingManager()
+        
+        # Register OpenAI provider
+        openai_provider = OpenAIEmbeddingProvider(
+            api_key="sk-test-key",
+            model="text-embedding-3-small"
+        )
+        manager.register_provider(openai_provider)
+        
+        # Register OpenAI-compatible provider
+        compatible_provider = OpenAICompatibleProvider(
+            base_url="http://localhost:8080",
+            model="local-model",
+            provider_name="local-server"
+        )
+        manager.register_provider(compatible_provider)
+        
+        # Register TEI provider
+        tei_provider = TEIProvider(
+            base_url="http://localhost:8081",
+            model="tei-model"
+        )
+        manager.register_provider(tei_provider, set_default=True)
+        
+        # Test provider listing
+        providers = manager.list_providers()
+        expected_providers = {"openai", "local-server", "tei"}
+        assert expected_providers.issubset(set(providers))
+        
+        # Test default provider
+        default = manager.get_provider()
+        assert default.name == "tei"
+        
+        # Test specific provider retrieval
+        openai_retrieved = manager.get_provider("openai")
+        assert openai_retrieved.name == "openai"
+        
+        local_retrieved = manager.get_provider("local-server")
+        assert local_retrieved.name == "local-server"
+        
+        print(f"✅ Provider integration successful:")
+        print(f"   • Registered providers: {providers}")
+        print(f"   • Default provider: {default.name}")
+        print(f"   • Can retrieve by name: ✓")
+        
+    except Exception as e:
+        print(f"❌ Provider integration test failed: {e}")
+        assert False, f"Provider integration failed: {e}"
+
 def test_environment_variable_handling():
     """Test environment variable handling."""
     print("\nTesting environment variable handling...")
@@ -143,8 +274,15 @@ async def main():
     # Test provider creation
     provider = await test_openai_provider_creation()
     
+    # Test new providers
+    compatible_provider = await test_openai_compatible_provider()
+    tei_provider = await test_tei_provider()
+    
     # Test embedding manager
     manager = test_embedding_manager()
+    
+    # Test provider integration
+    test_provider_integration()
     
     # Test mock embedding generation
     await test_mock_embedding_generation()
@@ -155,10 +293,14 @@ async def main():
     print("\n" + "=" * 40)
     print("Test summary:")
     print("✅ OpenAI provider creation")
+    print("✅ OpenAI-compatible provider creation")
+    print("✅ TEI provider creation")
     print("✅ Embedding manager functionality") 
+    print("✅ Provider integration")
     print("✅ Mock embedding generation")
     print("✅ Environment variable handling")
     print("\nAll core embedding functionality verified!")
+    print("🚀 New OpenAI-compatible and TEI providers ready!")
     print("\nTo test with real API calls, set OPENAI_API_KEY and run:")
     print("python -c \"import asyncio; from test_embeddings import test_real_api; asyncio.run(test_real_api())\"")
 

@@ -1,0 +1,198 @@
+# Production Deployment Configuration
+# Enterprise-ready configuration for ChunkHound in production environments
+
+# Default to primary production cluster
+default_server: production-cluster
+
+servers:
+  # Primary production cluster - Load-balanced embedding service
+  production-cluster:
+    type: openai-compatible
+    base_url: https://embeddings.company.com/v1
+    model: company-embeddings-v1
+    api_key: "${CHUNKHOUND_PRODUCTION_API_KEY}"
+    enabled: true
+    
+    # Production-optimized settings
+    batch_size: 128
+    timeout: 45
+    health_check_interval: 30  # Frequent health checks for production
+    max_retries: 5
+    
+    metadata:
+      environment: production
+      sla: "99.9%"
+      max_rps: 1000
+      description: "Primary production embedding cluster with load balancing"
+      contact: "platform-team@company.com"
+      
+  # High-availability backup cluster
+  production-backup:
+    type: openai-compatible
+    base_url: https://embeddings-backup.company.com/v1
+    model: company-embeddings-v1
+    api_key: "${CHUNKHOUND_BACKUP_API_KEY}"
+    enabled: true
+    
+    batch_size: 64
+    timeout: 60
+    health_check_interval: 30
+    max_retries: 3
+    
+    metadata:
+      environment: production
+      role: backup
+      sla: "99.5%"
+      description: "High-availability backup cluster"
+      
+  # Premium OpenAI for critical workloads
+  openai-premium:
+    type: openai
+    base_url: https://api.openai.com/v1
+    model: text-embedding-3-large
+    api_key: "${OPENAI_PRODUCTION_API_KEY}"
+    enabled: true
+    
+    batch_size: 32
+    timeout: 30
+    health_check_interval: 60
+    max_retries: 3
+    
+    metadata:
+      environment: production
+      cost: premium
+      quality: highest
+      description: "Premium OpenAI for critical workloads"
+      usage: "high-value customers only"
+      
+  # Staging environment server
+  staging-cluster:
+    type: openai-compatible
+    base_url: https://embeddings-staging.company.com/v1
+    model: company-embeddings-v1
+    api_key: "${CHUNKHOUND_STAGING_API_KEY}"
+    enabled: false  # Disabled in production config
+    
+    batch_size: 32
+    timeout: 45
+    health_check_interval: 120
+    max_retries: 2
+    
+    metadata:
+      environment: staging
+      description: "Staging environment for testing"
+      
+  # Emergency fallback - OpenAI with rate limiting
+  emergency-fallback:
+    type: openai
+    base_url: https://api.openai.com/v1
+    model: text-embedding-3-small
+    api_key: "${OPENAI_FALLBACK_API_KEY}"
+    enabled: false  # Only enable during emergencies
+    
+    batch_size: 8   # Conservative batch size for fallback
+    timeout: 60
+    health_check_interval: 300
+    max_retries: 2
+    
+    metadata:
+      environment: production
+      role: emergency
+      cost: external
+      description: "Emergency fallback - enable only during outages"
+
+# Production Deployment Checklist:
+#
+# Environment Variables (set these in your deployment):
+# ✓ CHUNKHOUND_PRODUCTION_API_KEY - Primary cluster API key
+# ✓ CHUNKHOUND_BACKUP_API_KEY - Backup cluster API key  
+# ✓ OPENAI_PRODUCTION_API_KEY - Premium OpenAI key
+# ✓ OPENAI_FALLBACK_API_KEY - Fallback OpenAI key
+#
+# Infrastructure Requirements:
+# ✓ Load balancer with health checks
+# ✓ SSL/TLS termination
+# ✓ Network security groups/firewall rules
+# ✓ Monitoring and alerting system
+# ✓ Log aggregation and analysis
+#
+# Pre-deployment Validation:
+# 1. Test all servers:
+#    chunkhound config batch-test --timeout 60
+#
+# 2. Validate configuration:
+#    chunkhound config validate
+#
+# 3. Benchmark performance:
+#    chunkhound config benchmark --samples 20
+#
+# 4. Test failover scenarios:
+#    chunkhound config switch production-backup
+#    chunkhound config switch production-cluster
+#
+# Monitoring and Alerting:
+# - Set up health check monitoring for all enabled servers
+# - Alert on response times > 1000ms
+# - Alert on health check failures
+# - Monitor embedding quality and consistency
+# - Track API usage and costs
+#
+# Operational Procedures:
+#
+# Normal Operations:
+# - Primary: production-cluster (default)
+# - Monitor health every 30 seconds
+# - Automatic retry on failures (5 retries)
+#
+# Failover Procedures:
+# 1. Primary cluster failure:
+#    chunkhound config switch production-backup
+#
+# 2. Both clusters failing:
+#    chunkhound config enable emergency-fallback
+#    chunkhound config switch emergency-fallback
+#
+# 3. Recovery:
+#    chunkhound config switch production-cluster
+#    chunkhound config disable emergency-fallback
+#
+# Maintenance Windows:
+# 1. Enable backup before maintenance:
+#    chunkhound config enable production-backup
+#
+# 2. Switch to backup:
+#    chunkhound config switch production-backup
+#
+# 3. Perform maintenance on primary
+#
+# 4. Switch back after maintenance:
+#    chunkhound config switch production-cluster
+#
+# Security Considerations:
+# - Use environment variables for all API keys
+# - Rotate API keys regularly
+# - Enable TLS for all communication
+# - Restrict network access to embedding servers
+# - Audit access and usage logs
+# - Use separate keys for different environments
+#
+# Performance Optimization:
+# - Batch size tuned for each server type
+# - Connection pooling and keep-alive
+# - Geographic distribution of servers
+# - Caching layer for frequent embeddings
+# - Rate limiting and throttling
+#
+# Cost Management:
+# - Monitor usage patterns and costs
+# - Use company servers for bulk operations
+# - Reserve OpenAI for high-value workloads
+# - Implement usage quotas and alerts
+# - Regular cost analysis and optimization
+#
+# Disaster Recovery:
+# - Regular configuration backups
+# - Cross-region deployment capability
+# - Emergency contact procedures
+# - Rollback procedures documented
+# - Tested recovery scenarios

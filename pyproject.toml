@@ -26,6 +26,7 @@ classifiers = [
 dependencies = [
     "duckdb>=0.8.0",
     "openai>=1.0.0",
+    "aiohttp>=3.8.0",
     "tree-sitter>=0.20.0",
     "tree-sitter-python>=0.20.0",
     "tree-sitter-markdown",
@@ -36,6 +37,7 @@ dependencies = [
     "mcp>=1.0.0",
     "watchdog>=4.0.0",
     "psutil>=5.8.0",
+    "PyYAML>=6.0.0",
 ]
 
 [project.optional-dependencies]

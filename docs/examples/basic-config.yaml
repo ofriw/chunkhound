@@ -1,0 +1,37 @@
+# Basic ChunkHound Configuration
+# This is a simple configuration for getting started with ChunkHound
+
+# Default server to use for embeddings
+default_server: openai
+
+# Server configurations
+servers:
+  # OpenAI API configuration
+  openai:
+    type: openai
+    base_url: https://api.openai.com/v1
+    model: text-embedding-3-small
+    enabled: true
+    # Optional: set OPENAI_API_KEY environment variable
+    # api_key: "your-api-key-here"
+    
+    # Performance settings
+    batch_size: 16
+    timeout: 30
+    health_check_interval: 300  # seconds
+    max_retries: 3
+
+# Getting Started:
+# 1. Set your OpenAI API key:
+#    export OPENAI_API_KEY="your-api-key-here"
+#
+# 2. Test the configuration:
+#    chunkhound config test
+#
+# 3. Start indexing your code:
+#    chunkhound run /path/to/your/project
+#
+# For more examples, see:
+# - local-config.yaml (local embedding servers)
+# - advanced-config.yaml (multi-server setup)
+# - production-config.yaml (production deployment)

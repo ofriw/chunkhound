@@ -1,0 +1,67 @@
+# Local Embedding Server Configuration
+# This configuration uses local/self-hosted embedding models for privacy and cost savings
+
+# Default to local TEI server with OpenAI as fallback
+default_server: local-tei
+
+servers:
+  # Primary: HuggingFace Text Embeddings Inference (TEI) server
+  local-tei:
+    type: tei
+    base_url: http://localhost:8080
+    model: ""  # Auto-detected from TEI server
+    enabled: true
+    
+    # Optimized for local TEI performance
+    batch_size: 32
+    timeout: 60
+    health_check_interval: 120
+    max_retries: 2
+    
+    metadata:
+      description: "Local TEI server for privacy and performance"
+      
+  # Secondary: Alternative local compatible server
+  local-ollama:
+    type: openai-compatible
+    base_url: http://localhost:11434/v1
+    model: nomic-embed-text
+    enabled: true
+    batch_size: 16
+    timeout: 45
+    
+  # Fallback: OpenAI for when local servers are unavailable
+  openai-fallback:
+    type: openai
+    base_url: https://api.openai.com/v1
+    model: text-embedding-3-small
+    enabled: false  # Disabled by default to prioritize local
+    batch_size: 16
+    timeout: 30
+
+# Setup Instructions:
+#
+# 1. Start a TEI server:
+#    docker run -p 8080:80 -v $PWD/data:/data \
+#      ghcr.io/huggingface/text-embeddings-inference:latest \
+#      --model-id sentence-transformers/all-MiniLM-L6-v2
+#
+# 2. Or start Ollama with embeddings:
+#    ollama serve
+#    ollama pull nomic-embed-text
+#
+# 3. Test the local setup:
+#    chunkhound config test local-tei
+#
+# 4. Validate all servers:
+#    chunkhound config validate
+#
+# 5. Benchmark performance:
+#    chunkhound config benchmark
+#
+# Benefits of local setup:
+# - No API costs
+# - Full data privacy
+# - Lower latency
+# - Offline capability
+# - Custom model options
