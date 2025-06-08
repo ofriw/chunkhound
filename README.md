@@ -25,7 +25,7 @@ That's it! Your code is now searchable by AI assistants.
 - **Regex search** - Find exact patterns like `def.*async`
 - **Semantic search** - Ask questions like "How do I connect to the database?"
 - **Works with AI assistants** - Claude, Cursor, VS Code, etc.
-- **Multi-language support** - Python, Java, and Markdown
+- **Multi-language support** - Python, Java, C#, and Markdown
 
 ## AI Assistant Setup
 ```json
@@ -44,7 +44,7 @@ That's it! Your code is now searchable by AI assistants.
 
 ## How It Works
 
-1. **Scan** - ChunkHound reads your Python, Java, and Markdown files
+1. **Scan** - ChunkHound reads your Python, Java, C#, and Markdown files
 2. **Parse** - Extracts functions, classes, methods using tree-sitter
 3. **Index** - Stores code chunks in a local database
 4. **Embed** - Creates AI embeddings for semantic search (optional)
@@ -59,6 +59,8 @@ Once running, ask your AI assistant:
 - "How is user authentication implemented?"
 - "Find functions that process files"
 - "Find Java interfaces that implement Comparable"
+- "Show me C# classes with async methods"
+- "Find C# interfaces and their implementations"
 
 ## Requirements
 
@@ -77,6 +79,10 @@ uv run chunkhound mcp      # Start MCP server
 ```
 
 Use ChunkHound to search its own codebase while developing!
+
+## Examples
+
+See the [examples/](examples/) directory for sample code demonstrating C# language support features.
 
 ## Commands
 
