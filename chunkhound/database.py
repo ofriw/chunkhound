@@ -956,6 +956,8 @@ class Database:
                 language = "markdown"
             elif suffix == '.java':
                 language = "java"
+            elif suffix == '.cs':
+                language = "csharp"
             else:
                 logger.debug(f"Skipping unsupported file type: {file_path}")
                 return {"status": "skipped", "reason": "unsupported_type", "chunks": 0}
@@ -1082,6 +1084,8 @@ class Database:
                 language = "markdown"
             elif suffix == '.java':
                 language = "java"
+            elif suffix == '.cs':
+                language = "csharp"
             else:
                 logger.debug(f"Skipping unsupported file type: {file_path}")
                 return {"status": "skipped", "reason": "unsupported_type", "chunks": 0}

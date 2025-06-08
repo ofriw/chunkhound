@@ -234,9 +234,9 @@ async def run_command(args: argparse.Namespace) -> None:
             logger.error("❌ Failed to coordinate database access. Please stop the MCP server or use a different database file.")
             sys.exit(1)
     
-    # Default file patterns for Python and Java files if none specified
+    # Default file patterns for Python, Java, and C# files if none specified
     if not args.include:
-        args.include = ["*.py", "*.java"]
+        args.include = ["*.py", "*.java", "*.cs"]
     
     # Default exclusion patterns
     default_excludes = [
@@ -294,9 +294,9 @@ async def run_command(args: argparse.Namespace) -> None:
         stats = db.get_stats()
         logger.info(f"Database stats: {stats['files']} files, {stats['chunks']} chunks, {stats['embeddings']} embeddings")
         
-        # Process directory - include Python, Java, and Markdown files
+        # Process directory - include Python, Java, C#, and Markdown files
         logger.info("Starting file processing...")
-        result = await db.process_directory(args.path, patterns=["**/*.py", "**/*.java", "**/*.md", "**/*.markdown"], exclude_patterns=args.exclude)
+        result = await db.process_directory(args.path, patterns=["**/*.py", "**/*.java", "**/*.cs", "**/*.md", "**/*.markdown"], exclude_patterns=args.exclude)
         
         if result["status"] == "complete":
             logger.info(f"✅ Processing complete:")
