@@ -36,8 +36,10 @@ except ImportError:
 try:
     from tree_sitter_language_pack import get_language, get_parser
     JAVA_AVAILABLE = True
+    CSHARP_AVAILABLE = True
 except ImportError:
     JAVA_AVAILABLE = False
+    CSHARP_AVAILABLE = False
     get_language = None
     get_parser = None
 
@@ -69,16 +71,19 @@ class CodeParser:
         self.markdown_parser: Optional[TreeSitterParser] = None
         self.java_language: Optional[TreeSitterLanguage] = None
         self.java_parser: Optional[TreeSitterParser] = None
+        self.csharp_language: Optional[TreeSitterLanguage] = None
+        self.csharp_parser: Optional[TreeSitterParser] = None
         self._python_initialized = False
         self._markdown_initialized = False
         self._java_initialized = False
+        self._csharp_initialized = False
         
         # TreeCache integration
         self.use_cache = use_cache
         self.tree_cache = cache or get_default_cache() if use_cache else None
         
     def setup(self) -> None:
-        """Set up tree-sitter parsers for Python, Markdown, and Java."""
+        """Set up tree-sitter parsers for Python, Markdown, Java, and C#."""
         if not TREE_SITTER_AVAILABLE:
             logger.error("Tree-sitter dependencies not available")
             return
@@ -122,6 +127,19 @@ class CodeParser:
                 self._java_initialized = False
         else:
             logger.warning("Java parser not available - tree_sitter_language_pack not installed")
+            
+        # Setup C# parser
+        if CSHARP_AVAILABLE and get_language is not None and get_parser is not None:
+            try:
+                self.csharp_language = get_language('csharp')
+                self.csharp_parser = get_parser('csharp')
+                self._csharp_initialized = True
+                logger.info("C# parser initialized successfully")
+            except Exception as e:
+                logger.error(f"Failed to initialize C# parser: {e}")
+                self._csharp_initialized = False
+        else:
+            logger.warning("C# parser not available - tree_sitter_language_pack not installed")
         
     def parse_file(self, file_path: Path, source: Optional[str] = None) -> List[Dict[str, Any]]:
         """Parse a file and extract semantic chunks based on file type.
@@ -142,8 +160,327 @@ class CodeParser:
             return self._parse_markdown_file(file_path, source)
         elif suffix == '.java':
             return self._parse_java_file(file_path, source)
+        elif suffix == '.cs':
+            return self._parse_csharp_file(file_path, source)
         else:
             logger.warning(f"Unsupported file type: {suffix}")
+            return []
+    
+    def _extract_csharp_structs(self, tree_node: TreeSitterNode, source_code: str,
+                               file_path: Path, namespace_name: str) -> List[Dict[str, Any]]:
+        """Extract C# struct definitions from AST.
+        
+        Args:
+            tree_node: Root node of the C# AST
+            source_code: Source code content
+            file_path: Path to the C# file
+            namespace_name: Namespace name for context
+            
+        Returns:
+            List of struct chunks with metadata
+        """
+        chunks = []
+        
+        if self.csharp_language is None:
+            return []
+            
+        try:
+            query = self.csharp_language.query("""
+                (struct_declaration name: (identifier) @struct_name) @struct_def
+            """)
+            
+            matches = query.matches(tree_node)
+            
+            for match in matches:
+                pattern_index, captures = match
+                struct_node = None
+                struct_name = None
+                
+                # Get struct definition node
+                if "struct_def" in captures:
+                    struct_node = captures["struct_def"][0]  # Take first match
+                    
+                # Get struct name
+                if "struct_name" in captures:
+                    struct_name_node = captures["struct_name"][0]  # Take first match
+                    struct_name = self._get_node_text(struct_name_node, source_code).strip()
+                
+                if struct_node and struct_name:
+                    start_line = struct_node.start_point[0] + 1
+                    end_line = struct_node.end_point[0] + 1
+                    
+                    # Build qualified struct name
+                    qualified_name = f"{namespace_name}.{struct_name}" if namespace_name else struct_name
+                    
+                    chunk = {
+                        "type": "struct",
+                        "language": "csharp",
+                        "path": str(file_path),
+                        "name": qualified_name,
+                        "display_name": qualified_name,
+                        "content": self._get_node_text(struct_node, source_code),
+                        "start_line": start_line,
+                        "end_line": end_line,
+                        "start_byte": struct_node.start_byte,
+                        "end_byte": struct_node.end_byte,
+                    }
+                    
+                    chunks.append(chunk)
+                    logger.debug(f"Found C# struct: {qualified_name} at lines {start_line}-{end_line}")
+                    
+                    # Extract properties within this struct
+                    property_chunks = self._extract_csharp_properties(struct_node, source_code, file_path, qualified_name)
+                    chunks.extend(property_chunks)
+                    
+                    # Extract constructors within this struct
+                    constructor_chunks = self._extract_csharp_constructors(struct_node, source_code, file_path, qualified_name)
+                    chunks.extend(constructor_chunks)
+                    
+        except Exception as e:
+            logger.error(f"Failed to extract C# structs: {e}")
+            
+        return chunks
+    
+    def _extract_csharp_enums(self, tree_node: TreeSitterNode, source_code: str,
+                             file_path: Path, namespace_name: str) -> List[Dict[str, Any]]:
+        """Extract C# enum definitions from AST.
+        
+        Args:
+            tree_node: Root node of the C# AST
+            source_code: Source code content
+            file_path: Path to the C# file
+            namespace_name: Namespace name for context
+            
+        Returns:
+            List of enum chunks with metadata
+        """
+        chunks = []
+        
+        if self.csharp_language is None:
+            return []
+            
+        try:
+            query = self.csharp_language.query("""
+                (enum_declaration name: (identifier) @enum_name) @enum_def
+            """)
+            
+            matches = query.matches(tree_node)
+            
+            for match in matches:
+                pattern_index, captures = match
+                enum_node = None
+                enum_name = None
+                
+                # Get enum definition node
+                if "enum_def" in captures:
+                    enum_node = captures["enum_def"][0]  # Take first match
+                    
+                # Get enum name
+                if "enum_name" in captures:
+                    enum_name_node = captures["enum_name"][0]  # Take first match
+                    enum_name = self._get_node_text(enum_name_node, source_code).strip()
+                
+                if enum_node and enum_name:
+                    start_line = enum_node.start_point[0] + 1
+                    end_line = enum_node.end_point[0] + 1
+                    
+                    # Build qualified enum name
+                    qualified_name = f"{namespace_name}.{enum_name}" if namespace_name else enum_name
+                    
+                    chunk = {
+                        "type": "enum",
+                        "language": "csharp",
+                        "path": str(file_path),
+                        "name": qualified_name,
+                        "display_name": qualified_name,
+                        "content": self._get_node_text(enum_node, source_code),
+                        "start_line": start_line,
+                        "end_line": end_line,
+                        "start_byte": enum_node.start_byte,
+                        "end_byte": enum_node.end_byte,
+                    }
+                    
+                    chunks.append(chunk)
+                    logger.debug(f"Found C# enum: {qualified_name} at lines {start_line}-{end_line}")
+                    
+        except Exception as e:
+            logger.error(f"Failed to extract C# enums: {e}")
+            
+        return chunks
+    
+    def _extract_csharp_properties(self, parent_node: TreeSitterNode, source_code: str,
+                                  file_path: Path, parent_name: str) -> List[Dict[str, Any]]:
+        """Extract C# property definitions from a class or struct.
+        
+        Args:
+            parent_node: Parent class or struct node
+            source_code: Source code content
+            file_path: Path to the C# file
+            parent_name: Qualified name of parent class/struct
+            
+        Returns:
+            List of property chunks with metadata
+        """
+        chunks = []
+        
+        if self.csharp_language is None:
+            return []
+            
+        try:
+            query = self.csharp_language.query("""
+                (property_declaration name: (identifier) @property_name) @property_def
+            """)
+            
+            matches = query.matches(parent_node)
+            
+            for match in matches:
+                pattern_index, captures = match
+                property_node = None
+                property_name = None
+                
+                # Get property definition node
+                if "property_def" in captures:
+                    property_node = captures["property_def"][0]  # Take first match
+                    
+                # Get property name
+                if "property_name" in captures:
+                    property_name_node = captures["property_name"][0]  # Take first match
+                    property_name = self._get_node_text(property_name_node, source_code).strip()
+                
+                if property_node and property_name:
+                    start_line = property_node.start_point[0] + 1
+                    end_line = property_node.end_point[0] + 1
+                    
+                    # Build qualified property name
+                    qualified_name = f"{parent_name}.{property_name}"
+                    
+                    chunk = {
+                        "type": "property",
+                        "language": "csharp",
+                        "path": str(file_path),
+                        "name": qualified_name,
+                        "display_name": qualified_name,
+                        "content": self._get_node_text(property_node, source_code),
+                        "start_line": start_line,
+                        "end_line": end_line,
+                        "start_byte": property_node.start_byte,
+                        "end_byte": property_node.end_byte,
+                    }
+                    
+                    chunks.append(chunk)
+                    logger.debug(f"Found C# property: {qualified_name} at lines {start_line}-{end_line}")
+                    
+        except Exception as e:
+            logger.error(f"Failed to extract C# properties: {e}")
+            
+        return chunks
+    
+    def _extract_csharp_constructors(self, parent_node: TreeSitterNode, source_code: str,
+                                    file_path: Path, parent_name: str) -> List[Dict[str, Any]]:
+        """Extract C# constructor definitions from a class or struct.
+        
+        Args:
+            parent_node: Parent class or struct node
+            source_code: Source code content
+            file_path: Path to the C# file
+            parent_name: Qualified name of parent class/struct
+            
+        Returns:
+            List of constructor chunks with metadata
+        """
+        chunks = []
+        
+        if self.csharp_language is None:
+            return []
+            
+        try:
+            query = self.csharp_language.query("""
+                (constructor_declaration name: (identifier) @constructor_name) @constructor_def
+            """)
+            
+            matches = query.matches(parent_node)
+            
+            for match in matches:
+                pattern_index, captures = match
+                constructor_node = None
+                constructor_name = None
+                
+                # Get constructor definition node
+                if "constructor_def" in captures:
+                    constructor_node = captures["constructor_def"][0]  # Take first match
+                    
+                # Get constructor name
+                if "constructor_name" in captures:
+                    constructor_name_node = captures["constructor_name"][0]  # Take first match
+                    constructor_name = self._get_node_text(constructor_name_node, source_code).strip()
+                
+                if constructor_node and constructor_name:
+                    start_line = constructor_node.start_point[0] + 1
+                    end_line = constructor_node.end_point[0] + 1
+                    
+                    # Extract parameters for constructor signature
+                    parameters = self._extract_csharp_constructor_parameters(constructor_node, source_code)
+                    param_str = ", ".join(parameters) if parameters else ""
+                    
+                    # Build qualified constructor name with parameters
+                    qualified_name = f"{parent_name}.{constructor_name}({param_str})"
+                    
+                    chunk = {
+                        "type": "constructor",
+                        "language": "csharp",
+                        "path": str(file_path),
+                        "name": qualified_name,
+                        "display_name": qualified_name,
+                        "content": self._get_node_text(constructor_node, source_code),
+                        "start_line": start_line,
+                        "end_line": end_line,
+                        "start_byte": constructor_node.start_byte,
+                        "end_byte": constructor_node.end_byte,
+                        "parameters": parameters
+                    }
+                    
+                    chunks.append(chunk)
+                    logger.debug(f"Found C# constructor: {qualified_name} at lines {start_line}-{end_line}")
+                    
+        except Exception as e:
+            logger.error(f"Failed to extract C# constructors: {e}")
+            
+        return chunks
+    
+    def _extract_csharp_constructor_parameters(self, constructor_node: TreeSitterNode, source_code: str) -> List[str]:
+        """Extract parameter types from a C# constructor.
+        
+        Args:
+            constructor_node: Constructor AST node
+            source_code: Source code content
+            
+        Returns:
+            List of parameter type strings
+        """
+        if self.csharp_language is None:
+            return []
+            
+        try:
+            query = self.csharp_language.query("(parameter) @param")
+            
+            matches = query.matches(constructor_node)
+            param_types = []
+            
+            for match in matches:
+                pattern_index, captures = match
+                if "param" in captures:
+                    param_node = captures["param"][0]
+                    # Extract type from parameter node
+                    for child in param_node.children:
+                        if child.type in ["predefined_type", "identifier", "generic_name"]:
+                            param_type = self._get_node_text(child, source_code).strip()
+                            param_types.append(param_type)
+                            break
+                    
+            return param_types
+            
+        except Exception as e:
+            logger.error(f"Failed to extract constructor parameters: {e}")
             return []
     
     def parse_file_incremental(self, file_path: Path, source: Optional[str] = None) -> List[Dict[str, Any]]:
@@ -174,6 +511,8 @@ class CodeParser:
             return self._parse_markdown_file_incremental(file_path, source)
         elif suffix == '.java':
             return self._parse_java_file_incremental(file_path, source)
+        elif suffix == '.cs':
+            return self._parse_csharp_file_incremental(file_path, source)
         else:
             logger.warning(f"Unsupported file type for incremental parsing: {suffix}")
             return []
@@ -453,6 +792,10 @@ class CodeParser:
             if not self._java_initialized:
                 self.setup()
             parser = self.java_parser
+        elif suffix == '.cs':
+            if not self._csharp_initialized:
+                self.setup()
+            parser = self.csharp_parser
         else:
             logger.warning(f"Unsupported file type for tree parsing: {suffix}")
             return None
@@ -2002,3 +2345,677 @@ class CodeParser:
             logger.error(f"Failed to extract paragraphs: {e}")
 
         return chunks
+    
+    def _parse_csharp_file(self, file_path: Path, source: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Parse a C# file and extract semantic chunks.
+        
+        Args:
+            file_path: Path to C# file to parse
+            source: Optional source code string
+            
+        Returns:
+            List of extracted chunks with metadata
+        """
+        if not self._csharp_initialized:
+            logger.warning("C# parser not initialized, attempting setup")
+            self.setup()
+            if not self._csharp_initialized:
+                logger.error("C# parser initialization failed")
+                return []
+
+        logger.debug(f"Parsing C# file: {file_path}")
+
+        try:
+            chunks = []
+            
+            # Get source code
+            if source is None:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    source_code = f.read()
+            else:
+                source_code = source
+            
+            # Parse with tree-sitter directly
+            if self.csharp_parser is not None:
+                tree = self.csharp_parser.parse(bytes(source_code, 'utf8'))
+            else:
+                logger.error("C# parser is None after initialization check")
+                return []
+            
+            # Extract chunks from each namespace declaration
+            namespace_nodes = self._extract_csharp_namespace_nodes(tree.root_node, source_code)
+            
+            if namespace_nodes:
+                # Process each namespace separately
+                for namespace_node, namespace_name in namespace_nodes:
+                    chunks.extend(self._extract_csharp_classes(namespace_node, source_code, file_path, namespace_name))
+                    chunks.extend(self._extract_csharp_interfaces(namespace_node, source_code, file_path, namespace_name))
+                    chunks.extend(self._extract_csharp_structs(namespace_node, source_code, file_path, namespace_name))
+                    chunks.extend(self._extract_csharp_enums(namespace_node, source_code, file_path, namespace_name))
+                    chunks.extend(self._extract_csharp_methods(namespace_node, source_code, file_path, namespace_name))
+            else:
+                # No namespace declarations - process entire file with empty namespace
+                chunks.extend(self._extract_csharp_classes(tree.root_node, source_code, file_path, ""))
+                chunks.extend(self._extract_csharp_interfaces(tree.root_node, source_code, file_path, ""))
+                chunks.extend(self._extract_csharp_structs(tree.root_node, source_code, file_path, ""))
+                chunks.extend(self._extract_csharp_enums(tree.root_node, source_code, file_path, ""))
+                chunks.extend(self._extract_csharp_methods(tree.root_node, source_code, file_path, ""))
+
+            logger.debug(f"Extracted {len(chunks)} chunks from {file_path}")
+            return chunks
+            
+        except Exception as e:
+            logger.error(f"Failed to parse C# file {file_path}: {e}")
+            return []
+    
+    def _parse_csharp_file_incremental(self, file_path: Path, source: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Parse C# file incrementally using TreeCache.
+        
+        Args:
+            file_path: Path to C# file
+            source: Optional source code string
+            
+        Returns:
+            List of extracted chunks with metadata
+        """
+        if not self._csharp_initialized:
+            logger.warning("C# parser not initialized, attempting setup")
+            self.setup()
+            if not self._csharp_initialized:
+                return []
+        
+        logger.debug(f"Incremental parsing C# file: {file_path}")
+        
+        try:
+            # Get source code
+            if source is None:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    source_code = f.read()
+            else:
+                source_code = source
+            
+            # Get cached tree or parse new one
+            tree = self.parse_incremental(file_path, source_code)
+            if tree is None:
+                logger.error(f"Failed to parse syntax tree for {file_path}")
+                return []
+            
+            # Extract namespace name
+            namespace_name = self._extract_csharp_namespace(tree.root_node, source_code)
+            
+            # Extract semantic units
+            chunks = []
+            chunks.extend(self._extract_csharp_classes(tree.root_node, source_code, file_path, namespace_name))
+            chunks.extend(self._extract_csharp_interfaces(tree.root_node, source_code, file_path, namespace_name))
+            chunks.extend(self._extract_csharp_structs(tree.root_node, source_code, file_path, namespace_name))
+            chunks.extend(self._extract_csharp_enums(tree.root_node, source_code, file_path, namespace_name))
+            chunks.extend(self._extract_csharp_methods(tree.root_node, source_code, file_path, namespace_name))
+            
+            logger.debug(f"Incremental parsing extracted {len(chunks)} chunks from {file_path}")
+            return chunks
+            
+        except Exception as e:
+            logger.error(f"Failed to parse C# file incrementally {file_path}: {e}")
+            return []
+    
+    def _extract_csharp_type_parameters(self, node: TreeSitterNode, source_code: str) -> str:
+        """Extract C# generic type parameters from a node.
+        
+        Args:
+            node: AST node to search for type parameters
+            source_code: Source code content
+            
+        Returns:
+            String representation of type parameters (e.g., "<T>", "<T, U>") or empty string
+        """
+        if self.csharp_language is None:
+            return ""
+            
+        try:
+            query = self.csharp_language.query("""
+                (type_parameter_list) @type_params
+            """)
+            
+            matches = query.matches(node)
+            
+            for match in matches:
+                pattern_index, captures = match
+                if "type_params" in captures:
+                    type_params_node = captures["type_params"][0]
+                    return self._get_node_text(type_params_node, source_code)
+            
+            return ""
+            
+        except Exception as e:
+            logger.debug(f"Failed to extract C# type parameters: {e}")
+            return ""
+    
+    def _extract_csharp_namespace_nodes(self, tree_node: TreeSitterNode, source_code: str) -> List[Tuple[TreeSitterNode, str]]:
+        """Extract all namespace nodes and their names from C# file.
+        
+        Args:
+            tree_node: Root node of the C# AST
+            source_code: Source code content
+            
+        Returns:
+            List of tuples (namespace_node, namespace_name)
+        """
+        if self.csharp_language is None:
+            return []
+        
+        try:
+            namespace_info = []
+            
+            # Query for namespace declarations - handles both simple and qualified names
+            qualified_query = self.csharp_language.query("""
+                (namespace_declaration name: (qualified_name) @namespace_qualified) @namespace_def
+            """)
+            
+            matches = qualified_query.matches(tree_node)
+            
+            for match in matches:
+                pattern_index, captures = match
+                if "namespace_def" in captures and "namespace_qualified" in captures:
+                    namespace_node = captures["namespace_def"][0]
+                    namespace_name_node = captures["namespace_qualified"][0]
+                    namespace_name = self._get_node_text(namespace_name_node, source_code).strip()
+                    namespace_info.append((namespace_node, namespace_name))
+            
+            # Fallback to simple identifier if qualified name not found
+            simple_query = self.csharp_language.query("""
+                (namespace_declaration name: (identifier) @namespace_name) @namespace_def
+            """)
+            
+            simple_matches = simple_query.matches(tree_node)
+            
+            for match in simple_matches:
+                pattern_index, captures = match
+                if "namespace_def" in captures and "namespace_name" in captures:
+                    namespace_node = captures["namespace_def"][0]
+                    namespace_name_node = captures["namespace_name"][0]
+                    namespace_name = self._get_node_text(namespace_name_node, source_code).strip()
+                    # Only add if not already added by qualified query
+                    if not any(ns_name == namespace_name for _, ns_name in namespace_info):
+                        namespace_info.append((namespace_node, namespace_name))
+            
+            return namespace_info
+            
+        except Exception as e:
+            logger.error(f"Failed to extract C# namespace nodes: {e}")
+            return []
+    
+    def _extract_csharp_nested_structs(self, parent_node: TreeSitterNode, source_code: str,
+                                     file_path: Path, parent_qualified_name: str) -> List[Dict[str, Any]]:
+        """Extract nested C# struct definitions from within a parent class.
+        
+        Args:
+            parent_node: Parent class/struct node to search within
+            source_code: Source code content
+            file_path: Path to the C# file
+            parent_qualified_name: Qualified name of the parent class/struct
+            
+        Returns:
+            List of nested struct chunks with metadata
+        """
+        chunks = []
+        
+        if self.csharp_language is None:
+            return []
+            
+        try:
+            query = self.csharp_language.query("""
+                (struct_declaration name: (identifier) @struct_name) @struct_def
+            """)
+            
+            matches = query.matches(parent_node)
+            
+            for match in matches:
+                pattern_index, captures = match
+                struct_node = None
+                struct_name = None
+                
+                # Get struct definition node
+                if "struct_def" in captures:
+                    struct_node = captures["struct_def"][0]
+                    
+                # Skip if this is the parent node itself (avoid recursive extraction)
+                if struct_node == parent_node:
+                    continue
+                    
+                # Get struct name
+                if "struct_name" in captures:
+                    struct_name_node = captures["struct_name"][0]
+                    struct_name = self._get_node_text(struct_name_node, source_code).strip()
+                
+                if struct_node and struct_name:
+                    start_line = struct_node.start_point[0] + 1
+                    end_line = struct_node.end_point[0] + 1
+                    
+                    # Build qualified nested struct name
+                    qualified_name = f"{parent_qualified_name}.{struct_name}"
+                    
+                    chunk = {
+                        "type": "struct",
+                        "language": "csharp",
+                        "path": str(file_path),
+                        "name": qualified_name,
+                        "display_name": qualified_name,
+                        "content": self._get_node_text(struct_node, source_code),
+                        "start_line": start_line,
+                        "end_line": end_line,
+                        "start_byte": struct_node.start_byte,
+                        "end_byte": struct_node.end_byte,
+                    }
+                    
+                    chunks.append(chunk)
+                    logger.debug(f"Found C# nested struct: {qualified_name} at lines {start_line}-{end_line}")
+                    
+                    # Extract properties within this nested struct
+                    property_chunks = self._extract_csharp_properties(struct_node, source_code, file_path, qualified_name)
+                    chunks.extend(property_chunks)
+                    
+                    # Extract constructors within this nested struct
+                    constructor_chunks = self._extract_csharp_constructors(struct_node, source_code, file_path, qualified_name)
+                    chunks.extend(constructor_chunks)
+                    
+        except Exception as e:
+            logger.error(f"Failed to extract nested C# structs: {e}")
+            return []
+            
+        return chunks
+    
+    def _extract_csharp_nested_classes(self, parent_node: TreeSitterNode, source_code: str,
+                                     file_path: Path, parent_qualified_name: str) -> List[Dict[str, Any]]:
+        """Extract nested C# class definitions from within a parent class.
+        
+        Args:
+            parent_node: Parent class node to search within
+            source_code: Source code content
+            file_path: Path to the C# file
+            parent_qualified_name: Qualified name of the parent class
+            
+        Returns:
+            List of nested class chunks with metadata
+        """
+        chunks = []
+        
+        if self.csharp_language is None:
+            return []
+            
+        try:
+            query = self.csharp_language.query("""
+                (class_declaration name: (identifier) @class_name) @class_def
+            """)
+            
+            matches = query.matches(parent_node)
+            
+            for match in matches:
+                pattern_index, captures = match
+                class_node = None
+                class_name = None
+                
+                # Get class definition node
+                if "class_def" in captures:
+                    class_node = captures["class_def"][0]
+                    
+                # Skip if this is the parent node itself (avoid recursive extraction)
+                if class_node == parent_node:
+                    continue
+                    
+                # Get class name
+                if "class_name" in captures:
+                    class_name_node = captures["class_name"][0]
+                    class_name = self._get_node_text(class_name_node, source_code).strip()
+                
+                if class_node and class_name:
+                    start_line = class_node.start_point[0] + 1
+                    end_line = class_node.end_point[0] + 1
+                    
+                    # Build qualified nested class name
+                    qualified_name = f"{parent_qualified_name}.{class_name}"
+                    
+                    # Check for generic type parameters
+                    type_params = self._extract_csharp_type_parameters(class_node, source_code)
+                    if type_params:
+                        display_name = f"{qualified_name}{type_params}"
+                    else:
+                        display_name = qualified_name
+                    
+                    chunk = {
+                        "type": "class",
+                        "language": "csharp",
+                        "path": str(file_path),
+                        "name": qualified_name,
+                        "display_name": display_name,
+                        "content": self._get_node_text(class_node, source_code),
+                        "start_line": start_line,
+                        "end_line": end_line,
+                        "start_byte": class_node.start_byte,
+                        "end_byte": class_node.end_byte,
+                    }
+                    
+                    chunks.append(chunk)
+                    logger.debug(f"Found C# nested class: {qualified_name} at lines {start_line}-{end_line}")
+                    
+                    # Extract properties within this nested class
+                    property_chunks = self._extract_csharp_properties(class_node, source_code, file_path, qualified_name)
+                    chunks.extend(property_chunks)
+                    
+                    # Extract constructors within this nested class
+                    constructor_chunks = self._extract_csharp_constructors(class_node, source_code, file_path, qualified_name)
+                    chunks.extend(constructor_chunks)
+                    
+        except Exception as e:
+            logger.error(f"Failed to extract nested C# classes: {e}")
+            return []
+            
+        return chunks
+    
+    def _extract_csharp_classes(self, tree_node: TreeSitterNode, source_code: str, 
+                              file_path: Path, namespace_name: str) -> List[Dict[str, Any]]:
+        """Extract C# class definitions from AST.
+        
+        Args:
+            tree_node: Root node of the C# AST
+            source_code: Source code content
+            file_path: Path to the C# file
+            namespace_name: Namespace name for context
+            
+        Returns:
+            List of class chunks with metadata
+        """
+        chunks = []
+        
+        if self.csharp_language is None:
+            return []
+            
+        try:
+            query = self.csharp_language.query("""
+                (class_declaration name: (identifier) @class_name) @class_def
+            """)
+            
+            matches = query.matches(tree_node)
+            
+            for match in matches:
+                pattern_index, captures = match
+                class_node = None
+                class_name = None
+                
+                # Get class definition node
+                if "class_def" in captures:
+                    class_node = captures["class_def"][0]  # Take first match
+                    
+                # Get class name
+                if "class_name" in captures:
+                    class_name_node = captures["class_name"][0]  # Take first match
+                    class_name = self._get_node_text(class_name_node, source_code).strip()
+                
+                if class_node and class_name:
+                    start_line = class_node.start_point[0] + 1
+                    end_line = class_node.end_point[0] + 1
+                    
+                    # Build qualified class name
+                    qualified_name = f"{namespace_name}.{class_name}" if namespace_name else class_name
+                    
+                    # Check for generic type parameters
+                    type_params = self._extract_csharp_type_parameters(class_node, source_code)
+                    if type_params:
+                        display_name = f"{qualified_name}{type_params}"
+                    else:
+                        display_name = qualified_name
+                    
+                    chunk = {
+                        "type": "class",
+                        "language": "csharp",
+                        "path": str(file_path),
+                        "name": qualified_name,
+                        "display_name": display_name,
+                        "content": self._get_node_text(class_node, source_code),
+                        "start_line": start_line,
+                        "end_line": end_line,
+                        "start_byte": class_node.start_byte,
+                        "end_byte": class_node.end_byte,
+                    }
+                    
+                    chunks.append(chunk)
+                    logger.debug(f"Found C# class: {qualified_name} at lines {start_line}-{end_line}")
+                    
+                    # Extract properties within this class
+                    property_chunks = self._extract_csharp_properties(class_node, source_code, file_path, qualified_name)
+                    chunks.extend(property_chunks)
+                    
+                    # Extract constructors within this class
+                    constructor_chunks = self._extract_csharp_constructors(class_node, source_code, file_path, qualified_name)
+                    chunks.extend(constructor_chunks)
+                    
+                    # Extract nested structs within this class
+                    nested_struct_chunks = self._extract_csharp_nested_structs(class_node, source_code, file_path, qualified_name)
+                    chunks.extend(nested_struct_chunks)
+                    
+                    # Extract nested classes within this class
+                    nested_class_chunks = self._extract_csharp_nested_classes(class_node, source_code, file_path, qualified_name)
+                    chunks.extend(nested_class_chunks)
+                    
+        except Exception as e:
+            logger.error(f"Failed to extract C# classes: {e}")
+            
+        return chunks
+    
+    def _extract_csharp_interfaces(self, tree_node: TreeSitterNode, source_code: str,
+                                 file_path: Path, namespace_name: str) -> List[Dict[str, Any]]:
+        """Extract C# interface definitions from AST.
+        
+        Args:
+            tree_node: Root node of the C# AST
+            source_code: Source code content
+            file_path: Path to the C# file
+            namespace_name: Namespace name for context
+            
+        Returns:
+            List of interface chunks with metadata
+        """
+        chunks = []
+        
+        if self.csharp_language is None:
+            return []
+            
+        try:
+            query = self.csharp_language.query("""
+                (interface_declaration name: (identifier) @interface_name) @interface_def
+            """)
+            
+            matches = query.matches(tree_node)
+            
+            for match in matches:
+                pattern_index, captures = match
+                interface_node = None
+                interface_name = None
+                
+                # Get interface definition node
+                if "interface_def" in captures:
+                    interface_node = captures["interface_def"][0]  # Take first match
+                    
+                # Get interface name
+                if "interface_name" in captures:
+                    interface_name_node = captures["interface_name"][0]  # Take first match
+                    interface_name = self._get_node_text(interface_name_node, source_code).strip()
+                
+                if interface_node and interface_name:
+                    start_line = interface_node.start_point[0] + 1
+                    end_line = interface_node.end_point[0] + 1
+                    
+                    # Build qualified interface name
+                    qualified_name = f"{namespace_name}.{interface_name}" if namespace_name else interface_name
+                    
+                    # Check for generic type parameters
+                    type_params = self._extract_csharp_type_parameters(interface_node, source_code)
+                    if type_params:
+                        display_name = f"{qualified_name}{type_params}"
+                    else:
+                        display_name = qualified_name
+                    
+                    chunk = {
+                        "type": "interface",
+                        "language": "csharp",
+                        "path": str(file_path),
+                        "name": qualified_name,
+                        "display_name": display_name,
+                        "content": self._get_node_text(interface_node, source_code),
+                        "start_line": start_line,
+                        "end_line": end_line,
+                        "start_byte": interface_node.start_byte,
+                        "end_byte": interface_node.end_byte,
+                    }
+                    
+                    chunks.append(chunk)
+                    logger.debug(f"Found C# interface: {qualified_name} at lines {start_line}-{end_line}")
+                    
+        except Exception as e:
+            logger.error(f"Failed to extract C# interfaces: {e}")
+            
+        return chunks
+    
+    def _extract_csharp_methods(self, tree_node: TreeSitterNode, source_code: str,
+                              file_path: Path, namespace_name: str) -> List[Dict[str, Any]]:
+        """Extract C# method definitions from AST.
+        
+        Args:
+            tree_node: Root node of the C# AST
+            source_code: Source code content
+            file_path: Path to the C# file
+            namespace_name: Namespace name for context
+            
+        Returns:
+            List of method chunks with metadata
+        """
+        chunks = []
+        
+        if self.csharp_language is None:
+            return []
+            
+        try:
+            # Use simpler query approach
+            query = self.csharp_language.query("(method_declaration) @method")
+            
+            matches = query.matches(tree_node)
+            
+            for match in matches:
+                pattern_index, captures = match
+                method_node = None
+                
+                # Get method definition node
+                if "method" in captures:
+                    method_node = captures["method"][0]  # Take first match
+                
+                if method_node:
+                    # Extract method name from children
+                    method_name = None
+                    for child in method_node.children:
+                        if child.type == "identifier":
+                            method_name = self._get_node_text(child, source_code).strip()
+                            break
+                    
+                    if not method_name:
+                        continue
+                        
+                    start_line = method_node.start_point[0] + 1
+                    end_line = method_node.end_point[0] + 1
+                    
+                    # Try to find containing class/interface/struct for context
+                    parent = method_node.parent
+                    parent_context = ""
+                    while parent:
+                        if parent.type in ["class_declaration", "interface_declaration", "struct_declaration"]:
+                            # Find parent name from its children
+                            for child in parent.children:
+                                if child.type == "identifier":
+                                    parent_context = self._get_node_text(child, source_code).strip()
+                                    break
+                            break
+                        parent = parent.parent
+                
+                    # Extract method parameters for signature (simplified)
+                    params = []
+                    try:
+                        param_query = self.csharp_language.query("(parameter) @param")
+                        param_matches = param_query.matches(method_node)
+                        
+                        for param_match in param_matches:
+                            param_pattern_index, param_captures = param_match
+                            if "param" in param_captures:
+                                param_node = param_captures["param"][0]
+                                # Extract type from parameter node
+                                for child in param_node.children:
+                                    if child.type in ["predefined_type", "identifier", "generic_name"]:
+                                        param_type = self._get_node_text(child, source_code).strip()
+                                        params.append(param_type)
+                                        break
+                    except:
+                        pass  # Continue without parameters if extraction fails
+                    
+                    param_str = ", ".join(params) if params else ""
+                
+                    # Build qualified method name with parameters
+                    if parent_context:
+                        qualified_parent = f"{namespace_name}.{parent_context}" if namespace_name else parent_context
+                        qualified_name = f"{qualified_parent}.{method_name}({param_str})"
+                    else:
+                        qualified_name = f"{namespace_name}.{method_name}({param_str})" if namespace_name else f"{method_name}({param_str})"
+                    
+                    chunk = {
+                        "type": "method",
+                        "language": "csharp",
+                        "path": str(file_path),
+                        "name": qualified_name,
+                        "display_name": qualified_name,
+                        "content": self._get_node_text(method_node, source_code),
+                        "start_line": start_line,
+                        "end_line": end_line,
+                        "start_byte": method_node.start_byte,
+                        "end_byte": method_node.end_byte,
+                        "parameters": params
+                    }
+                    
+                    chunks.append(chunk)
+                    logger.debug(f"Found C# method: {qualified_name} at lines {start_line}-{end_line}")
+                    
+        except Exception as e:
+            logger.error(f"Failed to extract C# methods: {e}")
+            
+        return chunks
+    
+    def _extract_csharp_method_parameters(self, method_node: TreeSitterNode, source_code: str) -> List[str]:
+        """Extract parameter types from a C# method.
+        
+        Args:
+            method_node: Method AST node
+            source_code: Source code content
+            
+        Returns:
+            List of parameter type strings
+        """
+        if self.csharp_language is None:
+            return []
+            
+        try:
+            query = self.csharp_language.query("(parameter) @param")
+            
+            matches = query.matches(method_node)
+            param_types = []
+            
+            for match in matches:
+                pattern_index, captures = match
+                if "param" in captures:
+                    param_node = captures["param"][0]
+                    # Extract type from parameter node
+                    for child in param_node.children:
+                        if child.type in ["predefined_type", "identifier", "generic_name"]:
+                            param_type = self._get_node_text(child, source_code).strip()
+                            param_types.append(param_type)
+                            break
+                    
+            return param_types
+            
+        except Exception as e:
+            logger.error(f"Failed to extract method parameters: {e}")
+            return []
