@@ -37,9 +37,13 @@ try:
     from tree_sitter_language_pack import get_language, get_parser
     JAVA_AVAILABLE = True
     CSHARP_AVAILABLE = True
+    TYPESCRIPT_AVAILABLE = True
+    JAVASCRIPT_AVAILABLE = True
 except ImportError:
     JAVA_AVAILABLE = False
     CSHARP_AVAILABLE = False
+    TYPESCRIPT_AVAILABLE = False
+    JAVASCRIPT_AVAILABLE = False
     get_language = None
     get_parser = None
 
@@ -73,17 +77,26 @@ class CodeParser:
         self.java_parser: Optional[TreeSitterParser] = None
         self.csharp_language: Optional[TreeSitterLanguage] = None
         self.csharp_parser: Optional[TreeSitterParser] = None
+        self.typescript_language: Optional[TreeSitterLanguage] = None
+        self.typescript_parser: Optional[TreeSitterParser] = None
+        self.javascript_language: Optional[TreeSitterLanguage] = None
+        self.javascript_parser: Optional[TreeSitterParser] = None
+        self.tsx_language: Optional[TreeSitterLanguage] = None
+        self.tsx_parser: Optional[TreeSitterParser] = None
         self._python_initialized = False
         self._markdown_initialized = False
         self._java_initialized = False
         self._csharp_initialized = False
+        self._typescript_initialized = False
+        self._javascript_initialized = False
+        self._tsx_initialized = False
         
         # TreeCache integration
         self.use_cache = use_cache
         self.tree_cache = cache or get_default_cache() if use_cache else None
         
     def setup(self) -> None:
-        """Set up tree-sitter parsers for Python, Markdown, Java, and C#."""
+        """Set up tree-sitter parsers for Python, Markdown, Java, C#, TypeScript, and JavaScript."""
         if not TREE_SITTER_AVAILABLE:
             logger.error("Tree-sitter dependencies not available")
             return
@@ -140,6 +153,45 @@ class CodeParser:
                 self._csharp_initialized = False
         else:
             logger.warning("C# parser not available - tree_sitter_language_pack not installed")
+            
+        # Setup TypeScript parser
+        if TYPESCRIPT_AVAILABLE and get_language is not None and get_parser is not None:
+            try:
+                self.typescript_language = get_language('typescript')
+                self.typescript_parser = get_parser('typescript')
+                self._typescript_initialized = True
+                logger.info("TypeScript parser initialized successfully")
+            except Exception as e:
+                logger.error(f"Failed to initialize TypeScript parser: {e}")
+                self._typescript_initialized = False
+        else:
+            logger.warning("TypeScript parser not available - tree_sitter_language_pack not installed")
+            
+        # Setup JavaScript parser
+        if JAVASCRIPT_AVAILABLE and get_language is not None and get_parser is not None:
+            try:
+                self.javascript_language = get_language('javascript')
+                self.javascript_parser = get_parser('javascript')
+                self._javascript_initialized = True
+                logger.info("JavaScript parser initialized successfully")
+            except Exception as e:
+                logger.error(f"Failed to initialize JavaScript parser: {e}")
+                self._javascript_initialized = False
+        else:
+            logger.warning("JavaScript parser not available - tree_sitter_language_pack not installed")
+            
+        # Setup TSX parser
+        if TYPESCRIPT_AVAILABLE and get_language is not None and get_parser is not None:
+            try:
+                self.tsx_language = get_language('tsx')
+                self.tsx_parser = get_parser('tsx')
+                self._tsx_initialized = True
+                logger.info("TSX parser initialized successfully")
+            except Exception as e:
+                logger.error(f"Failed to initialize TSX parser: {e}")
+                self._tsx_initialized = False
+        else:
+            logger.warning("TSX parser not available - tree_sitter_language_pack not installed")
         
     def parse_file(self, file_path: Path, source: Optional[str] = None) -> List[Dict[str, Any]]:
         """Parse a file and extract semantic chunks based on file type.
@@ -162,6 +214,14 @@ class CodeParser:
             return self._parse_java_file(file_path, source)
         elif suffix == '.cs':
             return self._parse_csharp_file(file_path, source)
+        elif suffix == '.ts':
+            return self._parse_typescript_file(file_path, source)
+        elif suffix == '.js':
+            return self._parse_javascript_file(file_path, source)
+        elif suffix == '.tsx':
+            return self._parse_tsx_file(file_path, source)
+        elif suffix == '.jsx':
+            return self._parse_jsx_file(file_path, source)
         else:
             logger.warning(f"Unsupported file type: {suffix}")
             return []
@@ -513,6 +573,14 @@ class CodeParser:
             return self._parse_java_file_incremental(file_path, source)
         elif suffix == '.cs':
             return self._parse_csharp_file_incremental(file_path, source)
+        elif suffix == '.ts':
+            return self._parse_typescript_file_incremental(file_path, source)
+        elif suffix == '.js':
+            return self._parse_javascript_file_incremental(file_path, source)
+        elif suffix == '.tsx':
+            return self._parse_tsx_file_incremental(file_path, source)
+        elif suffix == '.jsx':
+            return self._parse_jsx_file_incremental(file_path, source)
         else:
             logger.warning(f"Unsupported file type for incremental parsing: {suffix}")
             return []
@@ -796,6 +864,22 @@ class CodeParser:
             if not self._csharp_initialized:
                 self.setup()
             parser = self.csharp_parser
+        elif suffix == '.ts':
+            if not self._typescript_initialized:
+                self.setup()
+            parser = self.typescript_parser
+        elif suffix == '.js':
+            if not self._javascript_initialized:
+                self.setup()
+            parser = self.javascript_parser
+        elif suffix == '.tsx':
+            if not self._tsx_initialized:
+                self.setup()
+            parser = self.tsx_parser
+        elif suffix == '.jsx':
+            if not self._tsx_initialized:
+                self.setup()
+            parser = self.tsx_parser
         else:
             logger.warning(f"Unsupported file type for tree parsing: {suffix}")
             return None
@@ -3019,3 +3103,697 @@ class CodeParser:
         except Exception as e:
             logger.error(f"Failed to extract method parameters: {e}")
             return []
+
+    # ========================================
+    # TypeScript/JavaScript Parser Methods
+    # ========================================
+
+    def _parse_typescript_file(self, file_path: Path, source: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Parse a TypeScript file and extract semantic chunks.
+
+        Args:
+            file_path: Path to TypeScript file to parse
+            source: Optional source code string
+
+        Returns:
+            List of extracted chunks with metadata
+        """
+        if not self._typescript_initialized:
+            logger.warning("TypeScript parser not initialized, attempting setup")
+            self.setup()
+            if not self._typescript_initialized:
+                logger.error("TypeScript parser initialization failed")
+                return []
+
+        logger.debug(f"Parsing TypeScript file: {file_path}")
+
+        try:
+            chunks = []
+
+            # Get source code
+            if source is None:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    source_code = f.read()
+            else:
+                source_code = source
+
+            # Parse with tree-sitter
+            if self.typescript_parser is not None:
+                tree = self.typescript_parser.parse(bytes(source_code, 'utf8'))
+            else:
+                logger.error("TypeScript parser is None after initialization check")
+                return []
+
+            # Extract TypeScript semantic units
+            chunks.extend(self._extract_typescript_functions(tree.root_node, source_code, file_path))
+            chunks.extend(self._extract_typescript_classes(tree.root_node, source_code, file_path))
+            chunks.extend(self._extract_typescript_interfaces(tree.root_node, source_code, file_path))
+            chunks.extend(self._extract_typescript_enums(tree.root_node, source_code, file_path))
+            chunks.extend(self._extract_typescript_types(tree.root_node, source_code, file_path))
+
+            logger.debug(f"Extracted {len(chunks)} chunks from {file_path}")
+            return chunks
+
+        except Exception as e:
+            logger.error(f"Failed to parse TypeScript file {file_path}: {e}")
+            return []
+
+    def _parse_javascript_file(self, file_path: Path, source: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Parse a TSX file and extract semantic chunks.
+
+        Args:
+            file_path: Path to TSX file to parse
+            source: Optional source code string
+
+        Returns:
+            List of extracted chunks with metadata
+        """
+        if not self._tsx_initialized:
+            logger.warning("TSX parser not initialized, attempting setup")
+            self.setup()
+            if not self._tsx_initialized:
+                logger.error("TSX parser initialization failed")
+                return []
+
+        logger.debug(f"Parsing TSX file: {file_path}")
+
+        try:
+            chunks = []
+
+            # Get source code
+            if source is None:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    source_code = f.read()
+            else:
+                source_code = source
+
+            # Parse with tree-sitter
+            if self.tsx_parser is not None:
+                tree = self.tsx_parser.parse(bytes(source_code, 'utf8'))
+            else:
+                logger.error("TSX parser is None after initialization check")
+                return []
+
+            # Extract TSX semantic units (same as TypeScript with React components)
+            chunks.extend(self._extract_typescript_functions(tree.root_node, source_code, file_path))
+            chunks.extend(self._extract_typescript_classes(tree.root_node, source_code, file_path))
+            chunks.extend(self._extract_typescript_interfaces(tree.root_node, source_code, file_path))
+            chunks.extend(self._extract_typescript_enums(tree.root_node, source_code, file_path))
+            chunks.extend(self._extract_typescript_types(tree.root_node, source_code, file_path))
+            chunks.extend(self._extract_tsx_components(tree.root_node, source_code, file_path))
+
+            logger.debug(f"Extracted {len(chunks)} chunks from {file_path}")
+            return chunks
+
+        except Exception as e:
+            logger.error(f"Failed to parse TSX file {file_path}: {e}")
+            return []
+
+    def _parse_jsx_file(self, file_path: Path, source: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Parse a JSX file and extract semantic chunks.
+
+        Args:
+            file_path: Path to JSX file to parse
+            source: Optional source code string
+
+        Returns:
+            List of extracted chunks with metadata
+        """
+        # JSX files use the TSX parser (same syntax)
+        return self._parse_tsx_file(file_path, source)
+
+    # Incremental parsing methods for TypeScript/JavaScript
+
+    def _parse_typescript_file_incremental(self, file_path: Path, source: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Parse TypeScript file incrementally using TreeCache.
+
+        Args:
+            file_path: Path to TypeScript file
+            source: Optional source code string
+
+        Returns:
+            List of extracted chunks with metadata
+        """
+        if not self._typescript_initialized:
+            logger.warning("TypeScript parser not initialized, attempting setup")
+            self.setup()
+            if not self._typescript_initialized:
+                return []
+
+        logger.debug(f"Incremental parsing TypeScript file: {file_path}")
+
+        try:
+            # Get source code
+            if source is None:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    source_code = f.read()
+            else:
+                source_code = source
+
+            # Get cached tree or parse new one
+            tree = self.parse_incremental(file_path, source_code)
+            if tree is None:
+                logger.error(f"Failed to parse syntax tree for {file_path}")
+                return []
+
+            # Extract semantic units
+            chunks = []
+            chunks.extend(self._extract_typescript_functions(tree.root_node, source_code, file_path))
+            chunks.extend(self._extract_typescript_classes(tree.root_node, source_code, file_path))
+            chunks.extend(self._extract_typescript_interfaces(tree.root_node, source_code, file_path))
+            chunks.extend(self._extract_typescript_enums(tree.root_node, source_code, file_path))
+            chunks.extend(self._extract_typescript_types(tree.root_node, source_code, file_path))
+
+            logger.debug(f"Incremental parsing extracted {len(chunks)} chunks from {file_path}")
+            return chunks
+
+        except Exception as e:
+            logger.error(f"Failed to parse TypeScript file incrementally {file_path}: {e}")
+            return []
+
+    def _parse_javascript_file_incremental(self, file_path: Path, source: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Parse JavaScript file incrementally using TreeCache.
+
+        Args:
+            file_path: Path to JavaScript file
+            source: Optional source code string
+
+        Returns:
+            List of extracted chunks with metadata
+        """
+        if not self._javascript_initialized:
+            logger.warning("JavaScript parser not initialized, attempting setup")
+            self.setup()
+            if not self._javascript_initialized:
+                return []
+
+        logger.debug(f"Incremental parsing JavaScript file: {file_path}")
+
+        try:
+            # Get source code
+            if source is None:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    source_code = f.read()
+            else:
+                source_code = source
+
+            # Get cached tree or parse new one
+            tree = self.parse_incremental(file_path, source_code)
+            if tree is None:
+                logger.error(f"Failed to parse syntax tree for {file_path}")
+                return []
+
+            # Extract semantic units
+            chunks = []
+            chunks.extend(self._extract_javascript_functions(tree.root_node, source_code, file_path))
+            chunks.extend(self._extract_javascript_classes(tree.root_node, source_code, file_path))
+
+            logger.debug(f"Incremental parsing extracted {len(chunks)} chunks from {file_path}")
+            return chunks
+
+        except Exception as e:
+            logger.error(f"Failed to parse JavaScript file incrementally {file_path}: {e}")
+            return []
+
+    def _parse_tsx_file_incremental(self, file_path: Path, source: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Parse TSX file incrementally using TreeCache.
+
+        Args:
+            file_path: Path to TSX file
+            source: Optional source code string
+
+        Returns:
+            List of extracted chunks with metadata
+        """
+        if not self._tsx_initialized:
+            logger.warning("TSX parser not initialized, attempting setup")
+            self.setup()
+            if not self._tsx_initialized:
+                return []
+
+        logger.debug(f"Incremental parsing TSX file: {file_path}")
+
+        try:
+            # Get source code
+            if source is None:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    source_code = f.read()
+            else:
+                source_code = source
+
+            # Get cached tree or parse new one
+            tree = self.parse_incremental(file_path, source_code)
+            if tree is None:
+                logger.error(f"Failed to parse syntax tree for {file_path}")
+                return []
+
+            # Extract semantic units
+            chunks = []
+            chunks.extend(self._extract_typescript_functions(tree.root_node, source_code, file_path))
+            chunks.extend(self._extract_typescript_classes(tree.root_node, source_code, file_path))
+            chunks.extend(self._extract_typescript_interfaces(tree.root_node, source_code, file_path))
+            chunks.extend(self._extract_typescript_enums(tree.root_node, source_code, file_path))
+            chunks.extend(self._extract_typescript_types(tree.root_node, source_code, file_path))
+            chunks.extend(self._extract_tsx_components(tree.root_node, source_code, file_path))
+
+            logger.debug(f"Incremental parsing extracted {len(chunks)} chunks from {file_path}")
+            return chunks
+
+        except Exception as e:
+            logger.error(f"Failed to parse TSX file incrementally {file_path}: {e}")
+            return []
+
+    def _parse_jsx_file_incremental(self, file_path: Path, source: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Parse JSX file incrementally using TreeCache.
+
+        Args:
+            file_path: Path to JSX file
+            source: Optional source code string
+
+        Returns:
+            List of extracted chunks with metadata
+        """
+        # JSX files use the TSX parser (same syntax)
+        return self._parse_tsx_file_incremental(file_path, source)
+
+    # TypeScript semantic extraction methods
+
+    def _extract_typescript_functions(self, tree_node: TreeSitterNode, source_code: str, file_path: Path) -> List[Dict[str, Any]]:
+        """Extract TypeScript function declarations from AST.
+
+        Args:
+            tree_node: Root node of the TypeScript AST
+            source_code: Source code content
+            file_path: Path to the TypeScript file
+
+        Returns:
+            List of function chunks with metadata
+        """
+        chunks = []
+
+        if self.typescript_language is None:
+            return []
+
+        try:
+            # Query for various function types in TypeScript
+            query = self.typescript_language.query("""
+                [
+                    (function_declaration name: (identifier) @func_name) @func_def
+                    (arrow_function) @arrow_func
+                    (function_expression) @func_expr
+                    (method_definition name: (property_identifier) @method_name) @method_def
+                ]
+            """)
+
+            matches = query.matches(tree_node)
+
+            for match in matches:
+                pattern_index, captures = match
+                func_node = None
+                func_name = "anonymous"
+
+                # Get function definition node and name
+                for capture_name, nodes in captures.items():
+                    if capture_name in ["func_def", "arrow_func", "func_expr", "method_def"]:
+                        func_node = nodes[0]
+                    elif capture_name in ["func_name", "method_name"]:
+                        func_name = self._get_node_text(nodes[0], source_code).strip()
+
+                if func_node is None:
+                    continue
+
+                # Get function text
+                func_text = self._get_node_text(func_node, source_code)
+                start_line = func_node.start_point[0] + 1
+                end_line = func_node.end_point[0] + 1
+
+                chunks.append({
+                    "symbol": func_name,
+                    "start_line": start_line,
+                    "end_line": end_line,
+                    "code": func_text,
+                    "chunk_type": "function",
+                    "language_info": "typescript"
+                })
+
+            return chunks
+
+        except Exception as e:
+            logger.error(f"Failed to extract TypeScript functions: {e}")
+            return []
+
+    def _extract_typescript_classes(self, tree_node: TreeSitterNode, source_code: str, file_path: Path) -> List[Dict[str, Any]]:
+        """Extract TypeScript class declarations from AST.
+
+        Args:
+            tree_node: Root node of the TypeScript AST
+            source_code: Source code content
+            file_path: Path to the TypeScript file
+
+        Returns:
+            List of class chunks with metadata
+        """
+        chunks = []
+
+        if self.typescript_language is None:
+            return []
+
+        try:
+            query = self.typescript_language.query("""
+                (class_declaration name: (type_identifier) @class_name) @class_def
+            """)
+
+            matches = query.matches(tree_node)
+
+            for match in matches:
+                pattern_index, captures = match
+                class_node = None
+                class_name = "UnnamedClass"
+
+                if "class_def" in captures:
+                    class_node = captures["class_def"][0]
+                if "class_name" in captures:
+                    class_name = self._get_node_text(captures["class_name"][0], source_code).strip()
+
+                if class_node is None:
+                    continue
+
+                # Get class text
+                class_text = self._get_node_text(class_node, source_code)
+                start_line = class_node.start_point[0] + 1
+                end_line = class_node.end_point[0] + 1
+
+                chunks.append({
+                    "symbol": f"class {class_name}",
+                    "start_line": start_line,
+                    "end_line": end_line,
+                    "code": class_text,
+                    "chunk_type": "class",
+                    "language_info": "typescript"
+                })
+
+            return chunks
+
+        except Exception as e:
+            logger.error(f"Failed to extract TypeScript classes: {e}")
+            return []
+
+    def _extract_typescript_interfaces(self, tree_node: TreeSitterNode, source_code: str, file_path: Path) -> List[Dict[str, Any]]:
+        """Extract TypeScript interface declarations from AST.
+
+        Args:
+            tree_node: Root node of the TypeScript AST
+            source_code: Source code content
+            file_path: Path to the TypeScript file
+
+        Returns:
+            List of interface chunks with metadata
+        """
+        chunks = []
+
+        if self.typescript_language is None:
+            return []
+
+        try:
+            query = self.typescript_language.query("""
+                (interface_declaration name: (type_identifier) @interface_name) @interface_def
+            """)
+
+            matches = query.matches(tree_node)
+
+            for match in matches:
+                pattern_index, captures = match
+                interface_node = None
+                interface_name = "UnnamedInterface"
+
+                if "interface_def" in captures:
+                    interface_node = captures["interface_def"][0]
+                if "interface_name" in captures:
+                    interface_name = self._get_node_text(captures["interface_name"][0], source_code).strip()
+
+                if interface_node is None:
+                    continue
+
+                # Get interface text
+                interface_text = self._get_node_text(interface_node, source_code)
+                start_line = interface_node.start_point[0] + 1
+                end_line = interface_node.end_point[0] + 1
+
+                chunks.append({
+                    "symbol": f"interface {interface_name}",
+                    "start_line": start_line,
+                    "end_line": end_line,
+                    "code": interface_text,
+                    "chunk_type": "interface",
+                    "language_info": "typescript"
+                })
+
+            return chunks
+
+        except Exception as e:
+            logger.error(f"Failed to extract TypeScript interfaces: {e}")
+            return []
+
+    def _extract_typescript_enums(self, tree_node: TreeSitterNode, source_code: str, file_path: Path) -> List[Dict[str, Any]]:
+        """Extract TypeScript enum declarations from AST.
+
+        Args:
+            tree_node: Root node of the TypeScript AST
+            source_code: Source code content
+            file_path: Path to the TypeScript file
+
+        Returns:
+            List of enum chunks with metadata
+        """
+        chunks = []
+
+        if self.typescript_language is None:
+            return []
+
+        try:
+            query = self.typescript_language.query("""
+                (enum_declaration name: (identifier) @enum_name) @enum_def
+            """)
+
+            matches = query.matches(tree_node)
+
+            for match in matches:
+                pattern_index, captures = match
+                enum_node = None
+                enum_name = "UnnamedEnum"
+
+                if "enum_def" in captures:
+                    enum_node = captures["enum_def"][0]
+                if "enum_name" in captures:
+                    enum_name = self._get_node_text(captures["enum_name"][0], source_code).strip()
+
+                if enum_node is None:
+                    continue
+
+                # Get enum text
+                enum_text = self._get_node_text(enum_node, source_code)
+                start_line = enum_node.start_point[0] + 1
+                end_line = enum_node.end_point[0] + 1
+
+                chunks.append({
+                    "symbol": f"enum {enum_name}",
+                    "start_line": start_line,
+                    "end_line": end_line,
+                    "code": enum_text,
+                    "chunk_type": "enum",
+                    "language_info": "typescript"
+                })
+
+            return chunks
+
+        except Exception as e:
+            logger.error(f"Failed to extract TypeScript enums: {e}")
+            return []
+
+    def _extract_typescript_types(self, tree_node: TreeSitterNode, source_code: str, file_path: Path) -> List[Dict[str, Any]]:
+        """Extract TypeScript type alias declarations from AST.
+
+        Args:
+            tree_node: Root node of the TypeScript AST
+            source_code: Source code content
+            file_path: Path to the TypeScript file
+
+        Returns:
+            List of type alias chunks with metadata
+        """
+        chunks = []
+
+        if self.typescript_language is None:
+            return []
+
+        try:
+            query = self.typescript_language.query("""
+                (type_alias_declaration name: (type_identifier) @type_name) @type_def
+            """)
+
+            matches = query.matches(tree_node)
+
+            for match in matches:
+                pattern_index, captures = match
+                type_node = None
+                type_name = "UnnamedType"
+
+                if "type_def" in captures:
+                    type_node = captures["type_def"][0]
+                if "type_name" in captures:
+                    type_name = self._get_node_text(captures["type_name"][0], source_code).strip()
+
+                if type_node is None:
+                    continue
+
+                # Get type text
+                type_text = self._get_node_text(type_node, source_code)
+                start_line = type_node.start_point[0] + 1
+                end_line = type_node.end_point[0] + 1
+
+                chunks.append({
+                    "symbol": f"type {type_name}",
+                    "start_line": start_line,
+                    "end_line": end_line,
+                    "code": type_text,
+                    "chunk_type": "type",
+                    "language_info": "typescript"
+                })
+
+            return chunks
+
+        except Exception as e:
+            logger.error(f"Failed to extract TypeScript types: {e}")
+            return []
+
+    def _extract_tsx_components(self, tree_node: TreeSitterNode, source_code: str, file_path: Path) -> List[Dict[str, Any]]:
+        """Extract React component declarations from TSX AST.
+
+        Args:
+            tree_node: Root node of the TSX AST
+            source_code: Source code content
+            file_path: Path to the TSX file
+
+        Returns:
+            List of component chunks with metadata
+        """
+        chunks = []
+
+        if self.tsx_language is None:
+            return []
+
+        try:
+            # Query for React functional components (functions that return JSX)
+            query = self.tsx_language.query("""
+                (function_declaration 
+                    name: (identifier) @component_name
+                    body: (statement_block 
+                        (return_statement 
+                            (jsx_element)
+                        )
+                    )
+                ) @component_def
+            """)
+
+            matches = query.matches(tree_node)
+
+            for match in matches:
+                pattern_index, captures = match
+                component_node = None
+                component_name = "UnnamedComponent"
+
+                if "component_def" in captures:
+                    component_node = captures["component_def"][0]
+                if "component_name" in captures:
+                    component_name = self._get_node_text(captures["component_name"][0], source_code).strip()
+
+                if component_node is None:
+                    continue
+
+                # Get component text
+                component_text = self._get_node_text(component_node, source_code)
+                start_line = component_node.start_point[0] + 1
+                end_line = component_node.end_point[0] + 1
+
+                chunks.append({
+                    "symbol": f"component {component_name}",
+                    "start_line": start_line,
+                    "end_line": end_line,
+                    "code": component_text,
+                    "chunk_type": "component",
+                    "language_info": "tsx"
+                })
+
+            return chunks
+
+        except Exception as e:
+            logger.error(f"Failed to extract TSX components: {e}")
+            return []
+
+    # JavaScript semantic extraction methods
+
+    def _extract_javascript_functions(self, tree_node: TreeSitterNode, source_code: str, file_path: Path) -> List[Dict[str, Any]]:
+        """Extract JavaScript function declarations from AST.
+
+        Args:
+            tree_node: Root node of the JavaScript AST
+            source_code: Source code content
+            file_path: Path to the JavaScript file
+
+        Returns:
+            List of function chunks with metadata
+        """
+        chunks = []
+
+        if self.javascript_language is None:
+            return []
+
+        try:
+            # Query for various function types in JavaScript
+            query = self.javascript_language.query("""
+                [
+                    (function_declaration name: (identifier) @func_name) @func_def
+                    (arrow_function) @arrow_func
+                    (function_expression) @func_expr
+                    (method_definition name: (property_identifier) @method_name) @method_def
+                ]
+            """)
+
+            matches = query.matches(tree_node)
+
+            for match in matches:
+                pattern_index, captures = match
+                func_node = None
+                func_name = "anonymous"
+
+                # Get function definition node and name
+                for capture_name, nodes in captures.items():
+                    if capture_name in ["func_def", "arrow_func", "func_expr", "method_def"]:
+                        func_node = nodes[0]
+                    elif capture_name in ["func_name", "method_name"]:
+                        func_name = self._get_node_text(nodes[0], source_code).strip()
+
+                if func_node is None:
+                    continue
+
+                # Get function text
+                func_text = self._get_node_text(func_node, source_code)
+                start_line = func_node.start_point[0] + 1
+                end_line = func_node.end_point[0] + 1
+
+                chunks.append({
+                    "symbol": func_name,
+                    "start_line": start_line,
+                    "end_line": end_line,
+                    "code": func_text,
+                    "chunk_type": "function",
+                    "language_info": "javascript"
+                })
+
+            return chunks
+
+        except Exception as e:
+            logger.error(f"Failed to extract JavaScript functions from JSX: {e}")
+            return []
+
+            return

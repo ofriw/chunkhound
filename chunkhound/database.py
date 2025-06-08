@@ -958,6 +958,14 @@ class Database:
                 language = "java"
             elif suffix == '.cs':
                 language = "csharp"
+            elif suffix == '.ts':
+                language = "typescript"
+            elif suffix == '.js':
+                language = "javascript"
+            elif suffix == '.tsx':
+                language = "tsx"
+            elif suffix == '.jsx':
+                language = "jsx"
             else:
                 logger.debug(f"Skipping unsupported file type: {file_path}")
                 return {"status": "skipped", "reason": "unsupported_type", "chunks": 0}
@@ -1086,6 +1094,14 @@ class Database:
                 language = "java"
             elif suffix == '.cs':
                 language = "csharp"
+            elif suffix == '.ts':
+                language = "typescript"
+            elif suffix == '.js':
+                language = "javascript"
+            elif suffix == '.tsx':
+                language = "tsx"
+            elif suffix == '.jsx':
+                language = "jsx"
             else:
                 logger.debug(f"Skipping unsupported file type: {file_path}")
                 return {"status": "skipped", "reason": "unsupported_type", "chunks": 0}
