@@ -88,7 +88,7 @@ Examples:
     run_parser.add_argument(
         "--provider",
         default="openai",
-        choices=["openai", "openai-compatible", "tei"],
+        choices=["openai", "openai-compatible", "tei", "bge-in-icl"],
         help="Embedding provider to use (default: openai)",
     )
     run_parser.add_argument(
@@ -167,7 +167,7 @@ Examples:
     add_parser.add_argument(
         "--type",
         required=True,
-        choices=["openai", "openai-compatible", "tei"],
+        choices=["openai", "openai-compatible", "tei", "bge-in-icl"],
         help="Server type",
     )
     add_parser.add_argument(
@@ -177,7 +177,7 @@ Examples:
     )
     add_parser.add_argument(
         "--model",
-        help="Model name (auto-detected for TEI if not specified)",
+        help="Model name (auto-detected for TEI, defaults to 'bge-in-icl' for BGE-IN-ICL)",
     )
     add_parser.add_argument(
         "--api-key",
@@ -209,6 +209,22 @@ Examples:
         type=int,
         default=300,
         help="Health check interval in seconds (default: 300)",
+    )
+    add_parser.add_argument(
+        "--language",
+        help="Programming language for BGE-IN-ICL context ('auto', 'python', 'typescript', etc.)",
+    )
+    add_parser.add_argument(
+        "--enable-icl",
+        action="store_true",
+        default=True,
+        help="Enable in-context learning for BGE-IN-ICL (default: true)",
+    )
+    add_parser.add_argument(
+        "--disable-icl",
+        dest="enable_icl",
+        action="store_false",
+        help="Disable in-context learning for BGE-IN-ICL",
     )
     
     # Config remove command
@@ -825,20 +841,29 @@ async def config_add_command(args) -> None:
         config_manager = get_config_manager(str(args.config) if args.config else None)
         
         # Validate model requirement
-        if args.type != 'tei' and not args.model:
+        if args.type not in ['tei', 'bge-in-icl'] and not args.model:
             print(f"Error: --model is required for {args.type} servers")
             sys.exit(1)
+        
+        # Prepare metadata for BGE-IN-ICL specific options
+        metadata = {}
+        if args.type == 'bge-in-icl':
+            if hasattr(args, 'language') and args.language:
+                metadata['language'] = args.language
+            if hasattr(args, 'enable_icl'):
+                metadata['enable_icl'] = args.enable_icl
         
         config_manager.add_server(
             name=args.name,
             server_type=args.type,
             base_url=args.base_url,
-            model=args.model or "",
+            model=args.model or ("bge-in-icl" if args.type == 'bge-in-icl' else ""),
             api_key=args.api_key,
             set_default=args.default,
             batch_size=args.batch_size,
             timeout=args.timeout,
-            health_check_interval=args.health_check_interval
+            health_check_interval=args.health_check_interval,
+            metadata=metadata
         )
         
         # Save configuration

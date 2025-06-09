@@ -25,7 +25,8 @@ from .embeddings import (
     TEIProvider,
     create_openai_provider,
     create_openai_compatible_provider,
-    create_tei_provider
+    create_tei_provider,
+    create_bge_in_icl_provider
 )
 
 logger = logging.getLogger(__name__)
@@ -58,14 +59,14 @@ class ServerConfig:
     
     def __post_init__(self):
         """Validate server configuration."""
-        if self.type not in ['openai', 'openai-compatible', 'tei']:
+        if self.type not in ['openai', 'openai-compatible', 'tei', 'bge-in-icl']:
             raise ValueError(f"Invalid server type: {self.type}")
         
         if not self.base_url:
             raise ValueError("base_url is required")
         
-        if not self.model and self.type != 'tei':
-            raise ValueError("model is required for non-TEI servers")
+        if not self.model and self.type not in ['tei', 'bge-in-icl']:
+            raise ValueError("model is required for non-TEI and non-BGE-IN-ICL servers")
 
 
 class ServerRegistry:
@@ -198,6 +199,16 @@ class ServerRegistry:
             return create_tei_provider(
                 base_url=config.base_url,
                 model=config.model
+            )
+        elif config.type == 'bge-in-icl':
+            return create_bge_in_icl_provider(
+                base_url=config.base_url,
+                model=config.model or "bge-in-icl",
+                api_key=config.api_key,
+                language=config.metadata.get('language', 'auto'),
+                enable_icl=config.metadata.get('enable_icl', True),
+                batch_size=config.batch_size,
+                timeout=config.timeout
             )
         else:
             raise ValueError(f"Unknown server type: {config.type}")
