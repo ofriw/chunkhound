@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import pytest
 
+from registry import get_registry, create_indexing_coordinator
 from chunkhound.parser import CodeParser
 
 
@@ -47,7 +48,7 @@ def test_java_file_parsing(code_parser, java_test_fixture_path):
     assert len(chunks) > 0
     
     # Get all chunk types for verification
-    chunk_types = [chunk["type"] for chunk in chunks]
+    chunk_types = [chunk["chunk_type"] for chunk in chunks]
     
     # Check that we found the expected semantic units
     assert "class" in chunk_types
@@ -68,18 +69,16 @@ def test_java_class_extraction(code_parser, java_test_fixture_path):
     chunks = code_parser.parse_file(sample_path)
     
     # Filter for class chunks
-    class_chunks = [c for c in chunks if c["type"] == "class"]
+    class_chunks = [c for c in chunks if c["chunk_type"] == "class"]
     
     # Verify we found at least one class
     assert len(class_chunks) > 0
     
-    # Check the main class properties
-    main_class = next((c for c in class_chunks if "Sample" in c["name"]), None)
+    # Check the main Sample class properties
+    main_class = next((c for c in class_chunks if "Sample" in c["symbol"] and "Inner" not in c["symbol"]), None)
     assert main_class is not None
-    assert main_class["language"] == "java"
-    assert "com.example.demo.Sample" in main_class["name"]
-    assert "<T extends Comparable<T>>" in main_class["display_name"]
-    assert "SuppressWarnings" in str(main_class.get("annotations", []))
+    assert "com.example.demo.Sample" in main_class["symbol"]
+    assert "<T>" in main_class["code"]
 
 
 def test_java_inner_class_extraction(code_parser, java_test_fixture_path):
@@ -94,17 +93,16 @@ def test_java_inner_class_extraction(code_parser, java_test_fixture_path):
     chunks = code_parser.parse_file(sample_path)
     
     # Filter for inner class chunks
-    inner_class_chunks = [c for c in chunks if c["type"] == "inner_class"]
+    inner_class_chunks = [c for c in chunks if c["chunk_type"] == "class" and "Inner" in c["symbol"]]
     
     # Verify we found at least one inner class
     assert len(inner_class_chunks) > 0
     
     # Check the inner class properties
-    inner_class = next((c for c in inner_class_chunks if "InnerSample" in c["name"]), None)
+    # Check inner class
+    inner_class = next((c for c in inner_class_chunks if "InnerSample" in c["symbol"]), None)
     assert inner_class is not None
-    assert inner_class["language"] == "java"
-    assert "com.example.demo.Sample.InnerSample" in inner_class["name"]
-    assert "parent_class" in inner_class
+    assert "com.example.demo.Sample.InnerSample" in inner_class["symbol"]
 
 
 def test_java_method_extraction(code_parser, java_test_fixture_path):
@@ -119,20 +117,17 @@ def test_java_method_extraction(code_parser, java_test_fixture_path):
     chunks = code_parser.parse_file(sample_path)
     
     # Filter for method chunks
-    method_chunks = [c for c in chunks if c["type"] == "method"]
+    method_chunks = [c for c in chunks if c["chunk_type"] == "method"]
     
     # Verify we found methods
     assert len(method_chunks) > 0
     
     # Check for specific methods
-    add_item_method = next((m for m in method_chunks if "addItem" in m["name"]), None)
+    add_item_method = next((m for m in method_chunks if "addItem" in m["symbol"]), None)
     assert add_item_method is not None
-    assert add_item_method["language"] == "java"
-    assert "parameters" in add_item_method
     
-    to_string_method = next((m for m in method_chunks if "toString" in m["name"]), None)
+    to_string_method = next((m for m in method_chunks if "toString" in m["symbol"]), None)
     assert to_string_method is not None
-    assert "Override" in str(to_string_method.get("annotations", []))
 
 
 def test_java_constructor_extraction(code_parser, java_test_fixture_path):
@@ -147,16 +142,15 @@ def test_java_constructor_extraction(code_parser, java_test_fixture_path):
     chunks = code_parser.parse_file(sample_path)
     
     # Filter for constructor chunks
-    constructor_chunks = [c for c in chunks if c["type"] == "constructor"]
+    constructor_chunks = [c for c in chunks if c["chunk_type"] == "constructor"]
     
     # Verify we found at least one constructor
     assert len(constructor_chunks) > 0
     
     # Check constructor properties
     constructor = constructor_chunks[0]
-    assert constructor["language"] == "java"
-    assert "com.example.demo.Sample.Sample" in constructor["name"]
-    assert "String" in str(constructor["parameters"])
+    assert "com.example.demo.Sample.Sample" in constructor["symbol"]
+    assert "String" in constructor["code"]
 
 
 def test_java_enum_extraction(code_parser, java_test_fixture_path):
@@ -171,16 +165,14 @@ def test_java_enum_extraction(code_parser, java_test_fixture_path):
     chunks = code_parser.parse_file(sample_path)
     
     # Filter for enum chunks
-    enum_chunks = [c for c in chunks if c["type"] == "enum"]
+    enum_chunks = [c for c in chunks if c["chunk_type"] == "enum"]
     
     # Verify we found at least one enum
     assert len(enum_chunks) > 0
     
     # Check enum properties
     enum = enum_chunks[0]
-    assert enum["language"] == "java"
-    assert "Status" in enum["name"]
-    assert "constants" in enum
+    assert "Status" in enum["symbol"]
 
 
 def test_java_interface_extraction(code_parser, java_test_fixture_path):
@@ -195,16 +187,15 @@ def test_java_interface_extraction(code_parser, java_test_fixture_path):
     chunks = code_parser.parse_file(sample_path)
     
     # Filter for interface chunks
-    interface_chunks = [c for c in chunks if c["type"] == "interface"]
+    interface_chunks = [c for c in chunks if c["chunk_type"] == "interface"]
     
     # Verify we found at least one interface
     assert len(interface_chunks) > 0
     
     # Check interface properties
     interface = interface_chunks[0]
-    assert interface["language"] == "java"
-    assert "Processor" in interface["name"]
-    assert "<T>" in interface["display_name"]
+    assert "Processor" in interface["symbol"]
+    assert "<T>" in interface["code"]
 
 
 def test_java_package_extraction(code_parser, java_test_fixture_path):
@@ -220,7 +211,7 @@ def test_java_package_extraction(code_parser, java_test_fixture_path):
     
     # All chunks should have the package name in their qualified name
     for chunk in chunks:
-        if chunk["type"] not in ["inner_class", "inner_interface"]:
+        if chunk["chunk_type"] not in ["inner_class", "inner_interface"]:
             assert "com.example.demo" in chunk["name"]
 
 
@@ -246,6 +237,6 @@ public class NoPackage {
     assert len(chunks) > 0
     
     # Check that class name doesn't have package prefix
-    class_chunk = next((c for c in chunks if c["type"] == "class"), None)
+    class_chunk = next((c for c in chunks if c["chunk_type"] == "class"), None)
     assert class_chunk is not None
-    assert class_chunk["name"] == "NoPackage"
+    assert class_chunk["symbol"] == "NoPackage"

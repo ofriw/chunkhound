@@ -6,6 +6,10 @@ from dataclasses import dataclass
 
 from loguru import logger
 
+# Core domain models
+from core.models import Chunk
+from core.types import ChunkType, Language
+
 
 class Chunker:
     """Chunker for extracting semantic units from parsed code."""
@@ -65,12 +69,12 @@ class Chunker:
             start_line: Starting line number (1-indexed)
             end_line: Ending line number (1-indexed) 
             code: Raw code text
-            chunk_type: Type of chunk (function, method, class)
+            chunk_type: Type of chunk (function, method, class, etc.)
             file_path: Source file path
             language_info: Language information for the chunk
             
         Returns:
-            Standardized chunk dictionary
+            Standardized chunk dictionary (backward compatible)
         """
         self.chunk_id_counter += 1
         line_count = end_line - start_line + 1

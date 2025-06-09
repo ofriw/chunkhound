@@ -6,8 +6,8 @@ from pathlib import Path
 import pytest
 
 from chunkhound.database import Database
-from chunkhound.parser import CodeParser
 from chunkhound.embeddings import EmbeddingManager, OpenAIEmbeddingProvider
+from registry import get_registry, create_indexing_coordinator
 
 
 @pytest.fixture

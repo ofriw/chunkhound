@@ -16,38 +16,31 @@ else:
     TreeSitterTree = Any
 
 try:
-    import tree_sitter_python as tspython
-    from tree_sitter import Language, Parser, Node
-    TREE_SITTER_AVAILABLE = True
-except ImportError:
-    TREE_SITTER_AVAILABLE = False
-    tspython = None
-    Language = None
-    Parser = None
-    Node = None
-
-try:
-    import tree_sitter_markdown as tsmarkdown  # type: ignore[import-untyped]
-    MARKDOWN_AVAILABLE = True
-except ImportError:
-    MARKDOWN_AVAILABLE = False
-    tsmarkdown = None
-
-try:
+    from tree_sitter import Node
     from tree_sitter_language_pack import get_language, get_parser
+    TREE_SITTER_AVAILABLE = True
+    PYTHON_AVAILABLE = True
+    MARKDOWN_AVAILABLE = True
     JAVA_AVAILABLE = True
     CSHARP_AVAILABLE = True
     TYPESCRIPT_AVAILABLE = True
     JAVASCRIPT_AVAILABLE = True
 except ImportError:
+    TREE_SITTER_AVAILABLE = False
+    PYTHON_AVAILABLE = False
+    MARKDOWN_AVAILABLE = False
     JAVA_AVAILABLE = False
     CSHARP_AVAILABLE = False
     TYPESCRIPT_AVAILABLE = False
     JAVASCRIPT_AVAILABLE = False
+    Node = None
     get_language = None
     get_parser = None
 
 from loguru import logger
+
+# Core domain types
+from core.types import ChunkType, Language
 from .tree_cache import get_default_cache, TreeCache
 
 
@@ -104,29 +97,30 @@ class CodeParser:
         logger.info("Setting up tree-sitter parsers")
         
         # Setup Python parser
-        try:
-            if tspython is not None and Language is not None and Parser is not None:
-                self.python_language = Language(tspython.language())
-                self.python_parser = Parser(self.python_language)
+        if PYTHON_AVAILABLE and get_language is not None and get_parser is not None:
+            try:
+                self.python_language = get_language('python')
+                self.python_parser = get_parser('python')
                 self._python_initialized = True
                 logger.info("Python parser initialized successfully")
-        except Exception as e:
-            logger.error(f"Failed to initialize Python parser: {e}")
-            self._python_initialized = False
+            except Exception as e:
+                logger.error(f"Failed to initialize Python parser: {e}")
+                self._python_initialized = False
+        else:
+            logger.warning("Python parser not available - tree_sitter_language_pack not installed")
             
         # Setup Markdown parser
-        if MARKDOWN_AVAILABLE and tsmarkdown is not None:
+        if MARKDOWN_AVAILABLE and get_language is not None and get_parser is not None:
             try:
-                if Language is not None and Parser is not None:
-                    self.markdown_language = Language(tsmarkdown.language())
-                    self.markdown_parser = Parser(self.markdown_language)
-                    self._markdown_initialized = True
-                    logger.info("Markdown parser initialized successfully")
+                self.markdown_language = get_language('markdown')
+                self.markdown_parser = get_parser('markdown')
+                self._markdown_initialized = True
+                logger.info("Markdown parser initialized successfully")
             except Exception as e:
                 logger.error(f"Failed to initialize Markdown parser: {e}")
                 self._markdown_initialized = False
         else:
-            logger.warning("Markdown parser not available - tree_sitter_markdown not installed")
+            logger.warning("Markdown parser not available - tree_sitter_language_pack not installed")
             
         # Setup Java parser
         if JAVA_AVAILABLE and get_language is not None and get_parser is not None:
@@ -194,7 +188,7 @@ class CodeParser:
             logger.warning("TSX parser not available - tree_sitter_language_pack not installed")
         
     def parse_file(self, file_path: Path, source: Optional[str] = None) -> List[Dict[str, Any]]:
-        """Parse a file and extract semantic chunks based on file type.
+        """Parse a file and extract semantic chunks.
         
         Args:
             file_path: Path to file to parse
@@ -203,27 +197,27 @@ class CodeParser:
         Returns:
             List of extracted chunks with metadata
         """
-        # Determine file type
-        suffix = file_path.suffix.lower()
+        # Determine file type using core Language enum
+        language = Language.from_file_extension(file_path)
         
-        if suffix == '.py':
+        if language == Language.PYTHON:
             return self._parse_python_file(file_path, source)
-        elif suffix in ['.md', '.markdown']:
+        elif language == Language.MARKDOWN:
             return self._parse_markdown_file(file_path, source)
-        elif suffix == '.java':
+        elif language == Language.JAVA:
             return self._parse_java_file(file_path, source)
-        elif suffix == '.cs':
+        elif language == Language.CSHARP:
             return self._parse_csharp_file(file_path, source)
-        elif suffix == '.ts':
+        elif language == Language.TYPESCRIPT:
             return self._parse_typescript_file(file_path, source)
-        elif suffix == '.js':
+        elif language == Language.JAVASCRIPT:
             return self._parse_javascript_file(file_path, source)
-        elif suffix == '.tsx':
+        elif language == Language.TSX:
             return self._parse_tsx_file(file_path, source)
-        elif suffix == '.jsx':
+        elif language == Language.JSX:
             return self._parse_jsx_file(file_path, source)
         else:
-            logger.warning(f"Unsupported file type: {suffix}")
+            logger.warning(f"Unsupported file type: {file_path.suffix}")
             return []
     
     def _extract_csharp_structs(self, tree_node: TreeSitterNode, source_code: str,
@@ -273,14 +267,16 @@ class CodeParser:
                     qualified_name = f"{namespace_name}.{struct_name}" if namespace_name else struct_name
                     
                     chunk = {
-                        "type": "struct",
+                        "symbol": qualified_name,
+                        "start_line": start_line,
+                        "end_line": end_line,
+                        "code": self._get_node_text(struct_node, source_code),
+                        "chunk_type": ChunkType.STRUCT.value,
                         "language": "csharp",
                         "path": str(file_path),
                         "name": qualified_name,
                         "display_name": qualified_name,
                         "content": self._get_node_text(struct_node, source_code),
-                        "start_line": start_line,
-                        "end_line": end_line,
                         "start_byte": struct_node.start_byte,
                         "end_byte": struct_node.end_byte,
                     }
@@ -348,14 +344,16 @@ class CodeParser:
                     qualified_name = f"{namespace_name}.{enum_name}" if namespace_name else enum_name
                     
                     chunk = {
-                        "type": "enum",
+                        "symbol": qualified_name,
+                        "start_line": start_line,
+                        "end_line": end_line,
+                        "code": self._get_node_text(enum_node, source_code),
+                        "chunk_type": ChunkType.ENUM.value,
                         "language": "csharp",
                         "path": str(file_path),
                         "name": qualified_name,
                         "display_name": qualified_name,
                         "content": self._get_node_text(enum_node, source_code),
-                        "start_line": start_line,
-                        "end_line": end_line,
                         "start_byte": enum_node.start_byte,
                         "end_byte": enum_node.end_byte,
                     }
@@ -415,16 +413,19 @@ class CodeParser:
                     qualified_name = f"{parent_name}.{property_name}"
                     
                     chunk = {
-                        "type": "property",
+                        "symbol": qualified_name,
+                        "start_line": start_line,
+                        "end_line": end_line,
+                        "code": self._get_node_text(property_node, source_code),
+                        "chunk_type": ChunkType.PROPERTY.value,
                         "language": "csharp",
                         "path": str(file_path),
                         "name": qualified_name,
                         "display_name": qualified_name,
                         "content": self._get_node_text(property_node, source_code),
-                        "start_line": start_line,
-                        "end_line": end_line,
                         "start_byte": property_node.start_byte,
                         "end_byte": property_node.end_byte,
+                        "parent": parent_name,
                     }
                     
                     chunks.append(chunk)
@@ -486,16 +487,19 @@ class CodeParser:
                     qualified_name = f"{parent_name}.{constructor_name}({param_str})"
                     
                     chunk = {
-                        "type": "constructor",
+                        "symbol": qualified_name,
+                        "start_line": start_line,
+                        "end_line": end_line,
+                        "code": self._get_node_text(constructor_node, source_code),
+                        "chunk_type": ChunkType.CONSTRUCTOR.value,
                         "language": "csharp",
                         "path": str(file_path),
                         "name": qualified_name,
                         "display_name": qualified_name,
                         "content": self._get_node_text(constructor_node, source_code),
-                        "start_line": start_line,
-                        "end_line": end_line,
                         "start_byte": constructor_node.start_byte,
                         "end_byte": constructor_node.end_byte,
+                        "parent": parent_name,
                         "parameters": parameters
                     }
                     
@@ -1079,14 +1083,16 @@ class CodeParser:
                 
                 # Create chunk
                 chunk = {
-                    "type": "class",
+                    "symbol": qualified_name,
+                    "start_line": class_node.start_point[0] + 1,
+                    "end_line": class_node.end_point[0] + 1,
+                    "code": class_text,
+                    "chunk_type": ChunkType.CLASS.value,
                     "language": "java",
                     "path": str(file_path),
                     "name": qualified_name,
                     "display_name": display_name,
                     "content": class_text,
-                    "start_line": class_node.start_point[0] + 1,
-                    "end_line": class_node.end_point[0] + 1,
                     "start_byte": class_node.start_byte,
                     "end_byte": class_node.end_byte,
                 }
@@ -1182,14 +1188,16 @@ class CodeParser:
                 
                 # Create chunk
                 chunk = {
-                    "type": "interface",
+                    "symbol": qualified_name,
+                    "start_line": interface_node.start_point[0] + 1,
+                    "end_line": interface_node.end_point[0] + 1,
+                    "code": interface_text,
+                    "chunk_type": ChunkType.INTERFACE.value,
                     "language": "java",
                     "path": str(file_path),
                     "name": qualified_name,
                     "display_name": display_name,
                     "content": interface_text,
-                    "start_line": interface_node.start_point[0] + 1,
-                    "end_line": interface_node.end_point[0] + 1,
                     "start_byte": interface_node.start_byte,
                     "end_byte": interface_node.end_byte,
                 }
@@ -1358,17 +1366,19 @@ class CodeParser:
                 
                 # Create chunk
                 chunk = {
-                    "type": "inner_class",
+                    "symbol": qualified_name,
+                    "start_line": inner_class_node.start_point[0] + 1,
+                    "end_line": inner_class_node.end_point[0] + 1,
+                    "code": inner_class_text,
+                    "chunk_type": ChunkType.CLASS.value,
                     "language": "java",
                     "path": str(file_path),
                     "name": qualified_name,
                     "display_name": display_name,
                     "content": inner_class_text,
-                    "start_line": inner_class_node.start_point[0] + 1,
-                    "end_line": inner_class_node.end_point[0] + 1,
                     "start_byte": inner_class_node.start_byte,
                     "end_byte": inner_class_node.end_byte,
-                    "parent_class": outer_class_name,
+                    "parent": outer_class_name
                 }
                 
                 # Add annotations if found
@@ -1531,16 +1541,21 @@ class CodeParser:
                 # Extract annotations if present
                 annotations = self._extract_java_annotations(enum_node, source_code)
                 
+                # Create display name
+                display_name = qualified_name
+                
                 # Create chunk
                 chunk = {
-                    "type": "enum",
+                    "symbol": qualified_name,
+                    "start_line": enum_node.start_point[0] + 1,
+                    "end_line": enum_node.end_point[0] + 1,
+                    "code": enum_text,
+                    "chunk_type": ChunkType.ENUM.value,
                     "language": "java",
                     "path": str(file_path),
                     "name": qualified_name,
-                    "display_name": qualified_name,
+                    "display_name": display_name,
                     "content": enum_text,
-                    "start_line": enum_node.start_point[0] + 1,
-                    "end_line": enum_node.end_point[0] + 1,
                     "start_byte": enum_node.start_byte,
                     "end_byte": enum_node.end_byte,
                 }
@@ -1707,14 +1722,16 @@ class CodeParser:
                 
                 # Create chunk
                 chunk = {
-                    "type": "method",
+                    "symbol": qualified_name,
+                    "start_line": method_node.start_point[0] + 1,
+                    "end_line": method_node.end_point[0] + 1,
+                    "code": method_text,
+                    "chunk_type": ChunkType.METHOD.value,
                     "language": "java",
                     "path": str(file_path),
                     "name": qualified_name,
                     "display_name": display_name,
                     "content": method_text,
-                    "start_line": method_node.start_point[0] + 1,
-                    "end_line": method_node.end_point[0] + 1,
                     "start_byte": method_node.start_byte,
                     "end_byte": method_node.end_byte,
                     "parent": enum_name,
@@ -1873,16 +1890,18 @@ class CodeParser:
                         display_name = f"{qualified_name}<{type_params}>({param_types_str})"
                     
                     # Create chunk
-                    chunk_type = "constructor" if is_constructor else "method"
+                    chunk_type_enum = ChunkType.CONSTRUCTOR if is_constructor else ChunkType.METHOD
                     chunk = {
-                        "type": chunk_type,
+                        "symbol": qualified_name,
+                        "start_line": method_node.start_point[0] + 1,
+                        "end_line": method_node.end_point[0] + 1,
+                        "code": method_text,
+                        "chunk_type": chunk_type_enum.value,
                         "language": "java",
                         "path": str(file_path),
                         "name": qualified_name,
                         "display_name": display_name,
                         "content": method_text,
-                        "start_line": method_node.start_point[0] + 1,
-                        "end_line": method_node.end_point[0] + 1,
                         "start_byte": method_node.start_byte,
                         "end_byte": method_node.end_byte,
                         "parent": class_name,
@@ -2083,7 +2102,7 @@ class CodeParser:
                     "start_line": func_node.start_point[0] + 1,  # Convert to 1-indexed
                     "end_line": func_node.end_point[0] + 1,
                     "code": self._get_node_text(func_node, source_code),
-                    "chunk_type": "function"
+                    "chunk_type": ChunkType.FUNCTION.value
                 }
                 chunks.append(chunk)
                 logger.debug(f"Found function: {func_name} at lines {chunk['start_line']}-{chunk['end_line']}")
@@ -2129,7 +2148,7 @@ class CodeParser:
                     "start_line": class_node.start_point[0] + 1,
                     "end_line": class_node.end_point[0] + 1,
                     "code": self._get_node_text(class_node, source_code),
-                    "chunk_type": "class"
+                    "chunk_type": ChunkType.CLASS.value
                 }
                 chunks.append(class_chunk)
                 logger.debug(f"Found class: {class_name} at lines {class_chunk['start_line']}-{class_chunk['end_line']}")
@@ -2178,7 +2197,7 @@ class CodeParser:
                     "start_line": method_node.start_point[0] + 1,
                     "end_line": method_node.end_point[0] + 1,
                     "code": self._get_node_text(method_node, source_code),
-                    "chunk_type": "method"
+                    "chunk_type": ChunkType.METHOD.value
                 }
                 chunks.append(chunk)
                 logger.debug(f"Found method: {class_name}.{method_name} at lines {chunk['start_line']}-{chunk['end_line']}")
@@ -2251,12 +2270,22 @@ class CodeParser:
                         else:
                             header_text = self._get_node_text(heading_node, source_code).strip()
                         
+                        # Map header level to ChunkType
+                        header_type_map = {
+                            1: ChunkType.HEADER_1,
+                            2: ChunkType.HEADER_2,
+                            3: ChunkType.HEADER_3,
+                            4: ChunkType.HEADER_4,
+                            5: ChunkType.HEADER_5,
+                            6: ChunkType.HEADER_6
+                        }
+                        
                         chunk = {
                             "symbol": header_text,
                             "start_line": heading_node.start_point[0] + 1,
                             "end_line": heading_node.end_point[0] + 1,
                             "code": self._get_node_text(heading_node, source_code),
-                            "chunk_type": f"header_{level}",
+                            "chunk_type": header_type_map[level].value,
                             "language_info": "markdown"
                         }
                         chunks.append(chunk)
@@ -2304,7 +2333,7 @@ class CodeParser:
                         "start_line": code_block_node.start_point[0] + 1,
                         "end_line": code_block_node.end_point[0] + 1,
                         "code": self._get_node_text(code_block_node, source_code),
-                        "chunk_type": "code_block",
+                        "chunk_type": ChunkType.CODE_BLOCK.value,
                         "language_info": language_info
                     }
                     chunks.append(chunk)
@@ -2419,7 +2448,7 @@ class CodeParser:
                     "start_line": para_info["start_line"],
                     "end_line": para_info["end_line"],
                     "code": para_info["text"],
-                    "chunk_type": "paragraph",
+                    "chunk_type": ChunkType.PARAGRAPH.value,
                     "language_info": "markdown"
                 }
                 chunks.append(chunk)
@@ -2679,14 +2708,16 @@ class CodeParser:
                     qualified_name = f"{parent_qualified_name}.{struct_name}"
                     
                     chunk = {
-                        "type": "struct",
+                        "symbol": qualified_name,
+                        "start_line": start_line,
+                        "end_line": end_line,
+                        "code": self._get_node_text(struct_node, source_code),
+                        "chunk_type": ChunkType.STRUCT.value,
                         "language": "csharp",
                         "path": str(file_path),
                         "name": qualified_name,
                         "display_name": qualified_name,
                         "content": self._get_node_text(struct_node, source_code),
-                        "start_line": start_line,
-                        "end_line": end_line,
                         "start_byte": struct_node.start_byte,
                         "end_byte": struct_node.end_byte,
                     }
@@ -2766,14 +2797,16 @@ class CodeParser:
                         display_name = qualified_name
                     
                     chunk = {
-                        "type": "class",
+                        "symbol": qualified_name,
+                        "start_line": start_line,
+                        "end_line": end_line,
+                        "code": self._get_node_text(class_node, source_code),
+                        "chunk_type": ChunkType.CLASS.value,
                         "language": "csharp",
                         "path": str(file_path),
                         "name": qualified_name,
                         "display_name": display_name,
                         "content": self._get_node_text(class_node, source_code),
-                        "start_line": start_line,
-                        "end_line": end_line,
                         "start_byte": class_node.start_byte,
                         "end_byte": class_node.end_byte,
                     }
@@ -2849,14 +2882,16 @@ class CodeParser:
                         display_name = qualified_name
                     
                     chunk = {
-                        "type": "class",
+                        "symbol": qualified_name,
+                        "start_line": start_line,
+                        "end_line": end_line,
+                        "code": self._get_node_text(class_node, source_code),
+                        "chunk_type": ChunkType.CLASS.value,
                         "language": "csharp",
                         "path": str(file_path),
                         "name": qualified_name,
                         "display_name": display_name,
                         "content": self._get_node_text(class_node, source_code),
-                        "start_line": start_line,
-                        "end_line": end_line,
                         "start_byte": class_node.start_byte,
                         "end_byte": class_node.end_byte,
                     }
@@ -2939,14 +2974,16 @@ class CodeParser:
                         display_name = qualified_name
                     
                     chunk = {
-                        "type": "interface",
+                        "symbol": qualified_name,
+                        "start_line": start_line,
+                        "end_line": end_line,
+                        "code": self._get_node_text(interface_node, source_code),
+                        "chunk_type": ChunkType.INTERFACE.value,
                         "language": "csharp",
                         "path": str(file_path),
                         "name": qualified_name,
                         "display_name": display_name,
                         "content": self._get_node_text(interface_node, source_code),
-                        "start_line": start_line,
-                        "end_line": end_line,
                         "start_byte": interface_node.start_byte,
                         "end_byte": interface_node.end_byte,
                     }
@@ -3047,17 +3084,20 @@ class CodeParser:
                         qualified_name = f"{namespace_name}.{method_name}({param_str})" if namespace_name else f"{method_name}({param_str})"
                     
                     chunk = {
-                        "type": "method",
+                        "symbol": qualified_name,
+                        "start_line": start_line,
+                        "end_line": end_line,
+                        "code": self._get_node_text(method_node, source_code),
+                        "chunk_type": ChunkType.METHOD.value,
                         "language": "csharp",
                         "path": str(file_path),
                         "name": qualified_name,
                         "display_name": qualified_name,
                         "content": self._get_node_text(method_node, source_code),
-                        "start_line": start_line,
-                        "end_line": end_line,
                         "start_byte": method_node.start_byte,
                         "end_byte": method_node.end_byte,
-                        "parameters": params
+                        "parent": parent_context,
+                        "parameters": params,
                     }
                     
                     chunks.append(chunk)
@@ -3432,7 +3472,7 @@ class CodeParser:
                     "start_line": start_line,
                     "end_line": end_line,
                     "code": func_text,
-                    "chunk_type": "function",
+                    "chunk_type": ChunkType.FUNCTION.value,
                     "language_info": "typescript"
                 })
 
@@ -3484,11 +3524,11 @@ class CodeParser:
                 end_line = class_node.end_point[0] + 1
 
                 chunks.append({
-                    "symbol": f"class {class_name}",
+                    "symbol": class_name,
                     "start_line": start_line,
                     "end_line": end_line,
                     "code": class_text,
-                    "chunk_type": "class",
+                    "chunk_type": ChunkType.CLASS.value,
                     "language_info": "typescript"
                 })
 
@@ -3540,11 +3580,11 @@ class CodeParser:
                 end_line = interface_node.end_point[0] + 1
 
                 chunks.append({
-                    "symbol": f"interface {interface_name}",
+                    "symbol": interface_name,
                     "start_line": start_line,
                     "end_line": end_line,
                     "code": interface_text,
-                    "chunk_type": "interface",
+                    "chunk_type": ChunkType.INTERFACE.value,
                     "language_info": "typescript"
                 })
 
@@ -3596,11 +3636,11 @@ class CodeParser:
                 end_line = enum_node.end_point[0] + 1
 
                 chunks.append({
-                    "symbol": f"enum {enum_name}",
+                    "symbol": enum_name,
                     "start_line": start_line,
                     "end_line": end_line,
                     "code": enum_text,
-                    "chunk_type": "enum",
+                    "chunk_type": ChunkType.ENUM.value,
                     "language_info": "typescript"
                 })
 
@@ -3652,11 +3692,11 @@ class CodeParser:
                 end_line = type_node.end_point[0] + 1
 
                 chunks.append({
-                    "symbol": f"type {type_name}",
+                    "symbol": type_name,
                     "start_line": start_line,
                     "end_line": end_line,
                     "code": type_text,
-                    "chunk_type": "type",
+                    "chunk_type": ChunkType.TYPE_ALIAS.value,
                     "language_info": "typescript"
                 })
 
@@ -3786,7 +3826,7 @@ class CodeParser:
                     "start_line": start_line,
                     "end_line": end_line,
                     "code": func_text,
-                    "chunk_type": "function",
+                    "chunk_type": ChunkType.FUNCTION.value,
                     "language_info": "javascript"
                 })
 

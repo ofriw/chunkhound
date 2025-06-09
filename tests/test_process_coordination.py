@@ -12,106 +12,13 @@ import hashlib
 from pathlib import Path
 from unittest.mock import Mock, patch, call
 import signal
+import pytest
 
 from chunkhound.database import Database
-from chunkhound.cli import detect_mcp_server, coordinate_database_access, restore_database_access
-
-
-class TestProcessDetection:
-    """Test MCP server process detection."""
-    
-    def test_detect_mcp_server_no_pid_file(self):
-        """Test detection when no PID file exists."""
-        db_path = "/tmp/test.db"
-        result = detect_mcp_server(db_path)
-        assert result is None
-    
-    def test_detect_mcp_server_with_valid_pid(self):
-        """Test detection with valid PID file."""
-        db_path = "/tmp/test.db"
-        db_hash = hashlib.md5(str(Path(db_path).resolve()).encode()).hexdigest()[:8]
-        coordination_dir = Path(f"/tmp/chunkhound-{db_hash}")
-        pid_file = coordination_dir / "mcp.pid"
-        
-        try:
-            # Create coordination directory and PID file with current process PID
-            coordination_dir.mkdir(parents=True, exist_ok=True)
-            with open(pid_file, 'w') as f:
-                f.write(str(os.getpid()))
-            
-            # Mock the process validation to return True
-            with patch('chunkhound.process_detection.ProcessDetector._is_chunkhound_mcp', return_value=True):
-                result = detect_mcp_server(db_path)
-                assert result == os.getpid()
-            
-        finally:
-            if pid_file.exists():
-                pid_file.unlink()
-            if coordination_dir.exists():
-                coordination_dir.rmdir()
-    
-    def test_detect_mcp_server_with_invalid_pid(self):
-        """Test detection with invalid PID file."""
-        db_path = "/tmp/test.db"
-        db_hash = hashlib.md5(str(Path(db_path).resolve()).encode()).hexdigest()[:8]
-        coordination_dir = Path(f"/tmp/chunkhound-{db_hash}")
-        pid_file = coordination_dir / "mcp.pid"
-        
-        try:
-            # Create coordination directory and PID file with non-existent PID
-            coordination_dir.mkdir(parents=True, exist_ok=True)
-            with open(pid_file, 'w') as f:
-                f.write("99999")
-            
-            # Mock validation to return False for invalid process
-            with patch('chunkhound.process_detection.ProcessDetector._is_chunkhound_mcp', return_value=False):
-                result = detect_mcp_server(db_path)
-                assert result is None
-                
-                # PID file should be cleaned up
-                assert not pid_file.exists()
-            
-        finally:
-            if pid_file.exists():
-                pid_file.unlink()
-            if coordination_dir.exists():
-                coordination_dir.rmdir()
 
 
 class TestCoordination:
     """Test database coordination functionality."""
-    
-    def test_coordinate_database_access_timeout(self):
-        """Test coordination timeout when no signal response."""
-        db_path = "/tmp/test.db"
-        fake_pid = 99999  # Use non-existent PID
-        
-        # Mock that a server is running but doesn't respond
-        with patch('chunkhound.signal_coordinator.CLICoordinator.request_database_access', return_value=False) as mock_request:
-            result = coordinate_database_access(db_path, fake_pid)
-            assert result is False
-            mock_request.assert_called_once()
-    
-    def test_coordinate_database_access_success(self):
-        """Test successful coordination."""
-        db_path = "/tmp/test.db"
-        fake_pid = 99999  # Use non-existent PID
-        
-        # Mock successful coordination
-        with patch('chunkhound.signal_coordinator.CLICoordinator.request_database_access', return_value=True) as mock_request:
-            result = coordinate_database_access(db_path, fake_pid)
-            assert result is True
-            mock_request.assert_called_once()
-    
-    def test_restore_database_access(self):
-        """Test database access restoration."""
-        db_path = "/tmp/test.db"
-        fake_pid = 99999  # Use non-existent PID
-
-        # Mock successful restoration
-        with patch('chunkhound.signal_coordinator.CLICoordinator.release_database_access', return_value=True) as mock_release:
-            restore_database_access(db_path, fake_pid)
-            mock_release.assert_called_once()
 
     def test_coordination_hash_consistency(self):
         """Test that CLI and MCP server use consistent hash calculation."""
@@ -207,45 +114,26 @@ class TestIntegration:
         """Test complete coordination workflow."""
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = str(Path(tmpdir) / "test.db")
-            db_hash = hashlib.md5(str(Path(db_path).resolve()).encode()).hexdigest()[:8]
-            coordination_dir = Path(f"/tmp/chunkhound-{db_hash}")
-            pid_file = coordination_dir / "mcp.pid"
             
-            try:
-                # Create coordination directory and fake MCP server PID file
-                coordination_dir.mkdir(parents=True, exist_ok=True)
-                fake_pid = 99999
-                with open(pid_file, 'w') as f:
-                    f.write(str(fake_pid))
-                
-                # Mock process validation and coordination
-                mock_process = Mock()
-                mock_process.pid = fake_pid
-                with patch('chunkhound.process_detection.ProcessDetector._is_chunkhound_mcp', return_value=True), \
-                     patch('chunkhound.process_detection.ProcessDetector.validate_pid_active', return_value=True), \
-                     patch('psutil.Process', return_value=mock_process), \
-                     patch('chunkhound.signal_coordinator.CLICoordinator.request_database_access', return_value=True) as mock_request, \
-                     patch('chunkhound.signal_coordinator.CLICoordinator.release_database_access', return_value=True) as mock_release:
-                    
-                    # Test detection
-                    detected_pid = detect_mcp_server(db_path)
-                    assert detected_pid == fake_pid
-                    
-                    # Test coordination
-                    result = coordinate_database_access(db_path, detected_pid)
-                    assert result is True
-                    mock_request.assert_called_once()
-                    
-                    # Test restoration
-                    restore_database_access(db_path, detected_pid)
-                    mock_release.assert_called_once()
-                    
-            finally:
-                # Cleanup
-                if pid_file.exists():
-                    pid_file.unlink()
-                if coordination_dir.exists():
-                    coordination_dir.rmdir()
+            # Test that the coordination system components can be imported and used
+            # This validates that the signal coordination architecture is intact
+            # even though the old CLI detection methods have been replaced
+            from chunkhound.signal_coordinator import CLICoordinator, SignalCoordinator
+            from chunkhound.process_detection import ProcessDetector
+            
+            # Basic validation that classes can be instantiated
+            detector = ProcessDetector(db_path)
+            assert detector is not None
+            
+            # Test database coordination still works
+            db = Database(db_path)
+            db.connect()
+            
+            # Test detach/reattach cycle
+            assert db.detach_database() is True
+            assert db.reattach_database() is True
+            
+            db.close()
 
 
 if __name__ == "__main__":

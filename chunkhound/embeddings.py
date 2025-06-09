@@ -11,6 +11,9 @@ from dataclasses import dataclass, field
 
 from loguru import logger
 
+# Core domain models
+from core.models import Embedding, EmbeddingResult
+
 try:
     import openai
     OPENAI_AVAILABLE = True
@@ -61,8 +64,8 @@ class EmbeddingProvider(Protocol):
 
 
 @dataclass
-class EmbeddingResult:
-    """Result from embedding operation."""
+class LocalEmbeddingResult:
+    """Local result from embedding operation (legacy)."""
     embeddings: List[List[float]]
     model: str
     provider: str
@@ -449,7 +452,7 @@ class EmbeddingManager:
         self,
         texts: List[str],
         provider_name: Optional[str] = None,
-    ) -> EmbeddingResult:
+    ) -> LocalEmbeddingResult:
         """Generate embeddings for texts using specified provider.
         
         Args:
@@ -463,7 +466,7 @@ class EmbeddingManager:
         
         embeddings = await provider.embed(texts)
         
-        return EmbeddingResult(
+        return LocalEmbeddingResult(
             embeddings=embeddings,
             model=provider.model,
             provider=provider.name,

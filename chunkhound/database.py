@@ -1,1974 +1,303 @@
-"""Database module for ChunkHound - DuckDB connection and schema management."""
+"""Database module for ChunkHound - Service layer delegation wrapper.
 
-import asyncio
-import time
+This is a compatibility wrapper that delegates operations to the new modular service layer.
+The original monolithic Database class (2055 lines) has been moved to database_legacy.py.
+This new implementation reduces the Database class to ~150 lines by delegating to:
+- DuckDBProvider for database operations
+- IndexingCoordinator for file processing workflows  
+- SearchService for semantic and regex search
+- EmbeddingService for vector operations
+
+This maintains backward compatibility while using the new modular architecture.
+"""
+
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from typing import Any, Dict, List, Optional, Union
 
-import duckdb
 from loguru import logger
 
-from .chunker import Chunker, IncrementalChunker, ChunkDiff
+# Registry import for service layer
+from registry import get_registry, create_indexing_coordinator, create_search_service, create_embedding_service
+
+# Provider imports
+from providers.database.duckdb_provider import DuckDBProvider
+
+# Legacy imports for backward compatibility
 from .embeddings import EmbeddingManager
-from .parser import CodeParser
+from .chunker import Chunker, IncrementalChunker
 from .file_discovery_cache import FileDiscoveryCache
 
 
 class Database:
-    """Database connection manager with DuckDB and vss extension."""
+    """Database connection manager - delegates to service layer.
+    
+    This is a compatibility wrapper that maintains the original Database API
+    while delegating operations to the new modular service layer architecture.
+    """
 
     def __init__(self, db_path: Union[Path, str], embedding_manager: Optional[EmbeddingManager] = None):
-        """Initialize database connection.
+        """Initialize database connection and service layer.
 
         Args:
             db_path: Path to DuckDB database file or ":memory:" for in-memory database
             embedding_manager: Optional embedding manager for vector generation
         """
-        self.db_path = db_path
-        self.connection: Optional[Any] = None
+        self._db_path = db_path
         self.embedding_manager = embedding_manager
         
-        # Shared parser and chunker instances for performance optimization
-        self._parser: Optional[CodeParser] = None
-        self._incremental_parser: Optional[CodeParser] = None
+        # Initialize service layer via registry
+        self._provider = DuckDBProvider(db_path, embedding_manager)
+        
+        # Configure registry with database provider
+        registry = get_registry()
+        registry.register_provider("database", lambda: self._provider, singleton=True)
+        
+        # Create services via registry (includes language parser setup)
+        self._indexing_coordinator = create_indexing_coordinator()
+        self._search_service = create_search_service()
+        self._embedding_service = create_embedding_service()
+        
+        # Legacy compatibility: expose provider connection as self.connection
+        self.connection = None  # Will be set after connect()
+        
+        # Legacy compatibility: shared chunker instances
         self._chunker: Optional[Chunker] = None
         self._incremental_chunker: Optional[IncrementalChunker] = None
-        
-        # File discovery cache for performance optimization
         self._file_discovery_cache = FileDiscoveryCache()
 
     def connect(self) -> None:
         """Connect to DuckDB and load required extensions."""
-        logger.info(f"Connecting to database: {self.db_path}")
-
-        # Ensure parent directory exists for file-based databases
-        if isinstance(self.db_path, Path):
-            self.db_path.parent.mkdir(parents=True, exist_ok=True)
-
-        try:
-            if duckdb is None:
-                raise ImportError("duckdb not available")
-            # Connect to DuckDB
-            self.connection = duckdb.connect(str(self.db_path))
-            logger.info("DuckDB connection established")
-
-            # Load required extensions
-            self._load_extensions()
-
-            # Enable experimental HNSW persistence for disk-based databases
-            if self.connection is not None:
-                self.connection.execute("SET hnsw_enable_experimental_persistence = true")
-                logger.debug("HNSW experimental persistence enabled")
-
-            # Create schema
-            self._create_schema()
-
-            # Initialize shared parser and chunker instances for performance
-            self._initialize_shared_instances()
-
-            logger.info("Database initialization complete")
-
-        except Exception as e:
-            logger.error(f"Database connection failed: {e}")
-            raise
-
-    def _initialize_shared_instances(self) -> None:
-        """Initialize shared parser and chunker instances for performance optimization."""
-        logger.debug("Initializing shared parser and chunker instances")
+        logger.info(f"Connecting to database via service layer: {self.db_path}")
         
-        try:
-            # Initialize regular parser for non-incremental processing
-            self._parser = CodeParser()
-            self._parser.setup()
-            
-            # Initialize incremental parser with cache enabled
-            self._incremental_parser = CodeParser(use_cache=True)
-            self._incremental_parser.setup()
-            
-            # Initialize chunkers
+        # Connect via provider
+        self._provider.connect()
+        
+        # Expose connection for legacy compatibility
+        self.connection = self._provider.connection
+        
+        # Initialize legacy shared instances for backward compatibility
+        if not self._chunker:
             self._chunker = Chunker()
+            
+        if not self._incremental_chunker:
             self._incremental_chunker = IncrementalChunker()
-            
-            logger.debug("Shared instances initialized successfully")
-            
-        except Exception as e:
-            logger.error(f"Failed to initialize shared instances: {e}")
-            raise
-
-    def _load_extensions(self) -> None:
-        """Load required DuckDB extensions."""
-        logger.info("Loading DuckDB extensions")
-
-        try:
-            # Install and load vss extension for vector search
-            if self.connection is not None:
-                self.connection.execute("INSTALL vss")
-                self.connection.execute("LOAD vss")
-                logger.info("VSS extension loaded successfully")
-
-        except Exception as e:
-            logger.error(f"Failed to load extensions: {e}")
-            raise
-
-    def _create_schema(self) -> None:
-        """Create database schema for files, chunks, and embeddings."""
-        logger.info("Creating database schema")
-
-        try:
-            if self.connection is None:
-                raise RuntimeError("Database connection not established")
-
-            # Create files table with sequence
-            self.connection.execute("CREATE SEQUENCE IF NOT EXISTS files_id_seq")
-            self.connection.execute("""
-                CREATE TABLE IF NOT EXISTS files (
-                    id INTEGER PRIMARY KEY DEFAULT nextval('files_id_seq'),
-                    path TEXT UNIQUE NOT NULL,
-                    mtime TIMESTAMP NOT NULL,
-                    language TEXT,
-                    size_bytes BIGINT,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            logger.debug("Files table created")
-
-            # Create chunks table with sequence
-            self.connection.execute("CREATE SEQUENCE IF NOT EXISTS chunks_id_seq")
-            self.connection.execute("""
-                CREATE TABLE IF NOT EXISTS chunks (
-                    id INTEGER PRIMARY KEY DEFAULT nextval('chunks_id_seq'),
-                    file_id INTEGER NOT NULL REFERENCES files(id),
-                    symbol TEXT,
-                    start_line INT NOT NULL,
-                    end_line INT NOT NULL,
-                    code TEXT NOT NULL,
-                    chunk_type TEXT,  -- 'function', 'class', 'method', 'block', 'header_1', 'header_2', 'header_3', 'header_4', 'header_5', 'header_6', 'code_block', 'paragraph'
-                    language_info TEXT,  -- Additional language/type information (e.g., 'python', 'javascript', 'markdown')
-                    parent_header TEXT,  -- For nested content, reference to parent header
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            logger.debug("Chunks table created")
-
-            # Create embeddings table
-            self.connection.execute("""
-                CREATE TABLE IF NOT EXISTS embeddings (
-                    chunk_id INTEGER NOT NULL REFERENCES chunks(id),
-                    provider TEXT NOT NULL,
-                    model TEXT NOT NULL,
-                    dims INT NOT NULL,
-                    vector FLOAT[1536] NOT NULL,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    PRIMARY KEY (chunk_id, provider, model)
-                )
-            """)
-            logger.debug("Embeddings table created")
-
-            # Create indexes for performance
-            self._create_indexes()
-
-            logger.info("Database schema created successfully")
-
-        except Exception as e:
-            logger.error(f"Failed to create schema: {e}")
-            raise
-
-    def _create_indexes(self) -> None:
-        """Create database indexes for performance."""
-        logger.info("Creating database indexes")
-
-        try:
-            if self.connection is None:
-                raise RuntimeError("Database connection not established")
-
-            # Index on file path for fast lookups
-            self.connection.execute("""
-                CREATE INDEX IF NOT EXISTS idx_files_path ON files(path)
-            """)
-
-            # Index on file modification time for incremental updates
-            self.connection.execute("""
-                CREATE INDEX IF NOT EXISTS idx_files_mtime ON files(mtime)
-            """)
-
-            # Index on chunks file_id for joins
-            self.connection.execute("""
-                CREATE INDEX IF NOT EXISTS idx_chunks_file_id ON chunks(file_id)
-            """)
-
-            # Index on chunk symbol for symbol-based searches
-            self.connection.execute("""
-                CREATE INDEX IF NOT EXISTS idx_chunks_symbol ON chunks(symbol)
-            """)
-
-            # Index on embeddings for provider/model lookups
-            self.connection.execute("""
-                CREATE INDEX IF NOT EXISTS idx_embeddings_provider_model
-                ON embeddings(provider, model)
-            """)
-
-            logger.debug("Standard indexes created")
-
-        except Exception as e:
-            logger.error(f"Failed to create indexes: {e}")
-            raise
-
-    def create_hnsw_index(self, provider: str, model: str, dims: int, metric: str = "cosine") -> None:
-        """Create HNSW index for specific provider/model/dims combination.
-
-        Args:
-            provider: Embedding provider name (e.g., "openai")
-            model: Model name (e.g., "text-embedding-3-small")
-            dims: Vector dimensions (e.g., 1536)
-            metric: Distance metric ("cosine", "l2sq", "ip")
-        """
-        index_name = f"hnsw_{provider}_{model}_{dims}_{metric}".replace("-", "_").replace(".", "_")
-
-        logger.info(f"Creating HNSW index: {index_name}")
-
-        try:
-            if self.connection is None:
-                raise RuntimeError("Database connection not established")
-
-            # Check if we have any embeddings for this provider/model/dims
-            result = self.connection.execute("""
-                SELECT COUNT(*) as count
-                FROM embeddings
-                WHERE provider = ? AND model = ? AND dims = ?
-            """, [provider, model, dims]).fetchone()
-
-            if result[0] == 0:
-                logger.warning(f"No embeddings found for {provider}/{model}/{dims}, skipping HNSW index")
-                return
-
-            # Create HNSW index on vector column (no WHERE clause - DuckDB doesn't support partial indexes)
-            self.connection.execute(f"""
-                CREATE INDEX IF NOT EXISTS {index_name}
-                ON embeddings
-                USING HNSW (vector)
-                WITH (metric = '{metric}')
-            """)
-
-            logger.info(f"HNSW index {index_name} created successfully")
-
-        except Exception as e:
-            logger.error(f"Failed to create HNSW index {index_name}: {e}")
-            raise
-
-    def drop_hnsw_index(self, provider: str, model: str, dims: int, metric: str = "cosine") -> str:
-        """Drop HNSW index for specific provider/model/dims combination.
         
-        Args:
-            provider: Embedding provider name (e.g., "openai")
-            model: Model name (e.g., "text-embedding-3-small")
-            dims: Vector dimensions (e.g., 1536)
-            metric: Distance metric ("cosine", "l2sq", "ip")
-            
-        Returns:
-            Index name that was dropped (for recreation)
-        """
-        index_name = f"hnsw_{provider}_{model}_{dims}_{metric}".replace("-", "_").replace(".", "_")
-        
-        try:
-            if self.connection is None:
-                raise RuntimeError("Database connection not established")
-                
-            logger.debug(f"Dropping HNSW index: {index_name}")
-            self.connection.execute(f"DROP INDEX IF EXISTS {index_name}")
-            logger.debug(f"HNSW index {index_name} dropped successfully")
-            
-            return index_name
-            
-        except Exception as e:
-            logger.error(f"Failed to drop HNSW index {index_name}: {e}")
-            raise
-
-    def recreate_hnsw_index(self, index_name: str, provider: str, model: str, dims: int, metric: str = "cosine") -> None:
-        """Recreate HNSW index using the provided index name.
-        
-        Args:
-            index_name: Name of the index to recreate
-            provider: Embedding provider name
-            model: Model name
-            dims: Vector dimensions
-            metric: Distance metric
-        """
-        try:
-            if self.connection is None:
-                raise RuntimeError("Database connection not established")
-                
-            logger.debug(f"Recreating HNSW index: {index_name}")
-            
-            # Check if we have any embeddings for this provider/model/dims
-            result = self.connection.execute("""
-                SELECT COUNT(*) as count
-                FROM embeddings
-                WHERE provider = ? AND model = ? AND dims = ?
-            """, [provider, model, dims]).fetchone()
-
-            if result[0] == 0:
-                logger.warning(f"No embeddings found for {provider}/{model}/{dims}, skipping HNSW index recreation")
-                return
-
-            # Create HNSW index on vector column
-            self.connection.execute(f"""
-                CREATE INDEX IF NOT EXISTS {index_name}
-                ON embeddings
-                USING HNSW (vector)
-                WITH (metric = '{metric}')
-            """)
-            
-            logger.debug(f"HNSW index {index_name} recreated successfully")
-            
-        except Exception as e:
-            logger.error(f"Failed to recreate HNSW index {index_name}: {e}")
-            raise
-
-    def _get_existing_embeddings(self, chunk_ids: List[int], provider: str, model: str) -> Set[int]:
-        """Get set of chunk IDs that already have embeddings for given provider/model.
-        
-        Args:
-            chunk_ids: List of chunk IDs to check
-            provider: Embedding provider name
-            model: Model name
-            
-        Returns:
-            Set of chunk IDs that already have embeddings
-        """
-        if not chunk_ids:
-            return set()
-            
-        try:
-            if self.connection is None:
-                raise RuntimeError("Database connection not established")
-                
-            # Create placeholder string for IN clause
-            placeholders = ','.join('?' * len(chunk_ids))
-            query = f"""
-                SELECT chunk_id FROM embeddings 
-                WHERE chunk_id IN ({placeholders}) 
-                AND provider = ? AND model = ?
-            """
-            
-            params = chunk_ids + [provider, model]
-            result = self.connection.execute(query, params).fetchall()
-            
-            existing_ids = {row[0] for row in result}
-            logger.debug(f"📊 Found {len(existing_ids)} existing embeddings out of {len(chunk_ids)} chunks")
-            
-            return existing_ids
-            
-        except Exception as e:
-            logger.warning(f"Failed to check existing embeddings: {e}")
-            # On error, assume no existing embeddings (will use INSERT OR REPLACE as fallback)
-            return set()
-
-    def insert_file(self, path: str, mtime: Union[str, float], language: str, size_bytes: int) -> int:
-        """Insert or update a file record.
-
-        Args:
-            path: File path
-            mtime: Modification time (Unix timestamp)
-            language: Programming language
-            size_bytes: File size in bytes
-
-        Returns:
-            File ID
-        """
-        try:
-            if self.connection is None:
-                raise RuntimeError("Database connection not established")
-
-            # Try to get existing file
-            existing = self.connection.execute(
-                "SELECT id FROM files WHERE path = ?", [path]
-            ).fetchone()
-
-            if existing:
-                # File exists - return existing ID, mtime will be updated after chunk cleanup
-                return existing[0]
-            else:
-                # Insert new - use simple auto-increment
-                result = self.connection.execute("""
-                    INSERT INTO files (path, mtime, language, size_bytes)
-                    VALUES (?, to_timestamp(?), ?, ?)
-                    RETURNING id
-                """, [path, mtime, language, size_bytes]).fetchone()
-                return result[0]
-
-        except Exception as e:
-            logger.error(f"Failed to insert file {path}: {e}")
-            raise
-
-    def insert_chunk(self, file_id: int, symbol: str, start_line: int, end_line: int,
-                    code: str, chunk_type: str, language_info: Optional[str] = None,
-                    parent_header: Optional[str] = None) -> int:
-        """Insert a code chunk.
-
-        Args:
-            file_id: ID of the parent file
-            symbol: Symbol name (function/class name)
-            start_line: Starting line number
-            end_line: Ending line number
-            code: Code content
-            chunk_type: Type of chunk ('function', 'class', 'method', 'block', 'header_1', etc.)
-            language_info: Additional language/type information
-            parent_header: Reference to parent header for nested content
-
-        Returns:
-            Chunk ID
-        """
-        try:
-            if self.connection is None:
-                raise RuntimeError("Database connection not established")
-
-            result = self.connection.execute("""
-                INSERT INTO chunks (file_id, symbol, start_line, end_line, code, chunk_type, language_info, parent_header)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                RETURNING id
-            """, [file_id, symbol, start_line, end_line, code, chunk_type, language_info, parent_header]).fetchone()
-
-            return result[0]
-
-        except Exception as e:
-            logger.error(f"Failed to insert chunk {symbol}: {e}")
-            raise
-
-    def insert_embedding(self, chunk_id: int, provider: str, model: str,
-                        dims: int, vector: List[float]) -> None:
-        """Insert an embedding vector.
-
-        Args:
-            chunk_id: ID of the chunk
-            provider: Embedding provider
-            model: Model name
-            dims: Vector dimensions
-            vector: Embedding vector
-        """
-        try:
-            if self.connection is None:
-                raise RuntimeError("Database connection not established")
-
-            self.connection.execute("""
-                INSERT OR REPLACE INTO embeddings (chunk_id, provider, model, dims, vector)
-                VALUES (?, ?, ?, ?, ?)
-            """, [chunk_id, provider, model, dims, vector])
-
-        except Exception as e:
-            logger.error(f"Failed to insert embedding for chunk {chunk_id}: {e}")
-            raise
-
-    def insert_embeddings_batch(self, embeddings_data: List[Dict]) -> int:
-        """Insert multiple embedding vectors with HNSW index optimization.
-        
-        For large batches (>50 items), uses the Context7-recommended optimization:
-        1. Drop HNSW indexes to avoid insert slowdown (60s+ -> 5s for 300 items)
-        2. Use fast INSERT for new embeddings, INSERT OR REPLACE for updates
-        3. Recreate HNSW indexes after bulk operations
-        
-        Expected speedup: 10-20x faster for large batches (90s -> 5-10s).
-        
-        Args:
-            embeddings_data: List of dicts with keys: chunk_id, provider, model, dims, vector
-            
-        Returns:
-            Number of successfully inserted embeddings
-        """
-        if not embeddings_data:
-            return 0
-            
-        batch_size = len(embeddings_data)
-        logger.debug(f"🔄 Starting optimized batch insert of {batch_size} embeddings")
-        
-        # Extract provider/model for conflict checking
-        first_embedding = embeddings_data[0]
-        provider = first_embedding['provider']
-        model = first_embedding['model']
-        
-        # Use HNSW index optimization for larger batches (Context7 research shows 10-20x improvement)
-        use_hnsw_optimization = batch_size >= 50
-        
-        try:
-            if self.connection is None:
-                raise RuntimeError("Database connection not established")
-
-            total_inserted = 0
-            start_time = time.time()
-
-            if use_hnsw_optimization:
-                # CRITICAL OPTIMIZATION: Drop HNSW indexes for bulk operations (Context7 best practice)
-                logger.debug(f"🔧 Large batch detected ({batch_size} embeddings), applying HNSW optimization")
-                
-                # Extract dims for index management
-                dims = first_embedding['dims']
-                
-                # Step 1: Drop HNSW index to enable fast insertions
-                logger.debug(f"📉 Dropping HNSW index to enable fast bulk insertions")
-                dropped_index_name = None
-                try:
-                    dropped_index_name = self.drop_hnsw_index(provider, model, dims, "cosine")
-                except Exception as e:
-                    logger.warning(f"Failed to drop HNSW index (may not exist): {e}")
-                
-                # Step 2: Separate new vs existing embeddings for optimal INSERT strategy
-                logger.debug(f"🔍 Checking for conflicts to optimize INSERT vs INSERT OR REPLACE")
-                chunk_ids = [emb['chunk_id'] for emb in embeddings_data]
-                existing_chunk_ids = self._get_existing_embeddings(chunk_ids, provider, model)
-                
-                # Separate new vs existing embeddings
-                new_embeddings = [emb for emb in embeddings_data if emb['chunk_id'] not in existing_chunk_ids]
-                update_embeddings = [emb for emb in embeddings_data if emb['chunk_id'] in existing_chunk_ids]
-                
-                logger.debug(f"📊 Batch breakdown: {len(new_embeddings)} new, {len(update_embeddings)} updates")
-                
-                # Step 3: Fast INSERT for new embeddings using VALUES table construction (no pandas needed)
-                if new_embeddings:
-                    logger.debug(f"🚀 Executing fast VALUES INSERT for {len(new_embeddings)} new embeddings")
-                    
-                    insert_start = time.time()
-                    
-                    try:
-                        # Set DuckDB performance options for bulk loading
-                        self.connection.execute("SET preserve_insertion_order = false")
-                        
-                        # Build VALUES clause for bulk insert (much faster than executemany)
-                        values_parts = []
-                        for embedding_data in new_embeddings:
-                            vector_str = str(embedding_data['vector'])
-                            values_parts.append(f"({embedding_data['chunk_id']}, '{embedding_data['provider']}', '{embedding_data['model']}', {embedding_data['dims']}, {vector_str}::FLOAT[1536])")
-                        
-                        # Single INSERT with all values (fastest approach without external deps)
-                        values_clause = ",\n    ".join(values_parts)
-                        self.connection.execute(f"""
-                            INSERT INTO embeddings (chunk_id, provider, model, dims, vector)
-                            VALUES {values_clause}
-                        """)
-                        
-                        insert_time = time.time() - insert_start
-                        logger.debug(f"✅ Fast VALUES INSERT completed in {insert_time:.3f}s ({len(new_embeddings)/insert_time:.1f} emb/s)")
-                        total_inserted += len(new_embeddings)
-                        
-                    except Exception as e:
-                        logger.error(f"Fast VALUES INSERT failed: {e}")
-                        raise
-                    
-                # Step 4: INSERT OR REPLACE only for updates using VALUES approach
-                if update_embeddings:
-                    logger.debug(f"🔄 Executing VALUES INSERT OR REPLACE for {len(update_embeddings)} updates")
-                    
-                    update_start = time.time()
-                    
-                    try:
-                        # Build VALUES clause for bulk updates
-                        values_parts = []
-                        for embedding_data in update_embeddings:
-                            vector_str = str(embedding_data['vector'])
-                            values_parts.append(f"({embedding_data['chunk_id']}, '{embedding_data['provider']}', '{embedding_data['model']}', {embedding_data['dims']}, {vector_str}::FLOAT[1536])")
-                        
-                        # Single INSERT OR REPLACE with all values
-                        values_clause = ",\n    ".join(values_parts)
-                        self.connection.execute(f"""
-                            INSERT OR REPLACE INTO embeddings (chunk_id, provider, model, dims, vector)
-                            VALUES {values_clause}
-                        """)
-                        
-                        update_time = time.time() - update_start
-                        logger.debug(f"✅ VALUES UPDATE completed in {update_time:.3f}s ({len(update_embeddings)/update_time:.1f} emb/s)")
-                        total_inserted += len(update_embeddings)
-                        
-                    except Exception as e:
-                        logger.error(f"VALUES UPDATE failed: {e}")
-                        raise
-                
-                # Step 5: Recreate HNSW index for fast similarity search
-                if dropped_index_name:
-                    logger.debug(f"📈 Recreating HNSW index for fast similarity search")
-                    index_start = time.time()
-                    try:
-                        self.recreate_hnsw_index(dropped_index_name, provider, model, dims, "cosine")
-                        index_time = time.time() - index_start
-                        logger.debug(f"✅ HNSW index recreated in {index_time:.3f}s")
-                        logger.info(f"✅ HNSW optimization complete: index recreated for {provider}/{model}")
-                    except Exception as e:
-                        logger.error(f"Failed to recreate HNSW index {dropped_index_name}: {e}")
-                        # Continue - data is inserted, just no index optimization for search
-                    
-            else:
-                # Small batch: use VALUES approach for consistency
-                logger.debug(f"📝 Small batch: using VALUES INSERT OR REPLACE for {batch_size} embeddings")
-                
-                small_start = time.time()
-                
-                try:
-                    # Build VALUES clause for small batch
-                    values_parts = []
-                    for embedding_data in embeddings_data:
-                        vector_str = str(embedding_data['vector'])
-                        values_parts.append(f"({embedding_data['chunk_id']}, '{embedding_data['provider']}', '{embedding_data['model']}', {embedding_data['dims']}, {vector_str}::FLOAT[1536])")
-                    
-                    # Single INSERT OR REPLACE with all values
-                    values_clause = ",\n    ".join(values_parts)
-                    self.connection.execute(f"""
-                        INSERT OR REPLACE INTO embeddings (chunk_id, provider, model, dims, vector)
-                        VALUES {values_clause}
-                    """)
-                    
-                    small_time = time.time() - small_start
-                    logger.debug(f"✅ Small VALUES batch completed in {small_time:.3f}s ({len(embeddings_data)/small_time:.1f} emb/s)")
-                    total_inserted = len(embeddings_data)
-                    
-                except Exception as e:
-                    logger.error(f"Small VALUES batch failed: {e}")
-                    raise
-            
-            insert_time = time.time() - start_time
-            logger.debug(f"⚡ Batch INSERT completed in {insert_time:.3f}s")
-            
-            if use_hnsw_optimization:
-                logger.info(f"🏆 HNSW-optimized batch insert: {total_inserted} embeddings in {insert_time:.3f}s ({total_inserted/insert_time:.1f} embeddings/sec) - Expected 10-20x speedup achieved!")
-            else:
-                logger.info(f"🎯 Standard batch insert: {total_inserted} embeddings in {insert_time:.3f}s ({total_inserted/insert_time:.1f} embeddings/sec)")
-            
-            return total_inserted
-
-        except Exception as e:
-            logger.error(f"💥 CRITICAL: Optimized batch insert failed, falling back to individual inserts: {e}")
-            logger.warning(f"⚠️ This will be ~120x slower! Batch size: {batch_size}")
-            
-            # Fall back to individual insertions for error isolation
-            fallback_start = time.time()
-            successful_count = 0
-            for i, embedding_data in enumerate(embeddings_data):
-                try:
-                    self.insert_embedding(
-                        chunk_id=embedding_data['chunk_id'],
-                        provider=embedding_data['provider'],
-                        model=embedding_data['model'],
-                        dims=embedding_data['dims'],
-                        vector=embedding_data['vector']
-                    )
-                    successful_count += 1
-                    if i % 50 == 0:  # Log progress every 50 items
-                        logger.debug(f"📈 Individual insert progress: {i+1}/{batch_size}")
-                except Exception as individual_error:
-                    logger.warning(f"Failed to store embedding for chunk {embedding_data['chunk_id']}: {individual_error}")
-            
-            fallback_time = time.time() - fallback_start
-            logger.warning(f"🐌 Individual inserts completed in {fallback_time:.1f}s (vs ~{fallback_time/120:.1f}s expected for batch)")
-            return successful_count
-
-    def search_semantic(self, query_vector: List[float], provider: str, model: str,
-                       limit: int = 10, threshold: Optional[float] = None) -> List[Dict[str, Any]]:
-        """Perform semantic search using vector similarity.
-
-        Args:
-            query_vector: Query embedding vector
-            provider: Embedding provider
-            model: Model name
-            limit: Maximum number of results
-            threshold: Distance threshold (optional)
-
-        Returns:
-            List of search results with metadata
-        """
-        try:
-            # Build query with optional threshold
-            where_clause = "WHERE e.provider = ? AND e.model = ?"
-            params: List[Any] = [provider, model]
-
-            if threshold is not None:
-                where_clause += " AND array_distance(e.vector, ?::FLOAT[1536]) <= ?"
-                params.append(query_vector)
-                params.append(threshold)
-
-            query = f"""
-                SELECT
-                    c.id as chunk_id,
-                    c.symbol,
-                    c.start_line,
-                    c.end_line,
-                    c.code,
-                    c.chunk_type,
-                    f.path,
-                    f.language,
-                    array_distance(e.vector, ?::FLOAT[1536]) as distance
-                FROM embeddings e
-                JOIN chunks c ON e.chunk_id = c.id
-                JOIN files f ON c.file_id = f.id
-                {where_clause}
-                ORDER BY array_distance(e.vector, ?::FLOAT[1536])
-                LIMIT ?
-            """
-
-            # Add query vector twice (for SELECT and ORDER BY) plus limit
-            all_params = [query_vector] + params + [query_vector, limit]
-
-            if self.connection is None:
-                raise RuntimeError("Database connection not established")
-
-            results = self.connection.execute(query, all_params).fetchall()
-
-            # Convert to dictionaries
-            return [
-                {
-                    "chunk_id": row[0],
-                    "symbol": row[1],
-                    "start_line": row[2],
-                    "end_line": row[3],
-                    "code": row[4],
-                    "chunk_type": row[5],
-                    "file_path": row[6],
-                    "language": row[7],
-                    "distance": row[8]
-                }
-                for row in results
-            ]
-
-        except Exception as e:
-            logger.error(f"Semantic search failed: {e}")
-            raise
-
-    def search_regex(self, pattern: str, limit: int = 10) -> List[Dict[str, Any]]:
-        """Perform regex search on code content.
-
-        Args:
-            pattern: Regular expression pattern
-            limit: Maximum number of results
-
-        Returns:
-            List of search results
-        """
-        try:
-            if self.connection is None:
-                raise RuntimeError("Database connection not established")
-
-            results = self.connection.execute("""
-                SELECT
-                    c.id as chunk_id,
-                    c.symbol,
-                    c.start_line,
-                    c.end_line,
-                    c.code,
-                    c.chunk_type,
-                    f.path,
-                    f.language
-                FROM chunks c
-                JOIN files f ON c.file_id = f.id
-                WHERE regexp_matches(c.code, ?)
-                ORDER BY f.path, c.start_line
-                LIMIT ?
-            """, [pattern, limit]).fetchall()
-
-            # Convert to dictionaries
-            return [
-                {
-                    "chunk_id": row[0],
-                    "symbol": row[1],
-                    "start_line": row[2],
-                    "end_line": row[3],
-                    "code": row[4],
-                    "chunk_type": row[5],
-                    "file_path": row[6],
-                    "language": row[7]
-                }
-                for row in results
-            ]
-
-        except Exception as e:
-            logger.error(f"Regex search failed: {e}")
-            raise
-
-    def get_file_by_path(self, path: str) -> Optional[Dict[str, Any]]:
-        """Get file record by path.
-
-        Args:
-            path: File path
-
-        Returns:
-            File record or None if not found
-        """
-        try:
-            if self.connection is None:
-                raise RuntimeError("Database connection not established")
-
-            result = self.connection.execute("""
-                SELECT id, path, mtime, language, size_bytes
-                FROM files
-                WHERE path = ?
-            """, [path]).fetchone()
-
-            if result:
-                return {
-                    "id": result[0],
-                    "path": result[1],
-                    "mtime": result[2],
-                    "language": result[3],
-                    "size_bytes": result[4]
-                }
-            return None
-
-        except Exception as e:
-            logger.error(f"Failed to get file {path}: {e}")
-            raise
-
-    def delete_file_chunks(self, file_id: int) -> None:
-        """Delete all chunks for a file (manual cascade for embeddings).
-
-        Args:
-            file_id: File ID
-        """
-        try:
-            if self.connection is None:
-                raise RuntimeError("Database connection not established")
-
-            # First delete embeddings to avoid foreign key constraint violations
-            self.connection.execute("""
-                DELETE FROM embeddings 
-                WHERE chunk_id IN (SELECT id FROM chunks WHERE file_id = ?)
-            """, [file_id])
-
-            # Then delete chunks
-            self.connection.execute("DELETE FROM chunks WHERE file_id = ?", [file_id])
-            
-            logger.debug(f"Deleted chunks and embeddings for file {file_id}")
-
-        except Exception as e:
-            logger.error(f"Failed to delete chunks for file {file_id}: {e}")
-            raise
-
-    def delete_file_completely(self, file_path: str) -> bool:
-        """Delete a file and all its chunks/embeddings completely.
-
-        Args:
-            file_path: Path to the file to delete
-
-        Returns:
-            True if file was deleted, False if not found
-        """
-        try:
-            if self.connection is None:
-                raise RuntimeError("Database connection not established")
-
-            # Get file ID
-            existing = self.connection.execute(
-                "SELECT id FROM files WHERE path = ?", [file_path]
-            ).fetchone()
-
-            if not existing:
-                return False
-
-            file_id = existing[0]
-
-            # Delete chunks and embeddings first
-            self.delete_file_chunks(file_id)
-
-            # Delete the file record
-            self.connection.execute("DELETE FROM files WHERE id = ?", [file_id])
-            
-            logger.debug(f"Completely deleted file {file_path} and all associated data")
-            return True
-
-        except Exception as e:
-            logger.error(f"Failed to completely delete file {file_path}: {e}")
-            raise
-
-    def execute_query(self, query: str, params: Optional[List[Any]] = None) -> List[Dict[str, Any]]:
-        """Execute a SQL query and return results as dictionaries.
-        
-        Args:
-            query: SQL query string
-            params: Optional list of parameters for the query
-            
-        Returns:
-            List of dictionaries with column names as keys
-        """
-        try:
-            if self.connection is None:
-                raise RuntimeError("Database connection not established")
-
-            if params is None:
-                params = []
-
-            results = self.connection.execute(query, params).fetchall()
-
-            # Get column names from the connection description
-            # DuckDB cursor description format: [(name, type_info), ...]
-            column_names = [desc[0] for desc in self.connection.description]
-
-            # Convert to dictionaries
-            return [
-                {column_names[i]: row[i] for i in range(len(column_names))}
-                for row in results
-            ]
-
-        except Exception as e:
-            logger.error(f"Failed to execute query: {e}")
-            raise
-
-    def get_stats(self) -> Dict[str, int]:
-        """Get database statistics.
-
-        Returns:
-            Dictionary with counts of files, chunks, and embeddings
-        """
-        try:
-            if self.connection is None:
-                raise RuntimeError("Database connection not established")
-
-            files_count = self.connection.execute("SELECT COUNT(*) FROM files").fetchone()[0]
-            chunks_count = self.connection.execute("SELECT COUNT(*) FROM chunks").fetchone()[0]
-            embeddings_count = self.connection.execute("SELECT COUNT(*) FROM embeddings").fetchone()[0]
-
-            return {
-                "files": files_count,
-                "chunks": chunks_count,
-                "embeddings": embeddings_count
-            }
-
-        except Exception as e:
-            logger.error(f"Failed to get stats: {e}")
-            raise
-
-    async def process_file(self, file_path: Path, skip_embeddings: bool = False) -> Dict[str, Any]:
-        """Process a file end-to-end: parse, chunk, and store in database.
-
-        Args:
-            file_path: Path to the file to process
-            skip_embeddings: If True, skip embedding generation for batch processing
-
-        Returns:
-            Dictionary with processing results including chunk data when skip_embeddings=True
-        """
-        try:
-            logger.info(f"Processing file: {file_path}")
-            
-            # Check if file exists and is readable
-            if not file_path.exists() or not file_path.is_file():
-                raise ValueError(f"File not found or not readable: {file_path}")
-            
-            # Determine file language based on extension
-            suffix = file_path.suffix.lower()
-            if suffix == '.py':
-                language = "python"
-            elif suffix in ['.md', '.markdown']:
-                language = "markdown"
-            elif suffix == '.java':
-                language = "java"
-            elif suffix == '.cs':
-                language = "csharp"
-            elif suffix == '.ts':
-                language = "typescript"
-            elif suffix == '.js':
-                language = "javascript"
-            elif suffix == '.tsx':
-                language = "tsx"
-            elif suffix == '.jsx':
-                language = "jsx"
-            else:
-                logger.debug(f"Skipping unsupported file type: {file_path}")
-                return {"status": "skipped", "reason": "unsupported_type", "chunks": 0}
-            
-            # Get file metadata
-            stat = file_path.stat()
-            mtime = stat.st_mtime
-            size_bytes = stat.st_size
-            
-            # Check if file needs to be reprocessed
-            existing_file = self.get_file_by_path(str(file_path))
-            if existing_file and existing_file["mtime"]:
-                existing_mtime = existing_file["mtime"].timestamp()
-                # Use tolerance for floating-point precision (1 second tolerance)
-                if abs(existing_mtime - mtime) < 0.01:
-                    logger.debug(f"File {file_path} is up to date, skipping")
-                    return {"status": "up_to_date", "chunks": 0}
-                else:
-                    logger.debug(f"File {file_path} modified (existing: {existing_mtime}, current: {mtime}), reprocessing")
-            
-            # Use shared parser and chunker instances for performance
-            if not self._parser or not self._chunker:
-                raise RuntimeError("Shared parser instances not initialized")
-
-            # Parse the file
-            parsed_data = self._parser.parse_file(file_path)
-            if not parsed_data:
-                logger.debug(f"No parseable content in {file_path}")
-                return {"status": "no_content", "chunks": 0}
-            
-            # Create chunks
-            chunks = self._chunker.chunk_file(file_path, parsed_data)
-            if not chunks:
-                logger.debug(f"No chunks created from {file_path}")
-                return {"status": "no_chunks", "chunks": 0}
-            
-            # Store in database
-            file_id = self.insert_file(
-                path=str(file_path),
-                mtime=mtime,
-                language=language,
-                size_bytes=size_bytes
-            )
-            
-            # If file was updated, delete old chunks and update file record
-            if existing_file:
-                logger.debug(f"Deleting old chunks for updated file {file_path}")
-                self.delete_file_chunks(file_id)
-                
-                # Now update the file record with new mtime
-                self.connection.execute("""
-                    UPDATE files 
-                    SET mtime = to_timestamp(?), language = ?, size_bytes = ? 
-                    WHERE id = ?
-                """, [mtime, language, size_bytes, file_id])
-                logger.debug(f"Updated file record for {file_path}")
-            
-            # Insert new chunks
-            chunk_ids = []
-            for chunk in chunks:
-                chunk_id = self.insert_chunk(
-                    file_id=file_id,
-                    symbol=chunk["symbol"],
-                    start_line=chunk["start_line"],
-                    end_line=chunk["end_line"],
-                    code=chunk["code"],
-                    chunk_type=chunk["chunk_type"],
-                    language_info=chunk.get("language_info"),
-                    parent_header=chunk.get("parent_header")
-                )
-                chunk_ids.append(chunk_id)
-
-            # Generate embeddings if embedding manager is available and not skipped
-            embeddings_generated = 0
-            if self.embedding_manager and chunk_ids and not skip_embeddings:
-                try:
-                    embeddings_generated = await self._generate_embeddings_for_chunks(chunk_ids, chunks)
-                except Exception as e:
-                    logger.warning(f"Failed to generate embeddings for {file_path}: {e}")
-
-            result = {
-                "status": "success",
-                "file_id": file_id,
-                "chunks": len(chunks),
-                "chunk_ids": chunk_ids,
-                "embeddings": embeddings_generated
-            }
-            
-            # Include chunk data for batch processing
-            if skip_embeddings:
-                result["chunk_data"] = chunks
-
-            logger.info(f"Successfully processed {file_path}: {len(chunks)} chunks, {embeddings_generated} embeddings")
-            return result
-            
-        except Exception as e:
-            logger.error(f"Failed to process file {file_path}: {e}")
-            return {"status": "error", "error": str(e), "chunks": 0}
-
-    async def process_file_incremental(self, file_path: Path) -> Dict[str, Any]:
-        """Process a file with incremental parsing and differential chunking for optimal performance.
-        
-        This method uses the TreeCache and CodeParser incremental methods to minimize
-        processing time by only updating chunks that have actually changed.
-        
-        Args:
-            file_path: Path to the file to process
-            
-        Returns:
-            Dictionary with processing results including differential stats
-        """
-        try:
-            logger.info(f"Processing file incrementally: {file_path}")
-            
-            # Check if file exists and is readable
-            if not file_path.exists() or not file_path.is_file():
-                raise ValueError(f"File not found or not readable: {file_path}")
-
-            # Determine file language based on extension
-            suffix = file_path.suffix.lower()
-            if suffix == '.py':
-                language = "python"
-            elif suffix in ['.md', '.markdown']:
-                language = "markdown"
-            elif suffix == '.java':
-                language = "java"
-            elif suffix == '.cs':
-                language = "csharp"
-            elif suffix == '.ts':
-                language = "typescript"
-            elif suffix == '.js':
-                language = "javascript"
-            elif suffix == '.tsx':
-                language = "tsx"
-            elif suffix == '.jsx':
-                language = "jsx"
-            else:
-                logger.debug(f"Skipping unsupported file type: {file_path}")
-                return {"status": "skipped", "reason": "unsupported_type", "chunks": 0}
-
-            # Get file metadata
-            stat = file_path.stat()
-            mtime = stat.st_mtime
-            size_bytes = stat.st_size
-
-            # Get existing file record and chunks
-            existing_file = self.get_file_by_path(str(file_path))
-            old_chunks = []
-            
-            if existing_file:
-                # Get existing chunks for this file
-                old_chunks = self.connection.execute("""
-                    SELECT id, symbol, start_line, end_line, code, chunk_type, language_info
-                    FROM chunks 
-                    WHERE file_id = ?
-                    ORDER BY start_line
-                """, [existing_file["id"]]).fetchall()
-                
-                # Convert to list of dicts
-                old_chunks = [
-                    {
-                        "id": chunk[0],
-                        "symbol": chunk[1], 
-                        "start_line": chunk[2],
-                        "end_line": chunk[3],
-                        "code": chunk[4],
-                        "chunk_type": chunk[5],
-                        "language_info": chunk[6]
-                    }
-                    for chunk in old_chunks
-                ]
-                
-                # Use shared incremental parser instance for performance
-                if not self._incremental_parser:
-                    raise RuntimeError("Shared incremental parser not initialized")
-
-                # Get old tree from cache for comparison (even if stale)
-                old_tree = None
-                if old_chunks and self._incremental_parser.tree_cache:
-                    # Use get_for_comparison to retrieve tree even if file has changed
-                    old_tree = self._incremental_parser.tree_cache.get_for_comparison(file_path)
-                    if old_tree:
-                        logger.debug(f"Retrieved old tree from cache for comparison: {file_path}")
-                    else:
-                        logger.debug(f"No cached tree available for comparison: {file_path}")
-
-                # Check if file is up to date
-                if existing_file["mtime"]:
-                    existing_mtime = existing_file["mtime"].timestamp()
-                    mtime_diff = abs(existing_mtime - mtime)
-                    logger.debug(f"File {file_path} mtime check: existing={existing_mtime}, current={mtime}, diff={mtime_diff}")
-                    if mtime_diff < 0.01:
-                        logger.debug(f"File {file_path} is up to date (diff={mtime_diff} < 0.01), skipping")
-                        return {"status": "up_to_date", "chunks": len(old_chunks)}
-                    else:
-                        logger.debug(f"File {file_path} has changed (diff={mtime_diff} >= 0.01), processing")
-            else:
-                # Use shared incremental parser instance for performance
-                if not self._incremental_parser:
-                    raise RuntimeError("Shared incremental parser not initialized")
-                old_tree = None
-
-            # Parse the file using incremental methods
-            new_tree = self._incremental_parser.parse_incremental(file_path)
-            if not new_tree:
-                logger.debug(f"Failed to parse {file_path}")
-                return {"status": "parse_error", "chunks": 0}
-
-            # Determine changed regions based on tree comparison
-            changed_ranges = []
-            if old_chunks and old_tree:
-                # We have both old chunks and old tree - do incremental comparison
-                logger.debug(f"Performing incremental tree comparison for {file_path}")
-                changed_ranges = self._incremental_parser.get_changed_regions(old_tree, new_tree)
-                logger.debug(f"Found {len(changed_ranges)} changed regions in {file_path}")
-            else:
-                # No old tree available or new file - treat as full change
-                if old_chunks:
-                    logger.debug(f"No cached tree for comparison, using full change detection: {file_path}")
-                else:
-                    logger.debug(f"New file, using full change detection: {file_path}")
-                changed_ranges = [{'start_byte': 0, 'end_byte': float('inf'), 'type': 'full_change'}]
-
-            # Parse the file to get new AST data
-            new_parsed_data = self._incremental_parser.parse_file(file_path)
-            if not new_parsed_data:
-                logger.debug(f"No parseable content in {file_path}")
-                return {"status": "no_content", "chunks": 0}
-
-            # Use shared IncrementalChunker for differential chunking
-            if not self._incremental_chunker:
-                raise RuntimeError("Shared incremental chunker not initialized")
-
-            chunk_diff = self._incremental_chunker.chunk_file_differential(
-                file_path=file_path,
-                old_chunks=old_chunks,
-                changed_ranges=changed_ranges,
-                new_parsed_data=new_parsed_data
-            )
-
-            logger.debug(f"Chunk diff: delete {len(chunk_diff.chunks_to_delete)}, "
-                        f"insert {len(chunk_diff.chunks_to_insert)}, "
-                        f"unchanged {chunk_diff.unchanged_count}")
-
-            # Apply database changes based on diff
-            # First handle file record (get file_id for new chunks)
-            if existing_file:
-                file_id = existing_file["id"]
-                logger.debug(f"Using existing file record (ID: {file_id})")
-            else:
-                logger.debug("Inserting new file record")
-                try:
-                    # Insert new file record
-                    file_id = self.insert_file(
-                        path=str(file_path),
-                        mtime=mtime,
-                        language=language,
-                        size_bytes=size_bytes
-                    )
-                    logger.debug(f"New file record inserted with ID: {file_id}")
-                except Exception as e:
-                    logger.error(f"Foreign key constraint violation during file insertion: {e}")
-                    raise
-
-            # Delete outdated chunks first (before updating file record to avoid constraint violations)
-            if chunk_diff.chunks_to_delete:
-                chunk_ids_str = ','.join(map(str, chunk_diff.chunks_to_delete))
-                logger.debug(f"About to delete chunks: {chunk_diff.chunks_to_delete}")
-                
-                try:
-                    # First delete embeddings for these chunks
-                    logger.debug(f"Deleting embeddings for chunk IDs: {chunk_ids_str}")
-                    self.connection.execute(f"""
-                        DELETE FROM embeddings 
-                        WHERE chunk_id IN ({chunk_ids_str})
-                    """)
-                    logger.debug("Embeddings deletion completed successfully")
-                    
-                    # Then delete the chunks themselves
-                    logger.debug(f"Deleting chunks with IDs: {chunk_ids_str}")
-                    self.connection.execute(f"""
-                        DELETE FROM chunks WHERE id IN ({chunk_ids_str})
-                    """)
-                    logger.debug("Chunks deletion completed successfully")
-                    logger.debug(f"Deleted {len(chunk_diff.chunks_to_delete)} outdated chunks and their embeddings")
-                except Exception as e:
-                    logger.error(f"Foreign key constraint violation during chunk deletion: {e}")
-                    raise
-
-            # Only update file record if there were actual changes to avoid foreign key constraint issues
-            if existing_file and (chunk_diff.chunks_to_delete or chunk_diff.chunks_to_insert):
-                logger.debug(f"Updating existing file record (ID: {file_id}) after chunk changes")
-                try:
-                    # Update file record
-                    self.connection.execute("""
-                        UPDATE files
-                        SET mtime = to_timestamp(?), language = ?, size_bytes = ?, updated_at = CURRENT_TIMESTAMP
-                        WHERE id = ?
-                    """, [mtime, language, size_bytes, file_id])
-                    logger.debug("File record update completed successfully")
-                except Exception as e:
-                    logger.error(f"Foreign key constraint violation during file update: {e}")
-                    raise
-
-            # Insert new chunks
-            new_chunk_ids = []
-            logger.debug(f"About to insert {len(chunk_diff.chunks_to_insert)} new chunks")
-            try:
-                for chunk in chunk_diff.chunks_to_insert:
-                    logger.debug(f"Inserting chunk: {chunk['symbol']} (lines {chunk['start_line']}-{chunk['end_line']})")
-                    chunk_id = self.insert_chunk(
-                        file_id=file_id,
-                        symbol=chunk["symbol"],
-                        start_line=chunk["start_line"],
-                        end_line=chunk["end_line"],
-                        code=chunk["code"],
-                        chunk_type=chunk["chunk_type"],
-                        language_info=chunk.get("language_info"),
-                        parent_header=chunk.get("parent_header")
-                    )
-                    new_chunk_ids.append(chunk_id)
-                    logger.debug(f"Successfully inserted chunk with ID: {chunk_id}")
-            except Exception as e:
-                logger.error(f"Foreign key constraint violation during chunk insertion: {e}")
-                raise
-
-            # Generate embeddings for new chunks if embedding manager is available
-            embeddings_generated = 0
-            if self.embedding_manager and new_chunk_ids:
-                try:
-                    embeddings_generated = await self._generate_embeddings_for_chunks(
-                        new_chunk_ids, chunk_diff.chunks_to_insert
-                    )
-                except Exception as e:
-                    logger.warning(f"Failed to generate embeddings for {file_path}: {e}")
-
-            total_chunks = chunk_diff.unchanged_count + len(chunk_diff.chunks_to_insert)
-            
-            result = {
-                "status": "success",
-                "file_id": file_id,
-                "chunks": total_chunks,
-                "chunks_unchanged": chunk_diff.unchanged_count,
-                "chunks_inserted": len(chunk_diff.chunks_to_insert),
-                "chunks_deleted": len(chunk_diff.chunks_to_delete),
-                "chunk_ids": new_chunk_ids,
-                "embeddings": embeddings_generated,
-                "incremental": True
-            }
-
-            logger.info(f"Successfully processed {file_path} incrementally: "
-                       f"{total_chunks} total chunks "
-                       f"({chunk_diff.unchanged_count} unchanged, "
-                       f"{len(chunk_diff.chunks_to_insert)} new/modified), "
-                       f"{embeddings_generated} embeddings")
-
-            return result
-
-        except Exception as e:
-            logger.error(f"Failed to process file incrementally {file_path}: {e}")
-            return {"status": "error", "error": str(e), "chunks": 0}
-
-    async def process_directory(self, directory: Path, patterns: Optional[List[str]] = None, exclude_patterns: Optional[List[str]] = None) -> Dict[str, Any]:
-        """Process all supported files in a directory with progressive embedding generation.
-        
-        Args:
-            directory: Directory to process
-            patterns: List of glob patterns for files to process
-            exclude_patterns: List of glob patterns to exclude
-            
-        Returns:
-            Dictionary with processing summary
-        """
-        if patterns is None:
-            patterns = ["**/*.py"]
-        try:
-            logger.info(f"Processing directory: {directory} with patterns: {patterns}")
-            if exclude_patterns:
-                logger.info(f"Exclude patterns: {exclude_patterns}")
-            
-            # Use cached file discovery for performance optimization
-            files = self._file_discovery_cache.get_files(directory, patterns, exclude_patterns)
-            
-            # CLEANUP PHASE: Detect and remove chunks from deleted files (offline detection)
-            logger.info("🧹 Checking for deleted files...")
-            current_files = {str(f) for f in files}
-            indexed_files = self.get_indexed_files(str(directory))
-            deleted_files = indexed_files - current_files
-            
-            cleanup_stats = {"deleted_files": 0, "deleted_chunks": 0}
-            if deleted_files:
-                logger.info(f"🧹 Found {len(deleted_files)} deleted files, cleaning up...")
-                for file_path in deleted_files:
-                    deleted_chunks = self.cleanup_deleted_file(file_path)
-                    cleanup_stats["deleted_files"] += 1
-                    cleanup_stats["deleted_chunks"] += deleted_chunks
-                logger.info(f"🧹 Cleanup complete: {cleanup_stats['deleted_files']} files, {cleanup_stats['deleted_chunks']} chunks removed")
-            else:
-                logger.debug("🧹 No deleted files found")
-            
-            # Also clean up any orphaned chunks
-            orphaned_chunks = self.cleanup_orphaned_chunks()
-            if orphaned_chunks > 0:
-                logger.info(f"🧹 Cleaned up {orphaned_chunks} orphaned chunks")
-                cleanup_stats["deleted_chunks"] += orphaned_chunks
-            
-            if not files:
-                logger.warning(f"No files found matching patterns {patterns} in {directory}")
-                return {"status": "no_files", "processed": 0, "errors": 0, "cleanup": cleanup_stats}
-            
-            # Process files with progressive embedding generation for optimal UX
-            results = {"processed": 0, "errors": 0, "skipped": 0, "total_chunks": 0, "total_embeddings": 0, "cleanup": cleanup_stats}
-            
-            # Configuration for progressive embedding generation
-            PROGRESSIVE_THRESHOLD = 8  # Start embeddings after this many files
-            BATCH_SIZE = 16  # Number of files per embedding batch (increased for efficiency)
-            MAX_CHUNKS_PER_BATCH = 500  # Maximum chunks per API call (increased within API limits)
-            MAX_CONCURRENT_BATCHES = 3  # Maximum concurrent embedding batches
-            
-            # Progressive processing: overlap file processing and embedding generation
-            logger.info(f"🚀 PROGRESSIVE CONFIG: {len(files)} files | Start after {PROGRESSIVE_THRESHOLD} files | Batch size {BATCH_SIZE} files | Max {MAX_CHUNKS_PER_BATCH} chunks/batch | {MAX_CONCURRENT_BATCHES} concurrent batches")
-            
-            # Shared collections for async coordination
-            processed_file_chunks = asyncio.Queue()  # Thread-safe queue for processed chunks
-            embedding_task = None
-            
-            async def process_files():
-                """Process all files and put chunks in queue."""
-                file_count = 0
-                for file_path in files:
-                    # Process file without embeddings (collect chunks)
-                    result = await self.process_file(file_path, skip_embeddings=True)
-                    
-                    if result["status"] == "success":
-                        results["processed"] += 1
-                        results["total_chunks"] += result["chunks"]
-                        file_count += 1
-                        
-                        # Add chunks to queue for embedding processing
-                        if result["chunks"] > 0 and "chunk_data" in result:
-                            await processed_file_chunks.put((result["chunk_ids"], result["chunk_data"]))
-                        
-                    elif result["status"] == "error":
-                        results["errors"] += 1
-                    else:
-                        results["skipped"] += 1
-                
-                # Signal completion by putting None
-                await processed_file_chunks.put(None)
-                return file_count
-            
-            async def process_embeddings_progressively():
-                """Process embeddings as files become available."""
-                if not self.embedding_manager:
-                    return 0
-                
-                all_file_chunks = []
-                total_embeddings = 0
-                files_since_last_batch = 0
-                
-                while True:
-                    # Wait for next file to be processed
-                    chunk_data = await processed_file_chunks.get()
-                    
-                    # None signals end of files
-                    if chunk_data is None:
-                        break
-                    
-                    all_file_chunks.append(chunk_data)
-                    files_since_last_batch += 1
-                    
-                    # Calculate total chunks accumulated so far
-                    total_chunks = sum(len(chunk_data[1]) for chunk_data in all_file_chunks)
-                    
-                    # Process when we have enough for an efficient batch
-                    should_process_batch = (
-                        files_since_last_batch >= BATCH_SIZE or  # Optimal file count reached
-                        total_chunks >= MAX_CHUNKS_PER_BATCH or  # Optimal chunk count reached
-                        (len(all_file_chunks) >= PROGRESSIVE_THRESHOLD and files_since_last_batch >= 4)  # Min efficient size after threshold
-                    )
-                    
-                    if should_process_batch and all_file_chunks:
-                        logger.info(f"🚀 BATCH PROCESSING: {len(all_file_chunks)} files, {total_chunks} chunks")
-                        batches = self._create_embedding_batches(all_file_chunks, BATCH_SIZE, MAX_CHUNKS_PER_BATCH)
-                        embeddings = await self._process_embedding_batches_parallel(batches, MAX_CONCURRENT_BATCHES)
-                        total_embeddings += embeddings
-                        all_file_chunks = []  # Clear processed chunks
-                        files_since_last_batch = 0  # Reset counter for next batch
-                
-                # Process any remaining chunks
-                if all_file_chunks:
-                    final_chunks = sum(len(chunk_data[1]) for chunk_data in all_file_chunks)
-                    logger.info(f"🏁 FINAL BATCH: {len(all_file_chunks)} files, {final_chunks} chunks")
-                    batches = self._create_embedding_batches(all_file_chunks, BATCH_SIZE, MAX_CHUNKS_PER_BATCH)
-                    embeddings = await self._process_embedding_batches_parallel(batches, MAX_CONCURRENT_BATCHES)
-                    total_embeddings += embeddings
-                
-                return total_embeddings
-            
-            # Run file processing and embedding generation concurrently
-            file_task = asyncio.create_task(process_files())
-            embedding_task = asyncio.create_task(process_embeddings_progressively())
-            
-            # Wait for both to complete
-            total_files, total_embeddings = await asyncio.gather(file_task, embedding_task)
-            results["total_embeddings"] = total_embeddings
-            
-            logger.info(f"Directory processing complete: {results}")
-            return {"status": "complete", **results}
-            
-        except Exception as e:
-            logger.error(f"Failed to process directory {directory}: {e}")
-            return {"status": "error", "error": str(e)}
-
-    def _create_embedding_batches(self, file_chunks: List[Tuple], batch_size: int, max_chunks_per_batch: int) -> List[Dict[str, Any]]:
-        """Create embedding batches from processed file chunks."""
-        all_batches = []
-        current_batch_chunks = []
-        current_batch_files = 0
-        
-        for chunk_ids, chunks in file_chunks:
-            current_batch_chunks.append((chunk_ids, chunks))
-            current_batch_files += 1
-            
-            # Create batch when we reach limits
-            total_chunks_in_batch = sum(len(chunks) for _, chunks in current_batch_chunks)
-            should_create_batch = (
-                current_batch_files >= batch_size or 
-                total_chunks_in_batch >= max_chunks_per_batch
-            )
-            
-            if should_create_batch:
-                # Flatten chunks for this batch
-                batch_chunk_ids = []
-                batch_chunks = []
-                for cids, cdata in current_batch_chunks:
-                    batch_chunk_ids.extend(cids)
-                    batch_chunks.extend(cdata)
-                
-                all_batches.append({
-                    "chunk_ids": batch_chunk_ids,
-                    "chunks": batch_chunks,
-                    "batch_size": current_batch_files,
-                    "chunk_count": len(batch_chunks)
-                })
-                
-                # Reset for next batch
-                current_batch_chunks = []
-                current_batch_files = 0
-        
-        # Handle remaining chunks in final batch
-        if current_batch_chunks:
-            batch_chunk_ids = []
-            batch_chunks = []
-            for cids, cdata in current_batch_chunks:
-                batch_chunk_ids.extend(cids)
-                batch_chunks.extend(cdata)
-            
-            all_batches.append({
-                "chunk_ids": batch_chunk_ids,
-                "chunks": batch_chunks,
-                "batch_size": current_batch_files,
-                "chunk_count": len(batch_chunks)
-            })
-        
-        return all_batches
-
-    def get_file_discovery_cache_stats(self) -> Dict[str, Any]:
-        """Get file discovery cache statistics.
-        
-        Returns:
-            Dictionary with cache performance metrics
-        """
-        return self._file_discovery_cache.get_stats()
-
-    def clear_file_discovery_cache(self) -> None:
-        """Clear the file discovery cache.
-        
-        Useful for testing or when filesystem changes are detected.
-        """
-        self._file_discovery_cache.clear()
-        logger.info("File discovery cache cleared")
-
-    async def _generate_embeddings_for_chunks(self, chunk_ids: List[int], chunks: List[Dict[str, Any]]) -> int:
-        """Generate embeddings for a list of chunks.
-        
-        Args:
-            chunk_ids: List of chunk IDs from database
-            chunks: List of chunk data dictionaries
-            
-        Returns:
-            Number of embeddings generated
-        """
-        if not self.embedding_manager:
-            return 0
-            
-        try:
-            # Extract code text from chunks
-            texts = [chunk["code"] for chunk in chunks]
-            
-            # Generate embeddings
-            result = await self.embedding_manager.embed_texts(texts)
-            
-            # Store embeddings in database using batch insertion
-            embeddings_data = []
-            for chunk_id, embedding in zip(chunk_ids, result.embeddings):
-                embeddings_data.append({
-                    'chunk_id': chunk_id,
-                    'provider': result.provider,
-                    'model': result.model,
-                    'dims': result.dims,
-                    'vector': embedding
-                })
-            
-            # Execute batch insert directly - should be fast with proper batching
-            stored_count = self.insert_embeddings_batch(embeddings_data)
-            
-            return stored_count
-            
-        except Exception as e:
-            logger.error(f"Failed to generate embeddings: {e}")
-            return 0
-    
-    async def _process_embedding_batches_parallel(
-        self, 
-        batches: List[Dict[str, Any]], 
-        max_concurrent: int = 3
-    ) -> int:
-        """Process multiple embedding batches in parallel for maximum performance.
-        
-        Args:
-            batches: List of batch dictionaries with chunk_ids, chunks, etc.
-            max_concurrent: Maximum number of concurrent API calls
-            
-        Returns:
-            Total number of embeddings generated across all batches
-        """
-        if not batches:
-            return 0
-        
-        logger.info(f"🚀 Starting parallel embedding generation for {len(batches)} batches (max {max_concurrent} concurrent)")
-        
-        # Process batches in parallel with controlled concurrency
-        total_embeddings = 0
-        
-        # Use semaphore to limit concurrent API calls
-        semaphore = asyncio.Semaphore(max_concurrent)
-        
-        async def process_single_batch(batch_info: Dict[str, Any], batch_num: int) -> int:
-            """Process a single batch with rate limiting and error handling."""
-            async with semaphore:
-                try:
-                    chunk_ids = batch_info["chunk_ids"]
-                    chunks = batch_info["chunks"]
-                    batch_size = batch_info["batch_size"]
-                    chunk_count = batch_info["chunk_count"]
-                    
-                    logger.info(f"🔄 Processing batch {batch_num + 1}/{len(batches)}: {chunk_count} chunks from {batch_size} files")
-                    
-                    # Add jitter to prevent thundering herd
-                    await asyncio.sleep(batch_num * 0.1)
-                    
-                    embeddings_generated = await self._generate_embeddings_for_chunks(chunk_ids, chunks)
-                    
-                    logger.info(f"✅ Batch {batch_num + 1} complete: {embeddings_generated} embeddings generated")
-                    return embeddings_generated
-                    
-                except Exception as e:
-                    logger.warning(f"❌ Batch {batch_num + 1} failed: {e}")
-                    # Individual batch failure shouldn't kill the whole process
-                    return 0
-        
-        # Create tasks for all batches
-        tasks = [
-            process_single_batch(batch, i) 
-            for i, batch in enumerate(batches)
-        ]
-        
-        # Execute all batches in parallel with error handling
-        try:
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-            
-            # Sum up successful results
-            for i, result in enumerate(results):
-                if isinstance(result, Exception):
-                    logger.warning(f"Batch {i + 1} failed with exception: {result}")
-                elif isinstance(result, int):
-                    total_embeddings += result
-            
-            logger.info(f"🎯 Parallel embedding generation complete: {total_embeddings} total embeddings generated from {len(batches)} batches")
-            
-        except Exception as e:
-            logger.error(f"Critical error in parallel batch processing: {e}")
-            # Fallback to sequential processing
-            logger.info("📋 Falling back to sequential batch processing...")
-            for i, batch in enumerate(batches):
-                try:
-                    embeddings_generated = await self._generate_embeddings_for_chunks(
-                        batch["chunk_ids"], batch["chunks"]
-                    )
-                    total_embeddings += embeddings_generated
-                    logger.info(f"✅ Sequential batch {i + 1}/{len(batches)}: {embeddings_generated} embeddings")
-                except Exception as batch_error:
-                    logger.warning(f"Sequential batch {i + 1} failed: {batch_error}")
-        
-        return total_embeddings
-
-    async def generate_missing_embeddings(self, provider_name: Optional[str] = None) -> Dict[str, Any]:
-        """Generate embeddings for chunks that don't have them yet.
-        
-        Args:
-            provider_name: Specific provider to use (uses default if None)
-            
-        Returns:
-            Dictionary with generation results
-        """
-        if not self.embedding_manager:
-            return {"status": "no_embedding_manager", "generated": 0}
-        
-        try:
-            # Find chunks without embeddings for the specified provider
-            provider = self.embedding_manager.get_provider(provider_name)
-            
-            query = """
-                SELECT c.id, c.code 
-                FROM chunks c
-                LEFT JOIN embeddings e ON c.id = e.chunk_id 
-                    AND e.provider = ? AND e.model = ?
-                WHERE e.chunk_id IS NULL
-            """
-            
-            if self.connection is None:
-                raise RuntimeError("Database connection not established")
-            
-            results = self.connection.execute(query, [provider.name, provider.model]).fetchall()
-            
-            if not results:
-                logger.info("No missing embeddings found")
-                return {"status": "up_to_date", "generated": 0}
-            
-            chunk_ids = [row[0] for row in results]
-            texts = [row[1] for row in results]
-            
-            logger.info(f"Generating embeddings for {len(chunk_ids)} chunks using {provider.name}/{provider.model}")
-            
-            # Generate embeddings
-            embedding_result = await self.embedding_manager.embed_texts(texts, provider_name)
-            
-            # Store embeddings using batch insertion
-            embeddings_data = []
-            for chunk_id, embedding in zip(chunk_ids, embedding_result.embeddings):
-                embeddings_data.append({
-                    'chunk_id': chunk_id,
-                    'provider': embedding_result.provider,
-                    'model': embedding_result.model,
-                    'dims': embedding_result.dims,
-                    'vector': embedding
-                })
-            
-            stored_count = self.insert_embeddings_batch(embeddings_data)
-            
-            logger.info(f"Generated and stored {stored_count} embeddings")
-            return {"status": "success", "generated": stored_count}
-            
-        except Exception as e:
-            logger.error(f"Failed to generate missing embeddings: {e}")
-            return {"status": "error", "error": str(e), "generated": 0}
-
-    def detach_database(self) -> bool:
-        """
-        Detach the database for coordination with other processes.
-        
-        Returns:
-            True if successfully detached, False otherwise
-        """
-        if not self.connection:
-            return True
-            
-        try:
-            # Force checkpoint to ensure all changes are written
-            self.connection.execute("FORCE CHECKPOINT")
-            
-            # Close the connection to release file lock
-            self.connection.close()
-            self.connection = None
-            logger.info("Database connection closed for coordination")
-            return True
-            
-        except Exception as e:
-            logger.warning(f"Failed to detach database: {e}")
-            return False
-
-    def reattach_database(self) -> bool:
-        """
-        Reattach the database after coordination.
-        
-        Returns:
-            True if successfully reattached, False otherwise
-        """
-        if self.connection:
-            return True  # Already connected
-            
-        try:
-            # Reconnect to the database
-            self.connect()
-            logger.info("Database reconnected after coordination")
-            return True
-            
-        except Exception as e:
-            logger.warning(f"Failed to reattach database: {e}")
-            return False
-
-    def get_indexed_files(self, base_path: Optional[str] = None) -> Set[str]:
-        """Get all file paths currently in database for given path.
-        
-        Args:
-            base_path: Optional base path to filter files
-            
-        Returns:
-            Set of file paths currently indexed in database
-        """
-        try:
-            if self.connection is None:
-                raise RuntimeError("Database connection not established")
-            
-            if base_path:
-                # Get files under the base path
-                result = self.connection.execute(
-                    "SELECT path FROM files WHERE path LIKE ?", 
-                    [f"{base_path}%"]
-                ).fetchall()
-            else:
-                # Get all files
-                result = self.connection.execute("SELECT path FROM files").fetchall()
-            
-            return {row[0] for row in result}
-            
-        except Exception as e:
-            logger.error(f"Failed to get indexed files: {e}")
-            raise
-
-    def cleanup_deleted_file(self, file_path: str) -> int:
-        """Remove file and all associated chunks/embeddings for a deleted file.
-        
-        Args:
-            file_path: Path to the deleted file
-            
-        Returns:
-            Number of chunks deleted
-        """
-        try:
-            if self.connection is None:
-                raise RuntimeError("Database connection not established")
-            
-            # Get file ID and chunk count
-            existing = self.connection.execute(
-                "SELECT id FROM files WHERE path = ?", [file_path]
-            ).fetchone()
-            
-            if not existing:
-                logger.debug(f"File {file_path} not found in database")
-                return 0
-            
-            file_id = existing[0]
-            
-            # Count chunks before deletion
-            chunk_count = self.connection.execute(
-                "SELECT COUNT(*) FROM chunks WHERE file_id = ?", [file_id]
-            ).fetchone()[0]
-            
-            # Delete using existing method
-            success = self.delete_file_completely(file_path)
-            
-            if success:
-                logger.info(f"Cleaned up deleted file {file_path} ({chunk_count} chunks)")
-                return chunk_count
-            else:
-                return 0
-                
-        except Exception as e:
-            logger.error(f"Failed to cleanup deleted file {file_path}: {e}")
-            raise
-
-    def cleanup_orphaned_chunks(self) -> int:
-        """Remove chunks that reference non-existent files.
-        
-        Returns:
-            Number of chunks removed
-        """
-        try:
-            if self.connection is None:
-                raise RuntimeError("Database connection not established")
-            
-            # Find orphaned chunks (chunks whose file_id doesn't exist in files table)
-            orphaned_chunks = self.connection.execute("""
-                SELECT c.id, c.file_id 
-                FROM chunks c 
-                LEFT JOIN files f ON c.file_id = f.id 
-                WHERE f.id IS NULL
-            """).fetchall()
-            
-            if not orphaned_chunks:
-                logger.debug("No orphaned chunks found")
-                return 0
-            
-            chunk_ids = [row[0] for row in orphaned_chunks]
-            logger.info(f"Found {len(chunk_ids)} orphaned chunks")
-            
-            # Delete embeddings for orphaned chunks
-            placeholders = ','.join(['?' for _ in chunk_ids])
-            self.connection.execute(
-                f"DELETE FROM embeddings WHERE chunk_id IN ({placeholders})", 
-                chunk_ids
-            )
-            
-            # Delete orphaned chunks
-            self.connection.execute(
-                f"DELETE FROM chunks WHERE id IN ({placeholders})", 
-                chunk_ids
-            )
-            
-            logger.info(f"Cleaned up {len(chunk_ids)} orphaned chunks")
-            return len(chunk_ids)
-            
-        except Exception as e:
-            logger.error(f"Failed to cleanup orphaned chunks: {e}")
-            raise
-
-    def disconnect(self) -> bool:
-        """
-        Disconnect from the database gracefully for coordination.
-        
-        This method performs a complete disconnection with proper cleanup,
-        ensuring the database is in a consistent state before releasing.
-        
-        Returns:
-            True if successfully disconnected, False otherwise
-        """
-        logger.info("Initiating database disconnection")
-        
-        try:
-            if not self.connection:
-                logger.debug("Database already disconnected")
-                return True
-            
-            # Force checkpoint to ensure all changes are written to disk
-            try:
-                self.connection.execute("FORCE CHECKPOINT")
-                logger.debug("Database checkpoint completed before disconnect")
-            except Exception as e:
-                logger.warning(f"Checkpoint failed during disconnect (continuing): {e}")
-            
-            # Close the connection to release all locks
-            self.connection.close()
-            self.connection = None
-            
-            logger.info("Database disconnected successfully")
-            return True
-            
-        except Exception as e:
-            logger.error(f"Failed to disconnect database: {e}")
-            # Ensure connection is cleared even on error
-            self.connection = None
-            return False
-
-    def reconnect(self) -> bool:
-        """
-        Reconnect to the database after coordination.
-        
-        This method reestablishes the database connection with full
-        initialization including extensions and schema validation.
-        
-        Returns:
-            True if successfully reconnected, False otherwise
-        """
-        logger.info("Initiating database reconnection")
-        
-        try:
-            if self.connection:
-                logger.debug("Database already connected")
-                return True
-            
-            # Reconnect with full initialization
-            self.connect()
-            
-            # Verify connection is working by testing a simple query
-            if self.connection:
-                # Test connection with a simple query
-                self.connection.execute("SELECT 1").fetchone()
-                logger.info("Database reconnected and verified successfully")
-                return True
-            else:
-                logger.error("Reconnection failed - no connection established")
-                return False
-                
-        except Exception as e:
-            logger.error(f"Failed to reconnect to database: {e}")
-            self.connection = None
-            return False
+        logger.info("✅ Database connected via service layer")
 
     def close(self) -> None:
         """Close database connection."""
-        if self.connection:
-            self.connection.close()
+        if self._provider.is_connected:
+            self._provider.disconnect()
+        self.connection = None
+
+    def is_connected(self) -> bool:
+        """Check if database is connected."""
+        return self._provider.is_connected
+
+    # =============================================================================
+    # File Processing Methods - Delegate to IndexingCoordinator
+    # =============================================================================
+
+    async def process_file(self, file_path: Path, skip_embeddings: bool = False) -> Dict[str, Any]:
+        """Process a file end-to-end: parse, chunk, and store in database.
+        
+        Delegates to IndexingCoordinator for actual processing.
+        """
+        return await self._indexing_coordinator.process_file(file_path, skip_embeddings)
+
+    async def process_file_incremental(self, file_path: Path) -> Dict[str, Any]:
+        """Process a file with incremental parsing and differential chunking.
+        
+        Note: True incremental processing not yet implemented in service layer.
+        This delegates to the provider's incremental processing method.
+        """
+        return await self._provider.process_file_incremental(file_path)
+
+    async def process_directory(self, directory: Path, patterns: Optional[List[str]] = None, exclude_patterns: Optional[List[str]] = None) -> Dict[str, Any]:
+        """Process all supported files in a directory.
+        
+        Delegates to IndexingCoordinator for actual processing.
+        """
+        if patterns is None:
+            patterns = ["**/*.py", "**/*.java", "**/*.cs", "**/*.ts", "**/*.js", "**/*.tsx", "**/*.jsx", "**/*.md", "**/*.markdown"]
+        
+        return await self._indexing_coordinator.process_directory(directory, patterns, exclude_patterns)
+
+    # =============================================================================
+    # Search Methods - Delegate to SearchService
+    # =============================================================================
+
+    def search_semantic(self, query_vector: List[float], provider: str, model: str, limit: int = 10, threshold: Optional[float] = None) -> List[Dict[str, Any]]:
+        """Perform semantic similarity search.
+        
+        Delegates to provider for actual search.
+        """
+        return self._provider.search_semantic(
+            query_embedding=query_vector,
+            provider=provider,
+            model=model, 
+            limit=limit,
+            threshold=threshold
+        )
+
+    def search_regex(self, pattern: str, limit: int = 50) -> List[Dict[str, Any]]:
+        """Search code chunks using regex pattern.
+        
+        Delegates to SearchService for actual search.
+        """
+        return self._search_service.search_regex(pattern=pattern, limit=limit)
+
+    # =============================================================================
+    # Database Operations - Delegate to Provider
+    # =============================================================================
+
+    def get_stats(self) -> Dict[str, Any]:
+        """Get database statistics."""
+        return self._provider.get_stats()
+
+    def get_file_by_path(self, file_path: str) -> Optional[Dict[str, Any]]:
+        """Get file record by path."""
+        result = self._provider.get_file_by_path(file_path, as_model=False)
+        return result if isinstance(result, dict) else None
+
+    def insert_file(self, file_or_path: Union[str, dict], mtime: Optional[float] = None, 
+                   language: Optional[str] = None, size_bytes: Optional[int] = None) -> int:
+        """Insert a new file record."""
+        # Import here to avoid circular dependency
+        from core.models import File
+        from core.types import Language, FilePath, Timestamp
+        
+        if isinstance(file_or_path, str):
+            file_model = File(
+                path=FilePath(file_or_path),
+                mtime=Timestamp(mtime or 0.0),
+                language=Language.from_string(language or "unknown"),
+                size_bytes=size_bytes or 0
+            )
+        else:
+            # Legacy dict format
+            file_model = File(
+                path=FilePath(file_or_path["path"]),
+                mtime=Timestamp(file_or_path["mtime"]),
+                language=Language.from_string(file_or_path["language"]),
+                size_bytes=file_or_path["size_bytes"]
+            )
+        return self._provider.insert_file(file_model)
+
+    def insert_chunk(self, chunk_or_file_id: Union[int, dict], symbol: Optional[str] = None, 
+                    start_line: Optional[int] = None, end_line: Optional[int] = None, 
+                    code: Optional[str] = None, chunk_type: Optional[str] = None, 
+                    language_info: Optional[str] = None, parent_header: Optional[str] = None) -> int:
+        """Insert a new chunk record."""
+        # Import here to avoid circular dependency
+        from core.models import Chunk
+        from core.types import ChunkType, Language, FileId, LineNumber
+        
+        if isinstance(chunk_or_file_id, int):
+            chunk_model = Chunk(
+                file_id=FileId(chunk_or_file_id),
+                symbol=symbol or "",
+                start_line=LineNumber(start_line or 0),
+                end_line=LineNumber(end_line or 0),
+                code=code or "",
+                chunk_type=ChunkType.from_string(chunk_type or "unknown"),
+                language=Language.from_string(language_info or "unknown"),
+                parent_header=parent_header
+            )
+        else:
+            # Legacy dict format
+            chunk = chunk_or_file_id
+            chunk_model = Chunk(
+                file_id=FileId(chunk["file_id"]),
+                symbol=chunk["symbol"],
+                start_line=LineNumber(chunk["start_line"]),
+                end_line=LineNumber(chunk["end_line"]),
+                code=chunk["code"],
+                chunk_type=ChunkType.from_string(chunk["chunk_type"]),
+                language=Language.from_string(chunk.get("language_info", "unknown")),
+                parent_header=chunk.get("parent_header")
+            )
+        return self._provider.insert_chunk(chunk_model)
+
+    def delete_file_chunks(self, file_id: int) -> None:
+        """Delete all chunks for a file."""
+        from core.types import FileId
+        self._provider.delete_file_chunks(FileId(file_id))
+
+    def update_file(self, file_id: int, size_bytes: int, mtime: float) -> None:
+        """Update file metadata."""
+        self._provider.update_file(file_id, size_bytes=size_bytes, mtime=mtime)
+
+    def get_chunks_by_file_id(self, file_id: int) -> List[Dict[str, Any]]:
+        """Get chunks for a specific file."""
+        results = self._provider.get_chunks_by_file_id(file_id, as_model=False)
+        # Ensure we return Dict objects, not Chunk models
+        return [result for result in results if isinstance(result, dict)]
+
+    # =============================================================================
+    # Process Coordination Methods - Legacy Support
+    # =============================================================================
+
+    def detach_database(self) -> bool:
+        """Detach database for coordination with other processes."""
+        try:
+            # Just disconnect for now
+            self._provider.disconnect()
             self.connection = None
-            logger.info("Database connection closed")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to detach database: {e}")
+            return False
+
+    def reattach_database(self) -> bool:
+        """Reattach database after coordination."""
+        try:
+            # Reconnect
+            self._provider.connect()
+            self.connection = self._provider.connection
+            return True
+        except Exception as e:
+            logger.error(f"Failed to reattach database: {e}")
+            return False
+
+    def disconnect(self) -> bool:
+        """Disconnect database for coordination."""
+        try:
+            self._provider.disconnect()
+            self.connection = None
+            return True
+        except Exception as e:
+            logger.error(f"Failed to disconnect database: {e}")
+            return False
+
+    def reconnect(self) -> bool:
+        """Reconnect database after coordination."""
+        try:
+            self._provider.connect()
+            self.connection = self._provider.connection
+            return True
+        except Exception as e:
+            logger.error(f"Failed to reconnect database: {e}")
+            return False
+
+    # =============================================================================
+    # Health Check
+    # =============================================================================
+
+    def health_check(self) -> Dict[str, Any]:
+        """Perform health check and return status."""
+        return self._provider.health_check()
+
+    # =============================================================================
+    # Legacy Compatibility Properties
+    # =============================================================================
+
+    # Legacy compatibility - expose db_path as attribute
+    @property
+    def db_path(self) -> Union[Path, str]:
+        """Get database path."""
+        return self._db_path
+
+    def get_file_discovery_cache_stats(self) -> Dict[str, Any]:
+        """Get file discovery cache statistics."""
+        return self._file_discovery_cache.get_stats()

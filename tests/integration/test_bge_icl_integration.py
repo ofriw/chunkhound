@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 # Test configuration
 TEST_SERVER_URL = os.getenv("BGE_ICL_TEST_SERVER", "http://localhost:8080")
 TEST_API_KEY = os.getenv("BGE_ICL_TEST_API_KEY", None)
-SKIP_REAL_SERVER_TESTS = os.getenv("SKIP_REAL_SERVER_TESTS", "false").lower() == "true"
+SKIP_REAL_SERVER_TESTS = os.getenv("SKIP_REAL_SERVER_TESTS", "true").lower() == "true"
 
 # Test data
 SAMPLE_CODE_TEXTS = [
@@ -569,6 +569,7 @@ class BGEICLIntegrationTestSuite:
 async def test_bge_icl_basic_functionality():
     """Test basic BGE-IN-ICL functionality."""
     suite = BGEICLIntegrationTestSuite()
+    await suite.setup()
     result = await suite.test_basic_functionality()
     assert result['status'] == 'pass', f"Basic functionality test failed: {result}"
 

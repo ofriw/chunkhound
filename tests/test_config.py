@@ -353,9 +353,11 @@ class TestConfigManager:
     """Test ConfigManager class."""
     
     @pytest.fixture
-    def config_manager(self, temp_config_dir):
+    def config_manager(self, temp_config_dir, monkeypatch):
         """Create a config manager with temporary directory."""
         reset_config_manager()  # Reset global state
+        # Patch DEFAULT_CONFIG_PATHS to only look in temp directory
+        monkeypatch.setattr(ConfigManager, 'DEFAULT_CONFIG_PATHS', [str(temp_config_dir / "config.yaml")])
         return ConfigManager()
     
     def test_find_config_file_explicit_path(self, temp_config_dir, config_manager):
@@ -484,6 +486,11 @@ class TestConfigManager:
 class TestConfigIntegration:
     """Integration tests for configuration system."""
     
+    @pytest.fixture(autouse=True)
+    def patch_default_config_paths(self, temp_config_dir, monkeypatch):
+        """Patch DEFAULT_CONFIG_PATHS to use temp directory for test isolation."""
+        monkeypatch.setattr(ConfigManager, 'DEFAULT_CONFIG_PATHS', [str(temp_config_dir / "config.yaml")])
+    
     async def test_full_config_workflow(self, temp_config_dir, sample_config):
         """Test complete configuration workflow."""
         reset_config_manager()
@@ -528,6 +535,8 @@ class TestConfigIntegration:
         
         # Reset should clear the global instance
         reset_config_manager()
+        # Remove the config file to test behavior when no config exists
+        config_file.unlink()
         manager3 = get_config_manager()
         assert manager3 is not manager1
         assert len(manager3.registry.list_servers()) == 0  # No config loaded
@@ -597,6 +606,11 @@ class TestConfigErrorHandling:
 
 class TestRealWorldScenarios:
     """Test real-world usage scenarios."""
+    
+    @pytest.fixture(autouse=True)
+    def patch_default_config_paths(self, temp_config_dir, monkeypatch):
+        """Patch DEFAULT_CONFIG_PATHS to use temp directory for test isolation."""
+        monkeypatch.setattr(ConfigManager, 'DEFAULT_CONFIG_PATHS', [str(temp_config_dir / "config.yaml")])
     
     def test_multiple_tei_servers(self, temp_config_dir):
         """Test configuration with multiple TEI servers."""

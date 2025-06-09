@@ -50,7 +50,7 @@ dev = [
 ]
 
 [project.scripts]
-chunkhound = "chunkhound.cli:main"
+chunkhound = "chunkhound.api.cli.main:main"
 
 [project.urls]
 Homepage = "https://github.com/chunkhound/chunkhound"

@@ -6,8 +6,9 @@ import tempfile
 import os
 from unittest.mock import Mock, patch
 
-from chunkhound.parser import CodeParser
+from registry import get_registry, create_indexing_coordinator
 from chunkhound.tree_cache import TreeCache
+from chunkhound.parser import CodeParser
 
 
 class TestIncrementalParsing:
