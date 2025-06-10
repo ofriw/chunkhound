@@ -228,6 +228,17 @@ class Database:
         """Update file metadata."""
         self._provider.update_file(file_id, size_bytes=size_bytes, mtime=mtime)
 
+    def delete_file_completely(self, file_path: str) -> bool:
+        """Delete a file and all its chunks/embeddings completely.
+        
+        Args:
+            file_path: Path to file to delete completely
+            
+        Returns:
+            True if deletion successful, False otherwise
+        """
+        return self._provider.delete_file_completely(file_path)
+
     def get_chunks_by_file_id(self, file_id: int) -> List[Dict[str, Any]]:
         """Get chunks for a specific file."""
         results = self._provider.get_chunks_by_file_id(file_id, as_model=False)

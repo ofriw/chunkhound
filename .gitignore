@@ -212,3 +212,6 @@ mcp.json
 
 # RooCode
 .roo/
+
+# Backup directories
+chunkhound-backup-*/
