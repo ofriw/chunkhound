@@ -7,8 +7,11 @@ ChunkHound indexes your code and lets AI assistants search it intelligently. It 
 ## Quick Start
 
 ```bash
-# Install
-uv pip install chunkhound
+# Install (after PyPI release)
+pip install chunkhound
+
+# Or install with uv
+uv add chunkhound
 
 # Index your code
 chunkhound run .
@@ -71,6 +74,7 @@ Once running, ask your AI assistant:
 ## Development
 
 ```bash
+# Development setup
 git clone https://github.com/chunkhound/chunkhound.git
 cd chunkhound
 uv sync                    # Install dependencies
@@ -96,14 +100,14 @@ chunkhound mcp --verbose           # Start server with logging
 ## Troubleshooting
 
 **Command not found?**
-- Try `uv run chunkhound` instead
-- Or install with `uv pip install chunkhound`
+- For development: Try `uv run chunkhound` instead
+- For production: Install with `pip install chunkhound` or `uv add chunkhound`
 
 **Semantic search not working?**
 - Set your `OPENAI_API_KEY` environment variable
 
 **"You must provide a model parameter" error?**
-- Update to latest version: `uv pip install --upgrade chunkhound`
+- Update to latest version: `pip install --upgrade chunkhound`
 - Or specify model explicitly: `chunkhound run . --model text-embedding-3-small`
 
 **Database errors?**

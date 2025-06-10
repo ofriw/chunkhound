@@ -5,11 +5,11 @@ build-backend = "hatchling.build"
 [project]
 name = "chunkhound"
 version = "0.1.0"
-description = "Local-first semantic code search with vector and regex capabilities"
+description = "Local-first semantic code search with vector and regex capabilities for AI assistants via MCP"
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [
-    {name = "ChunkHound Team"},
+    {name = "Ofri Wolfus"},
 ]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -22,6 +22,11 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Topic :: Text Processing :: Indexing",
+    "Topic :: Software Development :: Code Generators",
+    "Topic :: Internet :: WWW/HTTP :: Indexing/Search",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Environment :: Console",
+    "Operating System :: OS Independent",
 ]
 dependencies = [
     "duckdb>=0.8.0",
@@ -58,9 +63,11 @@ chunkhound-mcp = "chunkhound.mcp_entry:main_sync"
 Homepage = "https://github.com/chunkhound/chunkhound"
 Repository = "https://github.com/chunkhound/chunkhound"
 Issues = "https://github.com/chunkhound/chunkhound/issues"
+Documentation = "https://github.com/chunkhound/chunkhound#readme"
+Changelog = "https://github.com/chunkhound/chunkhound/releases"
 
 [tool.hatch.build.targets.wheel]
-packages = ["chunkhound"]
+packages = ["chunkhound", "core", "interfaces", "providers", "services", "registry"]
 
 [tool.black]
 line-length = 88
