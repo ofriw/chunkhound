@@ -83,10 +83,28 @@ class OpenAIEmbeddingProvider:
         if not self._api_key:
             raise ValueError("OpenAI API key is required")
         
+        # Configure client options for custom endpoints
+        client_kwargs = {
+            "api_key": self._api_key,
+            "timeout": self._timeout
+        }
+        
         if self._base_url:
-            self._client = openai.AsyncOpenAI(api_key=self._api_key, base_url=self._base_url)
-        else:
-            self._client = openai.AsyncOpenAI(api_key=self._api_key)
+            client_kwargs["base_url"] = self._base_url
+            
+            # For internal/custom endpoints, add SSL handling options
+            # This helps with self-signed certificates and internal CAs
+            try:
+                import httpx
+                # Create HTTP client with more permissive SSL for internal endpoints
+                if "pdc-llm" in self._base_url or "localhost" in self._base_url or self._base_url.startswith("http://"):
+                    client_kwargs["http_client"] = httpx.AsyncClient(verify=False)
+                    logger.debug(f"Using permissive SSL for internal endpoint: {self._base_url}")
+            except ImportError:
+                logger.warning("httpx not available, using default SSL settings")
+        
+        self._client = openai.AsyncOpenAI(**client_kwargs)
+        logger.debug(f"OpenAI client initialized with base_url={self._base_url}, timeout={self._timeout}")
 
     @property
     def name(self) -> str:
@@ -294,7 +312,21 @@ class OpenAIEmbeddingProvider:
                     else:
                         raise
                 elif openai and hasattr(openai, 'APITimeoutError') and isinstance(rate_error, (openai.APITimeoutError, openai.APIConnectionError)):
-                    logger.warning(f"API connection error, retrying in {self._retry_delay} seconds: {rate_error}")
+                    # Log detailed connection error information
+                    error_details = {
+                        "error_type": type(rate_error).__name__,
+                        "error_message": str(rate_error),
+                        "base_url": self._base_url,
+                        "model": self._model,
+                        "timeout": self._timeout,
+                        "attempt": attempt + 1,
+                        "max_attempts": self._retry_attempts
+                    }
+                    if hasattr(rate_error, 'response'):
+                        error_details["response_status"] = getattr(rate_error.response, 'status_code', None)
+                        error_details["response_headers"] = dict(getattr(rate_error.response, 'headers', {}))
+                    
+                    logger.warning(f"API connection error, retrying in {self._retry_delay} seconds: {error_details}")
                     if attempt < self._retry_attempts - 1:
                         await asyncio.sleep(self._retry_delay)
                         continue
