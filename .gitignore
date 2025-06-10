@@ -209,3 +209,6 @@ c-sharp.db
 # MCP configuration files (may contain API keys)
 .vscode/mcp.json
 mcp.json
+
+# RooCode
+.roo/
