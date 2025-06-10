@@ -149,6 +149,35 @@ SSL connection error or certificate verification failed
    curl -H "Authorization: Bearer $OPENAI_API_KEY" https://api.openai.com/v1/models
    ```
 
+#### Problem: "You must provide a model parameter"
+```
+Error code: 400 - {'error': {'message': 'you must provide a model parameter', 'type': 'invalid_request_error', 'param': None, 'code': None}}
+```
+
+**Cause:** This error occurs when the CLI command is run without specifying a `--model` parameter and the system fails to use the default model.
+
+**Solutions:**
+1. **Specify model explicitly (immediate fix):**
+   ```bash
+   chunkhound run . --model text-embedding-3-small
+   ```
+
+2. **Update ChunkHound to latest version (permanent fix):**
+   ```bash
+   uv pip install --upgrade chunkhound
+   ```
+
+3. **Verify the fix is working:**
+   ```bash
+   # This should work without --model parameter
+   chunkhound run . --db test.db
+   ```
+
+**Technical Details:**
+- Fixed in version 0.1.0+ 
+- Issue was in provider registry not respecting constructor defaults
+- Now properly uses `text-embedding-3-small` as default when no model specified
+
 ### Performance Issues
 
 #### Problem: "Embeddings are too slow"
@@ -474,6 +503,7 @@ uname -a >> debug-info.txt
 | `Server 'X' not found` | Server not configured | `chunkhound config add X` |
 | `Cannot connect to host` | Server not running | Start server or check URL |
 | `Invalid API key` | Wrong/missing API key | Set environment variable |
+| `You must provide a model parameter` | Registry bug (fixed in v0.1.0+) | Update ChunkHound or use `--model` |
 | `Database is locked` | Multiple processes | Kill other instances |
 | `Permission denied` | File permissions | Check file/directory permissions |
 | `Connection timeout` | Network/server issues | Check network and server status |

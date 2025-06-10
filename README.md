@@ -102,6 +102,10 @@ chunkhound mcp --verbose           # Start server with logging
 **Semantic search not working?**
 - Set your `OPENAI_API_KEY` environment variable
 
+**"You must provide a model parameter" error?**
+- Update to latest version: `uv pip install --upgrade chunkhound`
+- Or specify model explicitly: `chunkhound run . --model text-embedding-3-small`
+
 **Database errors?**
 - Delete `.chunkhound.db` and re-run `chunkhound run .`
 

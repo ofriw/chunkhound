@@ -44,6 +44,9 @@ chunkhound run . --no-embeddings
 
 # Use specific embedding provider
 chunkhound run . --provider tei --base-url http://localhost:8080
+
+# Use specific model (optional - defaults to text-embedding-3-small for OpenAI)
+chunkhound run . --model text-embedding-3-large
 ```
 
 ### `chunkhound mcp` - Model Context Protocol Server
