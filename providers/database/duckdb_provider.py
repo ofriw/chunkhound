@@ -95,6 +95,9 @@ class DuckDBProvider:
             # Create schema and indexes
             self.create_schema()
             self.create_indexes()
+            
+            # Migrate legacy embeddings table if it exists
+            self._migrate_legacy_embeddings_table()
 
             # Initialize shared parser and chunker instances for performance
             self._initialize_shared_instances()
@@ -217,24 +220,159 @@ class DuckDBProvider:
             
             # Embeddings table
             self.connection.execute("""
-                CREATE TABLE IF NOT EXISTS embeddings (
+                CREATE TABLE IF NOT EXISTS embeddings_1536 (
                     id INTEGER PRIMARY KEY DEFAULT nextval('embeddings_id_seq'),
                     chunk_id INTEGER REFERENCES chunks(id),
                     provider TEXT NOT NULL,
                     model TEXT NOT NULL,
                     embedding FLOAT[1536],
-                    dims INTEGER NOT NULL,
+                    dims INTEGER NOT NULL DEFAULT 1536,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
 
-            # Schema uses FLOAT[1536] for HNSW compatibility
+            # Create HNSW index for 1536-dimensional embeddings
+            try:
+                self.connection.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_hnsw_1536 ON embeddings_1536 
+                    USING HNSW (embedding) 
+                    WITH (metric = 'cosine')
+                """)
+                logger.info("HNSW index for 1536-dimensional embeddings created successfully")
+            except Exception as e:
+                logger.warning(f"Failed to create HNSW index for 1536-dimensional embeddings: {e}")
             
-            logger.info("DuckDB schema created successfully")
+            # Note: Additional dimension tables (4096, etc.) will be created on-demand
+            logger.info("DuckDB schema created successfully with multi-dimension support")
 
         except Exception as e:
             logger.error(f"Failed to create DuckDB schema: {e}")
             raise
+
+    def _get_table_name_for_dimensions(self, dims: int) -> str:
+        """Get table name for given embedding dimensions."""
+        return f"embeddings_{dims}"
+
+    def _table_exists(self, table_name: str) -> bool:
+        """Check if a table exists in the database."""
+        if self.connection is None:
+            raise RuntimeError("No database connection")
+        
+        result = self.connection.execute(
+            "SELECT table_name FROM information_schema.tables WHERE table_name = ?",
+            [table_name]
+        ).fetchone()
+        return result is not None
+
+    def _ensure_embedding_table_exists(self, dims: int) -> str:
+        """Ensure embedding table exists for given dimensions, create if needed."""
+        table_name = self._get_table_name_for_dimensions(dims)
+        
+        if self._table_exists(table_name):
+            return table_name
+        
+        if self.connection is None:
+            raise RuntimeError("No database connection")
+        
+        logger.info(f"Creating embedding table for {dims} dimensions: {table_name}")
+        
+        try:
+            # Create table with fixed dimensions for HNSW compatibility
+            self.connection.execute(f"""
+                CREATE TABLE {table_name} (
+                    id INTEGER PRIMARY KEY DEFAULT nextval('embeddings_id_seq'),
+                    chunk_id INTEGER REFERENCES chunks(id),
+                    provider TEXT NOT NULL,
+                    model TEXT NOT NULL,
+                    embedding FLOAT[{dims}],
+                    dims INTEGER NOT NULL DEFAULT {dims},
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            
+            # Create HNSW index for performance
+            hnsw_index_name = f"idx_hnsw_{dims}"
+            self.connection.execute(f"""
+                CREATE INDEX {hnsw_index_name} ON {table_name} 
+                USING HNSW (embedding) 
+                WITH (metric = 'cosine')
+            """)
+            
+            # Create regular indexes for fast lookups
+            self.connection.execute(f"CREATE INDEX IF NOT EXISTS idx_{dims}_chunk_id ON {table_name}(chunk_id)")
+            self.connection.execute(f"CREATE INDEX IF NOT EXISTS idx_{dims}_provider_model ON {table_name}(provider, model)")
+            
+            logger.info(f"Created {table_name} with HNSW index {hnsw_index_name} and regular indexes")
+            return table_name
+            
+        except Exception as e:
+            logger.error(f"Failed to create embedding table for {dims} dimensions: {e}")
+            raise
+
+    def _migrate_legacy_embeddings_table(self) -> None:
+        """Migrate legacy 'embeddings' table to dimension-specific tables."""
+        if self.connection is None:
+            raise RuntimeError("No database connection")
+        
+        # Check if legacy embeddings table exists
+        if not self._table_exists("embeddings"):
+            return
+        
+        logger.info("Found legacy embeddings table, migrating to dimension-specific tables...")
+        
+        try:
+            # Get all embeddings with their dimensions
+            embeddings = self.connection.execute("""
+                SELECT id, chunk_id, provider, model, embedding, dims, created_at
+                FROM embeddings
+            """).fetchall()
+            
+            if not embeddings:
+                logger.info("Legacy embeddings table is empty, dropping it")
+                self.connection.execute("DROP TABLE embeddings")
+                return
+            
+            # Group by dimensions
+            by_dims = {}
+            for emb in embeddings:
+                dims = emb[5]  # dims column
+                if dims not in by_dims:
+                    by_dims[dims] = []
+                by_dims[dims].append(emb)
+            
+            # Migrate each dimension group
+            for dims, emb_list in by_dims.items():
+                table_name = self._ensure_embedding_table_exists(dims)
+                logger.info(f"Migrating {len(emb_list)} embeddings to {table_name}")
+                
+                # Insert data into dimension-specific table
+                for emb in emb_list:
+                    vector_str = str(emb[4])  # embedding column
+                    self.connection.execute(f"""
+                        INSERT INTO {table_name} (chunk_id, provider, model, embedding, dims, created_at)
+                        VALUES (?, ?, ?, {vector_str}, ?, ?)
+                    """, [emb[1], emb[2], emb[3], emb[5], emb[6]])
+            
+            # Drop legacy table
+            self.connection.execute("DROP TABLE embeddings")
+            logger.info(f"Successfully migrated embeddings to {len(by_dims)} dimension-specific tables")
+            
+        except Exception as e:
+            logger.error(f"Failed to migrate legacy embeddings table: {e}")
+            raise
+
+    def _get_all_embedding_tables(self) -> List[str]:
+        """Get list of all embedding tables (dimension-specific)."""
+        if self.connection is None:
+            raise RuntimeError("No database connection")
+        
+        tables = self.connection.execute("""
+            SELECT table_name FROM information_schema.tables 
+            WHERE table_name LIKE 'embeddings_%'
+        """).fetchall()
+        
+        return [table[0] for table in tables]
+
 
 
 
@@ -255,9 +393,8 @@ class DuckDBProvider:
             self.connection.execute("CREATE INDEX IF NOT EXISTS idx_chunks_type ON chunks(chunk_type)")
             self.connection.execute("CREATE INDEX IF NOT EXISTS idx_chunks_symbol ON chunks(symbol)")
             
-            # Embedding indexes
-            self.connection.execute("CREATE INDEX IF NOT EXISTS idx_embeddings_chunk_id ON embeddings(chunk_id)")
-            self.connection.execute("CREATE INDEX IF NOT EXISTS idx_embeddings_provider_model ON embeddings(provider, model)")
+            # Embedding indexes are created per-table in _ensure_embedding_table_exists()
+            # No need for global embedding indexes since we use dimension-specific tables
 
             logger.info("DuckDB indexes created successfully")
 
@@ -624,10 +761,12 @@ class DuckDBProvider:
 
             # Delete in correct order due to foreign key constraints
             # 1. Delete embeddings first
-            self.connection.execute("""
-                DELETE FROM embeddings 
-                WHERE chunk_id IN (SELECT id FROM chunks WHERE file_id = ?)
-            """, [file_id])
+            # Delete from all embedding tables
+            for table_name in self._get_all_embedding_tables():
+                self.connection.execute(f"""
+                    DELETE FROM {table_name} 
+                    WHERE chunk_id IN (SELECT id FROM chunks WHERE file_id = ?)
+                """, [file_id])
 
             # 2. Delete chunks
             self.connection.execute("DELETE FROM chunks WHERE file_id = ?", [file_id])
@@ -837,10 +976,12 @@ class DuckDBProvider:
 
         try:
             # First delete embeddings for chunks
-            self.connection.execute("""
-                DELETE FROM embeddings 
-                WHERE chunk_id IN (SELECT id FROM chunks WHERE file_id = ?)
-            """, [file_id])
+            # Delete from all embedding tables
+            for table_name in self._get_all_embedding_tables():
+                self.connection.execute(f"""
+                    DELETE FROM {table_name} 
+                    WHERE chunk_id IN (SELECT id FROM chunks WHERE file_id = ?)
+                """, [file_id])
 
             # Then delete chunks
             self.connection.execute("DELETE FROM chunks WHERE file_id = ?", [file_id])
@@ -944,17 +1085,20 @@ class DuckDBProvider:
         batch_size = len(embeddings_data)
         logger.debug(f"🔄 Starting optimized batch insert of {batch_size} embeddings")
 
-        # Validate and normalize embedding dimensions to 1536 for FLOAT[1536] schema
+        # Auto-detect embedding dimensions from first embedding
+        first_vector = embeddings_data[0]['embedding']
+        detected_dims = len(first_vector)
+        
+        # Validate all embeddings have the same dimensions
         for i, embedding_data in enumerate(embeddings_data):
             vector = embedding_data['embedding']
-            if len(vector) != 1536:
-                if len(vector) < 1536:
-                    # Pad with zeros
-                    embeddings_data[i]['embedding'] = vector + [0.0] * (1536 - len(vector))
-                else:
-                    # Truncate to 1536
-                    embeddings_data[i]['embedding'] = vector[:1536]
-                logger.warning(f"Embedding vector {i} resized from {len(vector)} to 1536 dimensions")
+            if len(vector) != detected_dims:
+                raise ValueError(f"Embedding vector {i} has {len(vector)} dimensions, "
+                               f"expected {detected_dims} (detected from first embedding)")
+        
+        # Ensure appropriate table exists for these dimensions
+        table_name = self._ensure_embedding_table_exists(detected_dims)
+        logger.debug(f"Using table {table_name} for {detected_dims}-dimensional embeddings")
 
         # Extract provider/model for conflict checking
         first_embedding = embeddings_data[0]
@@ -996,7 +1140,7 @@ class DuckDBProvider:
                 # Step 2: Separate new vs existing embeddings for optimal INSERT strategy
                 logger.debug(f"🔍 Checking for conflicts to optimize INSERT vs INSERT OR REPLACE")
                 chunk_ids = [emb['chunk_id'] for emb in embeddings_data]
-                existing_chunk_ids = self.get_existing_embeddings(chunk_ids, provider, model)
+                existing_chunk_ids = self.get_existing_embeddings(chunk_ids, provider, model, table_name)
 
                 # Separate new vs existing embeddings
                 new_embeddings = [emb for emb in embeddings_data if emb['chunk_id'] not in existing_chunk_ids]
@@ -1023,7 +1167,7 @@ class DuckDBProvider:
                         # Single INSERT with all values (fastest approach without external deps)
                         values_clause = ",\n    ".join(values_parts)
                         self.connection.execute(f"""
-                            INSERT INTO embeddings (chunk_id, provider, model, embedding, dims)
+                            INSERT INTO {table_name} (chunk_id, provider, model, embedding, dims)
                             VALUES {values_clause}
                         """)
 
@@ -1051,7 +1195,7 @@ class DuckDBProvider:
                         # Single INSERT OR REPLACE with all values
                         values_clause = ",\n    ".join(values_parts)
                         self.connection.execute(f"""
-                            INSERT OR REPLACE INTO embeddings (chunk_id, provider, model, embedding, dims)
+                            INSERT OR REPLACE INTO {table_name} (chunk_id, provider, model, embedding, dims)
                             VALUES {values_clause}
                         """)
 
@@ -1099,7 +1243,7 @@ class DuckDBProvider:
                     # Single INSERT OR REPLACE with all values
                     values_clause = ",\n    ".join(values_parts)
                     self.connection.execute(f"""
-                        INSERT OR REPLACE INTO embeddings (chunk_id, provider, model, embedding, dims)
+                        INSERT OR REPLACE INTO {table_name} (chunk_id, provider, model, embedding, dims)
                         VALUES {values_clause}
                     """)
 
@@ -1132,28 +1276,31 @@ class DuckDBProvider:
             raise RuntimeError("No database connection")
 
         try:
-            result = self.connection.execute("""
-                SELECT id, chunk_id, provider, model, embedding, dims, created_at
-                FROM embeddings 
-                WHERE chunk_id = ? AND provider = ? AND model = ?
-            """, [chunk_id, provider, model]).fetchone()
+            # Search across all embedding tables
+            embedding_tables = self._get_all_embedding_tables()
+            for table_name in embedding_tables:
+                result = self.connection.execute(f"""
+                    SELECT id, chunk_id, provider, model, embedding, dims, created_at
+                    FROM {table_name} 
+                    WHERE chunk_id = ? AND provider = ? AND model = ?
+                """, [chunk_id, provider, model]).fetchone()
 
-            if not result:
-                return None
+                if result:
+                    return Embedding(
+                        chunk_id=result[1],
+                        provider=result[2],
+                        model=result[3],
+                        vector=result[4],
+                        dims=result[5]
+                    )
 
-            return Embedding(
-                chunk_id=result[1],
-                provider=result[2],
-                model=result[3],
-                vector=result[4],
-                dims=result[5]
-            )
+            return None
 
         except Exception as e:
             logger.error(f"Failed to get embedding for chunk {chunk_id}: {e}")
             return None
 
-    def get_existing_embeddings(self, chunk_ids: List[int], provider: str, model: str) -> Set[int]:
+    def get_existing_embeddings(self, chunk_ids: List[int], provider: str, model: str, table_name: str = "embeddings_1536") -> Set[int]:
         """Get set of chunk IDs that already have embeddings for given provider/model."""
         if self.connection is None:
             raise RuntimeError("No database connection")
@@ -1168,7 +1315,7 @@ class DuckDBProvider:
 
             results = self.connection.execute(f"""
                 SELECT DISTINCT chunk_id
-                FROM embeddings 
+                FROM {table_name} 
                 WHERE chunk_id IN ({placeholders}) AND provider = ? AND model = ?
             """, params).fetchall()
 
@@ -1184,7 +1331,9 @@ class DuckDBProvider:
             raise RuntimeError("No database connection")
 
         try:
-            self.connection.execute("DELETE FROM embeddings WHERE chunk_id = ?", [chunk_id])
+            # Delete from all embedding tables
+            for table_name in self._get_all_embedding_tables():
+                self.connection.execute(f"DELETE FROM {table_name} WHERE chunk_id = ?", [chunk_id])
 
         except Exception as e:
             logger.error(f"Failed to delete embeddings for chunk {chunk_id}: {e}")
@@ -1198,24 +1347,33 @@ class DuckDBProvider:
         limit: int = 10,
         threshold: Optional[float] = None
     ) -> List[Dict[str, Any]]:
-        """Perform semantic vector search using HNSW index."""
+        """Perform semantic vector search using HNSW index with multi-dimension support."""
         if self.connection is None:
             raise RuntimeError("No database connection")
 
         try:
-            # Build query with optional threshold
-            query = """
+            # Detect dimensions from query embedding
+            query_dims = len(query_embedding)
+            table_name = self._get_table_name_for_dimensions(query_dims)
+            
+            # Check if table exists for these dimensions
+            if not self._table_exists(table_name):
+                logger.warning(f"No embeddings table found for {query_dims} dimensions ({table_name})")
+                return []
+            
+            # Build query with dimension-specific table
+            query = f"""
                 SELECT 
                     c.id as chunk_id,
-                    c.name,
-                    c.content,
+                    c.symbol,
+                    c.code,
                     c.chunk_type,
                     c.start_line,
                     c.end_line,
                     f.path as file_path,
                     f.language,
-                    array_cosine_similarity(e.embedding, ?) as similarity
-                FROM embeddings e
+                    array_cosine_similarity(e.embedding, ?::FLOAT[{query_dims}]) as similarity
+                FROM {table_name} e
                 JOIN chunks c ON e.chunk_id = c.id
                 JOIN files f ON c.file_id = f.id
                 WHERE e.provider = ? AND e.model = ?
@@ -1224,7 +1382,7 @@ class DuckDBProvider:
             params = [query_embedding, provider, model]
             
             if threshold is not None:
-                query += " AND array_cosine_similarity(e.embedding, ?) >= ?"
+                query += f" AND array_cosine_similarity(e.embedding, ?::FLOAT[{query_dims}]) >= ?"
                 params.append(query_embedding)
                 params.append(threshold)
             
@@ -1236,7 +1394,7 @@ class DuckDBProvider:
             return [
                 {
                     "chunk_id": result[0],
-                    "name": result[1],
+                    "symbol": result[1],
                     "content": result[2],
                     "chunk_type": result[3],
                     "start_line": result[4],
@@ -1346,14 +1504,23 @@ class DuckDBProvider:
             # Get counts from each table
             file_count = self.connection.execute("SELECT COUNT(*) FROM files").fetchone()[0]
             chunk_count = self.connection.execute("SELECT COUNT(*) FROM chunks").fetchone()[0]
-            embedding_count = self.connection.execute("SELECT COUNT(*) FROM embeddings").fetchone()[0]
+            
+            # Count embeddings across all dimension-specific tables
+            embedding_count = 0
+            embedding_tables = self._get_all_embedding_tables()
+            for table_name in embedding_tables:
+                count = self.connection.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0]
+                embedding_count += count
 
-            # Get unique providers/models
-            provider_results = self.connection.execute("""
-                SELECT DISTINCT provider, model, COUNT(*) as count
-                FROM embeddings 
-                GROUP BY provider, model
-            """).fetchall()
+            # Get unique providers/models across all embedding tables
+            provider_results = []
+            for table_name in embedding_tables:
+                results = self.connection.execute(f"""
+                    SELECT DISTINCT provider, model, COUNT(*) as count
+                    FROM {table_name} 
+                    GROUP BY provider, model
+                """).fetchall()
+                provider_results.extend(results)
 
             providers = {}
             for result in provider_results:
@@ -1398,13 +1565,17 @@ class DuckDBProvider:
             chunk_types = {result[0]: result[1] for result in chunk_results}
             total_chunks = sum(chunk_types.values())
 
-            # Get embedding count
-            embedding_count = self.connection.execute("""
-                SELECT COUNT(*)
-                FROM embeddings e
-                JOIN chunks c ON e.chunk_id = c.id
-                WHERE c.file_id = ?
-            """, [file_id]).fetchone()[0]
+            # Get embedding count across all embedding tables
+            embedding_count = 0
+            embedding_tables = self._get_all_embedding_tables()
+            for table_name in embedding_tables:
+                count = self.connection.execute(f"""
+                    SELECT COUNT(*)
+                    FROM {table_name} e
+                    JOIN chunks c ON e.chunk_id = c.id
+                    WHERE c.file_id = ?
+                """, [file_id]).fetchone()[0]
+                embedding_count += count
 
             return {
                 "file_id": file_id,
@@ -1428,27 +1599,40 @@ class DuckDBProvider:
             raise RuntimeError("No database connection")
 
         try:
-            # Get embedding count
-            embedding_count = self.connection.execute("""
-                SELECT COUNT(*) FROM embeddings 
-                WHERE provider = ? AND model = ?
-            """, [provider, model]).fetchone()[0]
+            # Get embedding count across all embedding tables
+            embedding_count = 0
+            file_ids = set()
+            dims = 0
+            embedding_tables = self._get_all_embedding_tables()
+            
+            for table_name in embedding_tables:
+                # Count embeddings for this provider/model in this table
+                count = self.connection.execute(f"""
+                    SELECT COUNT(*) FROM {table_name} 
+                    WHERE provider = ? AND model = ?
+                """, [provider, model]).fetchone()[0]
+                embedding_count += count
+                
+                # Get unique file IDs for this provider/model in this table
+                file_results = self.connection.execute(f"""
+                    SELECT DISTINCT c.file_id
+                    FROM {table_name} e
+                    JOIN chunks c ON e.chunk_id = c.id
+                    WHERE e.provider = ? AND e.model = ?
+                """, [provider, model]).fetchall()
+                file_ids.update(result[0] for result in file_results)
+                
+                # Get dimensions (should be consistent across all tables for same provider/model)
+                if count > 0 and dims == 0:
+                    dims_result = self.connection.execute(f"""
+                        SELECT DISTINCT dims FROM {table_name} 
+                        WHERE provider = ? AND model = ?
+                        LIMIT 1
+                    """, [provider, model]).fetchone()
+                    if dims_result:
+                        dims = dims_result[0]
 
-            # Get unique files with embeddings
-            file_count = self.connection.execute("""
-                SELECT COUNT(DISTINCT c.file_id)
-                FROM embeddings e
-                JOIN chunks c ON e.chunk_id = c.id
-                WHERE e.provider = ? AND e.model = ?
-            """, [provider, model]).fetchone()[0]
-
-            # Get dimensions (should be consistent)
-            dims_result = self.connection.execute("""
-                SELECT DISTINCT dims FROM embeddings 
-                WHERE provider = ? AND model = ?
-            """, [provider, model]).fetchone()
-
-            dims = dims_result[0] if dims_result else 0
+            file_count = len(file_ids)
 
             return {
                 "provider": provider,
