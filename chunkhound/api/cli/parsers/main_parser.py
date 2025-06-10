@@ -3,7 +3,7 @@
 import argparse
 from pathlib import Path
 
-from chunkhound import __version__
+# Version imported dynamically to avoid early chunkhound module loading
 
 
 def create_main_parser() -> argparse.ArgumentParser:
@@ -30,7 +30,7 @@ Examples:
     parser.add_argument(
         "--version",
         action="version",
-        version=f"chunkhound {__version__}",
+        version="chunkhound 0.1.0",
     )
     
     return parser

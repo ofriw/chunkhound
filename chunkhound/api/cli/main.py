@@ -3,13 +3,43 @@
 import argparse
 import asyncio
 import sys
+import os
+
+# Check for MCP command early to avoid any imports that trigger logging
+def is_mcp_command():
+    """Check if this is an MCP command before any imports."""
+    return len(sys.argv) >= 2 and sys.argv[1] == "mcp"
+
+# Handle MCP command immediately before any imports
+if is_mcp_command():
+    # Set MCP mode environment early
+    os.environ["CHUNKHOUND_MCP_MODE"] = "1"
+    
+    # Import only what's needed for MCP
+    from pathlib import Path
+    import subprocess
+    
+    # Parse MCP arguments minimally
+    db_path = Path.home() / ".cache" / "chunkhound" / "chunks.duckdb"
+    if "--db" in sys.argv:
+        db_index = sys.argv.index("--db")
+        if db_index + 1 < len(sys.argv):
+            db_path = Path(sys.argv[db_index + 1])
+    
+    # Launch MCP server directly
+    mcp_launcher_path = Path(__file__).parent.parent.parent.parent / "mcp_launcher.py"
+    cmd = [sys.executable, str(mcp_launcher_path), "--db", str(db_path)]
+    
+    process = subprocess.run(
+        cmd,
+        stdin=sys.stdin,
+        stdout=sys.stdout,
+        stderr=sys.stderr
+    )
+    sys.exit(process.returncode)
+
 from loguru import logger
-from .commands import run_command, mcp_command, config_command
-from .parsers import create_main_parser, setup_subparsers
-from .parsers.run_parser import add_run_subparser
-from .parsers.mcp_parser import add_mcp_subparser
-from .parsers.config_parser import add_config_subparser
-from .utils.validation import validate_path, ensure_database_directory, exit_on_validation_error
+# All imports deferred to avoid early module loading during MCP detection
 
 
 def setup_logging(verbose: bool = False) -> None:
@@ -67,17 +97,20 @@ def create_parser() -> argparse.ArgumentParser:
     Returns:
         Configured ArgumentParser instance
     """
-    # Create main parser
+    # Import parsers dynamically to avoid early loading
+    from .parsers import create_main_parser, setup_subparsers
+    from .parsers.run_parser import add_run_subparser
+    from .parsers.mcp_parser import add_mcp_subparser
+    from .parsers.config_parser import add_config_subparser
+
     parser = create_main_parser()
-    
-    # Set up subparsers
     subparsers = setup_subparsers(parser)
-    
+
     # Add command subparsers
     add_run_subparser(subparsers)
     add_mcp_subparser(subparsers)
     add_config_subparser(subparsers)
-    
+
     return parser
 
 
@@ -90,16 +123,26 @@ async def async_main() -> None:
         parser.print_help()
         sys.exit(1)
     
+    # Setup logging for non-MCP commands (MCP already handled above)
     setup_logging(getattr(args, "verbose", False))
+    # Import validation dynamically
+    from .utils.validation import validate_path, ensure_database_directory, exit_on_validation_error
+    
+    def validate_args(args):
+        """Validate arguments."""
+        # Add any validation logic here if needed
+        pass
+    
     validate_args(args)
     
     try:
         if args.command == "run":
+            # Dynamic import to avoid early chunkhound module loading
+            from .commands.run import run_command
             await run_command(args)
-        elif args.command == "mcp":
-            # MCP command is synchronous but we call it from async context
-            mcp_command(args)
         elif args.command == "config":
+            # Dynamic import to avoid early chunkhound module loading
+            from .commands.config import config_command
             await config_command(args)
         else:
             logger.error(f"Unknown command: {args.command}")

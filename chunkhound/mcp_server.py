@@ -8,6 +8,8 @@ import os
 import json
 import asyncio
 import logging
+import sys
+from io import StringIO
 
 from pathlib import Path
 from typing import Optional, List, Dict, Any
@@ -18,6 +20,7 @@ import mcp.types as types
 from mcp.server import Server
 from mcp.server.lowlevel import NotificationOptions
 from mcp.server.models import InitializationOptions
+from pydantic import ValidationError
 
 
 # Disable all logging for MCP server to prevent interference with JSON-RPC
@@ -284,24 +287,176 @@ async def list_tools() -> list[types.Tool]:
     ]
 
 
-async def main():
-    """Main entry point for the MCP server using explicit stdio transport."""
-    # Use the official MCP Python SDK stdio server pattern
-    async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
-        # Initialize with lifespan context (not used in this implementation but available)
-        async with server_lifespan(server) as _:
-            await server.run(
-                read_stream,
-                write_stream,
-                InitializationOptions(
-                    server_name="ChunkHound Code Search",
-                    server_version="0.1.0",
-                    capabilities=server.get_capabilities(
-                        notification_options=NotificationOptions(),
-                        experimental_capabilities={},
+def send_error_response(message_id: Any, code: int, message: str, data: Optional[dict] = None):
+    """Send a JSON-RPC error response to stdout."""
+    error_response = {
+        "jsonrpc": "2.0",
+        "id": message_id,
+        "error": {
+            "code": code,
+            "message": message,
+            "data": data
+        }
+    }
+    print(json.dumps(error_response, ensure_ascii=False), flush=True)
+
+
+def validate_mcp_initialize_message(message_text: str) -> tuple[bool, Optional[dict], Optional[str]]:
+    """
+    Validate MCP initialize message for common protocol issues.
+    Returns (is_valid, parsed_message, error_description)
+    """
+    try:
+        message = json.loads(message_text.strip())
+    except json.JSONDecodeError as e:
+        return False, None, f"Invalid JSON: {str(e)}"
+    
+    if not isinstance(message, dict):
+        return False, None, "Message must be a JSON object"
+    
+    # Check required JSON-RPC fields
+    if message.get("jsonrpc") != "2.0":
+        return False, message, f"Invalid jsonrpc version: '{message.get('jsonrpc')}' (must be '2.0')"
+    
+    if message.get("method") != "initialize":
+        return True, message, None  # Only validate initialize messages
+    
+    # Validate initialize method specifically
+    params = message.get("params", {})
+    if not isinstance(params, dict):
+        return False, message, "Initialize method 'params' must be an object"
+    
+    missing_fields = []
+    if "protocolVersion" not in params:
+        missing_fields.append("protocolVersion")
+    if "capabilities" not in params:
+        missing_fields.append("capabilities")
+    if "clientInfo" not in params:
+        missing_fields.append("clientInfo")
+    
+    if missing_fields:
+        return False, message, f"Initialize method missing required fields: {', '.join(missing_fields)}"
+    
+    return True, message, None
+
+
+def provide_mcp_example():
+    """Provide a helpful example of correct MCP initialize message."""
+    return {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": {
+            "protocolVersion": "2024-11-05",
+            "capabilities": {},
+            "clientInfo": {
+                "name": "your-mcp-client",
+                "version": "1.0.0"
+            }
+        }
+    }
+
+
+async def handle_mcp_with_validation():
+    """Handle MCP with improved error messages for protocol issues."""
+    try:
+        # Use the official MCP Python SDK stdio server pattern
+        async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
+            # Initialize with lifespan context
+            async with server_lifespan(server) as _:
+                await server.run(
+                    read_stream,
+                    write_stream,
+                    InitializationOptions(
+                        server_name="ChunkHound Code Search",
+                        server_version="0.1.0",
+                        capabilities=server.get_capabilities(
+                            notification_options=NotificationOptions(),
+                            experimental_capabilities={},
+                        ),
                     ),
-                ),
+                )
+    except Exception as e:
+        # Analyze error for common protocol issues with recursive search
+        error_str = str(e).lower()
+        error_details = str(e)
+        
+        def find_validation_error(error, depth=0):
+            """Recursively search for ValidationError in exception chain."""
+            if depth > 10:  # Prevent infinite recursion
+                return False, ""
+            
+            error_str = str(error).lower()
+            
+            # Check for validation error indicators
+            validation_keywords = [
+                'protocolversion', 'field required', 'validation error',
+                'validationerror', 'literal_error', 'input should be',
+                'missing', 'pydantic'
+            ]
+            
+            if any(keyword in error_str for keyword in validation_keywords):
+                return True, str(error)
+            
+            # Check exception chain
+            if hasattr(error, '__cause__') and error.__cause__:
+                found, details = find_validation_error(error.__cause__, depth + 1)
+                if found:
+                    return found, details
+            
+            if hasattr(error, '__context__') and error.__context__:
+                found, details = find_validation_error(error.__context__, depth + 1)
+                if found:
+                    return found, details
+            
+            # Check exception groups (anyio/asyncio task groups)
+            if hasattr(error, 'exceptions') and error.exceptions:
+                for exc in error.exceptions:
+                    found, details = find_validation_error(exc, depth + 1)
+                    if found:
+                        return found, details
+            
+            return False, ""
+        
+        is_validation_error, validation_details = find_validation_error(e)
+        if validation_details:
+            error_details = validation_details
+        
+        if is_validation_error:
+            # Send helpful protocol validation error
+            send_error_response(
+                1,  # Assume initialize request
+                -32602,
+                "Invalid MCP protocol message",
+                {
+                    "details": "The MCP initialization message is missing required fields or has invalid format.",
+                    "common_issue": "Missing 'protocolVersion' field in initialize request parameters",
+                    "required_fields": ["protocolVersion", "capabilities", "clientInfo"],
+                    "correct_example": provide_mcp_example(),
+                    "validation_error": error_details,
+                    "help": [
+                        "Ensure your MCP client includes 'protocolVersion': '2024-11-05'",
+                        "Include all required fields in the initialize request",
+                        "Verify your MCP client library is up to date"
+                    ]
+                }
             )
+        else:
+            # Handle other initialization or runtime errors
+            send_error_response(
+                None,
+                -32603,
+                "MCP server error",
+                {
+                    "details": str(e),
+                    "suggestion": "Check that the database path is accessible and environment variables are correct."
+                }
+            )
+
+
+async def main():
+    """Main entry point for the MCP server with robust error handling."""
+    await handle_mcp_with_validation()
 
 
 if __name__ == "__main__":

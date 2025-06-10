@@ -20,7 +20,9 @@ try:
 except ImportError:
     openai = None  # type: ignore
     OPENAI_AVAILABLE = False
-    logger.warning("OpenAI not available - install with: uv pip install openai")
+    # Suppress warning during MCP mode initialization
+    if not os.environ.get("CHUNKHOUND_MCP_MODE"):
+        logger.warning("OpenAI not available - install with: uv pip install openai")
 
 try:
     import tiktoken
@@ -28,7 +30,9 @@ try:
 except ImportError:
     tiktoken = None  # type: ignore
     TIKTOKEN_AVAILABLE = False
-    logger.warning("tiktoken not available - install with: uv pip install tiktoken")
+    # Suppress warning during MCP mode initialization
+    if not os.environ.get("CHUNKHOUND_MCP_MODE"):
+        logger.warning("tiktoken not available - install with: uv pip install tiktoken")
 
 
 class EmbeddingProvider(Protocol):

@@ -38,6 +38,7 @@ dependencies = [
     "watchdog>=4.0.0",
     "psutil>=5.8.0",
     "PyYAML>=6.0.0",
+    "tiktoken>=0.9.0",
 ]
 
 [project.optional-dependencies]
@@ -51,6 +52,7 @@ dev = [
 
 [project.scripts]
 chunkhound = "chunkhound.api.cli.main:main"
+chunkhound-mcp = "chunkhound.mcp_entry:main_sync"
 
 [project.urls]
 Homepage = "https://github.com/chunkhound/chunkhound"

@@ -396,11 +396,11 @@ class FileWatcherManager:
         """
         if not is_filesystem_watching_enabled():
             return False
-        
+
         self.watch_paths = watch_paths or get_watch_paths_from_env()
         if not self.watch_paths:
             return False
-        
+
         try:
             # Create event queue
             self.event_queue = asyncio.Queue(maxsize=1000)

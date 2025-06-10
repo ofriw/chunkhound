@@ -1,10 +1,8 @@
 """MCP command module - handles Model Context Protocol server operations."""
 
 import argparse
-import asyncio
 import os
 from pathlib import Path
-from loguru import logger
 
 
 def mcp_command(args: argparse.Namespace) -> None:
@@ -13,15 +11,22 @@ def mcp_command(args: argparse.Namespace) -> None:
     Args:
         args: Parsed command-line arguments containing database path
     """
-    # Set database path in environment for MCP server
-    os.environ["CHUNKHOUND_DB_PATH"] = str(args.db)
+    import subprocess
+    import sys
     
-    # No logging output for MCP server - must maintain clean stdin/stdout for JSON-RPC
-    logger.remove()
+    # Use the standalone MCP launcher that sets environment before any imports
+    mcp_launcher_path = Path(__file__).parent.parent.parent.parent.parent / "mcp_launcher.py"
+    cmd = [sys.executable, str(mcp_launcher_path), "--db", str(args.db)]
     
-    # Import and run MCP server
-    from chunkhound.mcp_server import main as run_mcp_server
-    asyncio.run(run_mcp_server())
+    process = subprocess.run(
+        cmd,
+        stdin=sys.stdin,
+        stdout=sys.stdout,
+        stderr=sys.stderr  # Allow stderr through for proper error handling
+    )
+    
+    # Exit with the same code as the subprocess
+    sys.exit(process.returncode)
 
 
 def add_mcp_subparser(subparsers) -> argparse.ArgumentParser:
