@@ -1419,8 +1419,8 @@ class DuckDBProvider:
             results = self.connection.execute("""
                 SELECT 
                     c.id as chunk_id,
-                    c.name,
-                    c.content,
+                    c.symbol,
+                    c.code,
                     c.chunk_type,
                     c.start_line,
                     c.end_line,
@@ -1428,10 +1428,12 @@ class DuckDBProvider:
                     f.language
                 FROM chunks c
                 JOIN files f ON c.file_id = f.id
-                WHERE regexp_matches(c.content, ?)
+                WHERE regexp_matches(c.code, ?)
                 ORDER BY f.path, c.start_line
                 LIMIT ?
             """, [pattern, limit]).fetchall()
+
+
 
             return [
                 {
