@@ -22,6 +22,14 @@ except ImportError:
     OPENAI_AVAILABLE = False
     logger.warning("OpenAI not available - install with: uv pip install openai")
 
+try:
+    import tiktoken
+    TIKTOKEN_AVAILABLE = True
+except ImportError:
+    tiktoken = None  # type: ignore
+    TIKTOKEN_AVAILABLE = False
+    logger.warning("tiktoken not available - install with: uv pip install tiktoken")
+
 
 class EmbeddingProvider(Protocol):
     """Protocol for embedding providers."""
@@ -119,6 +127,25 @@ class OpenAIEmbeddingProvider:
             "text-embedding-ada-002": 1536,
         }
         
+        # Model token limits mapping  
+        self._model_token_limits = {
+            "text-embedding-3-small": 8192,
+            "text-embedding-3-large": 8192, 
+            "text-embedding-ada-002": 8192,
+        }
+        
+        # Initialize tokenizer for token counting
+        self._tokenizer = None
+        if TIKTOKEN_AVAILABLE:
+            try:
+                self._tokenizer = tiktoken.encoding_for_model(self._model)
+            except KeyError:
+                # Fallback to cl100k_base for unknown models
+                self._tokenizer = tiktoken.get_encoding("cl100k_base")
+                logger.warning(f"Using cl100k_base tokenizer for unknown model: {self._model}")
+        else:
+            logger.warning("tiktoken not available - token counting disabled, may hit API limits")
+        
         logger.info(f"OpenAI embedding provider initialized with model: {self._model}")
     
     @property
@@ -141,14 +168,88 @@ class OpenAIEmbeddingProvider:
     def batch_size(self) -> int:
         return self._batch_size
     
+    def count_tokens(self, text: str) -> int:
+        """Count tokens in text using tiktoken.
+        
+        Args:
+            text: Text to count tokens for
+            
+        Returns:
+            Number of tokens, or estimated count if tiktoken unavailable
+        """
+        if self._tokenizer is not None:
+            return len(self._tokenizer.encode(text))
+        else:
+            # Rough estimation: ~4 characters per token for English text
+            return len(text) // 4
+    
+    def get_token_limit(self) -> int:
+        """Get token limit for current model.
+        
+        Returns:
+            Token limit for the model
+        """
+        return self._model_token_limits.get(self._model, 8192)
+    
+    def create_token_aware_batches(self, texts: List[str]) -> List[List[str]]:
+        """Create batches that respect token limits.
+        
+        Args:
+            texts: List of text strings to batch
+            
+        Returns:
+            List of batches, each respecting token limits
+        """
+        if not texts:
+            return []
+        
+        token_limit = self.get_token_limit()
+        batches = []
+        current_batch = []
+        current_tokens = 0
+        skipped_count = 0
+        
+        for text in texts:
+            text_tokens = self.count_tokens(text)
+            
+            # Handle oversized individual chunks
+            if text_tokens > token_limit:
+                logger.warning(
+                    f"Skipping chunk with {text_tokens} tokens (exceeds {token_limit} limit). "
+                    f"Content preview: {text[:100]}..."
+                )
+                skipped_count += 1
+                continue
+            
+            # Check if adding this text would exceed token limit
+            if current_tokens + text_tokens > token_limit and current_batch:
+                # Start new batch
+                batches.append(current_batch)
+                current_batch = [text]
+                current_tokens = text_tokens
+            else:
+                # Add to current batch
+                current_batch.append(text)
+                current_tokens += text_tokens
+        
+        # Add final batch if not empty
+        if current_batch:
+            batches.append(current_batch)
+        
+        if skipped_count > 0:
+            logger.warning(f"Skipped {skipped_count} chunks that exceeded token limit")
+        
+        logger.debug(f"Created {len(batches)} token-aware batches from {len(texts)} texts")
+        return batches
+    
     async def embed(self, texts: List[str]) -> List[List[float]]:
-        """Generate embeddings using OpenAI API.
+        """Generate embeddings using OpenAI API with token limit validation.
         
         Args:
             texts: List of text strings to embed
             
         Returns:
-            List of embedding vectors
+            List of embedding vectors (may be fewer than input if some texts exceed token limits)
         """
         if not texts:
             return []
@@ -156,12 +257,24 @@ class OpenAIEmbeddingProvider:
         logger.debug(f"Generating embeddings for {len(texts)} texts using {self.model}")
         
         try:
-            # Process in batches to respect API limits
+            # Create token-aware batches instead of simple item-count batching
+            token_aware_batches = self.create_token_aware_batches(texts)
+            
+            if not token_aware_batches:
+                logger.warning("No valid batches created - all texts may exceed token limits")
+                return []
+            
             all_embeddings: List[List[float]] = []
             
-            for i in range(0, len(texts), self.batch_size):
-                batch = texts[i:i + self.batch_size]
-                logger.debug(f"Processing batch {i//self.batch_size + 1}: {len(batch)} texts")
+            for batch_idx, batch in enumerate(token_aware_batches):
+                if not batch:  # Skip empty batches
+                    continue
+                    
+                batch_tokens = sum(self.count_tokens(text) for text in batch)
+                logger.debug(
+                    f"Processing batch {batch_idx + 1}/{len(token_aware_batches)}: "
+                    f"{len(batch)} texts, {batch_tokens} tokens"
+                )
                 
                 response = await self._client.embeddings.create(
                     model=self.model,
@@ -173,10 +286,13 @@ class OpenAIEmbeddingProvider:
                 all_embeddings.extend(batch_embeddings)
                 
                 # Add small delay between batches to be respectful
-                if i + self.batch_size < len(texts):
+                if batch_idx + 1 < len(token_aware_batches):
                     await asyncio.sleep(0.1)
             
-            logger.info(f"Generated {len(all_embeddings)} embeddings using {self.model}")
+            logger.info(
+                f"Generated {len(all_embeddings)} embeddings using {self.model} "
+                f"({len(all_embeddings)}/{len(texts)} texts processed)"
+            )
             return all_embeddings
             
         except Exception as e:

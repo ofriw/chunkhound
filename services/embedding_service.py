@@ -194,31 +194,51 @@ class EmbeddingService(BaseService):
             Dictionary with embedding statistics by provider and model
         """
         try:
-            query = """
-                SELECT 
-                    provider, 
-                    model, 
-                    dims,
-                    COUNT(*) as count,
-                    COUNT(DISTINCT chunk_id) as unique_chunks
-                FROM embeddings 
-                GROUP BY provider, model, dims
-                ORDER BY provider, model, dims
-            """
+            # Get all embedding tables
+            embedding_tables = self._get_all_embedding_tables()
             
-            results = self._db.execute_query(query)
+            if not embedding_tables:
+                return {
+                    "total_embeddings": 0,
+                    "total_unique_chunks": 0,
+                    "providers": [],
+                    "configured_provider": self._embedding_provider.name if self._embedding_provider else None,
+                    "configured_model": self._embedding_provider.model if self._embedding_provider else None
+                }
             
-            # Calculate total statistics
-            total_embeddings = sum(row["count"] for row in results)
-            total_unique_chunks = len(set(
-                (row["provider"], row["model"], row["chunk_id"]) 
-                for row in self._db.execute_query("SELECT provider, model, chunk_id FROM embeddings")
-            ))
+            # Query each table and aggregate results
+            all_results = []
+            all_chunks = set()
+            
+            for table_name in embedding_tables:
+                query = f"""
+                    SELECT 
+                        provider, 
+                        model, 
+                        dims,
+                        COUNT(*) as count,
+                        COUNT(DISTINCT chunk_id) as unique_chunks
+                    FROM {table_name} 
+                    GROUP BY provider, model, dims
+                    ORDER BY provider, model, dims
+                """
+                
+                table_results = self._db.execute_query(query)
+                all_results.extend(table_results)
+                
+                # Get chunk IDs for total unique calculation
+                chunk_query = f"SELECT provider, model, chunk_id FROM {table_name}"
+                chunk_results = self._db.execute_query(chunk_query)
+                all_chunks.update((row["provider"], row["model"], row["chunk_id"]) for row in chunk_results)
+            
+            # Calculate totals
+            total_embeddings = sum(row["count"] for row in all_results)
+            total_unique_chunks = len(all_chunks)
             
             return {
                 "total_embeddings": total_embeddings,
                 "total_unique_chunks": total_unique_chunks,
-                "providers": results,
+                "providers": all_results,
                 "configured_provider": self._embedding_provider.name if self._embedding_provider else None,
                 "configured_model": self._embedding_provider.model if self._embedding_provider else None
             }
@@ -342,20 +362,42 @@ class EmbeddingService(BaseService):
     
     def _get_chunks_without_embeddings(self, provider: str, model: str) -> List[Dict[str, Any]]:
         """Get chunks that don't have embeddings for the specified provider/model."""
-        query = """
+        # Get all embedding tables
+        embedding_tables = self._get_all_embedding_tables()
+        
+        if not embedding_tables:
+            # No embedding tables exist, return all chunks
+            query = """
+                SELECT c.id, c.code, c.symbol, f.path
+                FROM chunks c
+                JOIN files f ON c.file_id = f.id
+                ORDER BY c.id
+            """
+            return self._db.execute_query(query)
+        
+        # Build NOT EXISTS clauses for all embedding tables
+        not_exists_clauses = []
+        for table_name in embedding_tables:
+            not_exists_clauses.append(f"""
+                NOT EXISTS (
+                    SELECT 1 FROM {table_name} e 
+                    WHERE e.chunk_id = c.id 
+                    AND e.provider = ? 
+                    AND e.model = ?
+                )
+            """)
+        
+        query = f"""
             SELECT c.id, c.code, c.symbol, f.path
             FROM chunks c
             JOIN files f ON c.file_id = f.id
-            WHERE NOT EXISTS (
-                SELECT 1 FROM embeddings e 
-                WHERE e.chunk_id = c.id 
-                AND e.provider = ? 
-                AND e.model = ?
-            )
+            WHERE {' AND '.join(not_exists_clauses)}
             ORDER BY c.id
         """
         
-        return self._db.execute_query(query, [provider, model])
+        # Parameters need to be repeated for each table
+        params = [provider, model] * len(embedding_tables)
+        return self._db.execute_query(query, params)
     
     def _get_chunks_by_ids(self, chunk_ids: List[ChunkId]) -> List[Dict[str, Any]]:
         """Get chunk data for specific chunk IDs."""
@@ -395,16 +437,42 @@ class EmbeddingService(BaseService):
         if not chunk_ids:
             return
         
+        # Get all embedding tables and delete from each
+        embedding_tables = self._get_all_embedding_tables()
+        
+        if not embedding_tables:
+            logger.debug("No embedding tables found, nothing to delete")
+            return
+        
         placeholders = ",".join("?" for _ in chunk_ids)
-        query = f"""
-            DELETE FROM embeddings 
-            WHERE chunk_id IN ({placeholders}) 
-            AND provider = ? 
-            AND model = ?
-        """
+        deleted_count = 0
         
-        params = chunk_ids + [provider, model]
-        # Use execute_query method instead of direct connection access
-        self._db.execute_query(query, params)
+        for table_name in embedding_tables:
+            query = f"""
+                DELETE FROM {table_name} 
+                WHERE chunk_id IN ({placeholders}) 
+                AND provider = ? 
+                AND model = ?
+            """
+            
+            params = chunk_ids + [provider, model]
+            try:
+                # Execute the deletion for this table
+                self._db.execute_query(query, params)
+                deleted_count += 1
+            except Exception as e:
+                logger.error(f"Failed to delete from {table_name}: {e}")
         
-        logger.debug(f"Deleted existing embeddings for {len(chunk_ids)} chunks")
+        logger.debug(f"Deleted existing embeddings for {len(chunk_ids)} chunks from {deleted_count} tables")
+    
+    def _get_all_embedding_tables(self) -> List[str]:
+        """Get list of all embedding tables (dimension-specific)."""
+        try:
+            tables = self._db.execute_query("""
+                SELECT table_name FROM information_schema.tables 
+                WHERE table_name LIKE 'embeddings_%'
+            """)
+            return [table["table_name"] for table in tables]
+        except Exception as e:
+            logger.error(f"Failed to get embedding tables: {e}")
+            return []

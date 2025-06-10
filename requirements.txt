@@ -5,6 +5,7 @@
 # Core dependencies
 duckdb>=0.8.0
 openai>=1.0.0
+tiktoken>=0.5.0
 tree-sitter>=0.20.0
 tree-sitter-python>=0.20.0
 
