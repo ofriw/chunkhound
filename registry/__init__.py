@@ -50,6 +50,10 @@ class ProviderRegistry:
             config: Configuration dictionary with provider settings
         """
         self._config = config.copy()
+        
+        # Register embedding provider after configuration is available
+        self._register_embedding_provider()
+        
         logger.info("Provider registry configured")
     
     def register_provider(self, name: str, implementation: Any, singleton: bool = True) -> None:
@@ -216,8 +220,8 @@ class ProviderRegistry:
         # Database providers
         self.register_provider("database", DuckDBProvider, singleton=True)
         
-        # Embedding providers - dynamic selection based on config
-        self._register_embedding_provider()
+        # Embedding providers will be registered after configuration in configure()
+        # This ensures the provider gets the correct configuration parameters
         
         # Language parsers
         try:
