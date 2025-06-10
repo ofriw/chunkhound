@@ -603,15 +603,16 @@ class CodeParser:
             return self._parse_tree_only(file_path, source)
         
         # Check cache first
-        cached_tree = self.tree_cache.get(file_path)
-        if cached_tree:
-            logger.debug(f"TreeCache hit for {file_path}")
-            return cached_tree
+        if self.tree_cache is not None:
+            cached_tree = self.tree_cache.get(file_path)
+            if cached_tree:
+                logger.debug(f"TreeCache hit for {file_path}")
+                return cached_tree
         
         # Cache miss - parse and store
         logger.debug(f"TreeCache miss for {file_path}")
         tree = self._parse_tree_only(file_path, source)
-        if tree:
+        if tree and self.tree_cache is not None:
             self.tree_cache.put(file_path, tree)
         return tree
     
@@ -825,11 +826,20 @@ class CodeParser:
                 logger.error(f"Failed to parse syntax tree for {file_path}")
                 return []
             
+            # Check if tree parsed successfully
+            if tree is None or tree.root_node is None:
+                logger.warning(f"Failed to parse Markdown file: {file_path}")
+                return []
+
+            # Check if tree parsed successfully
+            if tree is None or tree.root_node is None:
+                logger.warning(f"Failed to parse Python file: {file_path}")
+                return []
+
             # Extract semantic units
             chunks = []
-            chunks.extend(self._extract_headers(tree.root_node, source_code))
-            chunks.extend(self._extract_code_blocks(tree.root_node, source_code))
-            chunks.extend(self._extract_paragraphs(tree.root_node, source_code))
+            chunks.extend(self._extract_functions(tree.root_node, source_code))
+            chunks.extend(self._extract_classes(tree.root_node, source_code))
             
             logger.debug(f"Incremental parsing extracted {len(chunks)} chunks from {file_path}")
             return chunks
@@ -943,6 +953,11 @@ class CodeParser:
                 else:
                     logger.error("Java parser is None after initialization check")
                     return []
+
+            # Check if tree parsed successfully
+            if tree is None or tree.root_node is None:
+                logger.warning(f"Failed to parse Java file: {file_path}")
+                return []
 
             # Extract semantic units
             chunks = []
@@ -2011,6 +2026,11 @@ class CodeParser:
                 else:
                     return []
             
+            # Check if tree parsed successfully
+            if tree is None or tree.root_node is None:
+                logger.warning(f"Failed to parse Python file: {file_path}")
+                return []
+            
             # Extract semantic units
             chunks = []
             chunks.extend(self._extract_functions(tree.root_node, source_code))
@@ -2050,6 +2070,11 @@ class CodeParser:
                     tree = self.markdown_parser.parse(bytes(source_code, 'utf8'))
                 else:
                     return []
+            
+            # Check if tree parsed successfully
+            if tree is None or tree.root_node is None:
+                logger.warning(f"Failed to parse Markdown file: {file_path}")
+                return []
             
             # Extract semantic units
             chunks = []
@@ -2601,6 +2626,52 @@ class CodeParser:
             
         except Exception as e:
             logger.debug(f"Failed to extract C# type parameters: {e}")
+            return ""
+    
+    def _extract_csharp_namespace(self, tree_node: TreeSitterNode, source_code: str) -> str:
+        """Extract the namespace name from C# file root node.
+        
+        Args:
+            tree_node: Root node of the C# AST
+            source_code: Source code content
+            
+        Returns:
+            Namespace name or empty string if no namespace found
+        """
+        if self.csharp_language is None:
+            return ""
+        
+        try:
+            # Query for namespace declarations - handles both simple and qualified names
+            qualified_query = self.csharp_language.query("""
+                (namespace_declaration name: (qualified_name) @namespace_qualified)
+            """)
+            
+            matches = qualified_query.matches(tree_node)
+            
+            for match in matches:
+                pattern_index, captures = match
+                if "namespace_qualified" in captures:
+                    namespace_name_node = captures["namespace_qualified"][0]
+                    return self._get_node_text(namespace_name_node, source_code).strip()
+            
+            # Fallback to simple identifier if qualified name not found
+            simple_query = self.csharp_language.query("""
+                (namespace_declaration name: (identifier) @namespace_name)
+            """)
+            
+            simple_matches = simple_query.matches(tree_node)
+            
+            for match in simple_matches:
+                pattern_index, captures = match
+                if "namespace_name" in captures:
+                    namespace_name_node = captures["namespace_name"][0]
+                    return self._get_node_text(namespace_name_node, source_code).strip()
+            
+            return ""
+            
+        except Exception as e:
+            logger.error(f"Error extracting C# namespace: {e}")
             return ""
     
     def _extract_csharp_namespace_nodes(self, tree_node: TreeSitterNode, source_code: str) -> List[Tuple[TreeSitterNode, str]]:
@@ -3355,6 +3426,55 @@ class CodeParser:
             logger.error(f"Failed to parse JavaScript file incrementally {file_path}: {e}")
             return []
 
+    def _parse_tsx_file(self, file_path: Path, source: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Parse a TSX file and extract semantic chunks.
+
+        Args:
+            file_path: Path to TSX file to parse
+            source: Optional source code string
+
+        Returns:
+            List of extracted chunks with metadata
+        """
+        if not self._tsx_initialized:
+            logger.warning("TSX parser not initialized, attempting setup")
+            self.setup()
+            if not self._tsx_initialized:
+                return []
+
+        logger.debug(f"Parsing TSX file: {file_path}")
+
+        try:
+            # Get source code
+            if source is None:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    source_code = f.read()
+            else:
+                source_code = source
+
+            # Parse with tree-sitter
+            if self.typescript_parser is not None:
+                tree = self.typescript_parser.parse(bytes(source_code, 'utf8'))
+            else:
+                logger.error("TypeScript parser is None after initialization check")
+                return []
+            
+            if tree is None or tree.root_node is None:
+                logger.warning(f"Failed to parse TSX file: {file_path}")
+                return []
+
+            # Extract chunks using TypeScript logic (TSX is TypeScript + JSX)
+            chunks = self._extract_typescript_classes(tree.root_node, source_code, file_path)
+            chunks.extend(self._extract_typescript_interfaces(tree.root_node, source_code, file_path))
+            chunks.extend(self._extract_typescript_functions(tree.root_node, source_code, file_path))
+            
+            logger.debug(f"Extracted {len(chunks)} chunks from {file_path}")
+            return chunks
+
+        except Exception as e:
+            logger.error(f"Error parsing TSX file {file_path}: {e}")
+            return []
+
     def _parse_tsx_file_incremental(self, file_path: Path, source: Optional[str] = None) -> List[Dict[str, Any]]:
         """Parse TSX file incrementally using TreeCache.
 
@@ -3836,4 +3956,58 @@ class CodeParser:
             logger.error(f"Failed to extract JavaScript functions from JSX: {e}")
             return []
 
-            return
+    def _extract_javascript_classes(self, tree_node: TreeSitterNode, source_code: str, file_path: Path) -> List[Dict[str, Any]]:
+        """Extract JavaScript class declarations from AST.
+
+        Args:
+            tree_node: Root node of the JavaScript AST
+            source_code: Source code content
+            file_path: Path to the JavaScript file
+
+        Returns:
+            List of class chunks with metadata
+        """
+        chunks = []
+
+        if self.javascript_language is None:
+            return []
+
+        try:
+            query = self.javascript_language.query("""
+                (class_declaration name: (identifier) @class_name) @class_def
+            """)
+
+            matches = query.matches(tree_node)
+
+            for match in matches:
+                pattern_index, captures = match
+                class_node = None
+                class_name = "UnnamedClass"
+
+                if "class_def" in captures:
+                    class_node = captures["class_def"][0]
+                if "class_name" in captures:
+                    class_name = self._get_node_text(captures["class_name"][0], source_code).strip()
+
+                if class_node is None:
+                    continue
+
+                # Get class text
+                class_text = self._get_node_text(class_node, source_code)
+                start_line = class_node.start_point[0] + 1
+                end_line = class_node.end_point[0] + 1
+
+                chunks.append({
+                    "symbol": class_name,
+                    "start_line": start_line,
+                    "end_line": end_line,
+                    "code": class_text,
+                    "chunk_type": ChunkType.CLASS.value,
+                    "language_info": "javascript"
+                })
+
+            return chunks
+
+        except Exception as e:
+            logger.error(f"Failed to extract JavaScript classes: {e}")
+            return []

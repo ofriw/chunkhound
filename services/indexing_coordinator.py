@@ -2,13 +2,14 @@
 
 from typing import Any, Dict, List, Optional, Tuple, Union
 from pathlib import Path
+from fnmatch import fnmatch
 from loguru import logger
 
 from core.models import File
 from core.types import Language, FilePath, FileId
 from interfaces.database_provider import DatabaseProvider
 from interfaces.embedding_provider import EmbeddingProvider
-from interfaces.language_parser import LanguageParser
+from interfaces.language_parser import LanguageParser, ParseResult
 from .base_service import BaseService
 
 
@@ -126,51 +127,50 @@ class IndexingCoordinator(BaseService):
             logger.debug(f"File exists in DB: {existing_file is not None}")
             logger.debug(f"File stat: mtime={file_stat.st_mtime}, size={file_stat.st_size}")
         
+            # Check if file exists in database and is up to date
             if existing_file and self._is_file_up_to_date(existing_file, file_stat.st_mtime):
                 # Get current chunk count for status report
-                if isinstance(existing_file, dict) and "id" in existing_file:
-                    chunks_count = len(self._db.get_chunks_by_file_id(existing_file["id"]))
-                    return {"status": "up_to_date", "chunks": chunks_count, "file_id": existing_file["id"]}
-                elif hasattr(existing_file, "id"):
-                    chunks_count = len(self._db.get_chunks_by_file_id(existing_file.id))
-                    return {"status": "up_to_date", "chunks": chunks_count, "file_id": existing_file.id}
+                file_id = self._extract_file_id(existing_file)
+                if file_id is not None:
+                    chunks_count = len(self._db.get_chunks_by_file_id(file_id))
+                    return {"status": "up_to_date", "chunks": chunks_count, "file_id": file_id}
                 else:
                     return {"status": "up_to_date", "chunks": 0}
             
-            # Parse file content
+            # Parse file content - can return ParseResult or List[Dict[str, Any]]
             parsed_data = parser.parse_file(file_path)
             if not parsed_data:
                 return {"status": "no_content", "chunks": 0}
             
-            # Extract chunks from ParseResult object
-            if hasattr(parsed_data, 'chunks'):
+            # Extract chunks from ParseResult object or direct list
+            chunks: List[Dict[str, Any]]
+            if isinstance(parsed_data, ParseResult):
                 # New parser providers return ParseResult object
                 chunks = parsed_data.chunks
-            else:
+            elif isinstance(parsed_data, list):
                 # Legacy parsers return chunks directly
                 chunks = parsed_data
+            else:
+                # Fallback for unexpected types
+                chunks = []
                 
             if not chunks:
                 return {"status": "no_chunks", "chunks": 0}
             
             # Store or update file record
             file_id = self._store_file_record(file_path, file_stat, language)
+            if file_id is None:
+                return {"status": "error", "chunks": 0, "error": "Failed to store file record"}
             
             # Delete old chunks here if needed
             if existing_file:
                 # Get existing file ID
-                existing_id = file_id
-                if isinstance(existing_file, dict) and "id" in existing_file:
-                    existing_id = existing_file["id"]
+                existing_id = self._extract_file_id(existing_file)
+                if existing_id is not None:
                     # Update file metadata
                     self._db.update_file(existing_id, size_bytes=file_stat.st_size, mtime=file_stat.st_mtime)
-                elif hasattr(existing_file, "id"):
-                    existing_id = existing_file.id
-                    # Update file metadata
-                    self._db.update_file(existing_id, size_bytes=file_stat.st_size, mtime=file_stat.st_mtime)
-                
-                # Clear old chunks
-                self._db.delete_file_chunks(existing_id)
+                    # Clear old chunks
+                    self._db.delete_file_chunks(existing_id)
             
             # Store chunks
             chunk_ids = self._store_chunks(file_id, chunks, language)
@@ -258,7 +258,16 @@ class IndexingCoordinator(BaseService):
             logger.error(f"Failed to process directory {directory}: {e}")
             return {"status": "error", "error": str(e)}
     
-    def _is_file_up_to_date(self, existing_file: Union[Dict, File], current_mtime: float) -> bool:
+    def _extract_file_id(self, file_record: Union[Dict[str, Any], File]) -> Optional[int]:
+        """Safely extract file ID from either dict or File model."""
+        if isinstance(file_record, File):
+            return file_record.id
+        elif isinstance(file_record, dict) and "id" in file_record:
+            return file_record["id"]
+        else:
+            return None
+    
+    def _is_file_up_to_date(self, existing_file: Union[Dict[str, Any], File], current_mtime: float) -> bool:
         """Check if file is up to date based on modification time."""
         # Debug logging for structure analysis
         logger.debug(f"Existing file type: {type(existing_file)}")
@@ -323,6 +332,12 @@ class IndexingCoordinator(BaseService):
         """Store chunks in database and return chunk IDs."""
         chunk_ids = []
         for chunk in chunks:
+            # Skip chunks with empty code content to prevent validation errors
+            code_content = chunk.get("code", "")
+            if not code_content or not code_content.strip():
+                logger.warning(f"Skipping chunk with empty code content: {chunk.get('symbol', 'unknown')} at lines {chunk.get('start_line', 0)}-{chunk.get('end_line', 0)}")
+                continue
+            
             # Create Chunk model instance
             from core.models import Chunk
             from core.types import ChunkType
@@ -339,7 +354,7 @@ class IndexingCoordinator(BaseService):
                 symbol=chunk.get("symbol", ""),
                 start_line=chunk.get("start_line", 0),
                 end_line=chunk.get("end_line", 0),
-                code=chunk.get("code", ""),
+                code=code_content,
                 chunk_type=chunk_type_enum,
                 language=language,  # Use the file's detected language
                 parent_header=chunk.get("parent_header")
@@ -372,11 +387,8 @@ class IndexingCoordinator(BaseService):
                 return 0
             
             # Get file ID
-            if isinstance(file_record, dict) and "id" in file_record:
-                file_id = file_record["id"]
-            elif hasattr(file_record, "id"):
-                file_id = file_record.id
-            else:
+            file_id = self._extract_file_id(file_record)
+            if file_id is None:
                 return 0
             
             # Count chunks before deletion
@@ -435,7 +447,7 @@ class IndexingCoordinator(BaseService):
                     "provider": self._embedding_provider.name,
                     "model": self._embedding_provider.model,
                     "dims": len(vector),
-                    "vector": vector
+                    "embedding": vector
                 })
             
             return self._db.insert_embeddings_batch(embeddings_data)
@@ -475,10 +487,14 @@ class IndexingCoordinator(BaseService):
         for pattern in patterns:
             for file_path in directory.rglob(pattern):
                 if file_path.is_file():
-                    # Check exclude patterns
+                    # Check exclude patterns using proper fnmatch against both absolute and relative paths
                     should_exclude = False
+                    rel_path = file_path.relative_to(directory)
+                    
                     for exclude_pattern in exclude_patterns:
-                        if file_path.match(exclude_pattern):
+                        # Test both relative path and absolute path for pattern matching
+                        if (fnmatch(str(rel_path), exclude_pattern) or 
+                            fnmatch(str(file_path), exclude_pattern)):
                             should_exclude = True
                             break
                     

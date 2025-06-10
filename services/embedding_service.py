@@ -313,7 +313,7 @@ class EmbeddingService(BaseService):
                             "provider": self._embedding_provider.name if self._embedding_provider else "unknown",
                             "model": self._embedding_provider.model if self._embedding_provider else "unknown",
                             "dims": len(vector),
-                            "vector": vector
+                            "embedding": vector
                         })
                     
                     # Store in database

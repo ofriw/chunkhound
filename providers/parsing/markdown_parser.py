@@ -240,6 +240,10 @@ class MarkdownParser:
                 # Remove non-alphanumeric characters except underscores
                 symbol = ''.join(c for c in symbol if c.isalnum() or c == '_')
                 
+                # Fallback for empty symbols (e.g., headers with only special chars/emojis)
+                if not symbol:
+                    symbol = f"header_{header_node.start_point[0] + 1}"
+                
                 chunk = {
                     "symbol": symbol,
                     "start_line": header_node.start_point[0] + 1,
