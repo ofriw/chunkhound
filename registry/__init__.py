@@ -1,5 +1,6 @@
 """Provider registry and dependency injection container for ChunkHound."""
 
+import os
 from typing import Any, Dict, Optional, Type, TypeVar
 import inspect
 from loguru import logger
@@ -65,7 +66,9 @@ class ProviderRegistry:
         if singleton and name in self._singletons:
             del self._singletons[name]
         
-        logger.debug(f"Registered {implementation.__name__} as {name}")
+        # Suppress logging during MCP mode initialization
+        if not os.environ.get("CHUNKHOUND_MCP_MODE"):
+            logger.debug(f"Registered {implementation.__name__} as {name}")
     
     def register_language_parser(self, language: Language, parser_class: Any) -> None:
         """Register a language parser for a specific programming language.
@@ -80,7 +83,10 @@ class ProviderRegistry:
             parser.setup()
         
         self._language_parsers[language] = parser
-        logger.debug(f"Registered {parser_class.__name__} for {language.value}")
+        
+        # Suppress logging during MCP mode initialization
+        if not os.environ.get("CHUNKHOUND_MCP_MODE"):
+            logger.debug(f"Registered {parser_class.__name__} for {language.value}")
     
     def get_provider(self, name: str) -> Any:
         """Get a provider instance for the specified name.
@@ -216,37 +222,43 @@ class ProviderRegistry:
         # Language parsers
         try:
             self.register_language_parser(Language.PYTHON, PythonParser)
-            logger.debug("Registered Python parser")
+            if not os.environ.get("CHUNKHOUND_MCP_MODE"):
+                logger.debug("Registered Python parser")
         except Exception as e:
             logger.warning(f"Failed to register Python parser: {e}")
         
         try:
             self.register_language_parser(Language.JAVA, JavaParser)
-            logger.debug("Registered Java parser")
+            if not os.environ.get("CHUNKHOUND_MCP_MODE"):
+                logger.debug("Registered Java parser")
         except Exception as e:
             logger.warning(f"Failed to register Java parser: {e}")
         
         try:
             self.register_language_parser(Language.JAVASCRIPT, JavaScriptParser)
-            logger.debug("Registered JavaScript parser")
+            if not os.environ.get("CHUNKHOUND_MCP_MODE"):
+                logger.debug("Registered JavaScript parser")
         except Exception as e:
             logger.warning(f"Failed to register JavaScript parser: {e}")
         
         try:
             self.register_language_parser(Language.TYPESCRIPT, TypeScriptParser)
-            logger.debug("Registered TypeScript parser")
+            if not os.environ.get("CHUNKHOUND_MCP_MODE"):
+                logger.debug("Registered TypeScript parser")
         except Exception as e:
             logger.warning(f"Failed to register TypeScript parser: {e}")
         
         try:
             self.register_language_parser(Language.CSHARP, CSharpParser)
-            logger.debug("Registered C# parser")
+            if not os.environ.get("CHUNKHOUND_MCP_MODE"):
+                logger.debug("Registered C# parser")
         except Exception as e:
             logger.warning(f"Failed to register C# parser: {e}")
         
         try:
             self.register_language_parser(Language.MARKDOWN, MarkdownParser)
-            logger.debug("Registered Markdown parser")
+            if not os.environ.get("CHUNKHOUND_MCP_MODE"):
+                logger.debug("Registered Markdown parser")
         except Exception as e:
             logger.warning(f"Failed to register Markdown parser: {e}")
     
@@ -264,7 +276,9 @@ class ProviderRegistry:
             self.register_provider("embedding", OpenAIEmbeddingProvider, singleton=True)
 
         
-        logger.info("Default providers registered")
+        # Suppress logging during MCP mode initialization
+        if not os.environ.get("CHUNKHOUND_MCP_MODE"):
+            logger.info("Default providers registered")
     
     def _create_instance(self, cls: Any) -> Any:
         """Create an instance with basic dependency injection.
@@ -291,18 +305,12 @@ class ProviderRegistry:
                     # Embedding provider - inject configuration
                     embedding_config = self._config.get('embedding', {})
                     
-                    # Extract relevant config parameters
+                    # Extract relevant config parameters, filtering out None values
+                    # to allow constructor defaults to take effect
                     config_params = {}
-                    if 'api_key' in embedding_config:
-                        config_params['api_key'] = embedding_config['api_key']
-                    if 'base_url' in embedding_config:
-                        config_params['base_url'] = embedding_config['base_url']
-                    if 'model' in embedding_config:
-                        config_params['model'] = embedding_config['model']
-                    
-                    # Get batch size and other performance settings
-                    if 'batch_size' in embedding_config:
-                        config_params['batch_size'] = embedding_config['batch_size']
+                    for key in ['api_key', 'base_url', 'model', 'batch_size']:
+                        if key in embedding_config and embedding_config[key] is not None:
+                            config_params[key] = embedding_config[key]
                     
                     logger.debug(f"Creating embedding provider with config: {config_params}")
                     return cls(**config_params)
@@ -316,16 +324,19 @@ class ProviderRegistry:
             raise
 
 
-# Global registry instance
-_registry = ProviderRegistry()
+# Global registry instance (lazy initialization)
+_registry = None
 
 
 def get_registry() -> ProviderRegistry:
-    """Get the global provider registry instance.
+    """Get the global registry instance.
     
     Returns:
         Global ProviderRegistry instance
     """
+    global _registry
+    if _registry is None:
+        _registry = ProviderRegistry()
     return _registry
 
 
@@ -335,7 +346,7 @@ def configure_registry(config: Dict[str, Any]) -> None:
     Args:
         config: Configuration dictionary
     """
-    _registry.configure(config)
+    get_registry().configure(config)
 
 
 def get_provider(name: str) -> Any:
@@ -347,7 +358,7 @@ def get_provider(name: str) -> Any:
     Returns:
         Provider instance
     """
-    return _registry.get_provider(name)
+    return get_registry().get_provider(name)
 
 
 def create_indexing_coordinator() -> IndexingCoordinator:
@@ -356,7 +367,7 @@ def create_indexing_coordinator() -> IndexingCoordinator:
     Returns:
         Configured IndexingCoordinator instance
     """
-    return _registry.create_indexing_coordinator()
+    return get_registry().create_indexing_coordinator()
 
 
 def create_search_service() -> SearchService:
@@ -365,7 +376,7 @@ def create_search_service() -> SearchService:
     Returns:
         Configured SearchService instance
     """
-    return _registry.create_search_service()
+    return get_registry().create_search_service()
 
 
 def create_embedding_service() -> EmbeddingService:
@@ -374,7 +385,7 @@ def create_embedding_service() -> EmbeddingService:
     Returns:
         Configured EmbeddingService instance
     """
-    return _registry.create_embedding_service()
+    return get_registry().create_embedding_service()
 
 
 __all__ = [
