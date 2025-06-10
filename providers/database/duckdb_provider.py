@@ -872,7 +872,7 @@ class DuckDBProvider:
 
         try:
             result = self.connection.execute("""
-                SELECT id, file_id, chunk_type, name, content, start_line, end_line,
+                SELECT id, file_id, chunk_type, symbol, code, start_line, end_line,
                        start_byte, end_byte, size, signature, language, created_at, updated_at
                 FROM chunks WHERE id = ?
             """, [chunk_id]).fetchone()
@@ -884,8 +884,8 @@ class DuckDBProvider:
                 "id": result[0],
                 "file_id": result[1],
                 "chunk_type": result[2],
-                "name": result[3],
-                "content": result[4],
+                "symbol": result[3],
+                "code": result[4],
                 "start_line": result[5],
                 "end_line": result[6],
                 "start_byte": result[7],
@@ -923,7 +923,7 @@ class DuckDBProvider:
 
         try:
             results = self.connection.execute("""
-                SELECT id, file_id, chunk_type, name, content, start_line, end_line,
+                SELECT id, file_id, chunk_type, symbol, code, start_line, end_line,
                        start_byte, end_byte, size, signature, language, created_at, updated_at
                 FROM chunks WHERE file_id = ?
                 ORDER BY start_line
@@ -935,8 +935,8 @@ class DuckDBProvider:
                     "id": result[0],
                     "file_id": result[1],
                     "chunk_type": result[2],
-                    "name": result[3],
-                    "content": result[4],
+                    "symbol": result[3],
+                    "code": result[4],
                     "start_line": result[5],
                     "end_line": result[6],
                     "start_byte": result[7],

@@ -10,6 +10,8 @@ from core.types import Language
 from providers.database.duckdb_provider import DuckDBProvider
 from providers.embeddings.openai_provider import OpenAIEmbeddingProvider
 
+
+
 # Import language parsers
 from providers.parsing.python_parser import PythonParser
 from providers.parsing.java_parser import JavaParser
@@ -208,8 +210,8 @@ class ProviderRegistry:
         # Database providers
         self.register_provider("database", DuckDBProvider, singleton=True)
         
-        # Embedding providers
-        self.register_provider("embedding", OpenAIEmbeddingProvider, singleton=True)
+        # Embedding providers - dynamic selection based on config
+        self._register_embedding_provider()
         
         # Language parsers
         try:
@@ -247,6 +249,20 @@ class ProviderRegistry:
             logger.debug("Registered Markdown parser")
         except Exception as e:
             logger.warning(f"Failed to register Markdown parser: {e}")
+    
+    def _register_embedding_provider(self) -> None:
+        """Register the appropriate embedding provider based on configuration."""
+        embedding_config = self._config.get('embedding', {})
+        provider_type = embedding_config.get('provider', 'openai')
+        
+        if provider_type in ['openai', 'openai-compatible']:
+            # For both openai and openai-compatible, use OpenAIEmbeddingProvider
+            # The OpenAIEmbeddingProvider supports custom base_url for compatibility
+            self.register_provider("embedding", OpenAIEmbeddingProvider, singleton=True)
+        else:
+            logger.warning(f"Unsupported embedding provider type: {provider_type}. Falling back to OpenAI.")
+            self.register_provider("embedding", OpenAIEmbeddingProvider, singleton=True)
+
         
         logger.info("Default providers registered")
     
@@ -272,8 +288,24 @@ class ProviderRegistry:
                     # Other database providers - use default path
                     return cls()
                 elif 'Embedding' in cls.__name__:
-                    # Embedding provider - use defaults
-                    return cls()
+                    # Embedding provider - inject configuration
+                    embedding_config = self._config.get('embedding', {})
+                    
+                    # Extract relevant config parameters
+                    config_params = {}
+                    if 'api_key' in embedding_config:
+                        config_params['api_key'] = embedding_config['api_key']
+                    if 'base_url' in embedding_config:
+                        config_params['base_url'] = embedding_config['base_url']
+                    if 'model' in embedding_config:
+                        config_params['model'] = embedding_config['model']
+                    
+                    # Get batch size and other performance settings
+                    if 'batch_size' in embedding_config:
+                        config_params['batch_size'] = embedding_config['batch_size']
+                    
+                    logger.debug(f"Creating embedding provider with config: {config_params}")
+                    return cls(**config_params)
                 else:
                     # Other services - try with no args first
                     return cls()
