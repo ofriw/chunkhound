@@ -272,7 +272,7 @@ async def call_tool(
     elif name == "health_check":
         health_status = {
             "status": "healthy",
-            "version": "0.1.0",
+            "version": "1.0.1",
             "database_connected": _database is not None,
             "embedding_providers": _embedding_manager.list_providers() if _embedding_manager else []
         }
@@ -419,7 +419,7 @@ async def handle_mcp_with_validation():
                         write_stream,
                         InitializationOptions(
                             server_name="ChunkHound Code Search",
-                            server_version="0.1.0",
+                            server_version="1.0.1",
                             capabilities=server.get_capabilities(
                                 notification_options=NotificationOptions(),
                                 experimental_capabilities={},

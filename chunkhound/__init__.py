@@ -1,6 +1,6 @@
 """ChunkHound - Local-first semantic code search with vector and regex capabilities."""
 
-__version__ = "0.1.0"
+__version__ = "1.0.1"
 __author__ = "ChunkHound Team"
 __description__ = "Local-first semantic code search with vector and regex capabilities"
 

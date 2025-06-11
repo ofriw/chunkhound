@@ -30,7 +30,7 @@ Examples:
     parser.add_argument(
         "--version",
         action="version",
-        version="chunkhound 0.1.0",
+        version="chunkhound 1.0.1",
     )
     
     return parser
