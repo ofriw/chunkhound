@@ -12,7 +12,7 @@ import sys
 from io import StringIO
 
 from pathlib import Path
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Union, Tuple
 from contextlib import asynccontextmanager
 from collections.abc import AsyncIterator
 import mcp.server.stdio
@@ -218,7 +218,7 @@ def convert_to_ndjson(results: List[Dict[str, Any]]) -> str:
 @server.call_tool()
 async def call_tool(
     name: str, arguments: dict
-) -> list[types.TextContent | types.ImageContent | types.EmbeddedResource]:
+) -> List[Union[types.TextContent, types.ImageContent, types.EmbeddedResource]]:
     """Handle tool calls"""
     if not _database:
         if _signal_coordinator and _signal_coordinator.is_coordination_active():
@@ -346,7 +346,7 @@ def send_error_response(message_id: Any, code: int, message: str, data: Optional
     print(json.dumps(error_response, ensure_ascii=False), flush=True)
 
 
-def validate_mcp_initialize_message(message_text: str) -> tuple[bool, Optional[dict], Optional[str]]:
+def validate_mcp_initialize_message(message_text: str) -> Tuple[bool, Optional[dict], Optional[str]]:
     """
     Validate MCP initialize message for common protocol issues.
     Returns (is_valid, parsed_message, error_description)

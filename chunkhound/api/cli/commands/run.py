@@ -3,7 +3,7 @@
 import argparse
 import sys
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 
 from loguru import logger
 
@@ -171,7 +171,7 @@ def _build_registry_config(args: argparse.Namespace) -> Dict[str, Any]:
     return config
 
 
-def _setup_file_patterns(args: argparse.Namespace) -> tuple[List[str], List[str]]:
+def _setup_file_patterns(args: argparse.Namespace) -> Tuple[List[str], List[str]]:
     """Set up file inclusion and exclusion patterns.
     
     Args:
