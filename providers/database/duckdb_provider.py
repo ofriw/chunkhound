@@ -728,12 +728,6 @@ class DuckDBProvider:
             if mtime is not None:
                 set_clauses.append("modified_time = to_timestamp(?)")
                 values.append(mtime)
-                values.append(size_bytes)
-                
-            # Add timestamp update if provided
-            if mtime is not None:
-                set_clauses.append("modified_time = to_timestamp(?)")
-                values.append(mtime)
             
             if set_clauses:
                 set_clauses.append("updated_at = CURRENT_TIMESTAMP")
