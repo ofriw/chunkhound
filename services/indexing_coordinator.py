@@ -127,7 +127,7 @@ class IndexingCoordinator(BaseService):
             logger.debug(f"File exists in DB: {existing_file is not None}")
             logger.debug(f"File stat: mtime={file_stat.st_mtime}, size={file_stat.st_size}")
         
-            # Check if file exists in database and is up to date
+            # Check if file exists in database and is up to date (using 1.0s tolerance)
             if existing_file and self._is_file_up_to_date(existing_file, file_stat.st_mtime):
                 # Get current chunk count for status report
                 file_id = self._extract_file_id(existing_file)
@@ -268,7 +268,10 @@ class IndexingCoordinator(BaseService):
             return None
     
     def _is_file_up_to_date(self, existing_file: Union[Dict[str, Any], File], current_mtime: float) -> bool:
-        """Check if file is up to date based on modification time."""
+        """Check if file is up to date based on modification time.
+        
+        Uses a 1.0 second tolerance to account for filesystem timestamp variations.
+        """
         # Debug logging for structure analysis
         logger.debug(f"Existing file type: {type(existing_file)}")
         logger.debug(f"Existing file keys: {existing_file.keys() if isinstance(existing_file, dict) else dir(existing_file)}")
@@ -301,8 +304,11 @@ class IndexingCoordinator(BaseService):
                 logger.warning(f"Unsupported existing_file type: {type(existing_file)}")
                 return False
             
-            # Use tolerance for floating-point precision
-            return abs(existing_mtime - current_mtime) < 0.01
+            # Use larger tolerance (1.0 second) for filesystem timestamp variations
+            tolerance = 1.0  # Increased from 0.01 to 1.0 second to avoid false negatives
+            time_diff = abs(existing_mtime - current_mtime)
+            logger.debug(f"File timestamp comparison: diff={time_diff}, tolerance={tolerance}")
+            return time_diff < tolerance
         except Exception as e:
             logger.error(f"Error comparing file timestamps: {e}")
             return False

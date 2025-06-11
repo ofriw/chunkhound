@@ -1737,19 +1737,25 @@ class DuckDBProvider:
         """Process a file with incremental parsing and differential chunking.
         
         Uses the IndexingCoordinator for parsing, chunking, and embeddings.
+        
+        Note: This method always fully reprocesses a file when it has been modified.
+        True incremental (partial) processing is not yet implemented.
         """
         try:
             # Validate file exists
             if not file_path.exists() or not file_path.is_file():
+                logger.debug(f"Incremental processing - File not found: {file_path}")
                 return {"status": "error", "error": f"File not found: {file_path}", "chunks": 0, "incremental": True}
                 
             # Get existing file record to determine if this is new or updated
             existing_file = self.get_file_by_path(str(file_path))
+            logger.debug(f"Incremental processing - Existing file record: {existing_file is not None}")
             
             # Check for up-to-date file based on modification time
             if existing_file:
                 file_stat = file_path.stat()
                 current_mtime = file_stat.st_mtime
+                logger.debug(f"Incremental processing - Current file mtime: {current_mtime}")
                 
                 # Get timestamp from existing file record
                 if isinstance(existing_file, dict):
@@ -1760,24 +1766,31 @@ class DuckDBProvider:
                             timestamp_value = existing_file[field]
                             if isinstance(timestamp_value, (int, float)):
                                 existing_mtime = float(timestamp_value)
+                                logger.debug(f"Incremental processing - Found timestamp in field '{field}': {existing_mtime}")
                                 break
                             elif hasattr(timestamp_value, "timestamp"):
                                 existing_mtime = timestamp_value.timestamp()
+                                logger.debug(f"Incremental processing - Found timestamp object in field '{field}': {existing_mtime}")
                                 break
                     
                     if existing_mtime is None:
                         existing_mtime = 0.0
+                        logger.debug(f"Incremental processing - No valid timestamp found, using default: {existing_mtime}")
                         
-                    # Check if file is unchanged (use tolerance for floating-point comparison)
-                    if abs(existing_mtime - current_mtime) < 0.01:
+                    # Check if file is unchanged (use larger tolerance for filesystem timestamp variations)
+                    time_diff = abs(existing_mtime - current_mtime)
+                    logger.debug(f"Incremental processing - Time difference: {time_diff} (tolerance: 1.0)")
+                    if time_diff < 1.0:  # Increased tolerance from 0.01 to 1.0 second to avoid false negatives
                         # File is unchanged, get chunk count
                         file_id = existing_file["id"]
+                        logger.debug(f"Incremental processing - File unchanged, retrieving chunk count for file_id: {file_id}")
                         if self.connection is None:
                             return {"status": "error", "error": "Database not connected"}
                         chunks_count = self.connection.execute(
                             "SELECT COUNT(*) FROM chunks WHERE file_id = ?", 
                             [file_id]
                         ).fetchone()[0]
+                        logger.debug(f"Incremental processing - File unchanged, found {chunks_count} existing chunks")
                         
                         return {
                             "status": "up_to_date", 
@@ -1806,34 +1819,56 @@ class DuckDBProvider:
                 return await self._fallback_process_file(file_path)
                 
             # Delegate to IndexingCoordinator for processing
+            logger.debug(f"Incremental processing - Delegating to IndexingCoordinator: {file_path}")
             result = await self._indexing_coordinator.process_file(file_path, skip_embeddings=False)
+            logger.debug(f"Incremental processing - IndexingCoordinator result: {result.get('status', 'unknown')}")
             
             # Transform result to match incremental processing API
             if result.get("status") == "success":
                 chunks_count = result.get("chunks", 0)
+                logger.debug(f"Incremental processing - Successfully processed with {chunks_count} chunks")
                 
                 # Get the file ID from result or existing file
                 file_id = result.get("file_id")
                 if not file_id and existing_file and isinstance(existing_file, dict) and "id" in existing_file:
                     file_id = existing_file["id"]
+                    logger.debug(f"Incremental processing - Using existing file_id: {file_id}")
+                else:
+                    logger.debug(f"Incremental processing - Using new file_id: {file_id}")
                 
                 # For modified files, handle the chunk differential
                 chunks_deleted = 0
                 if existing_file:
+                    logger.debug(f"Incremental processing - Processing modified file: {file_path}")
                     # Count existing chunks that were deleted and replaced
                     try:
                         if self.connection is None:
                             return {"status": "error", "error": "Database not connected"}
+                        
+                        # Always consider it a modified file if it exists in database
+                        # Update modification time in database to match current file
+                        file_stat = file_path.stat()
+                        current_mtime = file_stat.st_mtime
+                        file_id = existing_file["id"] if isinstance(existing_file, dict) else existing_file.id
+                        
                         chunks_deleted = self.connection.execute(
                             "SELECT COUNT(*) FROM chunks WHERE file_id = ?", 
                             [file_id]
                         ).fetchone()[0]
+                        logger.debug(f"Incremental processing - Found {chunks_deleted} existing chunks to replace")
+                        
+                        # Update file metadata to reflect current state
+                        self.update_file(file_id, size_bytes=file_stat.st_size, mtime=current_mtime)
+                        logger.debug(f"Incremental processing - Updated file metadata: size={file_stat.st_size}, mtime={current_mtime}")
                         
                         # Delete old chunks now that we've counted them
                         if file_id is not None:
+                            logger.debug(f"Incremental processing - Deleting old chunks for file_id: {file_id}")
                             self.delete_file_chunks(file_id)
                     except Exception as e:
                         logger.warning(f"Error counting existing chunks: {e}")
+                else:
+                    logger.debug(f"Incremental processing - Processing new file: {file_path}")
                 
                 return {
                     "status": "success",
@@ -1847,15 +1882,18 @@ class DuckDBProvider:
                     "incremental": True
                 }
             elif result.get("status") == "up_to_date":
+                logger.debug(f"Incremental processing - File reported as up-to-date by IndexingCoordinator")
                 # File unchanged, get existing chunk count
                 if existing_file:
                     file_id = existing_file["id"] if isinstance(existing_file, dict) else existing_file.id
+                    logger.debug(f"Incremental processing - Up-to-date file, getting chunk count for file_id: {file_id}")
                     if self.connection is None:
                         return {"status": "error", "error": "Database not connected"}
                     chunks_count = self.connection.execute(
                         "SELECT COUNT(*) FROM chunks WHERE file_id = ?", 
                         [file_id]
                     ).fetchone()[0]
+                    logger.debug(f"Incremental processing - Up-to-date file has {chunks_count} chunks")
                     
                     return {
                         "status": "up_to_date", 
@@ -1869,6 +1907,7 @@ class DuckDBProvider:
                         "incremental": True
                     }
                 else:
+                    logger.debug(f"Incremental processing - Up-to-date but no existing file record found")
                     return {
                         "status": "up_to_date",
                         "chunks": 0,
@@ -1876,6 +1915,7 @@ class DuckDBProvider:
                     }
             else:
                 # Pass through other statuses (error, no_content, etc.) with incremental flag
+                logger.debug(f"Incremental processing - Other status received: {result.get('status')}")
                 result["incremental"] = True
                 return result
             
