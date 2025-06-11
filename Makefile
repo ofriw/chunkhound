@@ -73,6 +73,10 @@ test-examples: ## Test all README examples to ensure they work
 build: ## Build distribution packages
 	uv build
 
+build-standalone: ## Build standalone executable with PyInstaller
+	@echo "🚀 Building standalone executable..."
+	./scripts/build_standalone.sh
+
 clean: ## Clean up temporary files
 	rm -rf build/
 	rm -rf dist/

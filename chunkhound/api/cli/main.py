@@ -40,6 +40,7 @@ if is_mcp_command():
 
 from loguru import logger
 # All imports deferred to avoid early module loading during MCP detection
+from .utils.validation import validate_path, ensure_database_directory, exit_on_validation_error
 
 
 def setup_logging(verbose: bool = False) -> None:
@@ -125,9 +126,6 @@ async def async_main() -> None:
     
     # Setup logging for non-MCP commands (MCP already handled above)
     setup_logging(getattr(args, "verbose", False))
-    # Import validation dynamically
-    from .utils.validation import validate_path, ensure_database_directory, exit_on_validation_error
-    
     def validate_args(args):
         """Validate arguments."""
         # Add any validation logic here if needed
