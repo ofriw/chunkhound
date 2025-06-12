@@ -1,8 +1,7 @@
 """ChunkHound CLI commands package - modular command implementations."""
 
-from .run import run_command
-from .mcp import mcp_command
-from .config import config_command
+# Removed eager imports to eliminate 958-module import cascade
+# Commands are now imported lazily in main.py when needed
 
 __all__ = [
     "run_command",
