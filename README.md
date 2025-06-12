@@ -28,7 +28,7 @@ That's it! Your code is now searchable by AI assistants.
 - **Regex search** - Find exact patterns like `def.*async`
 - **Semantic search** - Ask questions like "How do I connect to the database?"
 - **Works with AI assistants** - Claude, Cursor, VS Code, etc.
-- **Multi-language support** - Python, Java, C#, and Markdown
+- **Multi-language support** - Python, Java, C#, TypeScript, JavaScript, and Markdown
 
 ## AI Assistant Setup
 ```json
@@ -47,7 +47,7 @@ That's it! Your code is now searchable by AI assistants.
 
 ## How It Works
 
-1. **Scan** - ChunkHound reads your Python, Java, C#, and Markdown files
+1. **Scan** - ChunkHound reads your Python, Java, C#, TypeScript, JavaScript, and Markdown files
 2. **Parse** - Extracts functions, classes, methods using tree-sitter
 3. **Index** - Stores code chunks in a local database
 4. **Embed** - Creates AI embeddings for semantic search (optional)
@@ -63,7 +63,9 @@ Once running, ask your AI assistant:
 - "Find functions that process files"
 - "Find Java interfaces that implement Comparable"
 - "Show me C# classes with async methods"
-- "Find C# interfaces and their implementations"
+- "Find TypeScript interfaces and their implementations"
+- "Show me JavaScript async functions"
+- "Find React components in TypeScript"
 
 ## Installation
 
@@ -79,16 +81,23 @@ uv add chunkhound
 ### Standalone Binary (Zero Dependencies)
 Download the latest binary from [releases](https://github.com/chunkhound/chunkhound/releases):
 
-- **Startup Time**: ~0.6 seconds (16x faster than previous versions)
-- **Size**: ~106MB directory distribution
+- **Startup Time**: ~0.6 seconds (onedir distribution, 16x faster than old single-file)
+- **Size**: ~97MB directory distribution
 - **Dependencies**: None (fully self-contained)
-- **Platforms**: Linux, macOS, Windows
+- **Platforms**: macOS, Linux (Windows coming soon)
 
 ```bash
-# Download and extract (example)
-wget https://github.com/chunkhound/chunkhound/releases/latest/chunkhound-linux.tar.gz
-tar -xzf chunkhound-linux.tar.gz
-./chunkhound-cli --help
+# Download and extract (example for Linux)
+wget https://github.com/chunkhound/chunkhound/releases/latest/chunkhound-ubuntu.tar.gz
+tar -xzf chunkhound-ubuntu.tar.gz
+cd chunkhound-ubuntu
+./chunkhound --help
+
+# For macOS
+wget https://github.com/chunkhound/chunkhound/releases/latest/chunkhound-macos.tar.gz
+tar -xzf chunkhound-macos.tar.gz
+cd chunkhound-macos
+./chunkhound --help
 ```
 
 ## Requirements
@@ -111,9 +120,63 @@ uv run chunkhound mcp      # Start MCP server
 
 Use ChunkHound to search its own codebase while developing!
 
+## Installation Verification
+
+Verify your ChunkHound installation is working correctly:
+
+```bash
+# Check version and startup performance
+time chunkhound --version
+# Expected: chunkhound 1.1.0 in ~0.3 seconds
+
+# Test basic functionality
+chunkhound --help
+
+# Quick functionality test (optional)
+mkdir test-chunkhound
+cd test-chunkhound
+echo "def hello(): pass" > test.py
+chunkhound run . --no-embeddings --initial-scan-only
+# Should index the test file successfully
+
+# Test MCP server (Ctrl+C to exit)
+chunkhound mcp --verbose
+```
+
+**Expected Results:**
+- Version command: ~0.3s startup time
+- Help displays all commands (run, mcp, config)
+- Test indexing completes without errors
+- MCP server starts and shows "Server ready" message
+
+## Language Support
+
+ChunkHound provides comprehensive parsing and indexing with **tree-sitter** for accurate syntax analysis:
+
+### Supported Languages
+
+| Language | Extensions | Extracted Elements | Status |
+|----------|------------|-------------------|---------|
+| **Python** | `.py` | Functions, classes, methods, decorators, async functions | ✅ Full |
+| **Java** | `.java` | Classes, methods, interfaces, packages, constructors | ✅ Full |
+| **C#** | `.cs` | Classes, methods, interfaces, namespaces, properties, events | ✅ Full |
+| **TypeScript** | `.ts`, `.tsx` | Functions, classes, interfaces, types, enums, React components | ✅ Full |
+| **JavaScript** | `.js`, `.jsx`, `.mjs`, `.cjs` | Functions, classes, modules, React components, arrow functions | ✅ Full |
+| **Markdown** | `.md` | Headers, code blocks, structured content, documentation | ✅ Full |
+
+### Advanced Features
+
+- **Tree-sitter parsing** - Accurate syntax analysis with proper AST generation
+- **Incremental parsing** - Only reparse changed files for fast updates
+- **Symbol extraction** - Precise code structure with scope and context
+- **Cross-language search** - Find patterns across all supported file types
+- **React/JSX support** - Full component and hook extraction
+- **Async/await patterns** - Modern JavaScript and Python async code
+- **Generics support** - TypeScript and C# generic type extraction
+
 ## Examples
 
-See the [examples/](examples/) directory for sample code demonstrating C# language support features.
+See the [examples/](examples/) directory for sample code demonstrating multi-language support features.
 
 ## Commands
 
@@ -135,8 +198,14 @@ chunkhound mcp --verbose           # Start server with logging
 - Older single-file binaries had 15+ second startup times (now fixed)
 - Ensure you're using the onedir distribution, not deprecated single-file
 
+**Python CLI slow startup?**
+- Expected performance: ~0.3s startup (90% improvement from original 2.7s)
+- If slower than 0.5s, try: `pip install --upgrade chunkhound`
+- Verify with: `time chunkhound --version`
+
 **Semantic search not working?**
 - Set your `OPENAI_API_KEY` environment variable
+- Or configure a local embedding server (see docs/CLI_GUIDE.md)
 
 **"You must provide a model parameter" error?**
 - Update to latest version: `pip install --upgrade chunkhound`
@@ -146,9 +215,9 @@ chunkhound mcp --verbose           # Start server with logging
 - Delete `.chunkhound.db` and re-run `chunkhound run .`
 
 **Performance Issues?**
-- Python CLI: ~0.4s startup (baseline)
-- Binary CLI: ~0.6s startup (excellent, 16x faster than old versions)
-- If binary is slower, ensure you have the latest onedir distribution
+- Python CLI: ~0.3s startup (excellent performance)
+- Binary CLI: ~0.6s startup (onedir distribution)
+- If performance is poor, ensure you have the latest version
 
 ## License
 
