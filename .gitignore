@@ -229,6 +229,7 @@ debug_cli_startup.py
 
 # Test artifacts
 test-*.db
+test.db
 test_*.py
 test_output.log
 *_hypothesis.py
