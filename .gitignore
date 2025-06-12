@@ -215,3 +215,27 @@ mcp.json
 
 # Backup directories
 chunkhound-backup-*/
+
+# Debug and temporary development files
+cli_minimal.py
+cli_wrapper_debug.py
+debug_cli_startup.py
+*_debug.py
+*_minimal.py
+
+# Backup files
+*.backup.*
+*-old-symlink
+
+# Test artifacts
+test-*.db
+test_*.py
+test_output.log
+*_hypothesis.py
+
+# CLI distribution artifacts
+chunkhound-cli-dist/
+
+# CLI wrapper scripts (generated)
+chunkhound-cli
+chunkhound-cli-fast
