@@ -43,8 +43,6 @@ ENV/
 
 # Documentation
 docs/
-*.md
-!README.md
 
 # Tests and development
 tests/
@@ -74,5 +72,3 @@ docker-compose*.yml
 # Other
 LICENSE
 Makefile
-requirements*.txt
-scripts/
