@@ -356,6 +356,8 @@ dev = [
 dev = [
     { name = "nuitka" },
     { name = "pyinstaller" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
 ]
 
 [package.metadata]
@@ -387,6 +389,8 @@ provides-extras = ["dev"]
 dev = [
     { name = "nuitka", specifier = ">=2.7.7" },
     { name = "pyinstaller", specifier = ">=6.14.1" },
+    { name = "pytest", specifier = ">=8.4.0" },
+    { name = "pytest-asyncio", specifier = ">=1.0.0" },
 ]
 
 [[package]]
