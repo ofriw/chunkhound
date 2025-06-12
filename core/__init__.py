@@ -23,16 +23,16 @@ from .exceptions import (
 __all__ = [
     # Domain Models
     "File",
-    "Chunk", 
+    "Chunk",
     "Embedding",
     "EmbeddingResult",
-    
+
     # Types
     "ChunkType",
     "Language",
     "ProviderName",
     "ModelName",
-    
+
     # Exceptions
     "ChunkHoundError",
     "ValidationError",
@@ -41,4 +41,4 @@ __all__ = [
     "ParsingError",
 ]
 
-__version__ = "1.0.1"
+__version__ = "1.2.0"

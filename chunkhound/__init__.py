@@ -1,13 +1,13 @@
 """ChunkHound - Local-first semantic code search with vector and regex capabilities."""
 
-__version__ = "1.0.1"
+__version__ = "1.2.0"
 __author__ = "ChunkHound Team"
 __description__ = "Local-first semantic code search with vector and regex capabilities"
 
 # Import modules only when needed to avoid dependency issues during setup
 __all__ = [
     "Database",
-    "CodeParser", 
+    "CodeParser",
     "Chunker",
 ]
 

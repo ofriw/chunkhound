@@ -1,6 +1,6 @@
 """ChunkHound test package."""
 
-__version__ = "1.0.1"
+__version__ = "1.2.0"
 
 # Test configuration and utilities
 import os
@@ -28,11 +28,11 @@ def hello_world():
 
 class Calculator:
     """Simple calculator class."""
-    
+
     def add(self, a: int, b: int) -> int:
         """Add two numbers."""
         return a + b
-    
+
     def multiply(self, x: float, y: float) -> float:
         """Multiply two numbers."""
         return x * y
