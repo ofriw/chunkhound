@@ -1,0 +1,27 @@
+{
+  "version": "1.0",
+  "initialized": "2025-06-12T06:13:39Z",
+  "builds": [],
+  "cache_stats": {
+    "uv_cache": {
+      "hits": 0,
+      "misses": 0,
+      "size_mb": 0
+    },
+    "pyinstaller_cache": {
+      "hits": 0,
+      "misses": 0,
+      "size_mb": 0
+    },
+    "docker_cache": {
+      "hits": 0,
+      "misses": 0,
+      "size_mb": 0
+    }
+  },
+  "performance_trends": {
+    "avg_build_time": 0,
+    "avg_startup_time": 0,
+    "avg_binary_size": 0
+  }
+}
