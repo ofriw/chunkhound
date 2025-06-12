@@ -1,0 +1,73 @@
+#!/usr/bin/env python3
+"""
+Fast ChunkHound CLI - Workaround for slow binary performance
+
+This script provides a fast alternative to the slow ./chunkhound-cli binary
+by directly executing the Python module, avoiding the 29+ second startup time
+caused by PyInstaller compilation issues.
+
+Performance Comparison:
+- ./chunkhound-cli:     29+ seconds (SLOW - PyInstaller issue)
+- ./chunkhound-fast:    ~2 seconds  (FAST - Direct Python execution)
+
+Usage:
+    ./chunkhound-fast [COMMAND] [OPTIONS]
+
+Examples:
+    ./chunkhound-fast --help
+    ./chunkhound-fast run . --watch
+    ./chunkhound-fast mcp --db .chunkhound.db
+    ./chunkhound-fast search "function definition"
+"""
+
+import sys
+import os
+import subprocess
+from pathlib import Path
+
+def main():
+    """Fast CLI entry point that bypasses the slow binary."""
+    
+    # Get the directory containing this script
+    script_dir = Path(__file__).parent.resolve()
+    
+    # Ensure we're in the chunkhound directory
+    if not (script_dir / "chunkhound" / "api" / "cli" / "main.py").exists():
+        print("ERROR: chunkhound-fast must be run from the chunkhound project directory", file=sys.stderr)
+        print("Make sure you're in the directory containing the chunkhound package", file=sys.stderr)
+        sys.exit(1)
+    
+    # Build the command to execute the Python CLI directly
+    cmd = [
+        sys.executable,  # Current Python interpreter
+        "-m", "chunkhound.api.cli.main"  # Direct module execution
+    ]
+    
+    # Add all arguments passed to this script
+    cmd.extend(sys.argv[1:])
+    
+    # Set the working directory to the script directory
+    os.chdir(script_dir)
+    
+    # Execute the Python CLI directly
+    try:
+        # Use exec to replace this process with the CLI process
+        # This ensures proper signal handling and exit codes
+        result = subprocess.run(cmd, cwd=script_dir)
+        sys.exit(result.returncode)
+        
+    except KeyboardInterrupt:
+        print("\nInterrupted by user", file=sys.stderr)
+        sys.exit(130)
+        
+    except FileNotFoundError:
+        print("ERROR: Python interpreter not found", file=sys.stderr)
+        print(f"Tried to execute: {sys.executable}", file=sys.stderr)
+        sys.exit(1)
+        
+    except Exception as e:
+        print(f"ERROR: Failed to execute ChunkHound CLI: {e}", file=sys.stderr)
+        sys.exit(1)
+
+if __name__ == "__main__":
+    main()
