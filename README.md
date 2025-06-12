@@ -65,9 +65,36 @@ Once running, ask your AI assistant:
 - "Show me C# classes with async methods"
 - "Find C# interfaces and their implementations"
 
+## Installation
+
+### Python Package (Recommended)
+```bash
+# Install via pip
+pip install chunkhound
+
+# Or install with uv
+uv add chunkhound
+```
+
+### Standalone Binary (Zero Dependencies)
+Download the latest binary from [releases](https://github.com/chunkhound/chunkhound/releases):
+
+- **Startup Time**: ~0.6 seconds (16x faster than previous versions)
+- **Size**: ~106MB directory distribution
+- **Dependencies**: None (fully self-contained)
+- **Platforms**: Linux, macOS, Windows
+
+```bash
+# Download and extract (example)
+wget https://github.com/chunkhound/chunkhound/releases/latest/chunkhound-linux.tar.gz
+tar -xzf chunkhound-linux.tar.gz
+./chunkhound-cli --help
+```
+
 ## Requirements
 
-- Python 3.10+
+- **Python Package**: Python 3.10+
+- **Standalone Binary**: No requirements (zero dependencies)
 - OpenAI API key (optional, for semantic search)
 - Works on macOS and Linux
 
@@ -103,6 +130,11 @@ chunkhound mcp --verbose           # Start server with logging
 - For development: Try `uv run chunkhound` instead
 - For production: Install with `pip install chunkhound` or `uv add chunkhound`
 
+**Binary CLI slow startup?**
+- Use the latest version (1.1.0+) with onedir deployment (~0.6s startup)
+- Older single-file binaries had 15+ second startup times (now fixed)
+- Ensure you're using the onedir distribution, not deprecated single-file
+
 **Semantic search not working?**
 - Set your `OPENAI_API_KEY` environment variable
 
@@ -112,6 +144,11 @@ chunkhound mcp --verbose           # Start server with logging
 
 **Database errors?**
 - Delete `.chunkhound.db` and re-run `chunkhound run .`
+
+**Performance Issues?**
+- Python CLI: ~0.4s startup (baseline)
+- Binary CLI: ~0.6s startup (excellent, 16x faster than old versions)
+- If binary is slower, ensure you have the latest onedir distribution
 
 ## License
 
