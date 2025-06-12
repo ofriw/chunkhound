@@ -205,6 +205,11 @@ build_macos() {
 
     # Verify output directory exists and rename if needed
     if [[ -d "$DIST_DIR/chunkhound-optimized" ]]; then
+        # Clean target directory if it exists
+        if [[ -d "$output_dir" ]]; then
+            rm -rf "$output_dir"
+        fi
+        # Rename the PyInstaller output directory
         mv "$DIST_DIR/chunkhound-optimized" "$output_dir"
     elif [[ ! -d "$output_dir" ]]; then
         log_error "Build failed - output directory not found"
