@@ -4,17 +4,28 @@
 
 ChunkHound provides a comprehensive command-line interface for managing embedding servers, indexing code, and performing semantic searches. This guide covers all CLI commands with practical examples.
 
+**Performance**: CLI startup ~0.3s (Python) / ~0.6s (standalone binary)
+**Languages**: Python, Java, C#, TypeScript, JavaScript, Markdown
+**Architecture**: Service-layer with registry pattern for maximum flexibility
+
 ## Installation & Setup
 
 ```bash
-# Install ChunkHound
+# Install ChunkHound (Python 3.10+ required)
 pip install chunkhound
 
-# Create your first configuration
+# Or install with uv (recommended)
+uv add chunkhound
+
+# Create your first configuration (optional)
 chunkhound config template --output ~/.chunkhound/config.yaml
 
-# Test the setup
-chunkhound config validate
+# Test basic functionality
+chunkhound --version
+chunkhound --help
+
+# Quick start - index current directory
+chunkhound run . --no-embeddings  # Fast indexing without embeddings
 ```
 
 ## Core Commands
@@ -33,6 +44,9 @@ chunkhound run /path/to/your/project
 # Watch for changes in real-time
 chunkhound run . --watch
 
+# Initial scan only (no watching)
+chunkhound run . --initial-scan-only
+
 # Custom database location
 chunkhound run . --db ./my-chunks.duckdb
 
@@ -47,6 +61,21 @@ chunkhound run . --provider tei --base-url http://localhost:8080
 
 # Use specific model (optional - defaults to text-embedding-3-small for OpenAI)
 chunkhound run . --model text-embedding-3-large
+
+# Performance tuning options
+chunkhound run . --batch-size 100 --max-concurrent 5
+
+# Force reindexing of all files
+chunkhound run . --force-reindex
+
+# Clean up orphaned chunks from deleted files
+chunkhound run . --cleanup
+
+# Custom debounce timing for file changes
+chunkhound run . --debounce-ms 1000
+
+# Verbose output for debugging
+chunkhound run . --verbose
 ```
 
 ### `chunkhound mcp` - Model Context Protocol Server
@@ -54,7 +83,7 @@ chunkhound run . --model text-embedding-3-large
 Start an MCP server for AI assistant integration:
 
 ```bash
-# Start MCP server
+# Start MCP server (stdio transport, default)
 chunkhound mcp
 
 # Use custom database
@@ -62,6 +91,15 @@ chunkhound mcp --db ./my-chunks.duckdb
 
 # Enable verbose logging
 chunkhound mcp --verbose
+
+# HTTP transport instead of stdio
+chunkhound mcp --http --port 3000 --host localhost
+
+# HTTP with CORS enabled
+chunkhound mcp --http --cors --port 8080
+
+# Stdio transport (explicit)
+chunkhound mcp --stdio
 ```
 
 ## Configuration Management

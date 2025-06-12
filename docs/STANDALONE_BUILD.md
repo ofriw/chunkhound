@@ -1,6 +1,6 @@
 # ChunkHound Standalone Executable Distribution
 
-This document describes how to build and distribute ChunkHound as a standalone executable using PyInstaller with onedir deployment for optimal performance.
+This document describes how to build and distribute ChunkHound as a standalone executable using the unified build system with PyInstaller onedir deployment for optimal performance.
 
 ## Overview
 
@@ -8,186 +8,230 @@ ChunkHound can be packaged as a self-contained directory distribution that inclu
 
 ## Performance
 
-- **Startup Time**: ~0.6 seconds (16x faster than single-file deployment)
-- **Distribution Size**: ~106MB directory
+- **Startup Time**: ~0.6 seconds (16x faster than deprecated single-file deployment)
+- **Distribution Size**: ~97MB directory (macOS), ~95MB (Ubuntu)
 - **Runtime Performance**: Same as native Python
 - **Dependencies**: Zero (fully self-contained)
+- **Python CLI Performance**: ~0.3 seconds (90% improvement from original 2.7s)
 
 ## Quick Build
 
 ```bash
-# Build using Makefile (recommended)
-make build-standalone
+# Build using unified script (recommended)
+./scripts/build.sh all
 
-# Or build using the script directly
-./scripts/build_standalone.sh
+# Build specific platform
+./scripts/build.sh mac      # macOS native build
+./scripts/build.sh ubuntu   # Ubuntu Docker build
 
-# Or build using PyInstaller directly
-pyinstaller chunkhound.spec --clean
+# Build with validation
+./scripts/build.sh all --validate
+
+# Or use Makefile shortcuts
+make build-all-platforms
+make build-macos-only
+make build-linux-only
 ```
 
 ## Build Requirements
 
 - Python 3.10+
-- PyInstaller 6.14.1+
-- All ChunkHound dependencies installed
 - UV package manager (recommended)
+- Docker (for Ubuntu builds)
+- macOS (for macOS builds) or Linux (for Ubuntu Docker builds)
 
 ### Installing Build Dependencies
 
 ```bash
-# Install PyInstaller if not already installed
-uv add --dev pyinstaller
-
 # Ensure all dependencies are synced
 uv sync
+
+# PyInstaller is automatically managed by the build system
 ```
 
-## Build Process
+## Unified Build System
 
-The standalone build process uses PyInstaller with a comprehensive spec file (`chunkhound.spec`) that:
+The standalone build process uses a unified build script (`scripts/build.sh`) that:
 
-1. **Packages all Python modules** from the main ChunkHound packages
-2. **Includes native binaries** for tree-sitter language parsers and DuckDB
-3. **Handles hidden imports** that PyInstaller might miss
-4. **Creates a directory distribution** with fast startup (onedir mode)
-5. **Eliminates extraction overhead** that causes slow startup in single-file mode
+1. **Detects platform automatically** (macOS native, Ubuntu via Docker)
+2. **Packages all Python modules** from the service-layer architecture
+3. **Includes native binaries** for tree-sitter language parsers and DuckDB
+4. **Creates onedir distributions** with optimal startup performance
+5. **Generates checksums** and compressed archives automatically
+6. **Validates binaries** with startup time testing
 
 ### Build Artifacts
 
 After a successful build, you'll find:
 
-- `dist/chunkhound/` - The onedir distribution directory containing:
-  - `chunkhound` - The main executable
-  - `_internal/` - Dependencies and libraries
-- `build/` - Temporary build files (can be deleted)
-- `chunkhound-cli-fast` - Wrapper script for easy execution
-- `chunkhound-cli` - Symlink to the wrapper script
+**macOS Build:**
+- `chunkhound-macos-universal.tar.gz` - Compressed distribution
+- `chunkhound-macos-universal/` - Directory containing executable
+- SHA256SUMS - Checksum verification file
+
+**Ubuntu Build:**
+- `chunkhound-ubuntu.tar.gz` - Compressed distribution  
+- `chunkhound-ubuntu/` - Directory containing executable
+- SHA256SUMS - Checksum verification file
 
 ## Testing the Executable
 
-The build script automatically tests the executable, but you can test manually:
+The unified build script automatically validates executables, but you can test manually:
 
 ```bash
-# Basic functionality
-./chunkhound-cli --version
-./chunkhound-cli --help
+# Extract and test macOS build
+tar -xzf chunkhound-macos-universal.tar.gz
+cd chunkhound-macos-universal
+./chunkhound --version
+./chunkhound --help
+
+# Extract and test Ubuntu build  
+tar -xzf chunkhound-ubuntu.tar.gz
+cd chunkhound-ubuntu
+./chunkhound --version
+./chunkhound --help
 
 # Test indexing (no-embeddings mode for quick test)
-./chunkhound-cli run /path/to/code --no-embeddings --db test.db
+./chunkhound run /path/to/code --no-embeddings --db test.db
 
 # Test MCP server
-./chunkhound-cli mcp --db test.db
+./chunkhound mcp --db test.db
 ```
 
 ## Distribution
 
-The standalone distribution can be packaged and distributed:
+The standalone distribution provides optimal packaging for end users:
 
-- **Size**: ~106MB directory (includes Python runtime and all dependencies)
-- **Dependencies**: None (fully self-contained)
-- **Platforms**: Built for the host platform (macOS, Linux, Windows)
-- **Performance**: ~0.6 second startup (practically as fast as native Python)
+- **Size**: ~97MB (macOS), ~95MB (Ubuntu) - includes Python runtime and all dependencies
+- **Dependencies**: None (fully self-contained)  
+- **Platforms**: macOS Universal, Ubuntu (Linux x64), Windows (planned)
+- **Performance**: ~0.6 second startup (16x faster than deprecated single-file)
 
-### Distribution Packaging
+### Distribution Artifacts
+
+The build system automatically creates:
 
 ```bash
-# Create a tarball for distribution
-tar -czf chunkhound-linux.tar.gz -C dist chunkhound
+# Compressed archives ready for distribution
+chunkhound-macos-universal.tar.gz
+chunkhound-ubuntu.tar.gz
 
-# Or create a zip file
-cd dist && zip -r ../chunkhound-linux.zip chunkhound/
+# Checksum verification
+SHA256SUMS
+
+# Directory distributions (extracted)
+chunkhound-macos-universal/
+chunkhound-ubuntu/
 ```
 
 ### User Installation
 
 ```bash
-# Extract and use
-tar -xzf chunkhound-linux.tar.gz
-cd chunkhound
+# Download and extract (macOS example)
+curl -L https://github.com/your-org/chunkhound/releases/latest/chunkhound-macos-universal.tar.gz | tar -xz
+cd chunkhound-macos-universal
 ./chunkhound --help
 
-# Or use the wrapper script (if provided)
-./chunkhound-cli --help
+# Download and extract (Ubuntu example)  
+wget https://github.com/your-org/chunkhound/releases/latest/chunkhound-ubuntu.tar.gz
+tar -xzf chunkhound-ubuntu.tar.gz
+cd chunkhound-ubuntu
+./chunkhound --help
 ```
 
 ### Cross-Platform Builds
 
-To build for different platforms, you need to run the build on each target platform:
+The unified build system supports multiple platforms from a single command:
 
 ```bash
-# On macOS - creates macOS executable
-make build-standalone
+# Build all supported platforms
+./scripts/build.sh all
 
-# On Linux - creates Linux executable  
-make build-standalone
+# Build specific platforms
+./scripts/build.sh mac      # macOS native build (requires macOS)
+./scripts/build.sh ubuntu   # Ubuntu build via Docker (requires Docker)
 
-# On Windows - creates Windows executable
-make build-standalone
+# Build with comprehensive validation
+./scripts/build.sh all --clean --validate
+
+# Makefile shortcuts
+make build-all-platforms    # Builds both macOS and Ubuntu
+make validate-binaries      # Full build + validation pipeline
 ```
+
+**Platform Requirements:**
+- **macOS builds**: Must run on macOS (native PyInstaller)  
+- **Ubuntu builds**: Can run on any Docker-capable system
+- **All platforms**: Can be built from macOS with Docker installed
 
 ## Build Configuration
 
-The build is configured in `chunkhound.spec` with the following key features:
+The unified build system uses `scripts/build.sh` with platform-specific configurations:
 
 ### Included Dependencies
 
-- **Core ChunkHound modules**: All packages (chunkhound, core, interfaces, providers, services, registry)
-- **Tree-sitter binaries**: Language parsers for Python, Markdown, etc.
-- **DuckDB binaries**: Native database library
-- **Python dependencies**: OpenAI, aiohttp, pydantic, loguru, MCP, etc.
+- **Service-layer architecture**: All modules (chunkhound, core, interfaces, providers, services, registry)
+- **Tree-sitter binaries**: Language parsers for Python, Java, C#, TypeScript, JavaScript, Markdown
+- **DuckDB binaries**: Native database library with vector search extensions
+- **Python dependencies**: OpenAI, aiohttp, pydantic, loguru, MCP, tree-sitter, etc.
 
-### Hidden Imports
+### Build Process Details
 
-The spec file explicitly includes modules that PyInstaller might miss:
+The unified script handles:
 
-```python
-hiddenimports = [
-    'chunkhound.api.cli.main',
-    'chunkhound.mcp_entry',
-    'core.models',
-    'providers.embedding.openai_provider',
-    'services.embedding_service',
-    # ... and many more
-]
+```bash
+# Automatic dependency detection
+# Platform-specific PyInstaller configuration  
+# Native binary inclusion for all supported languages
+# Service registry and provider pattern modules
+# Hidden import resolution for modular architecture
+# Onedir optimization for fast startup
+# Automatic validation and checksum generation
 ```
 
-### Excluded Modules
+## Troubleshooting
 
-Large unused modules are excluded to reduce size:
+### Common Issues
 
-```python
-excludes = [
-    'matplotlib', 'numpy.distutils', 'tkinter',
-    'jupyter', 'pytest', 'sphinx'
-]
+1. **Build Failures**: Run `./scripts/build.sh --help` for comprehensive options
+2. **Docker Issues**: Ensure Docker is running for Ubuntu builds  
+3. **Permission Issues**: Verify executable permissions after extraction
+4. **Missing Dependencies**: The unified script handles all dependencies automatically
+
+### Build Failures
+
+If the build fails:
+
+```bash
+# Clean build with verbose output
+./scripts/build.sh all --clean --verbose
+
+# Check Docker status (for Ubuntu builds)
+docker --version
+docker info
+
+# Verify UV environment
+uv sync --verbose
 ```
 
-### Onedir Configuration
+### Runtime Issues
 
-The spec file uses onedir mode for optimal performance:
+If the executable doesn't work:
 
-```python
-# Onedir mode configuration
-exe = EXE(
-    pyz,
-    a.scripts,
-    [],                    # No binaries embedded
-    exclude_binaries=True, # Onedir mode
-    name='chunkhound',
-    upx=False,            # Disabled for speed
-    # ...
-)
+1. **Verify extraction**: Ensure the entire directory was extracted
+2. **Check permissions**: `chmod +x chunkhound` if needed
+3. **Test locally**: Build and test on the same platform first
+4. **Validate checksums**: Use SHA256SUMS to verify download integrity
 
-# Directory collection
-coll = COLLECT(
-    exe,
-    a.binaries,
-    a.zipfiles, 
-    a.datas,
-    name='chunkhound',
-)
-```
+### Platform-Specific Issues
+
+**macOS:**
+- May require "Allow applications downloaded from anywhere" in Security settings
+- Universal binary works on both Intel and Apple Silicon
+
+**Ubuntu/Linux:**
+- Requires glibc 2.17+ (Ubuntu 16.04+, CentOS 7+)  
+- Built on Ubuntu 20.04 for maximum compatibility
 
 ## Troubleshooting
 
@@ -224,45 +268,57 @@ For development and testing:
 # Make changes to code
 # ...
 
-# Rebuild executable
-make build-standalone
+# Rebuild all platforms with validation
+./scripts/build.sh all --clean --validate
 
-# Test new executable
-./chunkhound-cli --version
+# Test specific platform
+./scripts/build.sh mac --verbose
+
+# Quick development cycle (no cleanup)
+./scripts/build.sh mac && cd chunkhound-macos-universal && ./chunkhound --version
 ```
 
 ## CI/CD Integration
 
-To integrate into CI/CD pipelines:
+ChunkHound includes comprehensive CI/CD with GitHub Actions:
 
 ```yaml
-# Example GitHub Actions workflow
-- name: Build Standalone Executable
+# Integrated cross-platform build pipeline
+- name: Build Cross-Platform Binaries
   run: |
     uv sync
-    make build-standalone
+    ./scripts/build.sh all --validate
     
-- name: Upload Executable
+- name: Upload macOS Binary
   uses: actions/upload-artifact@v3
   with:
-    name: chunkhound-${{ runner.os }}
-    path: chunkhound-cli
+    name: chunkhound-macos-universal
+    path: chunkhound-macos-universal.tar.gz
+    
+- name: Upload Ubuntu Binary  
+  uses: actions/upload-artifact@v3
+  with:
+    name: chunkhound-ubuntu
+    path: chunkhound-ubuntu.tar.gz
 ```
+
+See `.github/workflows/cross-platform-build.yml` for the complete pipeline.
 
 ## Performance Considerations
 
-- **Startup Time**: ~0.6 seconds (practically as fast as native Python)
-- **Runtime Performance**: Same as native Python after startup
-- **Memory Usage**: Similar to Python (no unpacking overhead)
-- **Disk Space**: 106MB vs ~5MB for Python wheel (acceptable trade-off for zero dependencies)
+- **Startup Time**: ~0.6 seconds standalone vs ~0.3 seconds Python CLI (excellent performance)
+- **Runtime Performance**: Identical to native Python after startup
+- **Memory Usage**: Similar to Python (no unpacking overhead in onedir mode)
+- **Disk Space**: ~97MB vs ~5MB for Python wheel (zero-dependency trade-off)
 
-### Performance History
+### Performance Evolution
 
-- **Single-file mode (deprecated)**: 15+ seconds startup due to extraction overhead
-- **Onedir mode (current)**: 0.6 seconds startup with no extraction needed
-- **Python package**: 0.4 seconds startup (baseline performance)
+- **Original Python CLI**: 2.7 seconds (problematic baseline)
+- **Optimized Python CLI**: 0.3 seconds (90% improvement, current performance)
+- **Single-file binary (deprecated)**: 15+ seconds startup due to extraction overhead  
+- **Onedir binary (current)**: 0.6 seconds startup with no extraction needed
 
-The switch to onedir deployment achieved a **16x performance improvement** over single-file mode.
+The unified build system with onedir deployment provides **production-ready performance** for both Python and standalone distributions.
 
 ## Security Notes
 
@@ -275,18 +331,21 @@ The switch to onedir deployment achieved a **16x performance improvement** over 
 
 Consider these alternatives based on your needs:
 
-1. **Python Package** (`pip install chunkhound`) - Smallest (~5MB), requires Python, 0.4s startup
-2. **Onedir Distribution** - Zero dependencies, ~106MB, 0.6s startup, best for end users
-3. **Docker Image** - Best for server deployments
-4. **System Packages** (DEB/RPM) - Best for Linux distributions
+1. **Python Package** (`pip install chunkhound`) - Smallest (~5MB), requires Python 3.10+, 0.3s startup
+2. **Onedir Distribution** - Zero dependencies, ~97MB, 0.6s startup, best for end users  
+3. **Docker Image** - Best for server deployments and CI/CD
+4. **System Packages** (DEB/RPM) - Best for Linux distributions (planned)
 
-### Recommendation
+### Recommendation Matrix
 
-For most end-user distributions, the **onedir deployment** provides the best balance of:
-- Zero dependencies (no Python installation required)
-- Fast startup performance (0.6s)
-- Easy distribution (single directory)
-- Cross-platform compatibility
+| Use Case | Method | Pros | Cons |
+|----------|--------|------|------|
+| **Development** | Python package | Fast (0.3s), small size, easy updates | Requires Python 3.10+ |
+| **End Users** | Onedir binary | Zero dependencies, easy distribution | Larger size (~97MB) |
+| **Servers** | Docker image | Consistent environment, easy deployment | Container overhead |
+| **CI/CD** | Docker or Python | Fast builds, cacheable layers | Platform dependencies |
+
+For most **end-user distributions**, the **onedir deployment** provides optimal balance of simplicity and performance.
 
 ## Support
 
