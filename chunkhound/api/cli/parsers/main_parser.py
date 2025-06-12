@@ -8,7 +8,7 @@ from pathlib import Path
 
 def create_main_parser() -> argparse.ArgumentParser:
     """Create and configure the main argument parser.
-    
+
     Returns:
         Configured ArgumentParser instance
     """
@@ -26,22 +26,22 @@ Examples:
   chunkhound mcp --db ./chunks.duckdb
         """,
     )
-    
+
     parser.add_argument(
         "--version",
         action="version",
-        version="chunkhound 1.0.1",
+        version="chunkhound 1.1.0",
     )
-    
+
     return parser
 
 
 def setup_subparsers(parser: argparse.ArgumentParser) -> argparse._SubParsersAction:
     """Set up subparsers for the main parser.
-    
+
     Args:
         parser: Main argument parser
-        
+
     Returns:
         Subparsers action for adding command parsers
     """
@@ -50,7 +50,7 @@ def setup_subparsers(parser: argparse.ArgumentParser) -> argparse._SubParsersAct
 
 def add_common_arguments(parser: argparse.ArgumentParser) -> None:
     """Add common arguments used across multiple commands.
-    
+
     Args:
         parser: Parser to add arguments to
     """
@@ -59,7 +59,7 @@ def add_common_arguments(parser: argparse.ArgumentParser) -> None:
         action="store_true",
         help="Enable verbose logging",
     )
-    
+
     parser.add_argument(
         "--config",
         type=Path,
@@ -69,7 +69,7 @@ def add_common_arguments(parser: argparse.ArgumentParser) -> None:
 
 def add_database_argument(parser: argparse.ArgumentParser, required: bool = False) -> None:
     """Add database path argument to a parser.
-    
+
     Args:
         parser: Parser to add argument to
         required: Whether the argument is required
@@ -85,7 +85,7 @@ def add_database_argument(parser: argparse.ArgumentParser, required: bool = Fals
 
 def add_embedding_arguments(parser: argparse.ArgumentParser) -> None:
     """Add embedding provider arguments to a parser.
-    
+
     Args:
         parser: Parser to add arguments to
     """
@@ -95,22 +95,22 @@ def add_embedding_arguments(parser: argparse.ArgumentParser) -> None:
         choices=["openai", "openai-compatible", "tei", "bge-in-icl"],
         help="Embedding provider to use (default: openai)",
     )
-    
+
     parser.add_argument(
         "--model",
         help="Embedding model to use (defaults to provider default)",
     )
-    
+
     parser.add_argument(
         "--api-key",
         help="API key for embedding provider (uses env var if not specified)",
     )
-    
+
     parser.add_argument(
         "--base-url",
         help="Base URL for embedding API (uses env var if not specified)",
     )
-    
+
     parser.add_argument(
         "--no-embeddings",
         action="store_true",
@@ -120,7 +120,7 @@ def add_embedding_arguments(parser: argparse.ArgumentParser) -> None:
 
 def add_file_pattern_arguments(parser: argparse.ArgumentParser) -> None:
     """Add file pattern arguments to a parser.
-    
+
     Args:
         parser: Parser to add arguments to
     """
@@ -130,10 +130,10 @@ def add_file_pattern_arguments(parser: argparse.ArgumentParser) -> None:
         default=[],
         help="File patterns to include (can be specified multiple times)",
     )
-    
+
     parser.add_argument(
         "--exclude",
-        action="append", 
+        action="append",
         default=[],
         help="File patterns to exclude (can be specified multiple times)",
     )
@@ -144,6 +144,6 @@ __all__ = [
     "setup_subparsers",
     "add_common_arguments",
     "add_database_argument",
-    "add_embedding_arguments", 
+    "add_embedding_arguments",
     "add_file_pattern_arguments",
 ]
