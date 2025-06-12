@@ -1,0 +1,319 @@
+# ChunkHound Docker Compose Build Configuration
+# Supports multi-platform builds with service orchestration
+# Usage: docker-compose -f docker-compose.build.yml up
+
+version: '3.8'
+
+services:
+  # =============================================================================
+  # Build Services
+  # =============================================================================
+
+  # Ubuntu/Linux Builder
+  build-linux:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: ubuntu-builder
+      args:
+        - PYTHON_VERSION=3.11
+        - DEBIAN_VERSION=slim
+        - CHUNKHOUND_VERSION=${CHUNKHOUND_VERSION:-dev}
+    image: chunkhound:linux-builder
+    container_name: chunkhound-linux-builder
+    volumes:
+      - ./dist/docker-artifacts/linux:/output
+      - build-cache:/app/.cache
+    environment:
+      - PYTHONPATH=/app
+      - PYTHONUNBUFFERED=1
+    profiles:
+      - build
+      - linux
+
+  # macOS Builder (placeholder - runs on macOS runners in CI)
+  build-macos:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: macos-builder
+      args:
+        - PYTHON_VERSION=3.11
+        - DEBIAN_VERSION=slim
+        - CHUNKHOUND_VERSION=${CHUNKHOUND_VERSION:-dev}
+    image: chunkhound:macos-builder
+    container_name: chunkhound-macos-builder
+    volumes:
+      - ./dist/docker-artifacts/macos:/output
+      - build-cache:/app/.cache
+    environment:
+      - PYTHONPATH=/app
+      - PYTHONUNBUFFERED=1
+    profiles:
+      - build
+      - macos
+
+  # Test Runner
+  test-runner:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: test-runner
+      args:
+        - PYTHON_VERSION=3.11
+        - DEBIAN_VERSION=slim
+    image: chunkhound:test-runner
+    container_name: chunkhound-test-runner
+    depends_on:
+      - build-linux
+    volumes:
+      - ./dist/docker-artifacts:/artifacts
+      - test-results:/test-results
+    environment:
+      - PYTHONPATH=/app
+      - PYTHONUNBUFFERED=1
+      - TEST_OUTPUT_DIR=/test-results
+    profiles:
+      - test
+      - build
+
+  # Artifact Collector
+  collector:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: collector
+      args:
+        - CHUNKHOUND_VERSION=${CHUNKHOUND_VERSION:-dev}
+    image: chunkhound:collector
+    container_name: chunkhound-collector
+    depends_on:
+      - build-linux
+      - build-macos
+    volumes:
+      - ./dist/docker-artifacts:/artifacts
+    environment:
+      - BUILD_DATE=${BUILD_DATE:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}
+      - BUILD_TAG=${BUILD_TAG:-latest}
+    profiles:
+      - build
+      - collect
+
+  # =============================================================================
+  # Development Services
+  # =============================================================================
+
+  # Development Environment
+  dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: development
+      args:
+        - PYTHON_VERSION=3.11
+        - DEBIAN_VERSION=slim
+    image: chunkhound:dev
+    container_name: chunkhound-dev
+    volumes:
+      - .:/app
+      - dev-cache:/app/.cache
+      - dev-venv:/app/.venv
+    working_dir: /app
+    environment:
+      - PYTHONPATH=/app
+      - PYTHONUNBUFFERED=1
+    stdin_open: true
+    tty: true
+    profiles:
+      - dev
+
+  # Runtime Environment
+  runtime:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+      args:
+        - PYTHON_VERSION=3.11
+        - DEBIAN_VERSION=slim
+    image: chunkhound:runtime
+    container_name: chunkhound-runtime
+    volumes:
+      - ./workspace:/workspace
+    working_dir: /workspace
+    environment:
+      - CHUNKHOUND_LOG_LEVEL=${CHUNKHOUND_LOG_LEVEL:-INFO}
+    profiles:
+      - runtime
+
+  # MCP Server
+  mcp-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+      args:
+        - PYTHON_VERSION=3.11
+        - DEBIAN_VERSION=slim
+    image: chunkhound:mcp
+    container_name: chunkhound-mcp
+    ports:
+      - "7474:7474"
+    volumes:
+      - ./workspace:/workspace
+      - mcp-data:/data
+    working_dir: /workspace
+    command: ["chunkhound", "mcp", "--db", "/data/chunkhound.db"]
+    environment:
+      - CHUNKHOUND_LOG_LEVEL=${CHUNKHOUND_LOG_LEVEL:-INFO}
+      - MCP_HOST=0.0.0.0
+      - MCP_PORT=7474
+    healthcheck:
+      test: ["CMD", "chunkhound", "--version"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    profiles:
+      - mcp
+      - runtime
+
+  # =============================================================================
+  # CI/CD Services
+  # =============================================================================
+
+  # Full Build Pipeline
+  build-all:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: collector
+      args:
+        - PYTHON_VERSION=3.11
+        - DEBIAN_VERSION=slim
+        - CHUNKHOUND_VERSION=${CHUNKHOUND_VERSION:-dev}
+    image: chunkhound:build-all
+    container_name: chunkhound-build-all
+    volumes:
+      - ./dist/docker-artifacts:/output
+      - build-cache:/build-cache
+    environment:
+      - PYTHONPATH=/app
+      - PYTHONUNBUFFERED=1
+      - BUILD_DATE=${BUILD_DATE:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}
+      - BUILD_TAG=${BUILD_TAG:-latest}
+      - CHUNKHOUND_VERSION=${CHUNKHOUND_VERSION:-dev}
+    profiles:
+      - ci
+      - build
+
+  # Performance Test
+  perf-test:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: test-runner
+    image: chunkhound:perf-test
+    container_name: chunkhound-perf-test
+    depends_on:
+      - build-linux
+    volumes:
+      - ./dist/docker-artifacts:/artifacts
+      - ./test-results:/test-results
+    environment:
+      - PYTHONPATH=/app
+      - PYTHONUNBUFFERED=1
+      - PERF_TEST_ITERATIONS=${PERF_TEST_ITERATIONS:-10}
+      - PERF_TEST_TARGET=${PERF_TEST_TARGET:-1.0}
+    command: |
+      sh -c "
+        echo 'Running performance tests...'
+        for i in \$$(seq 1 \$$PERF_TEST_ITERATIONS); do
+          echo \"Test \$$i/\$$PERF_TEST_ITERATIONS\"
+          time /artifacts/linux/chunkhound-optimized/chunkhound-optimized --help > /dev/null
+        done
+        echo 'Performance tests completed'
+      "
+    profiles:
+      - test
+      - perf
+
+# =============================================================================
+# Volumes
+# =============================================================================
+
+volumes:
+  # Build caches for faster rebuilds
+  build-cache:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ./.docker-cache/build
+
+  # Development environment cache
+  dev-cache:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ./.docker-cache/dev
+
+  # Development virtual environment
+  dev-venv:
+    driver: local
+
+  # Test results storage
+  test-results:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ./test-results
+
+  # MCP server data
+  mcp-data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ./mcp-data
+
+# =============================================================================
+# Networks
+# =============================================================================
+
+networks:
+  default:
+    name: chunkhound-build
+    driver: bridge
+
+# =============================================================================
+# Usage Examples (as comments)
+# =============================================================================
+
+# Development:
+#   docker-compose -f docker-compose.build.yml --profile dev up -d
+#   docker-compose -f docker-compose.build.yml exec dev bash
+
+# Build Linux binary:
+#   docker-compose -f docker-compose.build.yml --profile linux up build-linux
+
+# Build all platforms:
+#   docker-compose -f docker-compose.build.yml --profile build up
+
+# Run tests:
+#   docker-compose -f docker-compose.build.yml --profile test up test-runner
+
+# Performance testing:
+#   docker-compose -f docker-compose.build.yml --profile perf up perf-test
+
+# MCP Server:
+#   docker-compose -f docker-compose.build.yml --profile mcp up -d mcp-server
+
+# Full CI pipeline:
+#   docker-compose -f docker-compose.build.yml --profile ci up build-all
+
+# Cleanup:
+#   docker-compose -f docker-compose.build.yml down -v
+#   docker system prune -f
