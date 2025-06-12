@@ -77,9 +77,14 @@ build-standalone: ## Build standalone executable with PyInstaller
 	@echo "🚀 Building standalone executable..."
 	./scripts/build_standalone.sh
 
+prepare-release: ## Prepare release with documentation, builds, and packaging
+	@echo "🎯 Preparing release..."
+	./scripts/prepare_release.sh
+
 clean: ## Clean up temporary files
 	rm -rf build/
 	rm -rf dist/
+	rm -rf release/
 	rm -rf *.egg-info/
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
 	find . -type f -name "*.pyc" -delete

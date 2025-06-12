@@ -1,7 +1,8 @@
 # -*- mode: python ; coding: utf-8 -*-
 """
-PyInstaller spec file for ChunkHound standalone executable.
-This creates a single-file executable that includes all dependencies.
+PyInstaller spec file for ChunkHound standalone executable (onedir mode).
+This creates a directory distribution with the main executable and support files,
+eliminating the single-file extraction overhead that causes 12+ second startup delays.
 """
 
 import os
@@ -206,24 +207,32 @@ a = Analysis(
 # Remove duplicate entries
 pyz = PYZ(a.pure, a.zipped_data, cipher=None)
 
-# Create the executable
+# Create the executable (onedir mode - no data files embedded)
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
-    [],
+    [],  # No binaries embedded (onedir mode)
+    exclude_binaries=True,  # Exclude binaries from EXE (onedir mode)
     name='chunkhound',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
-    upx_exclude=[],
-    runtime_tmpdir=None,
+    upx=False,  # Disable UPX for faster startup
     console=True,
     disable_windowed_traceback=False,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+)
+
+# Create the directory distribution (onedir mode)
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
+    strip=False,
+    upx=False,  # Disable UPX for faster startup
+    upx_exclude=[],
+    name='chunkhound',
 )
