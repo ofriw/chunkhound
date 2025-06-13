@@ -62,7 +62,7 @@ server = Server("ChunkHound Code Search")
 def setup_signal_coordination(db_path: Path, database: Database):
     """Setup signal coordination for process coordination."""
     global _signal_coordinator
-    
+
     try:
         _signal_coordinator = SignalCoordinator(db_path, database)
         _signal_coordinator.setup_mcp_signal_handling()
@@ -76,7 +76,7 @@ def setup_signal_coordination(db_path: Path, database: Database):
 async def server_lifespan(server: Server) -> AsyncIterator[dict]:
     """Manage server startup and shutdown lifecycle."""
     global _database, _embedding_manager, _file_watcher, _signal_coordinator
-    
+
     try:
         # Initialize database path
         db_path = Path(os.environ.get("CHUNKHOUND_DB_PATH", Path.home() / ".cache" / "chunkhound" / "chunks.duckdb"))
@@ -93,16 +93,16 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
             import traceback
             print(f"DEBUG ERROR: Traceback: {traceback.format_exc()}")
             raise
-        
+
         # Setup signal coordination for process coordination
         print("DEBUG: Setting up signal coordination")
         setup_signal_coordination(db_path, _database)
         print("DEBUG: Signal coordination setup complete")
-        
+
         # Initialize embedding manager
         print("DEBUG: Initializing embedding manager")
         _embedding_manager = EmbeddingManager()
-        
+
         # Try to register OpenAI provider as default (optional)
         try:
             try:
@@ -116,7 +116,7 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
             print(f"DEBUG: OpenAI provider registration failed: {emb_exc}")
             # Silently fail - MCP server will run without semantic search capabilities
             pass
-        
+
         # Initialize filesystem watcher with offline catch-up
         print("DEBUG: Initializing file watcher")
         _file_watcher = FileWatcherManager()
@@ -127,11 +127,11 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
             print(f"DEBUG: File watcher initialization failed: {fw_exc}")
             # Silently fail - MCP server will run without filesystem watching
             pass
-        
+
         print("DEBUG: All initialization complete, yielding context")
         yield {"db": _database, "embeddings": _embedding_manager, "watcher": _file_watcher}
         print("DEBUG: Context yielded successfully")
-        
+
     except Exception as e:
         print(f"DEBUG CRITICAL ERROR: Initialization failed: {e}")
         print(f"DEBUG CRITICAL ERROR: Exception type: {type(e).__name__}")
@@ -143,14 +143,14 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
         if _signal_coordinator:
             _signal_coordinator.cleanup_coordination_files()
             pass
-        
+
         # Cleanup filesystem watcher
         if _file_watcher:
             try:
                 await _file_watcher.cleanup()
             except Exception:
                 pass
-        
+
         # Cleanup database
         if _database:
             try:
@@ -162,22 +162,26 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
 async def process_file_change(file_path: Path, event_type: str):
     """
     Process a file change event by updating the database.
-    
+
     This function is called by the filesystem watcher when files change.
     It runs in the main thread to ensure single-threaded database access.
     """
     global _database, _embedding_manager
-    
+
     if not _database:
         return
-    
+
+    processing_start = time.time()
     try:
-        logger.debug(f"Processing file change: {file_path} (event_type={event_type})")
-        
+        logger.debug(f"TIMING: Processing started at {processing_start:.6f} - {event_type} {file_path}")
+
         if event_type == 'deleted':
             # Remove file from database with cleanup tracking
-            logger.debug(f"Deleting file completely: {file_path}")
+            delete_start = time.time()
+            logger.debug(f"TIMING: Delete operation started at {delete_start:.6f} - {file_path}")
             result = _database.delete_file_completely(str(file_path))
+            delete_end = time.time()
+            logger.debug(f"TIMING: Delete completed at {delete_end:.6f} (took {delete_end - delete_start:.6f}s) - {file_path}")
             logger.debug(f"File deletion result: {result}")
         else:
             # Process file (created, modified, moved)
@@ -187,24 +191,34 @@ async def process_file_change(file_path: Path, event_type: str):
                     file_stat = file_path.stat()
                     current_mtime = file_stat.st_mtime
                     size_bytes = file_stat.st_size
-                    logger.debug(f"File stats: {file_path} (mtime={current_mtime}, size={size_bytes} bytes)")
-                    
+                    logger.debug(f"TIMING: File stats at {time.time():.6f} - {file_path} (mtime={current_mtime}, size={size_bytes} bytes)")
+
                     # Check if file exists in database
                     existing_file = _database.get_file_by_path(str(file_path))
                     if existing_file:
-                        logger.debug(f"File exists in database: {file_path} (database mtime={existing_file.get('mtime', 'unknown')})")
+                        db_mtime = existing_file.get('mtime', 'unknown')
+                        logger.debug(f"TIMING: File exists in database - {file_path} (database mtime={db_mtime})")
+                        if isinstance(db_mtime, (int, float)) and isinstance(current_mtime, (int, float)):
+                            mtime_diff = current_mtime - db_mtime
+                            logger.debug(f"TIMING: Mtime difference: {mtime_diff:.6f}s (current={current_mtime:.6f}, db={db_mtime:.6f})")
                     else:
-                        logger.debug(f"New file, not in database yet: {file_path}")
+                        logger.debug(f"TIMING: New file, not in database yet - {file_path}")
                 except Exception as e:
                     logger.debug(f"Error getting file stats: {e}")
-                
+
                 # Use incremental processing for 10-100x performance improvement
-                logger.debug(f"Starting incremental processing for: {file_path}")
+                process_start = time.time()
+                logger.debug(f"TIMING: Incremental processing started at {process_start:.6f} - {file_path}")
                 result = await _database.process_file_incremental(file_path=file_path)
+                process_end = time.time()
+                logger.debug(f"TIMING: Incremental processing completed at {process_end:.6f} (took {process_end - process_start:.6f}s) - {file_path}")
                 logger.debug(f"Incremental processing result: {result}")
     except Exception as e:
         # Log error but don't crash the MCP server
         logger.error(f"Error processing file change {file_path} ({event_type}): {e}")
+    finally:
+        processing_end = time.time()
+        logger.debug(f"TIMING: Total processing time: {processing_end - processing_start:.6f}s - {event_type} {file_path}")
 
 
 def convert_to_ndjson(results: List[Dict[str, Any]]) -> str:
@@ -225,31 +239,31 @@ async def call_tool(
             raise Exception("Database temporarily unavailable during coordination")
         else:
             raise Exception("Database not initialized")
-    
+
     if name == "search_regex":
         pattern = arguments.get("pattern", "")
         limit = max(1, min(arguments.get("limit", 10), 100))
-        
+
         try:
             results = _database.search_regex(pattern=pattern, limit=limit)
             return [types.TextContent(type="text", text=convert_to_ndjson(results))]
         except Exception as e:
             raise Exception(f"Search failed: {str(e)}")
-    
+
     elif name == "search_semantic":
         query = arguments.get("query", "")
         limit = max(1, min(arguments.get("limit", 10), 100))
         provider = arguments.get("provider", "openai")
         model = arguments.get("model", "text-embedding-3-small")
         threshold = arguments.get("threshold")
-        
+
         if not _embedding_manager or not _embedding_manager.list_providers():
             raise Exception("No embedding providers available. Set OPENAI_API_KEY to enable semantic search.")
-        
+
         try:
             result = await _embedding_manager.embed_texts([query], provider)
             query_vector = result.embeddings[0]
-            
+
             results = _database.search_semantic(
                 query_vector=query_vector,
                 provider=provider,
@@ -257,18 +271,18 @@ async def call_tool(
                 limit=limit,
                 threshold=threshold
             )
-            
+
             return [types.TextContent(type="text", text=convert_to_ndjson(results))]
         except Exception as e:
             raise Exception(f"Semantic search failed: {str(e)}")
-    
+
     elif name == "get_stats":
         try:
             stats = _database.get_stats()
             return [types.TextContent(type="text", text=json.dumps(stats, ensure_ascii=False))]
         except Exception as e:
             raise Exception(f"Failed to get stats: {str(e)}")
-    
+
     elif name == "health_check":
         health_status = {
             "status": "healthy",
@@ -277,7 +291,7 @@ async def call_tool(
             "embedding_providers": _embedding_manager.list_providers() if _embedding_manager else []
         }
         return [types.TextContent(type="text", text=json.dumps(health_status, ensure_ascii=False))]
-    
+
     else:
         raise ValueError(f"Tool not found: {name}")
 
@@ -355,22 +369,22 @@ def validate_mcp_initialize_message(message_text: str) -> Tuple[bool, Optional[d
         message = json.loads(message_text.strip())
     except json.JSONDecodeError as e:
         return False, None, f"Invalid JSON: {str(e)}"
-    
+
     if not isinstance(message, dict):
         return False, None, "Message must be a JSON object"
-    
+
     # Check required JSON-RPC fields
     if message.get("jsonrpc") != "2.0":
         return False, message, f"Invalid jsonrpc version: '{message.get('jsonrpc')}' (must be '2.0')"
-    
+
     if message.get("method") != "initialize":
         return True, message, None  # Only validate initialize messages
-    
+
     # Validate initialize method specifically
     params = message.get("params", {})
     if not isinstance(params, dict):
         return False, message, "Initialize method 'params' must be an object"
-    
+
     missing_fields = []
     if "protocolVersion" not in params:
         missing_fields.append("protocolVersion")
@@ -378,10 +392,10 @@ def validate_mcp_initialize_message(message_text: str) -> Tuple[bool, Optional[d
         missing_fields.append("capabilities")
     if "clientInfo" not in params:
         missing_fields.append("clientInfo")
-    
+
     if missing_fields:
         return False, message, f"Initialize method missing required fields: {', '.join(missing_fields)}"
-    
+
     return True, message, None
 
 
@@ -436,53 +450,53 @@ async def handle_mcp_with_validation():
         # Analyze error for common protocol issues with recursive search
         error_str = str(e).lower()
         error_details = str(e)
-        
+
         print(f"DEBUG ERROR: MCP server error: {error_str}")
         print(f"DEBUG ERROR: Error type: {type(e).__name__}")
         import traceback
         print(f"DEBUG ERROR: Full traceback: {traceback.format_exc()}")
-        
+
         def find_validation_error(error, depth=0):
             """Recursively search for ValidationError in exception chain."""
             if depth > 10:  # Prevent infinite recursion
                 return False, ""
-            
+
             error_str = str(error).lower()
-            
+
             # Check for validation error indicators
             validation_keywords = [
                 'protocolversion', 'field required', 'validation error',
                 'validationerror', 'literal_error', 'input should be',
                 'missing', 'pydantic'
             ]
-            
+
             if any(keyword in error_str for keyword in validation_keywords):
                 return True, str(error)
-            
+
             # Check exception chain
             if hasattr(error, '__cause__') and error.__cause__:
                 found, details = find_validation_error(error.__cause__, depth + 1)
                 if found:
                     return found, details
-            
+
             if hasattr(error, '__context__') and error.__context__:
                 found, details = find_validation_error(error.__context__, depth + 1)
                 if found:
                     return found, details
-            
+
             # Check exception groups (anyio/asyncio task groups)
             if hasattr(error, 'exceptions') and error.exceptions:
                 for exc in error.exceptions:
                     found, details = find_validation_error(exc, depth + 1)
                     if found:
                         return found, details
-            
+
             return False, ""
-        
+
         is_validation_error, validation_details = find_validation_error(e)
         if validation_details:
             error_details = validation_details
-        
+
         if is_validation_error:
             # Send helpful protocol validation error
             send_error_response(
