@@ -14,22 +14,67 @@ def is_mcp_command():
 if is_mcp_command():
     # Set MCP mode environment early
     os.environ["CHUNKHOUND_MCP_MODE"] = "1"
-    
+
     # Import only what's needed for MCP
     from pathlib import Path
     import subprocess
-    
+
     # Parse MCP arguments minimally
     db_path = Path.home() / ".cache" / "chunkhound" / "chunks.duckdb"
     if "--db" in sys.argv:
         db_index = sys.argv.index("--db")
         if db_index + 1 < len(sys.argv):
             db_path = Path(sys.argv[db_index + 1])
-    
-    # Launch MCP server directly
+
+    # Determine if we're running from a PyInstaller bundle
+    def is_pyinstaller_bundle():
+        return hasattr(sys, '_MEIPASS') or hasattr(sys, 'frozen')
+
+    # For PyInstaller bundles, use direct execution to avoid subprocess issues
+    if is_pyinstaller_bundle():
+        # In PyInstaller, sys.executable points to the binary, not Python
+        # So we can't use subprocess to run Python scripts reliably
+        # Instead, run the MCP server directly in the same process
+        os.environ["CHUNKHOUND_DB_PATH"] = str(db_path)
+
+        try:
+            from chunkhound.mcp_entry import main_sync
+            main_sync()
+        except Exception as e:
+            print(f"Error starting MCP server: {e}", file=sys.stderr)
+            sys.exit(1)
+
+        sys.exit(0)
+
+    # Running from source - use subprocess with mcp_launcher.py
     mcp_launcher_path = Path(__file__).parent.parent.parent.parent / "mcp_launcher.py"
+
+    # Fallback: if the path doesn't exist, try to find it
+    if not mcp_launcher_path.exists():
+        # Try alternative locations
+        possible_paths = [
+            Path(__file__).parent.parent.parent.parent / "mcp_launcher.py",
+            Path(sys.executable).parent / "mcp_launcher.py",
+            Path.cwd() / "mcp_launcher.py",
+        ]
+
+        for path in possible_paths:
+            if path.exists():
+                mcp_launcher_path = path
+                break
+        else:
+            # If we still can't find it, run the MCP server directly
+            os.environ["CHUNKHOUND_DB_PATH"] = str(db_path)
+            try:
+                from chunkhound.mcp_entry import main_sync
+                main_sync()
+                sys.exit(0)
+            except Exception as e:
+                print(f"Error starting MCP server: {e}", file=sys.stderr)
+                sys.exit(1)
+
     cmd = [sys.executable, str(mcp_launcher_path), "--db", str(db_path)]
-    
+
     process = subprocess.run(
         cmd,
         stdin=sys.stdin,
@@ -45,12 +90,12 @@ from .utils.validation import validate_path, ensure_database_directory, exit_on_
 
 def setup_logging(verbose: bool = False) -> None:
     """Configure logging for the CLI.
-    
+
     Args:
         verbose: Whether to enable verbose logging
     """
     logger.remove()
-    
+
     if verbose:
         logger.add(
             sys.stderr,
@@ -67,25 +112,25 @@ def setup_logging(verbose: bool = False) -> None:
 
 def validate_args(args: argparse.Namespace) -> None:
     """Validate command-line arguments.
-    
+
     Args:
         args: Parsed arguments to validate
     """
     if args.command == "run":
         if not validate_path(args.path, must_exist=True, must_be_dir=True):
             exit_on_validation_error(f"Invalid path: {args.path}")
-        
+
         if not ensure_database_directory(args.db):
             exit_on_validation_error("Cannot access database directory")
-            
+
         # Validate provider-specific arguments for run command
         if not args.no_embeddings:
             if args.provider in ['tei', 'bge-in-icl'] and not args.base_url:
                 exit_on_validation_error(f"--base-url required for {args.provider} provider")
-            
+
             if args.provider not in ['tei', 'bge-in-icl'] and not args.model:
                 exit_on_validation_error(f"--model required for {args.provider} provider")
-    
+
     elif args.command == "mcp":
         # Ensure database directory exists for MCP server
         if not ensure_database_directory(args.db):
@@ -94,7 +139,7 @@ def validate_args(args: argparse.Namespace) -> None:
 
 def create_parser() -> argparse.ArgumentParser:
     """Create and configure the complete argument parser.
-    
+
     Returns:
         Configured ArgumentParser instance
     """
@@ -119,20 +164,20 @@ async def async_main() -> None:
     """Async main entry point for the CLI."""
     parser = create_parser()
     args = parser.parse_args()
-    
+
     if not args.command:
         parser.print_help()
         sys.exit(1)
-    
+
     # Setup logging for non-MCP commands (MCP already handled above)
     setup_logging(getattr(args, "verbose", False))
     def validate_args(args):
         """Validate arguments."""
         # Add any validation logic here if needed
         pass
-    
+
     validate_args(args)
-    
+
     try:
         if args.command == "run":
             # Dynamic import to avoid early chunkhound module loading
@@ -145,7 +190,7 @@ async def async_main() -> None:
         else:
             logger.error(f"Unknown command: {args.command}")
             sys.exit(1)
-            
+
     except KeyboardInterrupt:
         logger.info("Interrupted by user")
         sys.exit(0)

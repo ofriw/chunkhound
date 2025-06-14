@@ -1,0 +1,27 @@
+QA Test File - Unique Content for Search Validation
+Created: 2025-06-13T15:30:46+03:00
+Purpose: Testing semantic_search and regex_search tools
+
+This file contains UNIQUE_SEARCH_MARKER_12345 for validation testing.
+
+Content sections:
+1. SEMANTIC_TEST_CONTENT: This section tests semantic search capabilities with natural language queries about code indexing and search functionality.
+
+2. REGEX_TEST_PATTERN: Pattern_ABC_123_XYZ for regex validation testing.
+
+3. MIXED_CONTENT_SECTION:
+   - JavaScript-like syntax: function testSearch(query) { return results; }
+   - Python-like syntax: def validate_search_results(): pass
+   - SQL-like syntax: SELECT * FROM search_results WHERE relevance > 0.5;
+
+4. TIMESTAMP_MARKER: 2025-06-13T15:30:46+03:00
+
+5. SPECIAL_CHARACTERS: @#$%^&*()[]{}|;':\",./<>?
+
+Test scenarios to validate:
+- Semantic search should find this file when searching for "QA test validation"
+- Regex search should find this file when searching for "UNIQUE_SEARCH_MARKER_\d+"
+- Both tools should reflect changes after file modifications
+- File should disappear from search results after deletion
+
+End of unique test file content.

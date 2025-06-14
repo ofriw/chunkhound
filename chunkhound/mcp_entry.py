@@ -41,7 +41,7 @@ async def main():
         from pathlib import Path
         db_path = str(Path.home() / ".cache" / "chunkhound" / "chunks.duckdb")
         os.environ["CHUNKHOUND_DB_PATH"] = db_path
-    
+
     # Now import and run the MCP server
     from chunkhound.mcp_server import main as run_mcp_server
     await run_mcp_server()

@@ -508,6 +508,11 @@ class TypeScriptParser:
                 return chunks
 
             # Look for function components (functions returning JSX)
+            # Skip component extraction for non-JSX files to avoid query errors
+            file_ext = file_path.suffix.lower()
+            if file_ext not in ['.tsx', '.jsx']:
+                return chunks
+
             query = self._language.query("""
                 (function_declaration
                     name: (identifier) @component_name
@@ -574,7 +579,8 @@ class TypeScriptParser:
                 chunks.append(chunk)
 
         except Exception as e:
-            logger.error(f"Failed to extract TypeScript components: {e}")
+            # Component extraction is optional - continue parsing without it
+            logger.debug(f"Skipping TypeScript component extraction: {e}")
 
         return chunks
 

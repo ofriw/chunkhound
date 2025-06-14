@@ -11,14 +11,14 @@ from interfaces.language_parser import ParseConfig, ParseResult
 
 try:
     import tree_sitter_python as tspython
-    from tree_sitter import Language as TSLanguage, Parser as TSParser, Node as TSNode
+    from tree_sitter import Language, Parser, Node
     TREE_SITTER_AVAILABLE = True
 except ImportError:
     TREE_SITTER_AVAILABLE = False
     tspython = None
-    TSLanguage = None
-    TSParser = None
-    TSNode = None
+    Language = None
+    Parser = None
+    Node = None
 
 
 class PythonParser:
@@ -70,9 +70,10 @@ class PythonParser:
             return False
 
         try:
-            if tspython and TSLanguage and TSParser:
-                self._language = TSLanguage(tspython.language())
-                self._parser = TSParser(self._language)
+            if tspython and Language and Parser:
+                self._language = Language(tspython.language())
+                self._parser = Parser()
+                self._parser.language = self._language
                 self._initialized = True
                 logger.debug("Python parser initialized successfully")
                 return True
@@ -175,11 +176,11 @@ class PythonParser:
             metadata={"file_path": str(file_path)}
         )
 
-    def _get_node_text(self, node: TSNode, source: str) -> str:
+    def _get_node_text(self, node: Node, source: str) -> str:
         """Extract text content from a tree-sitter node."""
         return source[node.start_byte:node.end_byte]
 
-    def _extract_functions(self, tree_node: TSNode, source: str, file_path: Path) -> List[Dict[str, Any]]:
+    def _extract_functions(self, tree_node: Node, source: str, file_path: Path) -> List[Dict[str, Any]]:
         """Extract Python function definitions from AST."""
         chunks = []
 
@@ -236,7 +237,7 @@ class PythonParser:
 
         return chunks
 
-    def _extract_classes(self, tree_node: TSNode, source: str, file_path: Path) -> List[Dict[str, Any]]:
+    def _extract_classes(self, tree_node: Node, source: str, file_path: Path) -> List[Dict[str, Any]]:
         """Extract Python class definitions from AST."""
         chunks = []
 
@@ -291,7 +292,7 @@ class PythonParser:
 
         return chunks
 
-    def _extract_class_methods(self, class_node: TSNode, source: str,
+    def _extract_class_methods(self, class_node: Node, source: str,
                               file_path: Path, class_name: str) -> List[Dict[str, Any]]:
         """Extract methods from a Python class."""
         chunks = []
@@ -363,7 +364,7 @@ class PythonParser:
 
         return chunks
 
-    def _extract_function_parameters(self, function_node: TSNode, source: str) -> List[str]:
+    def _extract_function_parameters(self, function_node: Node, source: str) -> List[str]:
         """Extract parameter names from a Python function."""
         parameters = []
 

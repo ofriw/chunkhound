@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Union, TYPE_CHECKING
 import importlib
 import time
+import os
 
 import duckdb
 from loguru import logger
@@ -38,14 +39,14 @@ class DuckDBProvider:
         self.connection: Optional[Any] = None
         self._services_initialized = False
         self.embedding_manager = embedding_manager
-        
+
         # Service layer components and legacy chunker instances
         self._indexing_coordinator: Optional['IndexingCoordinator'] = None
         self._search_service: Optional['SearchService'] = None
         self._embedding_service: Optional['EmbeddingService'] = None
         self._chunker: Optional[Chunker] = None
         self._incremental_chunker: Optional[IncrementalChunker] = None
-        
+
         # File discovery cache for performance optimization
         self._file_discovery_cache = FileDiscoveryCache()
 
@@ -68,6 +69,32 @@ class DuckDBProvider:
         """Check if database connection is active."""
         return self.connection is not None
 
+    def _connect_with_wal_validation(self) -> None:
+        """Connect to DuckDB with automatic WAL validation and cleanup."""
+        try:
+            # Attempt connection - will fail if WAL incompatible
+            self.connection = duckdb.connect(str(self.db_path))
+        except duckdb.BinderException as e:
+            error_msg = str(e)
+            if "WAL file" in error_msg and ("does not exist" in error_msg or "Catalog" in error_msg):
+                logger.warning(f"WAL file incompatible with current database schema: {error_msg}")
+
+                # Remove incompatible WAL files
+                wal_path = f"{self.db_path}.wal"
+                if os.path.exists(wal_path):
+                    logger.info(f"Removing incompatible WAL file: {wal_path}")
+                    os.remove(wal_path)
+
+                # Retry connection without WAL
+                logger.info("Retrying database connection after WAL cleanup")
+                self.connection = duckdb.connect(str(self.db_path))
+            else:
+                # Re-raise other BinderExceptions
+                raise
+        except Exception as e:
+            logger.error(f"Failed to connect to DuckDB: {e}")
+            raise
+
     def connect(self) -> None:
         """Establish database connection and initialize schema."""
         logger.info(f"Connecting to DuckDB database: {self.db_path}")
@@ -79,9 +106,9 @@ class DuckDBProvider:
         try:
             if duckdb is None:
                 raise ImportError("duckdb not available")
-            
-            # Connect to DuckDB
-            self.connection = duckdb.connect(str(self.db_path))
+
+            # Connect to DuckDB with WAL validation
+            self._connect_with_wal_validation()
             logger.info("DuckDB connection established")
 
             # Load required extensions
@@ -95,7 +122,7 @@ class DuckDBProvider:
             # Create schema and indexes
             self.create_schema()
             self.create_indexes()
-            
+
             # Migrate legacy embeddings table if it exists
             self._migrate_legacy_embeddings_table()
 
@@ -118,7 +145,7 @@ class DuckDBProvider:
     def _load_extensions(self) -> None:
         """Load required DuckDB extensions."""
         logger.info("Loading DuckDB extensions")
-        
+
         if self.connection is None:
             raise RuntimeError("No database connection")
 
@@ -127,7 +154,7 @@ class DuckDBProvider:
             self.connection.execute("INSTALL vss")
             self.connection.execute("LOAD vss")
             logger.info("VSS extension loaded successfully")
-            
+
         except Exception as e:
             logger.error(f"Failed to load DuckDB extensions: {e}")
             raise
@@ -135,23 +162,23 @@ class DuckDBProvider:
     def _initialize_shared_instances(self):
         """Initialize service layer components and legacy compatibility objects."""
         logger.debug("Initializing service layer components")
-        
+
         try:
             # Initialize chunkers for legacy compatibility
             self._chunker = Chunker()
             self._incremental_chunker = IncrementalChunker()
-            
+
             # Lazy import from registry to avoid circular dependency
             registry_module = importlib.import_module('registry')
             get_registry = getattr(registry_module, 'get_registry')
             create_indexing_coordinator = getattr(registry_module, 'create_indexing_coordinator')
             create_search_service = getattr(registry_module, 'create_search_service')
             create_embedding_service = getattr(registry_module, 'create_embedding_service')
-            
+
             # Get registry and register self as database provider
             registry = get_registry()
             registry.register_provider("database", lambda: self, singleton=True)
-            
+
             # Initialize service layer components from registry
             if not hasattr(self, '_indexing_coordinator') or self._indexing_coordinator is None:
                 self._indexing_coordinator = create_indexing_coordinator()
@@ -159,9 +186,9 @@ class DuckDBProvider:
                 self._search_service = create_search_service()
             if not hasattr(self, '_embedding_service') or self._embedding_service is None:
                 self._embedding_service = create_embedding_service()
-            
+
             logger.debug("Service layer components initialized successfully")
-            
+
         except Exception as e:
             logger.error(f"Failed to initialize service layer components: {e}")
             # Don't raise the exception, just log it - allows test initialization to continue
@@ -169,14 +196,14 @@ class DuckDBProvider:
     def create_schema(self) -> None:
         """Create database schema for files, chunks, and embeddings."""
         logger.info("Creating DuckDB schema")
-        
+
         if self.connection is None:
             raise RuntimeError("No database connection")
 
         try:
             # Create sequence for files table
             self.connection.execute("CREATE SEQUENCE IF NOT EXISTS files_id_seq")
-            
+
             # Files table
             self.connection.execute("""
                 CREATE TABLE IF NOT EXISTS files (
@@ -194,7 +221,7 @@ class DuckDBProvider:
 
             # Create sequence for chunks table
             self.connection.execute("CREATE SEQUENCE IF NOT EXISTS chunks_id_seq")
-            
+
             # Chunks table
             self.connection.execute("""
                 CREATE TABLE IF NOT EXISTS chunks (
@@ -217,7 +244,7 @@ class DuckDBProvider:
 
             # Create sequence for embeddings table
             self.connection.execute("CREATE SEQUENCE IF NOT EXISTS embeddings_id_seq")
-            
+
             # Embeddings table
             self.connection.execute("""
                 CREATE TABLE IF NOT EXISTS embeddings_1536 (
@@ -234,14 +261,14 @@ class DuckDBProvider:
             # Create HNSW index for 1536-dimensional embeddings
             try:
                 self.connection.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_hnsw_1536 ON embeddings_1536 
-                    USING HNSW (embedding) 
+                    CREATE INDEX IF NOT EXISTS idx_hnsw_1536 ON embeddings_1536
+                    USING HNSW (embedding)
                     WITH (metric = 'cosine')
                 """)
                 logger.info("HNSW index for 1536-dimensional embeddings created successfully")
             except Exception as e:
                 logger.warning(f"Failed to create HNSW index for 1536-dimensional embeddings: {e}")
-            
+
             # Note: Additional dimension tables (4096, etc.) will be created on-demand
             logger.info("DuckDB schema created successfully with multi-dimension support")
 
@@ -257,7 +284,7 @@ class DuckDBProvider:
         """Check if a table exists in the database."""
         if self.connection is None:
             raise RuntimeError("No database connection")
-        
+
         result = self.connection.execute(
             "SELECT table_name FROM information_schema.tables WHERE table_name = ?",
             [table_name]
@@ -267,15 +294,15 @@ class DuckDBProvider:
     def _ensure_embedding_table_exists(self, dims: int) -> str:
         """Ensure embedding table exists for given dimensions, create if needed."""
         table_name = self._get_table_name_for_dimensions(dims)
-        
+
         if self._table_exists(table_name):
             return table_name
-        
+
         if self.connection is None:
             raise RuntimeError("No database connection")
-        
+
         logger.info(f"Creating embedding table for {dims} dimensions: {table_name}")
-        
+
         try:
             # Create table with fixed dimensions for HNSW compatibility
             self.connection.execute(f"""
@@ -289,22 +316,22 @@ class DuckDBProvider:
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
-            
+
             # Create HNSW index for performance
             hnsw_index_name = f"idx_hnsw_{dims}"
             self.connection.execute(f"""
-                CREATE INDEX {hnsw_index_name} ON {table_name} 
-                USING HNSW (embedding) 
+                CREATE INDEX {hnsw_index_name} ON {table_name}
+                USING HNSW (embedding)
                 WITH (metric = 'cosine')
             """)
-            
+
             # Create regular indexes for fast lookups
             self.connection.execute(f"CREATE INDEX IF NOT EXISTS idx_{dims}_chunk_id ON {table_name}(chunk_id)")
             self.connection.execute(f"CREATE INDEX IF NOT EXISTS idx_{dims}_provider_model ON {table_name}(provider, model)")
-            
+
             logger.info(f"Created {table_name} with HNSW index {hnsw_index_name} and regular indexes")
             return table_name
-            
+
         except Exception as e:
             logger.error(f"Failed to create embedding table for {dims} dimensions: {e}")
             raise
@@ -313,25 +340,25 @@ class DuckDBProvider:
         """Migrate legacy 'embeddings' table to dimension-specific tables."""
         if self.connection is None:
             raise RuntimeError("No database connection")
-        
+
         # Check if legacy embeddings table exists
         if not self._table_exists("embeddings"):
             return
-        
+
         logger.info("Found legacy embeddings table, migrating to dimension-specific tables...")
-        
+
         try:
             # Get all embeddings with their dimensions
             embeddings = self.connection.execute("""
                 SELECT id, chunk_id, provider, model, embedding, dims, created_at
                 FROM embeddings
             """).fetchall()
-            
+
             if not embeddings:
                 logger.info("Legacy embeddings table is empty, dropping it")
                 self.connection.execute("DROP TABLE embeddings")
                 return
-            
+
             # Group by dimensions
             by_dims = {}
             for emb in embeddings:
@@ -339,12 +366,12 @@ class DuckDBProvider:
                 if dims not in by_dims:
                     by_dims[dims] = []
                 by_dims[dims].append(emb)
-            
+
             # Migrate each dimension group
             for dims, emb_list in by_dims.items():
                 table_name = self._ensure_embedding_table_exists(dims)
                 logger.info(f"Migrating {len(emb_list)} embeddings to {table_name}")
-                
+
                 # Insert data into dimension-specific table
                 for emb in emb_list:
                     vector_str = str(emb[4])  # embedding column
@@ -352,11 +379,11 @@ class DuckDBProvider:
                         INSERT INTO {table_name} (chunk_id, provider, model, embedding, dims, created_at)
                         VALUES (?, ?, ?, {vector_str}, ?, ?)
                     """, [emb[1], emb[2], emb[3], emb[5], emb[6]])
-            
+
             # Drop legacy table
             self.connection.execute("DROP TABLE embeddings")
             logger.info(f"Successfully migrated embeddings to {len(by_dims)} dimension-specific tables")
-            
+
         except Exception as e:
             logger.error(f"Failed to migrate legacy embeddings table: {e}")
             raise
@@ -365,12 +392,12 @@ class DuckDBProvider:
         """Get list of all embedding tables (dimension-specific)."""
         if self.connection is None:
             raise RuntimeError("No database connection")
-        
+
         tables = self.connection.execute("""
-            SELECT table_name FROM information_schema.tables 
+            SELECT table_name FROM information_schema.tables
             WHERE table_name LIKE 'embeddings_%'
         """).fetchall()
-        
+
         return [table[0] for table in tables]
 
 
@@ -379,7 +406,7 @@ class DuckDBProvider:
     def create_indexes(self) -> None:
         """Create database indexes for performance optimization."""
         logger.info("Creating DuckDB indexes")
-        
+
         if self.connection is None:
             raise RuntimeError("No database connection")
 
@@ -387,12 +414,12 @@ class DuckDBProvider:
             # File indexes
             self.connection.execute("CREATE INDEX IF NOT EXISTS idx_files_path ON files(path)")
             self.connection.execute("CREATE INDEX IF NOT EXISTS idx_files_language ON files(language)")
-            
+
             # Chunk indexes
             self.connection.execute("CREATE INDEX IF NOT EXISTS idx_chunks_file_id ON chunks(file_id)")
             self.connection.execute("CREATE INDEX IF NOT EXISTS idx_chunks_type ON chunks(chunk_type)")
             self.connection.execute("CREATE INDEX IF NOT EXISTS idx_chunks_symbol ON chunks(symbol)")
-            
+
             # Embedding indexes are created per-table in _ensure_embedding_table_exists()
             # No need for global embedding indexes since we use dimension-specific tables
 
@@ -405,20 +432,20 @@ class DuckDBProvider:
     def create_vector_index(self, provider: str, model: str, dims: int, metric: str = "cosine") -> None:
         """Create HNSW vector index for specific provider/model/dims combination."""
         logger.info(f"Creating HNSW index for {provider}/{model} ({dims}D, {metric})")
-        
+
         if self.connection is None:
             raise RuntimeError("No database connection")
 
         try:
             index_name = f"hnsw_{provider}_{model}_{dims}_{metric}".replace("-", "_").replace(".", "_")
-            
+
             # Create HNSW index using VSS extension with FLOAT[1536] schema
             self.connection.execute(f"""
-                CREATE INDEX {index_name} ON embeddings 
-                USING HNSW (embedding) 
+                CREATE INDEX {index_name} ON embeddings
+                USING HNSW (embedding)
                 WITH (metric = '{metric}')
             """)
-            
+
             logger.info(f"HNSW index {index_name} created successfully")
 
         except Exception as e:
@@ -428,7 +455,7 @@ class DuckDBProvider:
     def drop_vector_index(self, provider: str, model: str, dims: int, metric: str = "cosine") -> str:
         """Drop HNSW vector index for specific provider/model/dims combination."""
         index_name = f"hnsw_{provider}_{model}_{dims}_{metric}".replace("-", "_").replace(".", "_")
-        
+
         if self.connection is None:
             raise RuntimeError("No database connection")
 
@@ -452,10 +479,10 @@ class DuckDBProvider:
             results = self.connection.execute("""
                 SELECT index_name, table_name
                 FROM duckdb_indexes()
-                WHERE table_name = 'embeddings' 
+                WHERE table_name = 'embeddings'
                 AND index_name LIKE 'hnsw_%'
             """).fetchall()
-            
+
             indexes = []
             for result in results:
                 index_name = result[0]
@@ -479,7 +506,7 @@ class DuckDBProvider:
                             else:
                                 provider = provider_model
                                 model = ""
-                            
+
                             indexes.append({
                                 'index_name': index_name,
                                 'provider': provider,
@@ -489,7 +516,7 @@ class DuckDBProvider:
                             })
                         except ValueError:
                             logger.warning(f"Could not parse dims from index name: {index_name}")
-            
+
             return indexes
 
         except Exception as e:
@@ -504,52 +531,52 @@ class DuckDBProvider:
         # Get existing indexes before starting
         existing_indexes = self.get_existing_vector_indexes()
         dropped_indexes = []
-        
+
         try:
             # Start transaction for atomic operation
             self.connection.execute("BEGIN TRANSACTION")
-            
+
             # Optimize settings for bulk loading
             self.connection.execute("SET preserve_insertion_order = false")
-            
+
             # Drop existing HNSW vector indexes to improve bulk performance
             if existing_indexes:
                 logger.info(f"Dropping {len(existing_indexes)} HNSW indexes for bulk operation")
                 for index_info in existing_indexes:
                     try:
                         self.drop_vector_index(
-                            index_info['provider'], 
-                            index_info['model'], 
-                            index_info['dims'], 
+                            index_info['provider'],
+                            index_info['model'],
+                            index_info['dims'],
                             index_info['metric']
                         )
                         dropped_indexes.append(index_info)
                     except Exception as e:
                         logger.warning(f"Could not drop index {index_info['index_name']}: {e}")
-            
+
             # Execute the bulk operation
             result = operation_func(*args, **kwargs)
-            
+
             # Recreate dropped indexes
             if dropped_indexes:
                 logger.info(f"Recreating {len(dropped_indexes)} HNSW indexes after bulk operation")
                 for index_info in dropped_indexes:
                     try:
                         self.create_vector_index(
-                            index_info['provider'], 
-                            index_info['model'], 
-                            index_info['dims'], 
+                            index_info['provider'],
+                            index_info['model'],
+                            index_info['dims'],
                             index_info['metric']
                         )
                     except Exception as e:
                         logger.error(f"Failed to recreate index {index_info['index_name']}: {e}")
                         # Continue with other indexes
-            
+
             # Commit transaction
             self.connection.execute("COMMIT")
             logger.info("Bulk operation completed successfully with index management")
             return result
-            
+
         except Exception as e:
             # Rollback transaction on any error
             try:
@@ -557,27 +584,27 @@ class DuckDBProvider:
                 logger.info("Transaction rolled back due to error")
             except:
                 pass
-            
+
             # Attempt to recreate dropped indexes on failure
             if dropped_indexes:
                 logger.info("Attempting to recreate dropped indexes after failure")
                 for index_info in dropped_indexes:
                     try:
                         self.create_vector_index(
-                            index_info['provider'], 
-                            index_info['model'], 
-                            index_info['dims'], 
+                            index_info['provider'],
+                            index_info['model'],
+                            index_info['dims'],
                             index_info['metric']
                         )
                     except Exception as recreate_error:
                         logger.error(f"Failed to recreate index {index_info['index_name']}: {recreate_error}")
-            
+
             logger.error(f"Bulk operation failed: {e}")
             raise
 
     def insert_file(self, file: File) -> int:
         """Insert file record and return file ID.
-        
+
         If file with same path exists, updates metadata.
         """
         if self.connection is None:
@@ -606,7 +633,7 @@ class DuckDBProvider:
                 file.mtime,
                 file.language.value if file.language else None
             ]).fetchone()
-            
+
             return result[0] if result else 0
 
         except Exception as e:
@@ -652,7 +679,7 @@ class DuckDBProvider:
                     size_bytes=result[4],
                     language=Language(result[6]) if result[6] else Language.UNKNOWN
                 )
-            
+
             return file_dict
 
         except Exception as e:
@@ -692,7 +719,7 @@ class DuckDBProvider:
                     size_bytes=result[4],
                     language=Language(result[6]) if result[6] else Language.UNKNOWN
                 )
-            
+
             return file_dict
 
         except Exception as e:
@@ -701,7 +728,7 @@ class DuckDBProvider:
 
     def update_file(self, file_id: int, size_bytes: Optional[int] = None, mtime: Optional[float] = None) -> None:
         """Update file record with new values.
-        
+
         Args:
             file_id: ID of the file to update
             size_bytes: New file size in bytes
@@ -718,21 +745,21 @@ class DuckDBProvider:
             # Build dynamic update query
             set_clauses = []
             values = []
-            
+
             # Add size update if provided
             if size_bytes is not None:
                 set_clauses.append("size = ?")
                 values.append(size_bytes)
-                
+
             # Add timestamp update if provided
             if mtime is not None:
                 set_clauses.append("modified_time = to_timestamp(?)")
                 values.append(mtime)
-            
+
             if set_clauses:
                 set_clauses.append("updated_at = CURRENT_TIMESTAMP")
                 values.append(file_id)
-                
+
                 query = f"UPDATE files SET {', '.join(set_clauses)} WHERE id = ?"
                 self.connection.execute(query, values)
 
@@ -758,7 +785,7 @@ class DuckDBProvider:
             # Delete from all embedding tables
             for table_name in self._get_all_embedding_tables():
                 self.connection.execute(f"""
-                    DELETE FROM {table_name} 
+                    DELETE FROM {table_name}
                     WHERE chunk_id IN (SELECT id FROM chunks WHERE file_id = ?)
                 """, [file_id])
 
@@ -782,7 +809,7 @@ class DuckDBProvider:
 
         try:
             result = self.connection.execute("""
-                INSERT INTO chunks (file_id, chunk_type, symbol, code, start_line, end_line, 
+                INSERT INTO chunks (file_id, chunk_type, symbol, code, start_line, end_line,
                                   start_byte, end_byte, size, signature, language)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 RETURNING id
@@ -799,7 +826,7 @@ class DuckDBProvider:
                 getattr(chunk, 'signature', None),
                 chunk.language.value if chunk.language else None
             ]).fetchone()
-            
+
             return result[0] if result else 0
 
         except Exception as e:
@@ -816,11 +843,11 @@ class DuckDBProvider:
 
         # Initialize batch data before try block
         batch_data = []
-        
+
         try:
             # Optimize settings for bulk loading
             self.connection.execute("SET preserve_insertion_order = false")
-            
+
             # Prepare batch data
             for chunk in chunks:
                 batch_data.append([
@@ -847,11 +874,11 @@ class DuckDBProvider:
             # Get the inserted IDs by querying the last inserted rows
             result_count = len(chunks)
             results = self.connection.execute(f"""
-                SELECT id FROM chunks 
-                ORDER BY id DESC 
+                SELECT id FROM chunks
+                ORDER BY id DESC
                 LIMIT {result_count}
             """).fetchall()
-            
+
             # Return IDs in correct order (oldest first)
             return [result[0] for result in reversed(results)]
 
@@ -903,7 +930,7 @@ class DuckDBProvider:
                     end_byte=result[8],
                     language=Language(result[11]) if result[11] else Language.UNKNOWN
                 )
-            
+
             return chunk_dict
 
         except Exception as e:
@@ -973,7 +1000,7 @@ class DuckDBProvider:
             # Delete from all embedding tables
             for table_name in self._get_all_embedding_tables():
                 self.connection.execute(f"""
-                    DELETE FROM {table_name} 
+                    DELETE FROM {table_name}
                     WHERE chunk_id IN (SELECT id FROM chunks WHERE file_id = ?)
                 """, [file_id])
 
@@ -996,19 +1023,19 @@ class DuckDBProvider:
             # Build dynamic update query
             set_clauses = []
             values = []
-            
+
             valid_fields = ["chunk_type", "name", "content", "start_line", "end_line",
                           "start_byte", "end_byte", "signature", "language"]
-            
+
             for key, value in kwargs.items():
                 if key in valid_fields:
                     set_clauses.append(f"{key} = ?")
                     values.append(value)
-            
+
             if set_clauses:
                 set_clauses.append("updated_at = CURRENT_TIMESTAMP")
                 values.append(chunk_id)
-                
+
                 query = f"UPDATE chunks SET {', '.join(set_clauses)} WHERE id = ?"
                 self.connection.execute(query, values)
 
@@ -1045,7 +1072,7 @@ class DuckDBProvider:
                 padded_vector,
                 embedding.dims
             ])
-            
+
             embedding_id = result.fetchone()[0]
             logger.debug(f"Inserted embedding {embedding_id} for chunk {embedding.chunk_id}")
             return embedding_id
@@ -1082,14 +1109,14 @@ class DuckDBProvider:
         # Auto-detect embedding dimensions from first embedding
         first_vector = embeddings_data[0]['embedding']
         detected_dims = len(first_vector)
-        
+
         # Validate all embeddings have the same dimensions
         for i, embedding_data in enumerate(embeddings_data):
             vector = embedding_data['embedding']
             if len(vector) != detected_dims:
                 raise ValueError(f"Embedding vector {i} has {len(vector)} dimensions, "
                                f"expected {detected_dims} (detected from first embedding)")
-        
+
         # Ensure appropriate table exists for these dimensions
         table_name = self._ensure_embedding_table_exists(detected_dims)
         logger.debug(f"Using table {table_name} for {detected_dims}-dimensional embeddings")
@@ -1117,13 +1144,13 @@ class DuckDBProvider:
                 logger.debug(f"📉 Dropping HNSW index to enable fast bulk insertions")
                 existing_indexes = self.get_existing_vector_indexes()
                 dropped_indexes = []
-                
+
                 for index_info in existing_indexes:
                     try:
                         self.drop_vector_index(
-                            index_info['provider'], 
-                            index_info['model'], 
-                            index_info['dims'], 
+                            index_info['provider'],
+                            index_info['model'],
+                            index_info['dims'],
                             index_info['metric']
                         )
                         dropped_indexes.append(index_info)
@@ -1208,9 +1235,9 @@ class DuckDBProvider:
                     for index_info in dropped_indexes:
                         try:
                             self.create_vector_index(
-                                index_info['provider'], 
-                                index_info['model'], 
-                                index_info['dims'], 
+                                index_info['provider'],
+                                index_info['model'],
+                                index_info['dims'],
                                 index_info['metric']
                             )
                             logger.debug(f"Recreated HNSW index: {index_info['index_name']}")
@@ -1275,7 +1302,7 @@ class DuckDBProvider:
             for table_name in embedding_tables:
                 result = self.connection.execute(f"""
                     SELECT id, chunk_id, provider, model, embedding, dims, created_at
-                    FROM {table_name} 
+                    FROM {table_name}
                     WHERE chunk_id = ? AND provider = ? AND model = ?
                 """, [chunk_id, provider, model]).fetchone()
 
@@ -1309,7 +1336,7 @@ class DuckDBProvider:
 
             results = self.connection.execute(f"""
                 SELECT DISTINCT chunk_id
-                FROM {table_name} 
+                FROM {table_name}
                 WHERE chunk_id IN ({placeholders}) AND provider = ? AND model = ?
             """, params).fetchall()
 
@@ -1334,10 +1361,10 @@ class DuckDBProvider:
             raise
 
     def search_semantic(
-        self, 
-        query_embedding: List[float], 
-        provider: str, 
-        model: str, 
+        self,
+        query_embedding: List[float],
+        provider: str,
+        model: str,
         limit: int = 10,
         threshold: Optional[float] = None
     ) -> List[Dict[str, Any]]:
@@ -1349,15 +1376,15 @@ class DuckDBProvider:
             # Detect dimensions from query embedding
             query_dims = len(query_embedding)
             table_name = self._get_table_name_for_dimensions(query_dims)
-            
+
             # Check if table exists for these dimensions
             if not self._table_exists(table_name):
                 logger.warning(f"No embeddings table found for {query_dims} dimensions ({table_name})")
                 return []
-            
+
             # Build query with dimension-specific table
             query = f"""
-                SELECT 
+                SELECT
                     c.id as chunk_id,
                     c.symbol,
                     c.code,
@@ -1372,14 +1399,14 @@ class DuckDBProvider:
                 JOIN files f ON c.file_id = f.id
                 WHERE e.provider = ? AND e.model = ?
             """
-            
+
             params = [query_embedding, provider, model]
-            
+
             if threshold is not None:
                 query += f" AND array_cosine_similarity(e.embedding, ?::FLOAT[{query_dims}]) >= ?"
                 params.append(query_embedding)
                 params.append(threshold)
-            
+
             query += " ORDER BY similarity DESC LIMIT ?"
             params.append(limit)
 
@@ -1411,7 +1438,7 @@ class DuckDBProvider:
 
         try:
             results = self.connection.execute("""
-                SELECT 
+                SELECT
                     c.id as chunk_id,
                     c.symbol,
                     c.code,
@@ -1455,9 +1482,9 @@ class DuckDBProvider:
         try:
             # Simple text search using LIKE operator
             search_pattern = f"%{query}%"
-            
+
             results = self.connection.execute("""
-                SELECT 
+                SELECT
                     c.id as chunk_id,
                     c.name,
                     c.content,
@@ -1500,7 +1527,7 @@ class DuckDBProvider:
             # Get counts from each table
             file_count = self.connection.execute("SELECT COUNT(*) FROM files").fetchone()[0]
             chunk_count = self.connection.execute("SELECT COUNT(*) FROM chunks").fetchone()[0]
-            
+
             # Count embeddings across all dimension-specific tables
             embedding_count = 0
             embedding_tables = self._get_all_embedding_tables()
@@ -1513,7 +1540,7 @@ class DuckDBProvider:
             for table_name in embedding_tables:
                 results = self.connection.execute(f"""
                     SELECT DISTINCT provider, model, COUNT(*) as count
-                    FROM {table_name} 
+                    FROM {table_name}
                     GROUP BY provider, model
                 """).fetchall()
                 provider_results.extend(results)
@@ -1600,15 +1627,15 @@ class DuckDBProvider:
             file_ids = set()
             dims = 0
             embedding_tables = self._get_all_embedding_tables()
-            
+
             for table_name in embedding_tables:
                 # Count embeddings for this provider/model in this table
                 count = self.connection.execute(f"""
-                    SELECT COUNT(*) FROM {table_name} 
+                    SELECT COUNT(*) FROM {table_name}
                     WHERE provider = ? AND model = ?
                 """, [provider, model]).fetchone()[0]
                 embedding_count += count
-                
+
                 # Get unique file IDs for this provider/model in this table
                 file_results = self.connection.execute(f"""
                     SELECT DISTINCT c.file_id
@@ -1617,11 +1644,11 @@ class DuckDBProvider:
                     WHERE e.provider = ? AND e.model = ?
                 """, [provider, model]).fetchall()
                 file_ids.update(result[0] for result in file_results)
-                
+
                 # Get dimensions (should be consistent across all tables for same provider/model)
                 if count > 0 and dims == 0:
                     dims_result = self.connection.execute(f"""
-                        SELECT DISTINCT dims FROM {table_name} 
+                        SELECT DISTINCT dims FROM {table_name}
                         WHERE provider = ? AND model = ?
                         LIMIT 1
                     """, [provider, model]).fetchone()
@@ -1658,7 +1685,7 @@ class DuckDBProvider:
                 # Get column names
                 column_names = [desc[0] for desc in self.connection.description]
                 return [dict(zip(column_names, row)) for row in results]
-            
+
             return []
 
         except Exception as e:
@@ -1669,69 +1696,69 @@ class DuckDBProvider:
         """Begin a database transaction."""
         if self.connection is None:
             raise RuntimeError("No database connection")
-        
+
         self.connection.execute("BEGIN TRANSACTION")
 
     def commit_transaction(self) -> None:
         """Commit the current transaction."""
         if self.connection is None:
             raise RuntimeError("No database connection")
-        
+
         self.connection.execute("COMMIT")
 
     def rollback_transaction(self) -> None:
         """Rollback the current transaction."""
         if self.connection is None:
             raise RuntimeError("No database connection")
-        
+
         self.connection.execute("ROLLBACK")
 
     async def process_file(self, file_path: Path, skip_embeddings: bool = False) -> Dict[str, Any]:
         """Process a file end-to-end: parse, chunk, and store in database.
-        
+
         Delegates to IndexingCoordinator for actual processing.
         """
         try:
             logger.info(f"Processing file: {file_path}")
-            
+
             # Check if file exists and is readable
             if not file_path.exists() or not file_path.is_file():
                 raise ValueError(f"File not found or not readable: {file_path}")
-            
+
             # Get file metadata
             stat = file_path.stat()
-        
+
             # Check if file needs to be reprocessed - delegate this logic to IndexingCoordinator
             # The code below remains for reference but is no longer used
             logger.debug(f"Delegating file processing to IndexingCoordinator: {file_path}")
-            
+
             # Use IndexingCoordinator to process the file
             if not self._indexing_coordinator:
                 raise RuntimeError("IndexingCoordinator not initialized")
-            
+
             # Delegate to IndexingCoordinator for parsing and chunking
             # This will handle the complete file processing through the service layer
             if self._indexing_coordinator is None:
                 return {"status": "error", "error": "Indexing coordinator not available"}
             return await self._indexing_coordinator.process_file(file_path, skip_embeddings=skip_embeddings)
-            
+
             # Note: Embedding generation is now handled by the IndexingCoordinator
             # This code is kept for backward compatibility with legacy tests
             # Note: All embedding and chunk processing is now handled by the IndexingCoordinator
             # This provider now acts purely as a delegation layer to the service architecture
-            
+
             # Delegate file processing to IndexingCoordinator and return its result directly
             return await self._indexing_coordinator.process_file(file_path, skip_embeddings=skip_embeddings)
-            
+
         except Exception as e:
             logger.error(f"Failed to process file {file_path}: {e}")
             return {"status": "error", "error": str(e), "chunks": 0}
 
     async def process_file_incremental(self, file_path: Path) -> Dict[str, Any]:
         """Process a file with incremental parsing and differential chunking.
-        
+
         Uses the IndexingCoordinator for parsing, chunking, and embeddings.
-        
+
         Note: This method always fully reprocesses a file when it has been modified.
         True incremental (partial) processing is not yet implemented.
         """
@@ -1740,17 +1767,17 @@ class DuckDBProvider:
             if not file_path.exists() or not file_path.is_file():
                 logger.debug(f"Incremental processing - File not found: {file_path}")
                 return {"status": "error", "error": f"File not found: {file_path}", "chunks": 0, "incremental": True}
-                
+
             # Get existing file record to determine if this is new or updated
             existing_file = self.get_file_by_path(str(file_path))
             logger.debug(f"Incremental processing - Existing file record: {existing_file is not None}")
-            
+
             # Check for up-to-date file based on modification time
             if existing_file:
                 file_stat = file_path.stat()
                 current_mtime = file_stat.st_mtime
                 logger.debug(f"Incremental processing - Current file mtime: {current_mtime}")
-                
+
                 # Get timestamp from existing file record
                 if isinstance(existing_file, dict):
                     # Try different possible timestamp field names
@@ -1766,11 +1793,11 @@ class DuckDBProvider:
                                 existing_mtime = timestamp_value.timestamp()
                                 logger.debug(f"Incremental processing - Found timestamp object in field '{field}': {existing_mtime}")
                                 break
-                    
+
                     if existing_mtime is None:
                         existing_mtime = 0.0
                         logger.debug(f"Incremental processing - No valid timestamp found, using default: {existing_mtime}")
-                        
+
                     # Check if file is unchanged (use larger tolerance for filesystem timestamp variations)
                     time_diff = abs(existing_mtime - current_mtime)
                     logger.debug(f"Incremental processing - Time difference: {time_diff} (tolerance: 1.0)")
@@ -1781,13 +1808,13 @@ class DuckDBProvider:
                         if self.connection is None:
                             return {"status": "error", "error": "Database not connected"}
                         chunks_count = self.connection.execute(
-                            "SELECT COUNT(*) FROM chunks WHERE file_id = ?", 
+                            "SELECT COUNT(*) FROM chunks WHERE file_id = ?",
                             [file_id]
                         ).fetchone()[0]
                         logger.debug(f"Incremental processing - File unchanged, found {chunks_count} existing chunks")
-                        
+
                         return {
-                            "status": "up_to_date", 
+                            "status": "up_to_date",
                             "file_id": file_id,
                             "chunks": chunks_count,
                             "chunks_unchanged": chunks_count,
@@ -1797,7 +1824,7 @@ class DuckDBProvider:
                             "embeddings": 0,
                             "incremental": True
                         }
-                
+
             # Initialize services if needed
             if not hasattr(self, '_services_initialized') or not self._services_initialized:
                 try:
@@ -1805,23 +1832,23 @@ class DuckDBProvider:
                     self._services_initialized = True
                 except Exception as e:
                     logger.error(f"Failed to initialize services: {e}")
-            
+
             # Check if IndexingCoordinator is available
             if not hasattr(self, '_indexing_coordinator') or self._indexing_coordinator is None:
                 # Fallback to direct processing without coordinator
                 logger.warning("Using fallback direct processing - IndexingCoordinator not available")
                 return await self._fallback_process_file(file_path)
-                
+
             # Delegate to IndexingCoordinator for processing
             logger.debug(f"Incremental processing - Delegating to IndexingCoordinator: {file_path}")
             result = await self._indexing_coordinator.process_file(file_path, skip_embeddings=False)
             logger.debug(f"Incremental processing - IndexingCoordinator result: {result.get('status', 'unknown')}")
-            
+
             # Transform result to match incremental processing API
             if result.get("status") == "success":
                 chunks_count = result.get("chunks", 0)
                 logger.debug(f"Incremental processing - Successfully processed with {chunks_count} chunks")
-                
+
                 # Get the file ID from result or existing file
                 file_id = result.get("file_id")
                 if not file_id and existing_file and isinstance(existing_file, dict) and "id" in existing_file:
@@ -1829,7 +1856,7 @@ class DuckDBProvider:
                     logger.debug(f"Incremental processing - Using existing file_id: {file_id}")
                 else:
                     logger.debug(f"Incremental processing - Using new file_id: {file_id}")
-                
+
                 # For modified files, handle the chunk differential
                 chunks_deleted = 0
                 if existing_file:
@@ -1838,23 +1865,23 @@ class DuckDBProvider:
                     try:
                         if self.connection is None:
                             return {"status": "error", "error": "Database not connected"}
-                        
+
                         # Always consider it a modified file if it exists in database
                         # Update modification time in database to match current file
                         file_stat = file_path.stat()
                         current_mtime = file_stat.st_mtime
                         file_id = existing_file["id"] if isinstance(existing_file, dict) else existing_file.id
-                        
+
                         chunks_deleted = self.connection.execute(
-                            "SELECT COUNT(*) FROM chunks WHERE file_id = ?", 
+                            "SELECT COUNT(*) FROM chunks WHERE file_id = ?",
                             [file_id]
                         ).fetchone()[0]
                         logger.debug(f"Incremental processing - Found {chunks_deleted} existing chunks to replace")
-                        
+
                         # Update file metadata to reflect current state
                         self.update_file(file_id, size_bytes=file_stat.st_size, mtime=current_mtime)
                         logger.debug(f"Incremental processing - Updated file metadata: size={file_stat.st_size}, mtime={current_mtime}")
-                        
+
                         # Delete old chunks now that we've counted them
                         if file_id is not None:
                             logger.debug(f"Incremental processing - Deleting old chunks for file_id: {file_id}")
@@ -1863,7 +1890,7 @@ class DuckDBProvider:
                         logger.warning(f"Error counting existing chunks: {e}")
                 else:
                     logger.debug(f"Incremental processing - Processing new file: {file_path}")
-                
+
                 return {
                     "status": "success",
                     "file_id": file_id,
@@ -1884,13 +1911,13 @@ class DuckDBProvider:
                     if self.connection is None:
                         return {"status": "error", "error": "Database not connected"}
                     chunks_count = self.connection.execute(
-                        "SELECT COUNT(*) FROM chunks WHERE file_id = ?", 
+                        "SELECT COUNT(*) FROM chunks WHERE file_id = ?",
                         [file_id]
                     ).fetchone()[0]
                     logger.debug(f"Incremental processing - Up-to-date file has {chunks_count} chunks")
-                    
+
                     return {
-                        "status": "up_to_date", 
+                        "status": "up_to_date",
                         "file_id": file_id,
                         "chunks": chunks_count,
                         "chunks_unchanged": chunks_count,
@@ -1912,17 +1939,17 @@ class DuckDBProvider:
                 logger.debug(f"Incremental processing - Other status received: {result.get('status')}")
                 result["incremental"] = True
                 return result
-            
+
         except Exception as e:
             logger.error(f"Failed to process file incrementally {file_path}: {e}")
             return {"status": "error", "error": str(e), "chunks": 0, "incremental": True}
-            
+
     async def _fallback_process_file(self, file_path: Path) -> Dict[str, Any]:
         """Fallback implementation when IndexingCoordinator is unavailable.
-        
+
         Args:
             file_path: Path to the file to process
-            
+
         Returns:
             Dictionary with processing results
         """
@@ -1930,7 +1957,7 @@ class DuckDBProvider:
             # Validate file exists and is readable
             if not file_path.exists() or not file_path.is_file():
                 return {"status": "error", "error": f"File not found: {file_path}", "chunks": 0}
-            
+
             # Detect language from extension
             suffix = file_path.suffix.lower()
             language_map = {
@@ -1944,15 +1971,15 @@ class DuckDBProvider:
                 '.md': 'markdown',
                 '.markdown': 'markdown',
             }
-            
+
             language = language_map.get(suffix)
             if not language:
                 return {"status": "skipped", "reason": "unsupported_type", "chunks": 0}
-            
+
             # Get file information
             file_stat = file_path.stat()
             existing_file = self.get_file_by_path(str(file_path))
-            
+
             # Check if file is up to date
             if existing_file:
                 # Extract timestamp based on object type
@@ -1969,12 +1996,12 @@ class DuckDBProvider:
                             elif hasattr(timestamp_value, "timestamp"):
                                 existing_mtime = timestamp_value.timestamp()
                             break
-                
+
                 if existing_mtime and abs(existing_mtime - file_stat.st_mtime) < 0.01:
                     file_id = self._extract_file_id(existing_file)
                     if file_id is not None and self.connection is not None:
                         chunks_count = self.connection.execute(
-                            "SELECT COUNT(*) FROM chunks WHERE file_id = ?", 
+                            "SELECT COUNT(*) FROM chunks WHERE file_id = ?",
                             [file_id]
                         ).fetchone()[0]
                         return {
@@ -1986,7 +2013,7 @@ class DuckDBProvider:
                         "chunks_deleted": 0,
                         "incremental": True
                     }
-                    
+
             # Cannot process file without proper parsing/chunking services
             # Return a meaningful error that won't crash the system
             return {
@@ -2000,27 +2027,27 @@ class DuckDBProvider:
             return {"status": "error", "error": str(e), "chunks": 0, "incremental": True}
 
     async def process_directory(
-        self, 
-        directory: Path, 
-        patterns: Optional[List[str]] = None, 
+        self,
+        directory: Path,
+        patterns: Optional[List[str]] = None,
         exclude_patterns: Optional[List[str]] = None
     ) -> Dict[str, Any]:
         """Process all supported files in a directory."""
         try:
             if patterns is None:
                 patterns = ["**/*.py", "**/*.java", "**/*.cs", "**/*.ts", "**/*.js", "**/*.tsx", "**/*.jsx", "**/*.md", "**/*.markdown"]
-    
+
             files_processed = 0
             total_chunks = 0
             total_embeddings = 0
             errors = []
-    
+
             # Find files matching patterns
             all_files = []
             for pattern in patterns:
                 files = list(directory.glob(pattern))
                 all_files.extend(files)
-    
+
             # Remove duplicates and filter out excluded patterns
             unique_files = list(set(all_files))
             if exclude_patterns:
@@ -2034,23 +2061,23 @@ class DuckDBProvider:
                     if not exclude:
                         filtered_files.append(file_path)
                 unique_files = filtered_files
-    
+
             logger.info(f"Processing {len(unique_files)} files in {directory}")
-    
+
             # Process each file
             for file_path in unique_files:
                 try:
                     # Ensure service layer is initialized
                     if not self._indexing_coordinator:
                         self._initialize_shared_instances()
-                    
+
                     if not self._indexing_coordinator:
                         errors.append(f"{file_path}: IndexingCoordinator not available")
                         continue
-                        
+
                     # Delegate to IndexingCoordinator for file processing
                     result = await self._indexing_coordinator.process_file(file_path, skip_embeddings=False)
-            
+
                     if result["status"] == "success":
                         files_processed += 1
                         total_chunks += result.get("chunks", 0)
@@ -2058,12 +2085,12 @@ class DuckDBProvider:
                     elif result["status"] == "error":
                         errors.append(f"{file_path}: {result.get('error', 'Unknown error')}")
                     # Skip files with status "up_to_date", "skipped", etc.
-            
+
                 except Exception as e:
                     error_msg = f"{file_path}: {str(e)}"
                     errors.append(error_msg)
                     logger.error(f"Error processing {file_path}: {e}")
-    
+
             result = {
                 "status": "success",
                 "files_processed": files_processed,
@@ -2071,16 +2098,16 @@ class DuckDBProvider:
                 "total_chunks": total_chunks,
                 "total_embeddings": total_embeddings
             }
-    
+
             if errors:
                 result["errors"] = errors
                 result["error_count"] = len(errors)
-    
+
             logger.info(f"Directory processing complete: {files_processed}/{len(unique_files)} files, "
                        f"{total_chunks} chunks, {total_embeddings} embeddings")
-    
+
             return result
-    
+
         except Exception as e:
             logger.error(f"Failed to process directory {directory}: {e}")
             return {"status": "error", "error": str(e), "files_processed": 0}
@@ -2106,18 +2133,18 @@ class DuckDBProvider:
             if self.connection is None:
                 status["errors"].append("Database connection is None")
                 return status
-                
+
             # Get DuckDB version
             version_result = self.connection.execute("SELECT version()").fetchone()
             status["version"] = version_result[0] if version_result else "unknown"
 
             # Check if VSS extension is loaded
             extensions_result = self.connection.execute("""
-                SELECT extension_name, loaded 
-                FROM duckdb_extensions() 
+                SELECT extension_name, loaded
+                FROM duckdb_extensions()
                 WHERE extension_name = 'vss'
             """).fetchone()
-            
+
             if extensions_result:
                 status["extensions"].append({
                     "name": extensions_result[0],
@@ -2126,10 +2153,10 @@ class DuckDBProvider:
 
             # Check if tables exist
             tables_result = self.connection.execute("""
-                SELECT table_name FROM information_schema.tables 
+                SELECT table_name FROM information_schema.tables
                 WHERE table_schema = 'main' AND table_type = 'BASE TABLE'
             """).fetchall()
-            
+
             status["tables"] = [table[0] for table in tables_result]
 
             # Basic functionality test

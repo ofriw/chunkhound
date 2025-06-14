@@ -4,6 +4,8 @@
 
 ChunkHound indexes your code and lets AI assistants search it intelligently. It uses Tree-Sitter to parse code and DuckDB for search. Everything is done fully locally.
 
+
+
 ## Quick Start
 
 ```bash
