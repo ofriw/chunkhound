@@ -30,7 +30,7 @@ EmbeddingVector = List[float]              # Vector embedding representation
 
 class ChunkType(Enum):
     """Enumeration of semantic chunk types supported by ChunkHound."""
-    
+
     # Code structure types
     FUNCTION = "function"
     METHOD = "method"
@@ -43,7 +43,7 @@ class ChunkType(Enum):
     PROPERTY = "property"
     FIELD = "field"
     TYPE_ALIAS = "type_alias"
-    
+
     # Documentation types
     HEADER_1 = "header_1"
     HEADER_2 = "header_2"
@@ -53,11 +53,11 @@ class ChunkType(Enum):
     HEADER_6 = "header_6"
     PARAGRAPH = "paragraph"
     CODE_BLOCK = "code_block"
-    
+
     # Generic types
     BLOCK = "block"
     UNKNOWN = "unknown"
-    
+
     @classmethod
     def from_string(cls, value: str) -> "ChunkType":
         """Convert string to ChunkType enum, defaulting to UNKNOWN for invalid values."""
@@ -65,7 +65,7 @@ class ChunkType(Enum):
             return cls(value)
         except ValueError:
             return cls.UNKNOWN
-    
+
     @property
     def is_code(self) -> bool:
         """Return True if this chunk type represents code structure."""
@@ -74,12 +74,12 @@ class ChunkType(Enum):
             self.STRUCT, self.ENUM, self.NAMESPACE, self.CONSTRUCTOR,
             self.PROPERTY, self.FIELD, self.TYPE_ALIAS, self.BLOCK
         }
-    
+
     @property
     def is_documentation(self) -> bool:
         """Return True if this chunk type represents documentation."""
         return self in {
-            self.HEADER_1, self.HEADER_2, self.HEADER_3, 
+            self.HEADER_1, self.HEADER_2, self.HEADER_3,
             self.HEADER_4, self.HEADER_5, self.HEADER_6,
             self.PARAGRAPH, self.CODE_BLOCK
         }
@@ -87,7 +87,7 @@ class ChunkType(Enum):
 
 class Language(Enum):
     """Enumeration of programming languages and file types supported by ChunkHound."""
-    
+
     # Programming languages
     PYTHON = "python"
     JAVA = "java"
@@ -96,35 +96,62 @@ class Language(Enum):
     JAVASCRIPT = "javascript"
     TSX = "tsx"
     JSX = "jsx"
-    
+
     # Documentation languages
     MARKDOWN = "markdown"
-    
+
+    # Configuration & Data formats
+    JSON = "json"
+    YAML = "yaml"
+    XML = "xml"
+    TOML = "toml"
+    INI = "ini"
+
+    # Web technologies
+    HTML = "html"
+    CSS = "css"
+
+    # Text formats
+    TEXT = "text"
+    SQL = "sql"
+
+    # Shell scripts
+    SHELL = "shell"
+    BATCH = "batch"
+
     # Generic/unknown
     UNKNOWN = "unknown"
-    
+
     @classmethod
     def from_file_extension(cls, file_path: Union[str, Path]) -> "Language":
         """Determine language from file extension."""
         if isinstance(file_path, str):
             file_path = Path(file_path)
-        
+
         extension = file_path.suffix.lower()
-        
+
         extension_map = {
-            '.py': cls.PYTHON,
+            '.py': cls.PYTHON, '.pyw': cls.PYTHON,
             '.java': cls.JAVA,
             '.cs': cls.CSHARP,
-            '.ts': cls.TYPESCRIPT,
-            '.js': cls.JAVASCRIPT,
-            '.tsx': cls.TSX,
-            '.jsx': cls.JSX,
-            '.md': cls.MARKDOWN,
-            '.markdown': cls.MARKDOWN,
+            '.ts': cls.TYPESCRIPT, '.tsx': cls.TSX,
+            '.js': cls.JAVASCRIPT, '.jsx': cls.JSX,
+            '.md': cls.MARKDOWN, '.markdown': cls.MARKDOWN,
+            '.rst': cls.TEXT, '.txt': cls.TEXT,
+            '.json': cls.JSON,
+            '.yaml': cls.YAML, '.yml': cls.YAML,
+            '.xml': cls.XML,
+            '.toml': cls.TOML,
+            '.ini': cls.INI, '.cfg': cls.INI,
+            '.html': cls.HTML, '.htm': cls.HTML,
+            '.css': cls.CSS,
+            '.sql': cls.SQL,
+            '.sh': cls.SHELL, '.bash': cls.SHELL,
+            '.bat': cls.BATCH, '.cmd': cls.BATCH,
         }
-        
+
         return extension_map.get(extension, cls.UNKNOWN)
-    
+
     @classmethod
     def from_string(cls, value: str) -> "Language":
         """Convert string to Language enum, defaulting to UNKNOWN for invalid values."""
@@ -132,22 +159,22 @@ class Language(Enum):
             return cls(value)
         except ValueError:
             return cls.UNKNOWN
-    
+
     @property
     def is_programming_language(self) -> bool:
         """Return True if this is a programming language (not documentation)."""
         return self in {
             self.PYTHON, self.JAVA, self.CSHARP, self.TYPESCRIPT,
-            self.JAVASCRIPT, self.TSX, self.JSX
+            self.JAVASCRIPT, self.TSX, self.JSX, self.SQL, self.SHELL, self.BATCH
         }
-    
+
     @property
     def supports_classes(self) -> bool:
         """Return True if this language supports class definitions."""
         return self in {
             self.PYTHON, self.JAVA, self.CSHARP, self.TYPESCRIPT, self.TSX
         }
-    
+
     @property
     def supports_interfaces(self) -> bool:
         """Return True if this language supports interface definitions."""

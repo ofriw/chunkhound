@@ -26,6 +26,21 @@ if is_mcp_command():
         if db_index + 1 < len(sys.argv):
             db_path = Path(sys.argv[db_index + 1])
 
+    # Parse watch path
+    watch_path = None
+    if "--watch" in sys.argv:
+        watch_index = sys.argv.index("--watch")
+        if watch_index + 1 < len(sys.argv):
+            watch_path = Path(sys.argv[watch_index + 1])
+
+    # Set database path for MCP server (must be set for all execution paths)
+    os.environ["CHUNKHOUND_DB_PATH"] = str(db_path)
+
+    # Set watch path for MCP server if provided
+    if watch_path:
+        os.environ["CHUNKHOUND_WATCH_PATHS"] = str(watch_path)
+        os.environ["CHUNKHOUND_WATCH_ENABLED"] = "1"
+
     # Determine if we're running from a PyInstaller bundle
     def is_pyinstaller_bundle():
         return hasattr(sys, '_MEIPASS') or hasattr(sys, 'frozen')
@@ -35,8 +50,6 @@ if is_mcp_command():
         # In PyInstaller, sys.executable points to the binary, not Python
         # So we can't use subprocess to run Python scripts reliably
         # Instead, run the MCP server directly in the same process
-        os.environ["CHUNKHOUND_DB_PATH"] = str(db_path)
-
         try:
             from chunkhound.mcp_entry import main_sync
             main_sync()
@@ -64,7 +77,6 @@ if is_mcp_command():
                 break
         else:
             # If we still can't find it, run the MCP server directly
-            os.environ["CHUNKHOUND_DB_PATH"] = str(db_path)
             try:
                 from chunkhound.mcp_entry import main_sync
                 main_sync()

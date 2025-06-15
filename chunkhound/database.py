@@ -4,7 +4,7 @@ This is a compatibility wrapper that delegates operations to the new modular ser
 The original monolithic Database class (2055 lines) has been moved to database_legacy.py.
 This new implementation reduces the Database class to ~150 lines by delegating to:
 - DuckDBProvider for database operations
-- IndexingCoordinator for file processing workflows  
+- IndexingCoordinator for file processing workflows
 - SearchService for semantic and regex search
 - EmbeddingService for vector operations
 
@@ -30,7 +30,7 @@ from .file_discovery_cache import FileDiscoveryCache
 
 class Database:
     """Database connection manager - delegates to service layer.
-    
+
     This is a compatibility wrapper that maintains the original Database API
     while delegating operations to the new modular service layer architecture.
     """
@@ -44,22 +44,22 @@ class Database:
         """
         self._db_path = db_path
         self.embedding_manager = embedding_manager
-        
+
         # Initialize service layer via registry
         self._provider = DuckDBProvider(db_path, embedding_manager)
-        
+
         # Configure registry with database provider
         registry = get_registry()
         registry.register_provider("database", lambda: self._provider, singleton=True)
-        
+
         # Create services via registry (includes language parser setup)
         self._indexing_coordinator = create_indexing_coordinator()
         self._search_service = create_search_service()
         self._embedding_service = create_embedding_service()
-        
+
         # Legacy compatibility: expose provider connection as self.connection
         self.connection = None  # Will be set after connect()
-        
+
         # Legacy compatibility: shared chunker instances
         self._chunker: Optional[Chunker] = None
         self._incremental_chunker: Optional[IncrementalChunker] = None
@@ -68,20 +68,20 @@ class Database:
     def connect(self) -> None:
         """Connect to DuckDB and load required extensions."""
         logger.info(f"Connecting to database via service layer: {self.db_path}")
-        
+
         # Connect via provider
         self._provider.connect()
-        
+
         # Expose connection for legacy compatibility
         self.connection = self._provider.connection
-        
+
         # Initialize legacy shared instances for backward compatibility
         if not self._chunker:
             self._chunker = Chunker()
-            
+
         if not self._incremental_chunker:
             self._incremental_chunker = IncrementalChunker()
-        
+
         logger.info("✅ Database connected via service layer")
 
     def close(self) -> None:
@@ -100,14 +100,14 @@ class Database:
 
     async def process_file(self, file_path: Path, skip_embeddings: bool = False) -> Dict[str, Any]:
         """Process a file end-to-end: parse, chunk, and store in database.
-        
+
         Delegates to IndexingCoordinator for actual processing.
         """
         return await self._indexing_coordinator.process_file(file_path, skip_embeddings)
 
     async def process_file_incremental(self, file_path: Path) -> Dict[str, Any]:
         """Process a file with incremental parsing and differential chunking.
-        
+
         Note: True incremental processing not yet implemented in service layer.
         This delegates to the provider's incremental processing method.
         """
@@ -115,12 +115,12 @@ class Database:
 
     async def process_directory(self, directory: Path, patterns: Optional[List[str]] = None, exclude_patterns: Optional[List[str]] = None) -> Dict[str, Any]:
         """Process all supported files in a directory.
-        
+
         Delegates to IndexingCoordinator for actual processing.
         """
         if patterns is None:
             patterns = ["**/*.py", "**/*.java", "**/*.cs", "**/*.ts", "**/*.js", "**/*.tsx", "**/*.jsx", "**/*.md", "**/*.markdown"]
-        
+
         return await self._indexing_coordinator.process_directory(directory, patterns, exclude_patterns)
 
     # =============================================================================
@@ -129,20 +129,20 @@ class Database:
 
     def search_semantic(self, query_vector: List[float], provider: str, model: str, limit: int = 10, threshold: Optional[float] = None) -> List[Dict[str, Any]]:
         """Perform semantic similarity search.
-        
+
         Delegates to provider for actual search.
         """
         return self._provider.search_semantic(
             query_embedding=query_vector,
             provider=provider,
-            model=model, 
+            model=model,
             limit=limit,
             threshold=threshold
         )
 
     def search_regex(self, pattern: str, limit: int = 50) -> List[Dict[str, Any]]:
         """Search code chunks using regex pattern.
-        
+
         Delegates to SearchService for actual search.
         """
         return self._search_service.search_regex(pattern=pattern, limit=limit)
@@ -160,13 +160,13 @@ class Database:
         result = self._provider.get_file_by_path(file_path, as_model=False)
         return result if isinstance(result, dict) else None
 
-    def insert_file(self, file_or_path: Union[str, dict], mtime: Optional[float] = None, 
+    def insert_file(self, file_or_path: Union[str, dict], mtime: Optional[float] = None,
                    language: Optional[str] = None, size_bytes: Optional[int] = None) -> int:
         """Insert a new file record."""
         # Import here to avoid circular dependency
         from core.models import File
         from core.types import Language, FilePath, Timestamp
-        
+
         if isinstance(file_or_path, str):
             file_model = File(
                 path=FilePath(file_or_path),
@@ -184,15 +184,15 @@ class Database:
             )
         return self._provider.insert_file(file_model)
 
-    def insert_chunk(self, chunk_or_file_id: Union[int, dict], symbol: Optional[str] = None, 
-                    start_line: Optional[int] = None, end_line: Optional[int] = None, 
-                    code: Optional[str] = None, chunk_type: Optional[str] = None, 
+    def insert_chunk(self, chunk_or_file_id: Union[int, dict], symbol: Optional[str] = None,
+                    start_line: Optional[int] = None, end_line: Optional[int] = None,
+                    code: Optional[str] = None, chunk_type: Optional[str] = None,
                     language_info: Optional[str] = None, parent_header: Optional[str] = None) -> int:
         """Insert a new chunk record."""
         # Import here to avoid circular dependency
         from core.models import Chunk
         from core.types import ChunkType, Language, FileId, LineNumber
-        
+
         if isinstance(chunk_or_file_id, int):
             chunk_model = Chunk(
                 file_id=FileId(chunk_or_file_id),
@@ -230,10 +230,10 @@ class Database:
 
     def delete_file_completely(self, file_path: str) -> bool:
         """Delete a file and all its chunks/embeddings completely.
-        
+
         Args:
             file_path: Path to file to delete completely
-            
+
         Returns:
             True if deletion successful, False otherwise
         """
@@ -282,11 +282,46 @@ class Database:
             return False
 
     def reconnect(self) -> bool:
-        """Reconnect database after coordination."""
+        """Reconnect database after coordination with transaction control."""
         try:
+            # Fully disconnect first to ensure clean state
+            if hasattr(self, "_provider") and self._provider:
+                self._provider.disconnect()
+            self.connection = None
+
+            # Brief pause to ensure clean reconnection
+            import time
+            time.sleep(0.1)
+
+            # Reconnect with fresh connection
             self._provider.connect()
             self.connection = self._provider.connection
-            return True
+
+            # Validate connection with explicit transaction control
+            if self.connection:
+                try:
+                    # Begin a new transaction to ensure clean query state
+                    self.connection.execute("BEGIN TRANSACTION")
+
+                    # Execute a test query to validate connection
+                    test_result = self.connection.execute("SELECT COUNT(*) FROM chunks").fetchone()
+                    chunk_count = test_result[0] if test_result else 0
+                    logger.debug(f"Database reconnected successfully, found {chunk_count} chunks")
+
+                    # Commit the transaction to ensure clean state
+                    self.connection.execute("COMMIT")
+
+                except Exception as txn_e:
+                    logger.error(f"Transaction validation failed during reconnect: {txn_e}")
+                    # Try to clean up if transaction fails
+                    try:
+                        self.connection.execute("ROLLBACK")
+                    except:
+                        pass
+                    # Continue anyway as basic connection might still work
+
+            return self.connection is not None
+
         except Exception as e:
             logger.error(f"Failed to reconnect database: {e}")
             return False

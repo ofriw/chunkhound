@@ -1,0 +1,23 @@
+DELETE_TEST_FILE_SESSION4_UNIQUE_MARKER_20250614_164900
+
+This is a temporary test file created specifically for deletion testing
+in the structured QA validation of search tools.
+
+Test Markers:
+- DELETE_TEST_MARKER_SESSION4_001: Primary deletion test marker
+- DELETE_TEST_MARKER_SESSION4_002: Secondary deletion test marker
+- DELETE_TEST_MARKER_SESSION4_003: Tertiary deletion test marker
+
+Unique Content Block:
+DELETE_TEST_UNIQUE_CONTENT_BLOCK_SESSION4 = "This content should disappear from search results after file deletion"
+
+Test Patterns:
+- PATTERN_DELETE_TEST_ALPHA_SESSION4
+- PATTERN_DELETE_TEST_BETA_SESSION4
+- PATTERN_DELETE_TEST_GAMMA_SESSION4
+
+File Creation Time: 2025-06-14T16:49:00+03:00
+Purpose: Testing file deletion detection in search index
+Expected Behavior: After deletion, none of these markers should be findable via search
+
+END_DELETE_TEST_FILE_SESSION4_MARKER

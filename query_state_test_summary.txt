@@ -1,0 +1,14 @@
+
+QUERY STATE INCONSISTENCY TEST RESULTS
+
+Standard reconnect: 1 → 1 results
+Transaction reconnect: 1 → 1 → 1 results
+
+Modified database test:
+- Initial connection: 1 chunks
+- After CLI adds content: 2 chunks
+- Direct check: 2 chunks
+- Standard reconnect: 2 chunks
+- Transaction reconnect: 2 chunks
+
+CONCLUSION: Hypothesis NOT VALIDATED

@@ -1,0 +1,123 @@
+{
+  "timestamp": "2025-06-14T19:56:18.638268",
+  "hypothesis": "environment_isolation_causes_realtime_indexing_failure",
+  "cli_context": {
+    "database_path": "/Users/ofri/.cache/chunkhound/chunks.duckdb",
+    "database_exists": true,
+    "database_size": 25702400,
+    "working_directory": "/Users/ofri/Documents/GitHub/chunkhound",
+    "environment_variables": {
+      "CHUNKHOUND_DB_PATH": null,
+      "CHUNKHOUND_WATCH_PATHS": null,
+      "HOME": "/Users/ofri",
+      "PWD": "/Users/ofri/Documents/GitHub/chunkhound",
+      "PATH": "/Users/ofri/Documents/GitHub/chunkhound/.venv/bin:/usr/local/opt/node@22/bin:/Users/ofri/.local/bin:/Users/ofri/.codeium/windsurf/bin:/Users/ofri/.bun/bin:/Users/ofri/.wasmer/bin:/Users/ofri/.nvm/vers..."
+    },
+    "filesystem_access": {
+      "write": true,
+      "read": true,
+      "delete": true,
+      "error": null
+    },
+    "python_executable": "/Users/ofri/Documents/GitHub/chunkhound/.venv/bin/python",
+    "python_path": [
+      "/Users/ofri/Documents/GitHub/chunkhound",
+      "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python313.zip",
+      "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13"
+    ]
+  },
+  "mcp_context": {
+    "processes": [
+      "ofri              5729   0.0  0.7 34482776 111052   ??  S     7:45PM   0:02.45 /Users/ofri/Documents/GitHub/chunkhound/dist/chunkhound-macos-universal/chunkhound-optimized mcp --db /Users/ofri/Documents/GitHub/chunkhound/.chunkhound.db --watch /Users/ofri/Documents/GitHub/chunkhound"
+    ]
+  },
+  "comparison": {},
+  "database_analysis": {
+    "/Users/ofri/.cache/chunkhound/chunks.duckdb": {
+      "exists": true,
+      "size": 25702400,
+      "modified": "2025-06-14T18:49:49.845044",
+      "is_recent": false
+    },
+    "/Users/ofri/Documents/GitHub/chunkhound/.chunkhound.db": {
+      "exists": true,
+      "size": 370683904,
+      "modified": "2025-06-14T19:47:18.060490",
+      "is_recent": true
+    },
+    "/Users/ofri/Documents/GitHub/chunkhound/chunkhound.db": {
+      "exists": false
+    },
+    "/Users/ofri/.chunkhound/chunks.duckdb": {
+      "exists": false
+    }
+  },
+  "most_recent_database": "/Users/ofri/Documents/GitHub/chunkhound/.chunkhound.db",
+  "file_access_test": {
+    "/Users/ofri/Documents/GitHub/chunkhound/README.md": {
+      "exists": true,
+      "readable": true,
+      "size": 7126
+    },
+    "/Users/ofri/Documents/GitHub/chunkhound/pyproject.toml": {
+      "exists": true,
+      "readable": true,
+      "size": 3262
+    },
+    "/Users/ofri/Documents/GitHub/chunkhound/chunkhound/__init__.py": {
+      "exists": true,
+      "readable": true,
+      "size": 809
+    },
+    "/Users/ofri/Documents/GitHub/chunkhound/realtime_test_unique_2025_06_14_investigation.py": {
+      "exists": true,
+      "readable": true,
+      "size": 2265
+    }
+  },
+  "environment_analysis": {
+    "CHUNKHOUND_DB_PATH": {
+      "value": null,
+      "set": false,
+      "length": 0
+    },
+    "CHUNKHOUND_WATCH_PATHS": {
+      "value": null,
+      "set": false,
+      "length": 0
+    },
+    "HOME": {
+      "value": "/Users/ofri",
+      "set": true,
+      "length": 11
+    },
+    "PWD": {
+      "value": "/Users/ofri/Documents/GitHub/chunkhound",
+      "set": true,
+      "length": 39
+    },
+    "TMPDIR": {
+      "value": "/var/folders/b7/gfygtcl13wb33kxmhg05_kmh0000gn/T/",
+      "set": true,
+      "length": 49
+    },
+    "USER": {
+      "value": "ofri",
+      "set": true,
+      "length": 4
+    },
+    "SHELL": {
+      "value": "/bin/zsh",
+      "set": true,
+      "length": 8
+    }
+  },
+  "hypothesis_analysis": {
+    "database_path_divergence": false,
+    "working_directory_mismatch": false,
+    "environment_isolation": true,
+    "evidence": [
+      "CHUNKHOUND_DB_PATH not set - default path resolution may differ"
+    ]
+  }
+}

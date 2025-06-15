@@ -36,8 +36,11 @@ try:
     from loguru import logger as loguru_logger
     loguru_logger.remove()
     loguru_logger.add(lambda _: None, level="CRITICAL")
+    logger = loguru_logger
 except ImportError:
-    pass
+    # Create a minimal logger fallback
+    import logging
+    logger = logging.getLogger(__name__)
 
 try:
     from .database import Database
@@ -72,12 +75,24 @@ def _connection_refresh_worker():
         if _database and _database.is_connected():
             try:
                 # Brief disconnect/reconnect cycle
+                print(f"MCP_SERVER_DEBUG: Connection refresh cycle starting")
+                db_path = _database.db_path if hasattr(_database, 'db_path') else 'Unknown'
+                print(f"MCP_SERVER_DEBUG: Current database path: {db_path}")
 
                 _database.disconnect()
                 time.sleep(0.1)  # 100ms window for CLI access
                 _database.reconnect()
 
+                # Log stats after reconnection
+                try:
+                    stats = _database.get_stats()
+                    print(f"MCP_SERVER_DEBUG: Post-refresh database stats: {stats}")
+                except Exception as stats_e:
+                    print(f"MCP_SERVER_DEBUG: Failed to get stats after refresh: {stats_e}")
+
             except Exception as e:
+                # Log the error but continue
+                print(f"MCP_SERVER_DEBUG: Connection refresh error: {e}")
                 # Continue anyway - connection will be restored on next request
                 pass
 
@@ -86,11 +101,14 @@ def _start_connection_refresh():
     global _refresh_thread, _refresh_active
 
     if _refresh_thread and _refresh_thread.is_alive():
+        print("MCP_SERVER_DEBUG: Connection refresh thread already running")
         return
 
     _refresh_active = True
     _refresh_thread = threading.Thread(target=_connection_refresh_worker, daemon=True)
     _refresh_thread.start()
+    print(f"MCP_SERVER_DEBUG: Connection refresh thread started: {_refresh_thread.is_alive()}")
+
 
 
 def _stop_connection_refresh():
@@ -131,11 +149,21 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
         db_path = Path(os.environ.get("CHUNKHOUND_DB_PATH", Path.home() / ".cache" / "chunkhound" / "chunks.duckdb"))
         db_path.parent.mkdir(parents=True, exist_ok=True)
 
+        # DEBUG: Log database path information for QA testing bug investigation
+        print(f"MCP_SERVER_DEBUG: Using database path: {db_path} (absolute: {db_path.absolute()})")
+        print(f"MCP_SERVER_DEBUG: Database file exists: {db_path.exists()}")
+        if db_path.exists():
+            print(f"MCP_SERVER_DEBUG: Database file size: {db_path.stat().st_size} bytes")
+
         _database = Database(db_path)
         try:
             _database.connect()
+            # DEBUG: Log database connection and stats
+            print(f"MCP_SERVER_DEBUG: Database connected successfully")
+            print(f"MCP_SERVER_DEBUG: Database stats: {_database.get_stats() if _database else 'None'}")
 
         except Exception as db_exc:
+            print(f"MCP_SERVER_DEBUG: Database connection failed: {db_exc}")
             raise
 
         # Setup signal coordination for process coordination
@@ -159,12 +187,36 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
 
         # Initialize filesystem watcher with offline catch-up
         _file_watcher = FileWatcherManager()
-        # DISABLED: File watcher initialization causes IDE timeout due to recursive directory scanning
-        # The file watcher performs offline catch-up scanning which can take 20+ seconds on large directories
-        # This causes IDE context server timeouts, so we disable it for now
+
+        # Initialize file watcher with timeout protection to prevent IDE timeouts
+        try:
+            # Use asyncio.wait_for to prevent hanging during initialization
+            await asyncio.wait_for(
+                _file_watcher.initialize(process_file_change),
+                timeout=5.0  # 5 second timeout to prevent IDE issues
+            )
+            print("MCP_SERVER_DEBUG: File watcher initialized successfully")
+        except asyncio.TimeoutError:
+            print("MCP_SERVER_DEBUG: File watcher initialization timed out, continuing without real-time indexing")
+        except Exception as watcher_exc:
+            print(f"MCP_SERVER_DEBUG: File watcher initialization failed: {watcher_exc}")
+
+        # DEBUG: Check database state before yielding
+        db_path = _database.db_path if hasattr(_database, 'db_path') else 'Unknown'
+        print(f"MCP_SERVER_DEBUG: Pre-yield database path: {db_path}")
+        print(f"MCP_SERVER_DEBUG: Pre-yield database connected: {_database.is_connected() if _database else False}")
 
         # CONNECTION_REFRESH_FIX: Delay connection refresh to avoid IDE timeout interference
         yield {"db": _database, "embeddings": _embedding_manager, "watcher": _file_watcher}
+
+        # Force reconnection to ensure latest database state
+        print("MCP_SERVER_DEBUG: Post-yield forcing database reconnection")
+        if _database:
+            try:
+                _database.reconnect()
+                print(f"MCP_SERVER_DEBUG: Forced reconnection stats: {_database.get_stats()}")
+            except Exception as e:
+                print(f"MCP_SERVER_DEBUG: Forced reconnection failed: {e}")
 
         # Start connection refresh after successful handshake (1 second delay - IDE timeout fix)
         await asyncio.sleep(1.0)
@@ -205,18 +257,26 @@ async def process_file_change(file_path: Path, event_type: str):
     """
     global _database, _embedding_manager
 
+    # DEBUG: Always log callback invocation to trace execution
+    print(f"CALLBACK_DEBUG: process_file_change called at {time.time():.6f} - {event_type} {file_path}")
+
     if not _database:
+        print(f"CALLBACK_DEBUG: No database available, returning early")
         return
 
     processing_start = time.time()
     try:
+        print(f"CALLBACK_DEBUG: Processing started at {processing_start:.6f} - {event_type} {file_path}")
         logger.debug(f"TIMING: Processing started at {processing_start:.6f} - {event_type} {file_path}")
 
         if event_type == 'deleted':
             # Remove file from database with cleanup tracking
+            # Normalize path to handle symlinks consistently (resolve /var -> /private/var on macOS)
+            normalized_file_path = file_path.resolve()
             delete_start = time.time()
             logger.debug(f"TIMING: Delete operation started at {delete_start:.6f} - {file_path}")
-            result = _database.delete_file_completely(str(file_path))
+            logger.debug(f"TIMING: Normalized path for deletion: {normalized_file_path}")
+            result = _database.delete_file_completely(str(normalized_file_path))
             delete_end = time.time()
             logger.debug(f"TIMING: Delete completed at {delete_end:.6f} (took {delete_end - delete_start:.6f}s) - {file_path}")
             logger.debug(f"File deletion result: {result}")
@@ -250,11 +310,33 @@ async def process_file_change(file_path: Path, event_type: str):
                 process_end = time.time()
                 logger.debug(f"TIMING: Incremental processing completed at {process_end:.6f} (took {process_end - process_start:.6f}s) - {file_path}")
                 logger.debug(f"Incremental processing result: {result}")
+
+                # Check for errors and provide user notifications
+                if result.get("status") == "error":
+                    error_msg = result.get("error", "Unknown error")
+                    if result.get("rollback_performed"):
+                        logger.info(f"FILE INDEXING RECOVERED: {file_path} - Re-indexing failed but original content preserved: {error_msg}")
+                        print(f"INDEXING RECOVERED: {file_path} - Original content preserved after indexing failure")
+                    else:
+                        logger.error(f"FILE INDEXING FAILED: {file_path} - {error_msg}")
+                        print(f"INDEXING FAILED: {file_path} - {error_msg}")
+                elif result.get("status") == "critical_error":
+                    critical_error = result.get("error", "Unknown critical error")
+                    logger.error(f"CRITICAL INDEXING ERROR: {file_path} - {critical_error}")
+                    print(f"CRITICAL ERROR: {file_path} - Data may be lost - {critical_error}")
+                elif result.get("status") == "success" and result.get("transaction_safe"):
+                    chunks_inserted = result.get("chunks_inserted", 0)
+                    chunks_deleted = result.get("chunks_deleted", 0)
+                    logger.info(f"FILE INDEXING SUCCESS: {file_path} - {chunks_inserted} chunks indexed, {chunks_deleted} old chunks replaced")
     except Exception as e:
         # Log error but don't crash the MCP server
+        print(f"CALLBACK_DEBUG: Error in process_file_change: {e}")
         logger.error(f"Error processing file change {file_path} ({event_type}): {e}")
+        # Provide user-visible error notification
+        print(f"FILE PROCESSING ERROR: {file_path} - {str(e)}")
     finally:
         processing_end = time.time()
+        print(f"CALLBACK_DEBUG: Processing completed at {processing_end:.6f} (took {processing_end - processing_start:.6f}s)")
         logger.debug(f"TIMING: Total processing time: {processing_end - processing_start:.6f}s - {event_type} {file_path}")
 
 
@@ -282,9 +364,17 @@ async def call_tool(
         limit = max(1, min(arguments.get("limit", 10), 100))
 
         try:
+            # Force reconnection to ensure latest database state
+            print(f"MCP_SERVER_DEBUG: Refreshing database connection for search_regex")
+            _database.reconnect()
+
             results = _database.search_regex(pattern=pattern, limit=limit)
+            stats = _database.get_stats()
+            print(f"MCP_SERVER_DEBUG: search_regex stats after reconnect: {stats}")
+
             return [types.TextContent(type="text", text=convert_to_ndjson(results))]
         except Exception as e:
+            print(f"MCP_SERVER_DEBUG: search_regex failed: {str(e)}")
             raise Exception(f"Search failed: {str(e)}")
 
     elif name == "search_semantic":
@@ -298,6 +388,10 @@ async def call_tool(
             raise Exception("No embedding providers available. Set OPENAI_API_KEY to enable semantic search.")
 
         try:
+            # Force reconnection to ensure latest database state
+            print(f"MCP_SERVER_DEBUG: Refreshing database connection for search_semantic")
+            _database.reconnect()
+
             result = await _embedding_manager.embed_texts([query], provider)
             query_vector = result.embeddings[0]
 
@@ -309,15 +403,29 @@ async def call_tool(
                 threshold=threshold
             )
 
+            stats = _database.get_stats()
+            print(f"MCP_SERVER_DEBUG: search_semantic stats after reconnect: {stats}")
+
             return [types.TextContent(type="text", text=convert_to_ndjson(results))]
         except Exception as e:
+            print(f"MCP_SERVER_DEBUG: search_semantic failed: {str(e)}")
             raise Exception(f"Semantic search failed: {str(e)}")
 
     elif name == "get_stats":
         try:
+            # Force reconnection to ensure latest database state
+            print(f"MCP_SERVER_DEBUG: Refreshing database connection for get_stats")
+            _database.reconnect()
+
+            db_path = _database.db_path if hasattr(_database, 'db_path') else 'Unknown'
+            print(f"MCP_SERVER_DEBUG: get_stats called, database path: {db_path}")
+            print(f"MCP_SERVER_DEBUG: Database connected: {_database.is_connected() if _database else False}")
+
             stats = _database.get_stats()
+            print(f"MCP_SERVER_DEBUG: get_stats result: {stats}")
             return [types.TextContent(type="text", text=json.dumps(stats, ensure_ascii=False))]
         except Exception as e:
+            print(f"MCP_SERVER_DEBUG: get_stats error: {e}")
             raise Exception(f"Failed to get stats: {str(e)}")
 
     elif name == "health_check":

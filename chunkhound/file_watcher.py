@@ -51,7 +51,8 @@ except ImportError:
             pass
 
 # Disable logging for this module to prevent MCP interference
-logging.getLogger(__name__).setLevel(logging.CRITICAL + 1)
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.CRITICAL + 1)
 
 
 @dataclass
@@ -69,17 +70,56 @@ class ChunkHoundEventHandler(FileSystemEventHandler):
     def __init__(self, event_queue: asyncio.Queue, include_patterns: Optional[Set[str]] = None):
         super().__init__()
         self.event_queue = event_queue
-        self.include_patterns = include_patterns or {'.py', '.pyw', '.md', '.markdown'}
+        self.include_patterns = include_patterns or {
+            # Programming languages
+            '.py', '.pyw',           # Python
+            '.java',                 # Java
+            '.cs',                   # C#
+            '.ts', '.tsx',           # TypeScript
+            '.js', '.jsx',           # JavaScript
+            # Documentation
+            '.md', '.markdown',      # Markdown
+            '.rst',                  # reStructuredText
+            '.txt',                  # Plain text
+            # Configuration files
+            '.json',                 # JSON
+            '.yaml', '.yml',         # YAML
+            '.toml',                 # TOML
+            '.xml',                  # XML
+            '.ini', '.cfg',          # Configuration files
+            # Web technologies
+            '.html', '.htm',         # HTML
+            '.css',                  # CSS
+            # Shell scripts
+            '.sh', '.bash',          # Shell scripts
+            '.bat', '.cmd',          # Windows batch files
+            # Other common formats
+            '.sql',                  # SQL
+        }
         self.last_events: Dict[str, float] = {}
         self.debounce_delay = 2.0  # 2-second debounce
 
-    def _should_process_file(self, file_path: Path) -> bool:
-        """Check if file should be processed based on extension and patterns."""
-        if not file_path.is_file():
+    def _should_process_file(self, file_path: Path, event_type: str = None) -> bool:
+        """Check if file should be processed based on extension and patterns.
+
+        Args:
+            file_path: Path to the file
+            event_type: Type of event ('deleted' allows processing non-existent files)
+        """
+        # For deletion events, the file no longer exists so we skip the existence check
+        # and only validate based on file extension patterns
+        if event_type != 'deleted' and not file_path.is_file():
             return False
 
+        # Check by file extension
         suffix = file_path.suffix.lower()
-        return suffix in self.include_patterns
+        if suffix in self.include_patterns:
+            return True
+
+        # Check special files without extensions
+        filename = file_path.name.lower()
+        special_files = {'dockerfile', '.gitignore', '.dockerignore', 'makefile', 'rakefile', 'gemfile'}
+        return filename in special_files
 
     def _debounce_event(self, file_path: str) -> bool:
         """Check if event should be processed based on debouncing logic."""
@@ -94,11 +134,16 @@ class ChunkHoundEventHandler(FileSystemEventHandler):
 
     def _queue_event(self, path: Path, event_type: str, old_path: Optional[Path] = None):
         """Queue a file change event if it passes filters and debouncing."""
-        if not self._should_process_file(path):
+        # DEBUG: Always log event detection
+        print(f"WATCHER_DEBUG: _queue_event called at {time.time():.6f} - {event_type} {path}")
+
+        if not self._should_process_file(path, event_type):
+            print(f"WATCHER_DEBUG: File rejected by filter - {path}")
             return
 
         path_str = str(path)
         if not self._debounce_event(path_str):
+            print(f"WATCHER_DEBUG: Event debounced - {path}")
             return
 
         event_timestamp = time.time()
@@ -112,20 +157,24 @@ class ChunkHoundEventHandler(FileSystemEventHandler):
         # Put event in queue (non-blocking)
         try:
             self.event_queue.put_nowait(event)
+            print(f"WATCHER_DEBUG: Event queued successfully at {event_timestamp:.6f} - {event_type} {path}")
             logger.debug(f"TIMING: Event queued at {event_timestamp:.6f} - {event_type} {path}")
         except asyncio.QueueFull:
             # Queue is full, skip this event
+            print(f"WATCHER_DEBUG: Event queue full, skipping {event_type} {path} at {event_timestamp:.6f}")
             logger.warning(f"TIMING: Event queue full, skipping {event_type} {path} at {event_timestamp:.6f}")
 
     def on_modified(self, event):
         """Handle file modification events."""
         if not event.is_directory:
+            print(f"WATCHER_DEBUG: on_modified called at {time.time():.6f} - {event.src_path}")
             logger.debug(f"TIMING: File modified detected at {time.time():.6f} - {event.src_path}")
             self._queue_event(Path(event.src_path), 'modified')
 
     def on_created(self, event):
         """Handle file creation events."""
         if not event.is_directory:
+            print(f"WATCHER_DEBUG: on_created called at {time.time():.6f} - {event.src_path}")
             self._queue_event(Path(event.src_path), 'created')
 
     def on_moved(self, event):
@@ -182,18 +231,24 @@ class FileWatcher:
 
     def start(self):
         """Start filesystem watching in a background thread."""
+        print(f"WATCHER_DEBUG: FileWatcher.start() called at {time.time():.6f}")
+
         if not WATCHDOG_AVAILABLE:
+            print(f"WATCHER_DEBUG: Watchdog not available")
             return False
 
         if self.is_watching:
+            print(f"WATCHER_DEBUG: Already watching")
             return True
 
         try:
             if WATCHDOG_AVAILABLE and Observer is not None:
+                print(f"WATCHER_DEBUG: Creating Observer instance")
                 self.observer = Observer()
 
                 # Set up watches for each path
                 for watch_path in self.watch_paths:
+                    print(f"WATCHER_DEBUG: Setting up watch for: {watch_path}")
                     if watch_path.exists() and watch_path.is_dir():
                         if self.observer is not None:
                             self.observer.schedule(
@@ -201,15 +256,22 @@ class FileWatcher:
                                 str(watch_path),
                                 recursive=True
                             )
+                            print(f"WATCHER_DEBUG: Watch scheduled for: {watch_path}")
+                    else:
+                        print(f"WATCHER_DEBUG: Path doesn't exist or isn't directory: {watch_path}")
 
                 if self.observer is not None:
+                    print(f"WATCHER_DEBUG: Starting Observer")
                     self.observer.start()
                     self.is_watching = True
+                    print(f"WATCHER_DEBUG: Observer started successfully, is_watching=True")
                     return True
 
+            print(f"WATCHER_DEBUG: Observer creation failed")
             return False
 
-        except Exception:
+        except Exception as e:
+            print(f"WATCHER_DEBUG: FileWatcher.start() exception: {e}")
             # Silently fail - MCP server continues without filesystem watching
             return False
 
@@ -250,7 +312,32 @@ async def scan_for_offline_changes(
         List of FileChangeEvent objects for modified files
     """
     if include_patterns is None:
-        include_patterns = {'.py', '.pyw', '.md', '.markdown'}
+        include_patterns = {
+            # Programming languages
+            '.py', '.pyw',           # Python
+            '.java',                 # Java
+            '.cs',                   # C#
+            '.ts', '.tsx',           # TypeScript
+            '.js', '.jsx',           # JavaScript
+            # Documentation
+            '.md', '.markdown',      # Markdown
+            '.rst',                  # reStructuredText
+            '.txt',                  # Plain text
+            # Configuration files
+            '.json',                 # JSON
+            '.yaml', '.yml',         # YAML
+            '.toml',                 # TOML
+            '.xml',                  # XML
+            '.ini', '.cfg',          # Configuration files
+            # Web technologies
+            '.html', '.htm',         # HTML
+            '.css',                  # CSS
+            # Shell scripts
+            '.sh', '.bash',          # Shell scripts
+            '.bat', '.cmd',          # Windows batch files
+            # Other common formats
+            '.sql',                  # SQL
+        }
 
     offline_changes = []
 
@@ -258,8 +345,16 @@ async def scan_for_offline_changes(
         """Check if file should be processed."""
         if not file_path.is_file():
             return False
+
+        # Check by file extension
         suffix = file_path.suffix.lower()
-        return suffix in include_patterns
+        if suffix in include_patterns:
+            return True
+
+        # Check special files without extensions
+        filename = file_path.name.lower()
+        special_files = {'dockerfile', '.gitignore', '.dockerignore', 'makefile', 'rakefile', 'gemfile'}
+        return filename in special_files
 
     for watch_path in watch_paths:
         if not watch_path.exists() or not watch_path.is_dir():
@@ -347,21 +442,29 @@ async def process_file_change_queue(
             try:
                 event = event_queue.get_nowait()
                 batch.append(event)
+                print(f"WATCHER_DEBUG: Event dequeued at {time.time():.6f} - {event.event_type} {event.path}")
             except asyncio.QueueEmpty:
                 break
+
+        if batch:
+            print(f"WATCHER_DEBUG: Processing batch of {len(batch)} events at {time.time():.6f}")
 
         # Process collected events
         for event in batch:
             try:
+                print(f"WATCHER_DEBUG: Calling process_callback at {time.time():.6f} - {event.event_type} {event.path}")
                 await process_callback(event.path, event.event_type)
-            except Exception:
+                print(f"WATCHER_DEBUG: process_callback completed at {time.time():.6f} - {event.event_type} {event.path}")
+            except Exception as e:
+                print(f"WATCHER_DEBUG: process_callback error at {time.time():.6f}: {e}")
                 # Log error but continue processing other events
                 # (In production, might want to send to error monitoring)
                 pass
             finally:
                 event_queue.task_done()
 
-    except Exception:
+    except Exception as e:
+        print(f"WATCHER_DEBUG: Queue processing exception at {time.time():.6f}: {e}")
         # Ensure we mark tasks as done even if processing fails
         for _ in batch:
             try:
@@ -398,60 +501,80 @@ class FileWatcherManager:
         Returns:
             True if successfully initialized, False otherwise
         """
+        print(f"WATCHER_DEBUG: FileWatcherManager.initialize called at {time.time():.6f}")
+
         if not is_filesystem_watching_enabled():
+            print(f"WATCHER_DEBUG: Filesystem watching disabled by environment")
             return False
 
         self.watch_paths = watch_paths or get_watch_paths_from_env()
+        print(f"WATCHER_DEBUG: Watch paths: {self.watch_paths}")
+
         if not self.watch_paths:
+            print(f"WATCHER_DEBUG: No watch paths available")
             return False
 
         try:
             # Create event queue
             self.event_queue = asyncio.Queue(maxsize=1000)
+            print(f"WATCHER_DEBUG: Event queue created with maxsize=1000")
 
-            # Perform offline catch-up scan
-            offline_changes = await scan_for_offline_changes(
-                self.watch_paths,
-                self.last_scan_time - 300  # 5 minutes buffer
-            )
+            # Skip offline catch-up scan to prevent IDE timeouts
+            # This can be re-enabled later with background processing
+            # offline_changes = await scan_for_offline_changes(
+            #     self.watch_paths,
+            #     self.last_scan_time - 300  # 5 minutes buffer
+            # )
 
-            # Queue offline changes for processing
-            for change in offline_changes:
-                try:
-                    self.event_queue.put_nowait(change)
-                except asyncio.QueueFull:
-                    break
+            # # Queue offline changes for processing
+            # for change in offline_changes:
+            #     try:
+            #         self.event_queue.put_nowait(change)
+            #     except asyncio.QueueFull:
+            #         break
 
             # Start filesystem watcher
             if WATCHDOG_AVAILABLE:
+                print(f"WATCHER_DEBUG: Creating FileWatcher instance")
                 self.watcher = FileWatcher(self.watch_paths, self.event_queue)
-                self.watcher.start()
+                watcher_started = self.watcher.start()
+                print(f"WATCHER_DEBUG: FileWatcher.start() returned: {watcher_started}")
+            else:
+                print(f"WATCHER_DEBUG: Watchdog not available")
 
             # Start queue processing task
+            print(f"WATCHER_DEBUG: Creating queue processing task")
             self.processing_task = asyncio.create_task(
                 self._queue_processing_loop(process_callback)
             )
+            print(f"WATCHER_DEBUG: Queue processing task created: {self.processing_task}")
 
+            print(f"WATCHER_DEBUG: FileWatcherManager initialization completed successfully")
             return True
 
-        except Exception:
+        except Exception as e:
+            print(f"WATCHER_DEBUG: FileWatcherManager initialization failed: {e}")
             await self.cleanup()
             return False
 
     async def _queue_processing_loop(self,
                                    process_callback: Callable[[Path, str], Awaitable[None]]):
         """Background task to process file change events."""
+        print(f"WATCHER_DEBUG: Queue processing loop started at {time.time():.6f}")
         while True:
             try:
                 # Wait for events and process them in batches
                 await asyncio.sleep(1.0)  # Process every second
 
                 if self.event_queue and not self.event_queue.empty():
+                    print(f"WATCHER_DEBUG: Processing events from queue at {time.time():.6f}")
                     await process_file_change_queue(self.event_queue, process_callback)
 
             except asyncio.CancelledError:
+                print(f"WATCHER_DEBUG: Queue processing loop cancelled at {time.time():.6f}")
                 break
-            except Exception:
+            except Exception as e:
+                print(f"WATCHER_DEBUG: Queue processing error at {time.time():.6f}: {e}")
                 # Continue processing even if individual batches fail
                 await asyncio.sleep(5.0)  # Back off on errors
 

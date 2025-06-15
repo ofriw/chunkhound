@@ -1,0 +1,19 @@
+{
+  "standard_reconnect": {
+    "initial": 1,
+    "after": 1
+  },
+  "transaction_reconnect": {
+    "initial": 1,
+    "during_transaction": 1,
+    "after_transaction": 1
+  },
+  "modified_database": {
+    "initial": 1,
+    "cli": 2,
+    "direct": 2,
+    "std_reconnect": 2,
+    "txn_reconnect": 2
+  },
+  "hypothesis_validated": false
+}

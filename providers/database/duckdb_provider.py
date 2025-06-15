@@ -1373,6 +1373,8 @@ class DuckDBProvider:
             raise RuntimeError("No database connection")
 
         try:
+            # Begin transaction for clean query state
+            self.connection.execute("BEGIN TRANSACTION")
             # Detect dimensions from query embedding
             query_dims = len(query_embedding)
             table_name = self._get_table_name_for_dimensions(query_dims)
@@ -1412,7 +1414,7 @@ class DuckDBProvider:
 
             results = self.connection.execute(query, params).fetchall()
 
-            return [
+            formatted_results = [
                 {
                     "chunk_id": result[0],
                     "symbol": result[1],
@@ -1427,8 +1429,17 @@ class DuckDBProvider:
                 for result in results
             ]
 
+            # Commit transaction
+            self.connection.execute("COMMIT")
+            return formatted_results
+
         except Exception as e:
             logger.error(f"Failed to perform semantic search: {e}")
+            # Rollback transaction on error
+            try:
+                self.connection.execute("ROLLBACK")
+            except:
+                pass
             return []
 
     def search_regex(self, pattern: str, limit: int = 10) -> List[Dict[str, Any]]:
@@ -1437,6 +1448,8 @@ class DuckDBProvider:
             raise RuntimeError("No database connection")
 
         try:
+            # Begin transaction for clean query state
+            self.connection.execute("BEGIN TRANSACTION")
             results = self.connection.execute("""
                 SELECT
                     c.id as chunk_id,
@@ -1456,7 +1469,7 @@ class DuckDBProvider:
 
 
 
-            return [
+            formatted_results = [
                 {
                     "chunk_id": result[0],
                     "name": result[1],
@@ -1470,8 +1483,17 @@ class DuckDBProvider:
                 for result in results
             ]
 
+            # Commit transaction
+            self.connection.execute("COMMIT")
+            return formatted_results
+
         except Exception as e:
             logger.error(f"Failed to perform regex search: {e}")
+            # Rollback transaction on error
+            try:
+                self.connection.execute("ROLLBACK")
+            except:
+                pass
             return []
 
     def search_text(self, query: str, limit: int = 10) -> List[Dict[str, Any]]:
@@ -1524,6 +1546,8 @@ class DuckDBProvider:
             raise RuntimeError("No database connection")
 
         try:
+            # Begin transaction for clean query state
+            self.connection.execute("BEGIN TRANSACTION")
             # Get counts from each table
             file_count = self.connection.execute("SELECT COUNT(*) FROM files").fetchone()[0]
             chunk_count = self.connection.execute("SELECT COUNT(*) FROM chunks").fetchone()[0]
@@ -1552,15 +1576,24 @@ class DuckDBProvider:
 
             # Convert providers dict to count for interface compliance
             provider_count = len(providers)
-            return {
+            stats = {
                 "files": file_count,
                 "chunks": chunk_count,
                 "embeddings": embedding_count,
                 "providers": provider_count
             }
 
+            # Commit transaction
+            self.connection.execute("COMMIT")
+            return stats
+
         except Exception as e:
             logger.error(f"Failed to get database stats: {e}")
+            # Rollback transaction on error
+            try:
+                self.connection.execute("ROLLBACK")
+            except:
+                pass
             return {"files": 0, "chunks": 0, "embeddings": 0, "providers": 0}
 
     def get_file_stats(self, file_id: int) -> Dict[str, Any]:
@@ -1759,6 +1792,9 @@ class DuckDBProvider:
 
         Uses the IndexingCoordinator for parsing, chunking, and embeddings.
 
+        TRANSACTION SAFETY: This method now uses transaction-safe re-indexing to prevent
+        data loss during file modifications. Original content is preserved if re-indexing fails.
+
         Note: This method always fully reprocesses a file when it has been modified.
         True incremental (partial) processing is not yet implemented.
         """
@@ -1839,110 +1875,258 @@ class DuckDBProvider:
                 logger.warning("Using fallback direct processing - IndexingCoordinator not available")
                 return await self._fallback_process_file(file_path)
 
-            # Delegate to IndexingCoordinator for processing
-            logger.debug(f"Incremental processing - Delegating to IndexingCoordinator: {file_path}")
-            result = await self._indexing_coordinator.process_file(file_path, skip_embeddings=False)
-            logger.debug(f"Incremental processing - IndexingCoordinator result: {result.get('status', 'unknown')}")
-
-            # Transform result to match incremental processing API
-            if result.get("status") == "success":
-                chunks_count = result.get("chunks", 0)
-                logger.debug(f"Incremental processing - Successfully processed with {chunks_count} chunks")
-
-                # Get the file ID from result or existing file
-                file_id = result.get("file_id")
-                if not file_id and existing_file and isinstance(existing_file, dict) and "id" in existing_file:
-                    file_id = existing_file["id"]
-                    logger.debug(f"Incremental processing - Using existing file_id: {file_id}")
-                else:
-                    logger.debug(f"Incremental processing - Using new file_id: {file_id}")
-
-                # For modified files, handle the chunk differential
-                chunks_deleted = 0
-                if existing_file:
-                    logger.debug(f"Incremental processing - Processing modified file: {file_path}")
-                    # Count existing chunks that were deleted and replaced
-                    try:
-                        if self.connection is None:
-                            return {"status": "error", "error": "Database not connected"}
-
-                        # Always consider it a modified file if it exists in database
-                        # Update modification time in database to match current file
-                        file_stat = file_path.stat()
-                        current_mtime = file_stat.st_mtime
-                        file_id = existing_file["id"] if isinstance(existing_file, dict) else existing_file.id
-
-                        chunks_deleted = self.connection.execute(
-                            "SELECT COUNT(*) FROM chunks WHERE file_id = ?",
-                            [file_id]
-                        ).fetchone()[0]
-                        logger.debug(f"Incremental processing - Found {chunks_deleted} existing chunks to replace")
-
-                        # Update file metadata to reflect current state
-                        self.update_file(file_id, size_bytes=file_stat.st_size, mtime=current_mtime)
-                        logger.debug(f"Incremental processing - Updated file metadata: size={file_stat.st_size}, mtime={current_mtime}")
-
-                        # Delete old chunks now that we've counted them
-                        if file_id is not None:
-                            logger.debug(f"Incremental processing - Deleting old chunks for file_id: {file_id}")
-                            self.delete_file_chunks(file_id)
-                    except Exception as e:
-                        logger.warning(f"Error counting existing chunks: {e}")
-                else:
-                    logger.debug(f"Incremental processing - Processing new file: {file_path}")
-
-                return {
-                    "status": "success",
-                    "file_id": file_id,
-                    "chunks": chunks_count,
-                    "chunks_unchanged": 0,
-                    "chunks_inserted": chunks_count,
-                    "chunks_deleted": chunks_deleted,
-                    "chunk_ids": result.get("chunk_ids", []),
-                    "embeddings": result.get("embeddings", 0),
-                    "incremental": True
+            # For file modifications, use transaction-safe re-indexing
+            if existing_file:
+                logger.debug(f"Incremental processing - Using transaction-safe re-indexing for modified file: {file_path}")
+                # Convert File object to dict if needed
+                existing_file_dict = existing_file if isinstance(existing_file, dict) else {
+                    "id": existing_file.id,
+                    "path": str(existing_file.path),
+                    "name": existing_file.name,
+                    "extension": existing_file.extension,
+                    "size": existing_file.size_bytes,
+                    "modified_time": existing_file.mtime,
+                    "language": existing_file.language,
+                    "created_at": getattr(existing_file, 'created_at', None),
+                    "updated_at": getattr(existing_file, 'updated_at', None)
                 }
-            elif result.get("status") == "up_to_date":
-                logger.debug(f"Incremental processing - File reported as up-to-date by IndexingCoordinator")
-                # File unchanged, get existing chunk count
-                if existing_file:
-                    file_id = existing_file["id"] if isinstance(existing_file, dict) else existing_file.id
-                    logger.debug(f"Incremental processing - Up-to-date file, getting chunk count for file_id: {file_id}")
-                    if self.connection is None:
-                        return {"status": "error", "error": "Database not connected"}
-                    chunks_count = self.connection.execute(
-                        "SELECT COUNT(*) FROM chunks WHERE file_id = ?",
-                        [file_id]
-                    ).fetchone()[0]
-                    logger.debug(f"Incremental processing - Up-to-date file has {chunks_count} chunks")
+                return await self._process_file_modification_safe(file_path, existing_file_dict)
+            else:
+                # New file - process normally
+                logger.debug(f"Incremental processing - Processing new file: {file_path}")
+                result = await self._indexing_coordinator.process_file(file_path, skip_embeddings=False)
+                logger.debug(f"Incremental processing - IndexingCoordinator result: {result.get('status', 'unknown')}")
+
+                if result.get("status") == "success":
+                    chunks_count = result.get("chunks", 0)
+                    file_id = result.get("file_id")
 
                     return {
-                        "status": "up_to_date",
+                        "status": "success",
                         "file_id": file_id,
                         "chunks": chunks_count,
-                        "chunks_unchanged": chunks_count,
-                        "chunks_inserted": 0,
+                        "chunks_unchanged": 0,
+                        "chunks_inserted": chunks_count,
                         "chunks_deleted": 0,
-                        "chunk_ids": [],
-                        "embeddings": 0,
+                        "chunk_ids": result.get("chunk_ids", []),
+                        "embeddings": result.get("embeddings", 0),
                         "incremental": True
                     }
                 else:
-                    logger.debug(f"Incremental processing - Up-to-date but no existing file record found")
-                    return {
-                        "status": "up_to_date",
-                        "chunks": 0,
-                        "incremental": True
-                    }
-            else:
-                # Pass through other statuses (error, no_content, etc.) with incremental flag
-                logger.debug(f"Incremental processing - Other status received: {result.get('status')}")
-                result["incremental"] = True
-                return result
+                    result["incremental"] = True
+                    return result
 
         except Exception as e:
             logger.error(f"Failed to process file incrementally {file_path}: {e}")
             return {"status": "error", "error": str(e), "chunks": 0, "incremental": True}
+
+    async def _process_file_modification_safe(self, file_path: Path, existing_file: Dict[str, Any]) -> Dict[str, Any]:
+        """Process file modification with transaction safety and rollback capability.
+
+        This method ensures that if re-indexing fails, the original content remains
+        searchable and no data loss occurs.
+
+        Args:
+            file_path: Path to the modified file
+            existing_file: Existing file record from database
+
+        Returns:
+            Dictionary with processing results
+        """
+        if self.connection is None:
+            return {"status": "error", "error": "Database not connected"}
+
+        file_id = existing_file["id"] if isinstance(existing_file, dict) else existing_file.id
+        logger.debug(f"Transaction-safe processing - Starting for file_id: {file_id}")
+
+        try:
+            # Begin transaction
+            self.connection.begin()
+            logger.debug("Transaction-safe processing - Transaction started")
+
+            # Step 1: Count existing chunks for reporting
+            chunks_deleted = self.connection.execute(
+                "SELECT COUNT(*) FROM chunks WHERE file_id = ?",
+                [file_id]
+            ).fetchone()[0]
+            logger.debug(f"Transaction-safe processing - Found {chunks_deleted} existing chunks")
+
+            # Step 2: Create backup tables for rollback capability
+            backup_table_suffix = f"_backup_{int(time.time())}"
+            chunks_backup_table = f"chunks{backup_table_suffix}"
+
+            # Create backup of existing chunks
+            self.connection.execute(f"""
+                CREATE TABLE {chunks_backup_table} AS
+                SELECT * FROM chunks WHERE file_id = ?
+            """, [file_id])
+            logger.debug(f"Transaction-safe processing - Created backup table: {chunks_backup_table}")
+
+            # Backup embeddings for all embedding tables
+            embedding_backup_tables = []
+            for table_name in self._get_all_embedding_tables():
+                embedding_backup_table = f"{table_name}{backup_table_suffix}"
+                embedding_backup_tables.append((table_name, embedding_backup_table))
+
+                self.connection.execute(f"""
+                    CREATE TABLE {embedding_backup_table} AS
+                    SELECT * FROM {table_name}
+                    WHERE chunk_id IN (SELECT id FROM chunks WHERE file_id = ?)
+                """, [file_id])
+                logger.debug(f"Transaction-safe processing - Created embedding backup: {embedding_backup_table}")
+
+            # Step 3: Remove old content (but keep backups)
+            # Delete embeddings first
+            for table_name in self._get_all_embedding_tables():
+                self.connection.execute(f"""
+                    DELETE FROM {table_name}
+                    WHERE chunk_id IN (SELECT id FROM chunks WHERE file_id = ?)
+                """, [file_id])
+
+            # Delete chunks
+            self.connection.execute("DELETE FROM chunks WHERE file_id = ?", [file_id])
+            logger.debug("Transaction-safe processing - Removed old content")
+
+            # Step 4: Process new content
+            logger.debug("Transaction-safe processing - Processing new content with IndexingCoordinator")
+            if self._indexing_coordinator is None:
+                raise Exception("IndexingCoordinator not available")
+            result = await self._indexing_coordinator.process_file(file_path, skip_embeddings=False)
+
+            if result.get("status") != "success":
+                logger.error(f"Transaction-safe processing - IndexingCoordinator failed: {result.get('error', 'Unknown error')}")
+                raise Exception(f"IndexingCoordinator failed: {result.get('error', 'Unknown error')}")
+
+            chunks_count = result.get("chunks", 0)
+            if chunks_count == 0:
+                logger.warning("Transaction-safe processing - No chunks were created, this may indicate a parsing failure")
+                raise Exception("No chunks were created during re-indexing")
+
+            # Step 5: Update file metadata
+            file_stat = file_path.stat()
+            current_mtime = file_stat.st_mtime
+            self.update_file(file_id, size_bytes=file_stat.st_size, mtime=current_mtime)
+            logger.debug(f"Transaction-safe processing - Updated file metadata: size={file_stat.st_size}, mtime={current_mtime}")
+
+            # Step 6: Commit transaction (success)
+            self.connection.commit()
+            logger.debug("Transaction-safe processing - Transaction committed successfully")
+
+            # Step 7: Clean up backup tables
+            try:
+                self.connection.execute(f"DROP TABLE {chunks_backup_table}")
+                for _, embedding_backup_table in embedding_backup_tables:
+                    self.connection.execute(f"DROP TABLE {embedding_backup_table}")
+                logger.debug("Transaction-safe processing - Backup tables cleaned up")
+            except Exception as cleanup_error:
+                logger.warning(f"Failed to clean up backup tables: {cleanup_error}")
+
+            # Step 8: Return success result
+            return {
+                "status": "success",
+                "file_id": file_id,
+                "chunks": chunks_count,
+                "chunks_unchanged": 0,
+                "chunks_inserted": chunks_count,
+                "chunks_deleted": chunks_deleted,
+                "chunk_ids": result.get("chunk_ids", []),
+                "embeddings": result.get("embeddings", 0),
+                "incremental": True,
+                "transaction_safe": True
+            }
+
+        except Exception as e:
+            logger.error(f"Transaction-safe processing - Error occurred, rolling back: {e}")
+
+            # Initialize variables in case they weren't set
+            chunks_backup_table = None
+            embedding_backup_tables = []
+            chunks_deleted = 0
+
+            try:
+                # Try to get backup table name from timestamp
+                backup_table_suffix = f"_backup_{int(time.time())}"
+                chunks_backup_table = f"chunks{backup_table_suffix}"
+
+                # Rollback transaction
+                self.connection.rollback()
+                logger.debug("Transaction-safe processing - Transaction rolled back")
+
+                # Check if backup tables exist before attempting restore
+                try:
+                    table_exists = self.connection.execute(f"""
+                        SELECT COUNT(*) FROM information_schema.tables
+                        WHERE table_name = '{chunks_backup_table}'
+                    """).fetchone()[0] > 0
+
+                    if table_exists:
+                        # Restore from backup tables
+                        logger.debug("Transaction-safe processing - Restoring from backup tables")
+
+                        # Restore chunks
+                        self.connection.execute(f"""
+                            INSERT INTO chunks SELECT * FROM {chunks_backup_table}
+                        """)
+
+                        # Restore embeddings for all embedding tables
+                        for table_name in self._get_all_embedding_tables():
+                            embedding_backup_table = f"{table_name}{backup_table_suffix}"
+                            backup_exists = self.connection.execute(f"""
+                                SELECT COUNT(*) FROM information_schema.tables
+                                WHERE table_name = '{embedding_backup_table}'
+                            """).fetchone()[0] > 0
+
+                            if backup_exists:
+                                self.connection.execute(f"""
+                                    INSERT INTO {table_name} SELECT * FROM {embedding_backup_table}
+                                """)
+                                embedding_backup_tables.append((table_name, embedding_backup_table))
+
+                        # Count restored chunks
+                        chunks_deleted = self.connection.execute(
+                            "SELECT COUNT(*) FROM chunks WHERE file_id = ?", [file_id]
+                        ).fetchone()[0]
+
+                        logger.info("Transaction-safe processing - Successfully restored original content after failure")
+
+                        # Clean up backup tables
+                        try:
+                            if chunks_backup_table:
+                                self.connection.execute(f"DROP TABLE IF EXISTS {chunks_backup_table}")
+                            for _, embedding_backup_table in embedding_backup_tables:
+                                self.connection.execute(f"DROP TABLE IF EXISTS {embedding_backup_table}")
+                        except Exception as cleanup_error:
+                            logger.warning(f"Failed to clean up backup tables after rollback: {cleanup_error}")
+
+                except Exception as restore_error:
+                    logger.warning(f"Could not restore from backup tables: {restore_error}")
+
+                return {
+                    "status": "error",
+                    "error": f"Re-indexing failed but original content preserved: {str(e)}",
+                    "file_id": file_id,
+                    "chunks": chunks_deleted,  # Original chunk count preserved
+                    "chunks_unchanged": chunks_deleted,
+                    "chunks_inserted": 0,
+                    "chunks_deleted": 0,
+                    "chunk_ids": [],
+                    "embeddings": 0,
+                    "incremental": True,
+                    "transaction_safe": True,
+                    "rollback_performed": True
+                }
+
+            except Exception as rollback_error:
+                logger.error(f"CRITICAL: Failed to rollback transaction: {rollback_error}")
+                return {
+                    "status": "critical_error",
+                    "error": f"Re-indexing failed and rollback failed: {str(e)} | Rollback error: {str(rollback_error)}",
+                    "file_id": file_id,
+                    "chunks": 0,
+                    "incremental": True,
+                    "transaction_safe": True,
+                    "rollback_failed": True
+                }
 
     async def _fallback_process_file(self, file_path: Path) -> Dict[str, Any]:
         """Fallback implementation when IndexingCoordinator is unavailable.

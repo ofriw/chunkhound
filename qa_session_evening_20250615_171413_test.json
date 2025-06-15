@@ -1,0 +1,212 @@
+{
+  "qaTestingSession": {
+    "title": "QA Testing Session - Evening Session JSON Test File",
+    "created": "2025-06-15T17:14:13+03:00",
+    "sessionId": "evening-session-20250615-171413",
+    "purpose": "Test real-time indexing of newly created JSON files"
+  },
+  "uniqueMarkers": {
+    "primaryMarker": "EVENING_QA_JSON_MARKER_20250615_171413",
+    "sessionId": "qa_session_evening_20250615_171413",
+    "creationTimestamp": "2025-06-15T17:14:13+03:00",
+    "secondaryMarkers": [
+      "JSON_STRUCTURE_TEST_MARKER_20250615_171413",
+      "EVENING_SESSION_JSON_TEST_UNIQUE_MARKER",
+      "STRUCTURED_DATA_INDEXING_TEST_MARKER_20250615_171413"
+    ]
+  },
+  "testConfiguration": {
+    "fileType": "json",
+    "testPurpose": "real_time_indexing_validation",
+    "expectedBehavior": "file_indexed_within_30_seconds",
+    "uniqueIdentifiers": [
+      "EVENING_QA_JSON_MARKER_20250615_171413",
+      "JSON_CONFIG_TEST_MARKER_20250615_171413",
+      "CONFIGURATION_INDEXING_MARKER_20250615_171413"
+    ],
+    "validationCriteria": {
+      "indexingLatency": "30_seconds_maximum",
+      "searchAccuracy": "100_percent_expected",
+      "chunkTypes": [
+        "json_object",
+        "json_array",
+        "json_string_literal",
+        "json_numeric_literal",
+        "json_boolean_literal"
+      ]
+    }
+  },
+  "testData": {
+    "arrays": [
+      1,
+      2,
+      3,
+      "JSON_ARRAY_MARKER_20250615_171413",
+      {
+        "nestedObjectInArray": "JSON_NESTED_OBJECT_MARKER_20250615_171413"
+      }
+    ],
+    "objects": {
+      "simpleKey": "JSON_SIMPLE_VALUE_MARKER_20250615_171413",
+      "nestedObject": {
+        "deepKey": "JSON_DEEP_NESTED_MARKER_20250615_171413",
+        "deeperNesting": {
+          "veryDeep": "JSON_VERY_DEEP_MARKER_20250615_171413",
+          "arrayInNested": [
+            "JSON_ARRAY_IN_NESTED_MARKER_20250615_171413",
+            42,
+            true,
+            null
+          ]
+        }
+      },
+      "specialCharacters": "JSON_SPECIAL_CHARS_MARKER_20250615_171413: @#$%^&*()[]{}|\\:;\"'<>,.?/~`",
+      "unicodeTest": "JSON_UNICODE_MARKER_20250615_171413: 🔍📊⚡🚀✅❌⚠️📝"
+    },
+    "primitiveTypes": {
+      "stringValue": "JSON_STRING_PRIMITIVE_MARKER_20250615_171413",
+      "numberValue": 171413,
+      "floatValue": 17.1413,
+      "booleanTrue": true,
+      "booleanFalse": false,
+      "nullValue": null,
+      "markerNumber": "JSON_NUMBER_MARKER_20250615_171413"
+    }
+  },
+  "algorithmTestData": {
+    "algorithmMarker": "JSON_ALGORITHM_TEST_MARKER_20250615_171413",
+    "dataStructures": {
+      "lists": [
+        "JSON_LIST_ITEM_1_MARKER_20250615_171413",
+        "JSON_LIST_ITEM_2_MARKER_20250615_171413",
+        "JSON_LIST_ITEM_3_MARKER_20250615_171413"
+      ],
+      "maps": {
+        "key1": "JSON_MAP_VALUE_1_MARKER_20250615_171413",
+        "key2": "JSON_MAP_VALUE_2_MARKER_20250615_171413",
+        "key3": "JSON_MAP_VALUE_3_MARKER_20250615_171413"
+      },
+      "sets": [
+        "JSON_SET_ITEM_1_MARKER_20250615_171413",
+        "JSON_SET_ITEM_2_MARKER_20250615_171413",
+        "JSON_SET_ITEM_3_MARKER_20250615_171413"
+      ]
+    },
+    "processingResults": {
+      "extractedMarkers": [
+        "JSON_EXTRACTED_MARKER_1_20250615_171413",
+        "JSON_EXTRACTED_MARKER_2_20250615_171413"
+      ],
+      "filteredData": [
+        "JSON_FILTERED_RESULT_1_20250615_171413",
+        "JSON_FILTERED_RESULT_2_20250615_171413"
+      ],
+      "transformedData": {
+        "transformation": "JSON_TRANSFORMATION_MARKER_20250615_171413",
+        "result": "JSON_TRANSFORM_RESULT_MARKER_20250615_171413"
+      }
+    }
+  },
+  "validationResults": {
+    "validationMarker": "JSON_VALIDATION_MARKER_20250615_171413",
+    "testStatus": "awaiting_indexing",
+    "searchPatterns": [
+      "qaTestingSession",
+      "uniqueMarkers",
+      "EVENING_QA_JSON_MARKER_20250615_171413",
+      "qa_session_evening_20250615_171413",
+      "algorithmTestData",
+      "validationResults"
+    ],
+    "expectedChunks": [
+      "json_root_object",
+      "json_nested_objects",
+      "json_arrays",
+      "json_string_values",
+      "json_numeric_values",
+      "json_boolean_values"
+    ],
+    "indexingBehavior": {
+      "expectedIndexingTime": "30_seconds_maximum",
+      "searchability": "all_markers_should_be_discoverable",
+      "chunkingBehavior": "proper_json_structure_preservation"
+    }
+  },
+  "generatedTestContent": {
+    "contentMarker": "JSON_GENERATED_CONTENT_20250615_171413",
+    "purpose": "This content should be indexed and searchable",
+    "testData": {
+      "session": "qa_session_evening_20250615_171413",
+      "marker": "EVENING_QA_JSON_MARKER_20250615_171413",
+      "contentType": "generated_json_content",
+      "indexingTest": true,
+      "validationMarker": "JSON_CONTENT_VALIDATION_MARKER_20250615_171413"
+    },
+    "complexStructure": {
+      "level1": {
+        "level2": {
+          "level3": {
+            "level4": {
+              "deepMarker": "JSON_DEEP_STRUCTURE_MARKER_20250615_171413",
+              "arrayAtDepth": [
+                "JSON_DEEP_ARRAY_MARKER_20250615_171413",
+                {
+                  "objectInDeepArray": "JSON_OBJECT_IN_DEEP_ARRAY_MARKER_20250615_171413"
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  },
+  "modernJsonFeatures": {
+    "bigIntSupport": "JSON_BIGINT_MARKER_20250615_171413",
+    "precisionNumbers": {
+      "highPrecision": 3.141592653589793238462643383279,
+      "marker": "JSON_PRECISION_MARKER_20250615_171413"
+    },
+    "emptyCollections": {
+      "emptyArray": [],
+      "emptyObject": {},
+      "marker": "JSON_EMPTY_COLLECTIONS_MARKER_20250615_171413"
+    },
+    "mixedDataTypes": [
+      "string",
+      42,
+      true,
+      null,
+      {
+        "nested": "JSON_MIXED_TYPES_MARKER_20250615_171413"
+      },
+      [
+        "nested_array",
+        "JSON_NESTED_ARRAY_MARKER_20250615_171413"
+      ]
+    ]
+  },
+  "globalConstants": {
+    "primaryMarker": "EVENING_QA_JSON_MARKER_20250615_171413",
+    "secondaryMarkers": [
+      "JSON_CONSTANTS_MARKER_20250615_171413",
+      "GLOBAL_SCOPE_MARKER_20250615_171413",
+      "MODULE_LEVEL_MARKER_20250615_171413"
+    ],
+    "testMetadata": {
+      "fileName": "qa_session_evening_20250615_171413_test.json",
+      "creationTime": "2025-06-15T17:14:13+03:00",
+      "purpose": "real_time_indexing_validation",
+      "expectedIndexingTime": "30_seconds_maximum",
+      "fileSize": "estimated_8kb_to_12kb",
+      "complexity": "high_nested_structure_with_arrays_and_objects"
+    }
+  },
+  "executionSummary": {
+    "sessionStart": "2025-06-15T17:14:13+03:00",
+    "primaryMarker": "EVENING_QA_JSON_MARKER_20250615_171413",
+    "testExecutionMarker": "JSON_EXECUTION_MARKER_20250615_171413",
+    "completionStatus": "test_file_created_successfully",
+    "finalValidationMarker": "JSON_MAIN_EXECUTION_COMPLETE_20250615_171413",
+    "expectedOutcome": "file_should_be_indexed_and_searchable_within_30_seconds"
+  }
+}

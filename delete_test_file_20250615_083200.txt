@@ -1,0 +1,38 @@
+DELETE_TEST_FILE_CREATED_20250615_083200
+
+This file is created specifically for QA testing of file deletion functionality.
+
+Unique markers for search validation:
+- DELETE_TEST_MARKER_20250615_083200_UNIQUE
+- DELETION_VALIDATION_CONTENT_ALPHA_20250615
+- DELETION_VALIDATION_CONTENT_BETA_20250615
+- DELETION_VALIDATION_CONTENT_GAMMA_20250615
+
+File creation timestamp: 2025-06-15T08:32:00+03:00
+Test purpose: Validate that deleted files are removed from search index
+Expected behavior: After deletion, searches for these markers should return empty results
+
+Test procedure:
+1. Create this file with unique markers
+2. Wait for indexing (if real-time indexing works)
+3. Search for markers to confirm file is indexed
+4. Delete the file
+5. Wait for index update
+6. Search for markers to confirm file is removed from index
+7. Verify database stats show decreased file count
+
+Unique content blocks for comprehensive testing:
+
+BLOCK_A_DELETE_TEST_20250615_083200:
+This block contains specific content that should only exist in this file.
+When the file is deleted, searches for this content should return no results.
+
+BLOCK_B_DELETE_TEST_20250615_083200:
+Another unique content block with different patterns and keywords.
+Used to validate thorough removal from search index after deletion.
+
+BLOCK_C_DELETE_TEST_20250615_083200:
+Final content block with mixed alphanumeric patterns.
+Ensures comprehensive deletion validation across different content types.
+
+End of delete test file - DELETE_TEST_FILE_END_MARKER_20250615_083200

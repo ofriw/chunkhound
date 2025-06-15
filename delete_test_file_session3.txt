@@ -1,0 +1,24 @@
+Delete Test File - Session 3 QA Testing
+Created: 2025-06-14T16:16:00+03:00
+Purpose: Testing file deletion detection in search tools
+
+This file contains unique content for deletion testing:
+- DELETION_TEST_MARKER_SESSION3_2025_06_14
+- delete_test_unique_content_marker
+- This content should be findable before deletion
+- After deletion, searches should return empty results
+
+Test scenarios:
+1. Create file with unique content
+2. Wait for indexing
+3. Search for content (should find it)
+4. Delete file
+5. Wait for index update
+6. Search for content (should not find it)
+
+Unique identifiers:
+- DELETE_TEST_SESSION3_UNIQUE_ID
+- deletion_test_file_session3_marker
+- unique_deletion_test_content_2025_06_14
+
+This file will be deleted as part of the QA testing process.

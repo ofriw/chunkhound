@@ -1,0 +1,93 @@
+{
+  "qa_session_info": {
+    "session_id": "SESSION7_JSON_20250615_130930",
+    "created_at": "2025-06-15T13:09:30+03:00",
+    "purpose": "Structured QA testing of search tools",
+    "file_type": "json",
+    "test_phase": "Phase 5 - Multi-language testing"
+  },
+  "unique_markers": {
+    "primary_marker": "QA_SESSION7_MARKER_20250615_130930",
+    "structured_test_marker": "STRUCTURED_QA_TEST_MARKER_SESSION7_JSON",
+    "semantic_validation_marker": "SEMANTIC_SEARCH_VALIDATION_MARKER_S7_JSON",
+    "regex_validation_marker": "REGEX_SEARCH_VALIDATION_MARKER_S7_JSON"
+  },
+  "test_patterns": [
+    "QA_JSON_UNIQUE_PATTERN_20250615_130930",
+    "SESSION7_JSON_SEARCH_TEST_PATTERN",
+    "CHUNKHOUND_JSON_QA_VALIDATION_PATTERN",
+    "REGEX_SEMANTIC_JSON_DUAL_TEST_PATTERN"
+  ],
+  "search_validation_content": {
+    "description": "This is a JSON test file for validating semantic search functionality. The search system should be able to find this content using natural language queries.",
+    "keywords": ["json", "testing", "validation", "search", "semantic", "functionality", "QA", "data", "structure"],
+    "semantic_marker": "SEMANTIC_JSON_CONTENT_MARKER_SESSION7_20250615_130930"
+  },
+  "test_data": {
+    "string_values": {
+      "marker_1": "JSON_STRING_MARKER_SESSION7_20250615_130930",
+      "marker_2": "JSON_VALUE_TEST_MARKER_SESSION7",
+      "marker_3": "UNIQUE_JSON_STRING_CONTENT_SESSION7"
+    },
+    "numeric_values": {
+      "test_number": 20250615130930,
+      "session_number": 7,
+      "marker_count": 15
+    },
+    "boolean_values": {
+      "indexing_test": true,
+      "search_test": true,
+      "validation_complete": false
+    },
+    "array_values": [
+      "JSON_ARRAY_ITEM_1_SESSION7_20250615_130930",
+      "JSON_ARRAY_ITEM_2_SESSION7_20250615_130930",
+      "JSON_ARRAY_ITEM_3_SESSION7_20250615_130930"
+    ]
+  },
+  "nested_objects": {
+    "level_1": {
+      "marker": "JSON_NESTED_LEVEL_1_MARKER_SESSION7",
+      "level_2": {
+        "marker": "JSON_NESTED_LEVEL_2_MARKER_SESSION7",
+        "level_3": {
+          "marker": "JSON_NESTED_LEVEL_3_MARKER_SESSION7_20250615_130930",
+          "deep_content": "This is deeply nested JSON content that should be searchable"
+        }
+      }
+    }
+  },
+  "regex_test_patterns": {
+    "pattern_1": "QA_SESSION7_.*_20250615",
+    "pattern_2": "STRUCTURED_QA_TEST_.*_SESSION7_JSON",
+    "pattern_3": ".*_VALIDATION_MARKER_S7_JSON",
+    "pattern_4": "JSON_.*_TEST"
+  },
+  "file_operations": {
+    "creation": {
+      "status": "created",
+      "marker": "JSON_FILE_CREATION_MARKER_SESSION7_20250615_130930"
+    },
+    "indexing": {
+      "expected": true,
+      "marker": "JSON_INDEXING_TEST_MARKER_SESSION7"
+    },
+    "search": {
+      "regex_search": "pending",
+      "semantic_search": "requires_api_key",
+      "marker": "JSON_SEARCH_TEST_MARKER_SESSION7"
+    }
+  },
+  "chunkhound_specific": {
+    "system": "ChunkHound",
+    "version": "1.0.1",
+    "test_session": 7,
+    "database_validation": "JSON_DATABASE_VALIDATION_MARKER_SESSION7",
+    "index_validation": "JSON_INDEX_VALIDATION_MARKER_SESSION7_20250615_130930"
+  },
+  "completion_markers": {
+    "file_ready": "JSON_FILE_READY_MARKER_SESSION7_20250615_130930",
+    "awaiting_indexing": "JSON_AWAITING_INDEXING_MARKER_SESSION7",
+    "test_complete": "JSON_FILE_CREATION_SUCCESS_MARKER_20250615_130930"
+  }
+}
