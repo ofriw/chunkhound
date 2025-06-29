@@ -330,26 +330,59 @@ class FileWatcher:
                                      path=str(watch_path),
                                      recursive=True,
                                      handler_methods=[m for m in dir(self.event_handler) if m.startswith('on_')])
+                            
+                            if "CHUNKHOUND_DEBUG" in os.environ:
+                                import sys
+                                print(f"🔍 WATCHDOG: Scheduling watch for {watch_path}", file=sys.stderr)
+                            
                             self.observer.schedule(
                                 self.event_handler,
                                 str(watch_path),
                                 recursive=True
                             )
                             debug_log("watch_scheduled", path=str(watch_path))
+                        else:
+                            if "CHUNKHOUND_DEBUG" in os.environ:
+                                import sys
+                                print(f"❌ WATCHDOG: Observer is None, cannot schedule {watch_path}", file=sys.stderr)
+                    else:
+                        if "CHUNKHOUND_DEBUG" in os.environ:
+                            import sys
+                            print(f"❌ WATCHDOG: Path does not exist or is not directory: {watch_path}", file=sys.stderr)
 
                 if self.observer is not None:
                     debug_log("observer_starting",
                              watch_paths=[str(p) for p in self.watch_paths],
                              handler_type=type(self.event_handler).__name__)
+                    
+                    if "CHUNKHOUND_DEBUG" in os.environ:
+                        import sys
+                        print(f"🔍 WATCHDOG: Starting observer for {len(self.watch_paths)} paths", file=sys.stderr)
+                    
                     self.observer.start()
                     self.is_watching = True
+                    
+                    if "CHUNKHOUND_DEBUG" in os.environ:
+                        import sys
+                        print(f"✅ WATCHDOG: Observer started successfully (alive: {self.observer.is_alive()})", file=sys.stderr)
+                    
                     debug_log("observer_started", is_alive=self.observer.is_alive())
                     return True
+                else:
+                    if "CHUNKHOUND_DEBUG" in os.environ:
+                        import sys
+                        print("❌ WATCHDOG: Observer is None after creation", file=sys.stderr)
 
             return False
 
-        except Exception:
-            # Silently fail - MCP server continues without filesystem watching
+        except Exception as e:
+            # Log the error to help debug watchdog issues
+            if "CHUNKHOUND_DEBUG" in os.environ:
+                import sys
+                print(f"❌ WATCHDOG: Failed to start file watching: {e}", file=sys.stderr)
+                import traceback
+                traceback.print_exc(file=sys.stderr)
+            # Still fail gracefully - MCP server continues without filesystem watching
             return False
 
     def stop(self):
@@ -454,6 +487,10 @@ def get_watch_paths_from_env() -> list[Path]:
     paths_env = os.environ.get('CHUNKHOUND_WATCH_PATHS', '')
 
     if paths_env:
+        if "CHUNKHOUND_DEBUG" in os.environ:
+            import sys
+            print(f"🔍 WATCHDOG: Using CHUNKHOUND_WATCH_PATHS environment variable: {paths_env}", file=sys.stderr)
+        
         logging.info(f"FileWatcher: Using CHUNKHOUND_WATCH_PATHS environment variable: {paths_env}")
         # Parse comma-separated paths
         path_strings = [p.strip() for p in paths_env.split(',') if p.strip()]
@@ -464,21 +501,36 @@ def get_watch_paths_from_env() -> list[Path]:
                 path = Path(path_str).resolve()
                 if path.exists() and path.is_dir():
                     paths.append(path)
+                    if "CHUNKHOUND_DEBUG" in os.environ:
+                        import sys
+                        print(f"✅ WATCHDOG: Added watch path: {path}", file=sys.stderr)
                     logging.info(f"FileWatcher: Added watch path: {path}")
                 else:
+                    if "CHUNKHOUND_DEBUG" in os.environ:
+                        import sys
+                        print(f"❌ WATCHDOG: Skipping invalid watch path: {path_str}", file=sys.stderr)
                     logging.warning(f"FileWatcher: Skipping invalid watch path: {path_str}")
             except Exception as e:
+                if "CHUNKHOUND_DEBUG" in os.environ:
+                    import sys
+                    print(f"❌ WATCHDOG: Failed to resolve watch path '{path_str}': {e}", file=sys.stderr)
                 logging.warning(f"FileWatcher: Failed to resolve watch path '{path_str}': {e}")
                 continue
 
         if paths:
             return paths
         else:
+            if "CHUNKHOUND_DEBUG" in os.environ:
+                import sys
+                print("❌ WATCHDOG: No valid paths from CHUNKHOUND_WATCH_PATHS, falling back to current directory", file=sys.stderr)
             logging.warning("FileWatcher: No valid paths from CHUNKHOUND_WATCH_PATHS, falling back to current directory")
             return [Path.cwd()]
 
     # Default to current working directory
     current_dir = Path.cwd()
+    if "CHUNKHOUND_DEBUG" in os.environ:
+        import sys
+        print(f"🔍 WATCHDOG: No CHUNKHOUND_WATCH_PATHS set, defaulting to current directory: {current_dir}", file=sys.stderr)
     logging.info(f"FileWatcher: No CHUNKHOUND_WATCH_PATHS set, defaulting to current directory: {current_dir}")
     return [current_dir]
 
