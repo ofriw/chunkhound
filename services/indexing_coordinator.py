@@ -15,6 +15,7 @@ from interfaces.embedding_provider import EmbeddingProvider
 from interfaces.language_parser import LanguageParser, ParseResult
 
 from .base_service import BaseService
+from .chunk_cache_service import ChunkCacheService
 
 
 class IndexingCoordinator(BaseService):
@@ -39,6 +40,9 @@ class IndexingCoordinator(BaseService):
 
         # Performance optimization: shared instances
         self._parser_cache: dict[Language, LanguageParser] = {}
+        
+        # Chunk cache service for content-based comparison
+        self._chunk_cache = ChunkCacheService()
 
     def add_language_parser(self, language: Language, parser: LanguageParser) -> None:
         """Add or update a language parser.
@@ -241,14 +245,49 @@ class IndexingCoordinator(BaseService):
             if file_id is None:
                 return {"status": "error", "chunks": 0, "error": "Failed to store file record"}
 
-            # Delete old chunks only if file was actually modified
+            # Smart chunk update for modified files to preserve embeddings
             if existing_file and is_file_modified:
-                self._db.delete_file_chunks(file_id)
-                logger.debug(f"Deleted existing chunks for modified file: {file_path}")
-
-            # Store chunks and generate embeddings
-            # Note: Transaction safety is handled by the database provider layer
-            chunk_ids = self._store_chunks(file_id, chunks, language)
+                # Get existing chunks as models for comparison
+                existing_chunks = self._db.get_chunks_by_file_id(file_id, as_model=True)
+                
+                if existing_chunks:
+                    # Convert new chunks to models with computed hashes
+                    new_chunk_models = self._convert_to_chunk_models(file_id, chunks, language)
+                    new_chunk_models_with_hash = self._chunk_cache.with_computed_hashes(new_chunk_models)
+                    
+                    # Perform smart diff
+                    chunk_diff = self._chunk_cache.diff_chunks(new_chunk_models_with_hash, existing_chunks)
+                    
+                    # Delete only changed/removed chunks
+                    chunks_to_delete = chunk_diff.deleted + chunk_diff.modified
+                    if chunks_to_delete:
+                        for chunk in chunks_to_delete:
+                            if chunk.id is not None:
+                                self._db.delete_chunk(chunk.id)
+                    
+                    # Store only new/modified chunks
+                    chunks_to_store = [chunk.to_dict() for chunk in chunk_diff.added]
+                    chunk_ids_new = self._store_chunks(file_id, chunks_to_store, language) if chunks_to_store else []
+                    
+                    # Combine IDs of unchanged chunks with new chunk IDs
+                    unchanged_ids = [chunk.id for chunk in chunk_diff.unchanged if chunk.id is not None]
+                    chunk_ids = unchanged_ids + chunk_ids_new
+                    
+                    logger.debug(f"Smart chunk update: {len(chunk_diff.unchanged)} preserved, {len(chunk_diff.added)} added, {len(chunk_diff.deleted)} deleted")
+                else:
+                    # No existing chunks, proceed with normal storage
+                    # Compute content hashes for all chunks to enable future smart diffs
+                    chunk_models = self._convert_to_chunk_models(file_id, chunks, language)
+                    chunk_models_with_hash = self._chunk_cache.with_computed_hashes(chunk_models)
+                    chunks_with_hash = [chunk.to_dict() for chunk in chunk_models_with_hash]
+                    chunk_ids = self._store_chunks(file_id, chunks_with_hash, language)
+            else:
+                # New file or no modification, proceed with normal storage
+                # Compute content hashes for all chunks to enable future smart diffs
+                chunk_models = self._convert_to_chunk_models(file_id, chunks, language)
+                chunk_models_with_hash = self._chunk_cache.with_computed_hashes(chunk_models)
+                chunks_with_hash = [chunk.to_dict() for chunk in chunk_models_with_hash]
+                chunk_ids = self._store_chunks(file_id, chunks_with_hash, language)
             embeddings_generated = 0
             if not skip_embeddings and self._embedding_provider and chunk_ids:
                 embeddings_generated = await self._generate_embeddings(chunk_ids, chunks)
@@ -268,7 +307,9 @@ class IndexingCoordinator(BaseService):
             return result
 
         except Exception as e:
+            import traceback
             logger.error(f"Failed to process file {file_path}: {e}")
+            logger.error(f"Stack trace: {traceback.format_exc()}")
             return {"status": "error", "error": str(e), "chunks": 0}
 
     async def _process_file_modification_safe(
@@ -440,7 +481,7 @@ class IndexingCoordinator(BaseService):
             # Phase 2: Reconciliation - Ensure database consistency by removing orphaned files
             cleaned_files = self._cleanup_orphaned_files(directory, files, exclude_patterns)
 
-            logger.info(f"Directory consistency: {len(files)} files discovered, {cleaned_files} orphaned files cleaned")
+            logger.debug(f"Directory consistency: {len(files)} files discovered, {cleaned_files} orphaned files cleaned")
 
             # Phase 3: Update - Process files with enhanced cache logic
             total_files = 0
@@ -466,6 +507,11 @@ class IndexingCoordinator(BaseService):
 
             # Note: Embedding generation is handled separately via generate_missing_embeddings()
             # to provide a unified progress experience
+
+            # Optimize tables after bulk operations (provider-specific)
+            if total_chunks > 0 and hasattr(self._db, 'optimize_tables'):
+                logger.debug("Optimizing database tables after bulk operations...")
+                self._db.optimize_tables()
 
             return {
                 "status": "success",
@@ -532,12 +578,15 @@ class IndexingCoordinator(BaseService):
 
     def _store_chunks(self, file_id: int, chunks: list[dict[str, Any]], language: Language) -> list[int]:
         """Store chunks in database and return chunk IDs."""
-        chunk_ids = []
+        if not chunks:
+            return []
+            
+        # Create Chunk model instances for batch insertion
+        from core.models import Chunk
+        from core.types import ChunkType
+        
+        chunk_models = []
         for chunk in chunks:
-            # Create Chunk model instance
-            from core.models import Chunk
-            from core.types import ChunkType
-
             # Convert chunk_type string to enum
             chunk_type_str = chunk.get("chunk_type", "function")
             try:
@@ -553,11 +602,47 @@ class IndexingCoordinator(BaseService):
                 code=chunk.get("code", ""),
                 chunk_type=chunk_type_enum,
                 language=language,  # Use the file's detected language
-                parent_header=chunk.get("parent_header")
+                parent_header=chunk.get("parent_header"),
+                content_hash=chunk.get("content_hash")  # Preserve content hash for smart caching
             )
-            chunk_id = self._db.insert_chunk(chunk_model)
-            chunk_ids.append(chunk_id)
+            chunk_models.append(chunk_model)
+        
+        # Use batch insertion for optimal performance
+        chunk_ids = self._db.insert_chunks_batch(chunk_models)
+        
+        # Log batch operation
+        logger.debug(f"Batch inserted {len(chunk_ids)} chunks for file_id {file_id}")
+        
         return chunk_ids
+
+    def _convert_to_chunk_models(self, file_id: int, chunks: list[dict[str, Any]], language: Language) -> list['Chunk']:
+        """Convert dict chunks to Chunk models without storing in database."""
+        from core.models import Chunk
+        from core.types import ChunkType
+        
+        chunk_models = []
+        for chunk in chunks:
+            # Convert chunk_type string to enum
+            chunk_type_str = chunk.get("chunk_type", "function")
+            try:
+                chunk_type_enum = ChunkType(chunk_type_str)
+            except ValueError:
+                chunk_type_enum = ChunkType.FUNCTION  # default fallback
+
+            chunk_model = Chunk(
+                file_id=FileId(file_id),
+                symbol=chunk.get("symbol", ""),
+                start_line=chunk.get("start_line", 0),
+                end_line=chunk.get("end_line", 0),
+                code=chunk.get("code", ""),
+                chunk_type=chunk_type_enum,
+                language=language,
+                parent_header=chunk.get("parent_header"),
+                content_hash=chunk.get("content_hash")  # Preserve content hash if present
+            )
+            chunk_models.append(chunk_model)
+        
+        return chunk_models
 
     async def get_stats(self) -> dict[str, Any]:
         """Get database statistics.
@@ -644,7 +729,7 @@ class IndexingCoordinator(BaseService):
 
             # Log metrics for empty chunks
             if empty_count > 0:
-                logger.info(f"Filtered {empty_count} empty text chunks before embedding generation")
+                logger.debug(f"Filtered {empty_count} empty text chunks before embedding generation")
 
             if not valid_chunk_data:
                 logger.debug("No valid chunks with text content for embedding generation")
@@ -743,10 +828,25 @@ class IndexingCoordinator(BaseService):
                 rel_path = path
 
             for exclude_pattern in exclude_patterns:
-                # Test both relative and absolute paths for pattern matching
-                if (fnmatch(str(rel_path), exclude_pattern) or
-                    fnmatch(str(path), exclude_pattern)):
-                    return True
+                # Handle ** patterns that fnmatch doesn't support properly
+                if exclude_pattern.startswith('**/') and exclude_pattern.endswith('/**'):
+                    # Extract the directory name from pattern like **/.venv/**
+                    target_dir = exclude_pattern[3:-3]  # Remove **/ and /**
+                    if target_dir in rel_path.parts or target_dir in path.parts:
+                        return True
+                elif exclude_pattern.startswith('**/'):
+                    # Pattern like **/*.db - check if any part matches the suffix
+                    suffix = exclude_pattern[3:]  # Remove **/
+                    if (fnmatch(str(rel_path), suffix) or 
+                        fnmatch(str(path), suffix) or
+                        fnmatch(rel_path.name, suffix) or
+                        fnmatch(path.name, suffix)):
+                        return True
+                else:
+                    # Regular fnmatch for non-** patterns
+                    if (fnmatch(str(rel_path), exclude_pattern) or
+                        fnmatch(str(path), exclude_pattern)):
+                        return True
             return False
 
         def should_include_file(file_path: Path) -> bool:

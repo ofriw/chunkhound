@@ -91,6 +91,10 @@ class DatabaseProvider(Protocol):
         """Delete all chunks for a file."""
         ...
 
+    def delete_chunk(self, chunk_id: int) -> None:
+        """Delete a single chunk by ID."""
+        ...
+
     def update_chunk(self, chunk_id: int, **kwargs) -> None:
         """Update chunk record with new values."""
         ...
@@ -120,6 +124,10 @@ class DatabaseProvider(Protocol):
 
     def delete_embeddings_by_chunk_id(self, chunk_id: int) -> None:
         """Delete all embeddings for a specific chunk."""
+        ...
+
+    def get_all_chunks_with_metadata(self) -> list[dict[str, Any]]:
+        """Get all chunks with their metadata including file paths (provider-agnostic)."""
         ...
 
     # Search Operations
@@ -220,6 +228,10 @@ class DatabaseProvider(Protocol):
         ...
 
     # Health and Diagnostics
+    def optimize_tables(self) -> None:
+        """Optimize tables by compacting fragments and rebuilding indexes (provider-specific)."""
+        ...
+        
     def health_check(self) -> dict[str, Any]:
         """Perform health check and return status information."""
         ...

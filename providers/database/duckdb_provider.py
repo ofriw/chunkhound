@@ -28,17 +28,19 @@ if TYPE_CHECKING:
 class DuckDBProvider:
     """DuckDB implementation of DatabaseProvider protocol."""
 
-    def __init__(self, db_path: Path | str, embedding_manager: EmbeddingManager | None = None):
+    def __init__(self, db_path: Path | str, embedding_manager: EmbeddingManager | None = None, config: "DatabaseConfig | None" = None):
         """Initialize DuckDB provider.
 
         Args:
             db_path: Path to DuckDB database file or ":memory:" for in-memory database
             embedding_manager: Optional embedding manager for vector generation
+            config: Database configuration for provider-specific settings
         """
         self._db_path = db_path
         self.connection: Any | None = None
         self._services_initialized = False
         self.embedding_manager = embedding_manager
+        self.config = config
 
         # Service layer components and legacy chunker instances
         self._indexing_coordinator: IndexingCoordinator | None = None
@@ -372,6 +374,7 @@ class DuckDBProvider:
                     size INTEGER,
                     signature TEXT,
                     language TEXT,
+                    content_hash BIGINT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
@@ -578,6 +581,7 @@ class DuckDBProvider:
             self.connection.execute("CREATE INDEX IF NOT EXISTS idx_chunks_file_id ON chunks(file_id)")
             self.connection.execute("CREATE INDEX IF NOT EXISTS idx_chunks_type ON chunks(chunk_type)")
             self.connection.execute("CREATE INDEX IF NOT EXISTS idx_chunks_symbol ON chunks(symbol)")
+            self.connection.execute("CREATE INDEX IF NOT EXISTS idx_chunks_content_hash ON chunks(content_hash)")
 
             # Embedding indexes are created per-table in _ensure_embedding_table_exists()
             # No need for global embedding indexes since we use dimension-specific tables
@@ -1104,7 +1108,7 @@ class DuckDBProvider:
         try:
             result = self.connection.execute("""
                 SELECT id, file_id, chunk_type, symbol, code, start_line, end_line,
-                       start_byte, end_byte, size, signature, language, created_at, updated_at
+                       start_byte, end_byte, size, signature, language, content_hash, created_at, updated_at
                 FROM chunks WHERE id = ?
             """, [chunk_id]).fetchone()
 
@@ -1124,8 +1128,9 @@ class DuckDBProvider:
                 "size": result[9],
                 "signature": result[10],
                 "language": result[11],
-                "created_at": result[12],
-                "updated_at": result[13]
+                "content_hash": result[12],
+                "created_at": result[13],
+                "updated_at": result[14]
             }
 
             if as_model:
@@ -1138,7 +1143,8 @@ class DuckDBProvider:
                     end_line=result[6],
                     start_byte=result[7],
                     end_byte=result[8],
-                    language=Language(result[11]) if result[11] else Language.UNKNOWN
+                    language=Language(result[11]) if result[11] else Language.UNKNOWN,
+                    content_hash=result[12]
                 )
 
             return chunk_dict
@@ -1155,7 +1161,7 @@ class DuckDBProvider:
         try:
             results = self.connection.execute("""
                 SELECT id, file_id, chunk_type, symbol, code, start_line, end_line,
-                       start_byte, end_byte, size, signature, language, created_at, updated_at
+                       start_byte, end_byte, size, signature, language, content_hash, created_at, updated_at
                 FROM chunks WHERE file_id = ?
                 ORDER BY start_line
             """, [file_id]).fetchall()
@@ -1175,8 +1181,9 @@ class DuckDBProvider:
                     "size": result[9],
                     "signature": result[10],
                     "language": result[11],
-                    "created_at": result[12],
-                    "updated_at": result[13]
+                    "content_hash": result[12],
+                    "created_at": result[13],
+                    "updated_at": result[14]
                 }
 
                 if as_model:
@@ -1189,7 +1196,8 @@ class DuckDBProvider:
                         end_line=result[6],
                         start_byte=result[7],
                         end_byte=result[8],
-                        language=Language(result[11]) if result[11] else Language.UNKNOWN
+                        language=Language(result[11]) if result[11] else Language.UNKNOWN,
+                        content_hash=result[12]
                     ))
                 else:
                     chunks.append(chunk_dict)
@@ -1219,6 +1227,26 @@ class DuckDBProvider:
 
         except Exception as e:
             logger.error(f"Failed to delete chunks for file {file_id}: {e}")
+            raise
+
+    def delete_chunk(self, chunk_id: int) -> None:
+        """Delete a single chunk by ID."""
+        if self.connection is None:
+            raise RuntimeError("No database connection")
+
+        try:
+            # First delete embeddings for this chunk
+            for table_name in self._get_all_embedding_tables():
+                self.connection.execute(f"""
+                    DELETE FROM {table_name}
+                    WHERE chunk_id = ?
+                """, [chunk_id])
+
+            # Then delete the chunk itself
+            self.connection.execute("DELETE FROM chunks WHERE id = ?", [chunk_id])
+
+        except Exception as e:
+            logger.error(f"Failed to delete chunk {chunk_id}: {e}")
             raise
 
     def update_chunk(self, chunk_id: int, **kwargs) -> None:
@@ -1384,7 +1412,7 @@ class DuckDBProvider:
 
                 # Step 2: Separate new vs existing embeddings for optimal INSERT strategy
                 chunk_ids = [emb['chunk_id'] for emb in embeddings_data]
-                existing_chunk_ids = self.get_existing_embeddings(chunk_ids, provider, model, table_name)
+                existing_chunk_ids = self.get_existing_embeddings(chunk_ids, provider, model)
 
                 # Separate new vs existing embeddings
                 new_embeddings = [emb for emb in embeddings_data if emb['chunk_id'] not in existing_chunk_ids]
@@ -1574,7 +1602,7 @@ class DuckDBProvider:
             logger.error(f"Failed to get embedding for chunk {chunk_id}: {e}")
             return None
 
-    def get_existing_embeddings(self, chunk_ids: list[int], provider: str, model: str, table_name: str = "embeddings_1536") -> set[int]:
+    def get_existing_embeddings(self, chunk_ids: list[int], provider: str, model: str) -> set[int]:
         """Get set of chunk IDs that already have embeddings for given provider/model."""
         if self.connection is None:
             raise RuntimeError("No database connection")
@@ -1583,17 +1611,29 @@ class DuckDBProvider:
             return set()
 
         try:
-            # Create placeholders for IN clause
-            placeholders = ",".join("?" * len(chunk_ids))
-            params = chunk_ids + [provider, model]
+            # Check all embedding tables since dimensions vary by model
+            all_chunk_ids = set()
+            
+            # Get all embedding tables
+            table_result = self.connection.execute("""
+                SELECT table_name FROM information_schema.tables 
+                WHERE table_name LIKE 'embeddings_%'
+            """).fetchall()
+            
+            for (table_name,) in table_result:
+                # Create placeholders for IN clause
+                placeholders = ",".join("?" * len(chunk_ids))
+                params = chunk_ids + [provider, model]
 
-            results = self.connection.execute(f"""
-                SELECT DISTINCT chunk_id
-                FROM {table_name}
-                WHERE chunk_id IN ({placeholders}) AND provider = ? AND model = ?
-            """, params).fetchall()
+                results = self.connection.execute(f"""
+                    SELECT DISTINCT chunk_id
+                    FROM {table_name}
+                    WHERE chunk_id IN ({placeholders}) AND provider = ? AND model = ?
+                """, params).fetchall()
+                
+                all_chunk_ids.update(result[0] for result in results)
 
-            return {result[0] for result in results}
+            return all_chunk_ids
 
         except Exception as e:
             logger.error(f"Failed to get existing embeddings: {e}")
@@ -1612,6 +1652,44 @@ class DuckDBProvider:
         except Exception as e:
             logger.error(f"Failed to delete embeddings for chunk {chunk_id}: {e}")
             raise
+
+    def get_all_chunks_with_metadata(self) -> list[dict[str, Any]]:
+        """Get all chunks with their metadata including file paths (provider-agnostic)."""
+        if self.connection is None:
+            raise RuntimeError("No database connection")
+
+        try:
+            # Use SQL to get chunks with file paths (DuckDB approach)
+            query = """
+                SELECT c.id, c.file_id, f.path as file_path, c.content, 
+                       c.start_line, c.end_line, c.chunk_type, c.language, c.name
+                FROM chunks c
+                JOIN files f ON c.file_id = f.id
+                ORDER BY c.id
+            """
+            
+            results = self.connection.execute(query).fetchall()
+            
+            # Convert to list of dictionaries
+            result = []
+            for row in results:
+                result.append({
+                    'id': row[0],
+                    'file_id': row[1], 
+                    'file_path': row[2],
+                    'content': row[3],
+                    'start_line': row[4],
+                    'end_line': row[5],
+                    'chunk_type': row[6],
+                    'language': row[7],
+                    'name': row[8]
+                })
+                
+            return result
+            
+        except Exception as e:
+            logger.error(f"Failed to get all chunks with metadata: {e}")
+            return []
 
     def _validate_and_normalize_path_filter(self, path_filter: str | None) -> str | None:
         """Validate and normalize path filter for security and consistency.
@@ -2435,6 +2513,12 @@ class DuckDBProvider:
             logger.error(f"Failed to process directory {directory}: {e}")
             return {"status": "error", "error": str(e), "files_processed": 0}
 
+    def optimize_tables(self) -> None:
+        """Optimize tables by compacting fragments and rebuilding indexes (provider-specific)."""
+        # DuckDB automatically manages table optimization through its WAL and MVCC system
+        # No manual optimization needed for DuckDB
+        pass
+        
     def health_check(self) -> dict[str, Any]:
         """Perform health check and return status information."""
         status = {
