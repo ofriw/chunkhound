@@ -52,6 +52,8 @@ dependencies = [
     "tree-sitter-c>=0.21.0,<0.23.0",
     "tree-sitter-cpp>=0.21.0,<0.24.0",
     # "tree-sitter-matlab>=1.0.5,!=1.0.6",  # Using tree-sitter-language-pack instead
+    "lancedb>=0.24.0",
+    "pandas>=2.3.0",
 ]
 
 [project.optional-dependencies]
