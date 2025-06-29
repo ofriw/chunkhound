@@ -188,9 +188,9 @@ class IndexingCoordinator(BaseService):
                 current_mtime = file_stat.st_mtime
 
                 if isinstance(existing_file, dict):
-                    # Try different possible timestamp field names
+                    # Try different possible timestamp field names - modified_time is used by DuckDB
                     for field in [
-                        'mtime', 'modified_time', 'modification_time', 'timestamp'
+                        'modified_time', 'mtime', 'modification_time', 'timestamp'
                     ]:
                         if field in existing_file and existing_file[field] is not None:
                             timestamp_value = existing_file[field]
@@ -247,40 +247,84 @@ class IndexingCoordinator(BaseService):
 
             # Smart chunk update for modified files to preserve embeddings
             if existing_file and is_file_modified:
-                # Get existing chunks as models for comparison
-                existing_chunks = self._db.get_chunks_by_file_id(file_id, as_model=True)
+                # For DuckDB, use a simpler approach to avoid duplicate chunks issue
+                # Check if we're using DuckDB provider
+                provider_type = getattr(self._db, 'provider_type', None)
+                use_simple_update = provider_type == 'duckdb' or provider_type is None
                 
-                if existing_chunks:
-                    # Convert new chunks to models with computed hashes
-                    new_chunk_models = self._convert_to_chunk_models(file_id, chunks, language)
-                    new_chunk_models_with_hash = self._chunk_cache.with_computed_hashes(new_chunk_models)
-                    
-                    # Perform smart diff
-                    chunk_diff = self._chunk_cache.diff_chunks(new_chunk_models_with_hash, existing_chunks)
-                    
-                    # Delete only changed/removed chunks
-                    chunks_to_delete = chunk_diff.deleted + chunk_diff.modified
-                    if chunks_to_delete:
-                        for chunk in chunks_to_delete:
-                            if chunk.id is not None:
-                                self._db.delete_chunk(chunk.id)
-                    
-                    # Store only new/modified chunks
-                    chunks_to_store = [chunk.to_dict() for chunk in chunk_diff.added]
-                    chunk_ids_new = self._store_chunks(file_id, chunks_to_store, language) if chunks_to_store else []
-                    
-                    # Combine IDs of unchanged chunks with new chunk IDs
-                    unchanged_ids = [chunk.id for chunk in chunk_diff.unchanged if chunk.id is not None]
-                    chunk_ids = unchanged_ids + chunk_ids_new
-                    
-                    logger.debug(f"Smart chunk update: {len(chunk_diff.unchanged)} preserved, {len(chunk_diff.added)} added, {len(chunk_diff.deleted)} deleted")
+                if use_simple_update:
+                    # Simple approach: delete all old chunks and insert new ones in a transaction
+                    # This prevents any possibility of duplicate chunks
+                    try:
+                        self._db.begin_transaction()
+                        
+                        # Delete all existing chunks for this file
+                        self._db.delete_file_chunks(file_id)
+                        logger.debug(f"Deleted all existing chunks for file_id {file_id}")
+                        
+                        # Compute content hashes for all chunks
+                        chunk_models = self._convert_to_chunk_models(file_id, chunks, language)
+                        chunk_models_with_hash = self._chunk_cache.with_computed_hashes(chunk_models)
+                        chunks_with_hash = [chunk.to_dict() for chunk in chunk_models_with_hash]
+                        
+                        # Store all new chunks
+                        chunk_ids = self._store_chunks(file_id, chunks_with_hash, language)
+                        
+                        # Commit the transaction
+                        self._db.commit_transaction()
+                        
+                        logger.debug(f"Simple chunk update: deleted all old chunks, inserted {len(chunk_ids)} new chunks")
+                    except Exception as e:
+                        # Rollback on error
+                        self._db.rollback_transaction()
+                        raise
                 else:
-                    # No existing chunks, proceed with normal storage
-                    # Compute content hashes for all chunks to enable future smart diffs
-                    chunk_models = self._convert_to_chunk_models(file_id, chunks, language)
-                    chunk_models_with_hash = self._chunk_cache.with_computed_hashes(chunk_models)
-                    chunks_with_hash = [chunk.to_dict() for chunk in chunk_models_with_hash]
-                    chunk_ids = self._store_chunks(file_id, chunks_with_hash, language)
+                    # Original smart diff approach for other providers
+                    # Get existing chunks as models for comparison
+                    existing_chunks = self._db.get_chunks_by_file_id(file_id, as_model=True)
+                    
+                    if existing_chunks:
+                        # Convert new chunks to models with computed hashes
+                        new_chunk_models = self._convert_to_chunk_models(file_id, chunks, language)
+                        new_chunk_models_with_hash = self._chunk_cache.with_computed_hashes(new_chunk_models)
+                        
+                        # Perform smart diff
+                        chunk_diff = self._chunk_cache.diff_chunks(new_chunk_models_with_hash, existing_chunks)
+                        
+                        # Wrap chunk update in a transaction for atomicity
+                        try:
+                            self._db.begin_transaction()
+                            
+                            # Delete only changed/removed chunks
+                            chunks_to_delete = chunk_diff.deleted + chunk_diff.modified
+                            if chunks_to_delete:
+                                for chunk in chunks_to_delete:
+                                    if chunk.id is not None:
+                                        self._db.delete_chunk(chunk.id)
+                            
+                            # Store only new/modified chunks
+                            chunks_to_store = [chunk.to_dict() for chunk in chunk_diff.added]
+                            chunk_ids_new = self._store_chunks(file_id, chunks_to_store, language) if chunks_to_store else []
+                            
+                            # Commit the transaction
+                            self._db.commit_transaction()
+                            
+                            # Combine IDs of unchanged chunks with new chunk IDs
+                            unchanged_ids = [chunk.id for chunk in chunk_diff.unchanged if chunk.id is not None]
+                            chunk_ids = unchanged_ids + chunk_ids_new
+                            
+                            logger.debug(f"Smart chunk update: {len(chunk_diff.unchanged)} preserved, {len(chunk_diff.added)} added, {len(chunk_diff.deleted)} deleted")
+                        except Exception as e:
+                            # Rollback on error
+                            self._db.rollback_transaction()
+                            raise
+                    else:
+                        # No existing chunks, proceed with normal storage
+                        # Compute content hashes for all chunks to enable future smart diffs
+                        chunk_models = self._convert_to_chunk_models(file_id, chunks, language)
+                        chunk_models_with_hash = self._chunk_cache.with_computed_hashes(chunk_models)
+                        chunks_with_hash = [chunk.to_dict() for chunk in chunk_models_with_hash]
+                        chunk_ids = self._store_chunks(file_id, chunks_with_hash, language)
             else:
                 # New file or no modification, proceed with normal storage
                 # Compute content hashes for all chunks to enable future smart diffs
@@ -791,10 +835,11 @@ class IndexingCoordinator(BaseService):
             # Add special filenames
             patterns.extend(["Makefile", "makefile", "GNUmakefile", "gnumakefile"])
 
-        # Default exclude patterns from unified config
+        # Default exclude patterns from unified config with .gitignore support
         if not exclude_patterns:
             from chunkhound.core.config.unified_config import ChunkHoundConfig
-            exclude_patterns = ChunkHoundConfig.get_default_exclude_patterns()
+            config = ChunkHoundConfig.load_hierarchical(project_dir=directory)
+            exclude_patterns = config.indexing.get_effective_exclude_patterns(directory)
 
         # Use custom directory walker that respects exclude patterns during traversal
         discovered_files = self._walk_directory_with_excludes(directory, patterns, exclude_patterns)

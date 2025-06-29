@@ -53,9 +53,95 @@ class IndexingConfig(BaseModel):
     )
     
     exclude_patterns: list[str] = Field(
-        default_factory=lambda: ['**/node_modules/**', '**/.git/**', '**/__pycache__/**', '**/venv/**', '**/.venv/**', '**/.mypy_cache/**'],
+        default_factory=lambda: [
+            # Virtual environments and package managers
+            '**/node_modules/**', '**/.git/**', '**/__pycache__/**', '**/venv/**', '**/.venv/**', '**/.mypy_cache/**',
+            # Build artifacts and distributions  
+            '**/dist/**', '**/build/**', '**/target/**', '**/.pytest_cache/**',
+            # IDE and editor files
+            '**/.vscode/**', '**/.idea/**', '**/.vs/**',
+            # Cache and temporary directories
+            '**/.cache/**', '**/tmp/**', '**/temp/**',
+            # Backup and old files
+            '**/*.backup', '**/*.bak', '**/*~', '**/*.old',
+            # Large generated files
+            '**/*.min.js', '**/*.min.css', '**/bundle.js', '**/vendor.js'
+        ],
         description="File patterns to exclude from indexing"
     )
+    
+    def get_effective_exclude_patterns(self, base_dir: Path | None = None) -> list[str]:
+        """Get effective exclude patterns including .gitignore files.
+        
+        Args:
+            base_dir: Base directory to search for .gitignore files
+            
+        Returns:
+            Combined exclude patterns from config and .gitignore files
+        """
+        patterns = self.exclude_patterns.copy()
+        
+        if base_dir is None:
+            base_dir = Path.cwd()
+            
+        # Parse .gitignore file if it exists
+        gitignore_path = base_dir / '.gitignore'
+        if gitignore_path.exists():
+            try:
+                gitignore_patterns = self._parse_gitignore(gitignore_path)
+                patterns.extend(gitignore_patterns)
+            except Exception:
+                # Silently ignore gitignore parsing errors
+                pass
+                
+        return patterns
+    
+    def _parse_gitignore(self, gitignore_path: Path) -> list[str]:
+        """Parse .gitignore file into exclude patterns.
+        
+        Args:
+            gitignore_path: Path to .gitignore file
+            
+        Returns:
+            List of exclude patterns
+        """
+        patterns = []
+        
+        try:
+            with open(gitignore_path, 'r', encoding='utf-8') as f:
+                for line in f:
+                    line = line.strip()
+                    
+                    # Skip empty lines and comments
+                    if not line or line.startswith('#'):
+                        continue
+                        
+                    # Handle negation patterns (not supported, skip)
+                    if line.startswith('!'):
+                        continue
+                    
+                    # Convert gitignore patterns to glob patterns
+                    if line.endswith('/'):
+                        # Directory pattern
+                        patterns.append(f"**/{line}**")
+                        patterns.append(f"**/{line[:-1]}/**")
+                    elif '/' in line:
+                        # Path pattern
+                        if line.startswith('/'):
+                            line = line[1:]  # Remove leading slash
+                        patterns.append(f"**/{line}")
+                        if not line.endswith('*'):
+                            patterns.append(f"**/{line}/**")
+                    else:
+                        # Filename pattern
+                        patterns.append(f"**/{line}")
+                        patterns.append(f"**/{line}/**")
+                        
+        except Exception:
+            # Return empty list on any parsing error
+            pass
+            
+        return patterns
     
     watch: bool = Field(
         default=False,
