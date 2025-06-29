@@ -106,7 +106,15 @@ class DatabaseConfig(BaseModel):
     
     path: str = Field(
         default='.chunkhound.db',
-        description="Path to SQLite database file"
+        description="Path to database file"
+    )
+    provider: Literal['duckdb', 'lancedb'] = Field(
+        default='duckdb',
+        description="Database provider (duckdb or lancedb)"
+    )
+    lancedb_index_type: Literal['ivf_pq', 'ivf_hnsw_sq'] | None = Field(
+        default=None,
+        description="LanceDB index type (auto-configured if not specified)"
     )
 
 

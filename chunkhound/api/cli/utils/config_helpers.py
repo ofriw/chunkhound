@@ -9,6 +9,8 @@ import argparse
 import os
 from pathlib import Path
 
+from loguru import logger
+
 from chunkhound.core.config.unified_config import ChunkHoundConfig
 
 
@@ -25,8 +27,8 @@ def args_to_config(args: argparse.Namespace, project_dir: Path | None = None) ->
     """
     config_overrides = {}
     
-    # Database configuration
-    if hasattr(args, 'db') and args.db:
+    # Database configuration - only override if explicitly provided
+    if hasattr(args, 'db') and args.db is not None:
         config_overrides['database'] = {'path': str(args.db)}
     
     # Embedding configuration
@@ -108,8 +110,9 @@ def create_legacy_registry_config(config: ChunkHoundConfig, no_embeddings: bool 
     registry_config = {
         'database': {
             'path': config.database.path,
-            'type': 'duckdb',
+            'type': config.database.provider,
             'batch_size': config.indexing.db_batch_size,
+            'lancedb_index_type': config.database.lancedb_index_type,
         },
         'embedding': {
             'batch_size': config.embedding.batch_size,
@@ -125,6 +128,7 @@ def create_legacy_registry_config(config: ChunkHoundConfig, no_embeddings: bool 
         
         if config.embedding.api_key:
             embedding_dict['api_key'] = config.embedding.api_key.get_secret_value()
+            
         if config.embedding.base_url:
             embedding_dict['base_url'] = config.embedding.base_url
             
