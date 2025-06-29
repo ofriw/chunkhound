@@ -80,7 +80,8 @@ class LanceDBProvider:
             embedding_manager: Optional embedding manager for vector generation
             config: Database configuration for provider-specific settings
         """
-        self._db_path = Path(db_path).parent / f"{Path(db_path).stem}.lancedb"
+        # Ensure we always use absolute paths to avoid LanceDB internal path resolution issues
+        self._db_path = (Path(db_path).parent / f"{Path(db_path).stem}.lancedb").absolute()
         self.embedding_manager = embedding_manager
         self.config = config
         self.index_type = config.lancedb_index_type if config else None
@@ -119,11 +120,26 @@ class LanceDBProvider:
             raise ImportError("lancedb package not installed. Install with: pip install lancedb")
 
         if self.connection is None:
-            self.connection = lancedb.connect(str(self._db_path))
+            # Use absolute path for connection to ensure consistent file references
+            abs_db_path = self._db_path.absolute() if isinstance(self._db_path, Path) else Path(self._db_path).absolute()
+            
+            # CRITICAL: Save current working directory and ensure we're in a consistent location
+            # This prevents LanceDB from storing relative paths that break when CWD changes
+            self._original_cwd = os.getcwd()
+            
+            # Change to the database's parent directory for consistent relative path resolution
+            os.chdir(abs_db_path.parent)
+            
+            # Connect using just the database directory name (relative to parent)
+            self.connection = lancedb.connect(abs_db_path.name)
+            
+            # Restore original working directory immediately after connection
+            os.chdir(self._original_cwd)
+            
             self.create_schema()
             self.create_indexes()
             self._services_initialized = False
-            logger.info(f"Connected to LanceDB at {self._db_path}")
+            logger.info(f"Connected to LanceDB at {abs_db_path}")
 
     def disconnect(self) -> None:
         """Close database connection and cleanup resources."""
@@ -1007,7 +1023,9 @@ class LanceDBProvider:
         if not self._services_initialized:
             self._initialize_services()
 
-        return await self._indexing_coordinator.process_file_incremental(file_path)
+        # Call process_file with embeddings enabled for real-time indexing
+        # This ensures embeddings are generated immediately for modified files
+        return await self._indexing_coordinator.process_file(file_path, skip_embeddings=False)
 
     async def process_directory(
         self,
