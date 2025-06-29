@@ -17,7 +17,11 @@ def mcp_command(args: argparse.Namespace) -> None:
 
     # Use the standalone MCP launcher that sets environment before any imports
     mcp_launcher_path = Path(__file__).parent.parent.parent.parent.parent / "mcp_launcher.py"
-    cmd = [sys.executable, str(mcp_launcher_path), "--db", str(args.db)]
+    cmd = [sys.executable, str(mcp_launcher_path)]
+    
+    # Only pass --db argument if explicitly provided, otherwise let unified config handle it
+    if args.db is not None:
+        cmd.extend(["--db", str(args.db)])
 
     # Inherit current environment and ensure critical variables are passed through
     env = os.environ.copy()
@@ -47,18 +51,16 @@ def add_mcp_subparser(subparsers: Any) -> argparse.ArgumentParser:
     Returns:
         The configured MCP subparser
     """
+    from chunkhound.api.cli.parsers.main_parser import add_database_argument
+    
     mcp_parser = subparsers.add_parser(
         "mcp",
         help="Run Model Context Protocol server",
         description="Start the MCP server for integration with MCP-compatible clients"
     )
 
-    mcp_parser.add_argument(
-        "--db",
-        type=Path,
-        default=Path("chunkhound.db"),
-        help="DuckDB database file path (default: chunkhound.db)",
-    )
+    # Use shared database argument function to respect unified config
+    add_database_argument(mcp_parser)
 
     return cast(argparse.ArgumentParser, mcp_parser)
 

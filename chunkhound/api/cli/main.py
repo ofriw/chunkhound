@@ -5,6 +5,7 @@ import asyncio
 import multiprocessing
 import os
 import sys
+from pathlib import Path
 
 # Required for PyInstaller multiprocessing support
 multiprocessing.freeze_support()
@@ -94,7 +95,13 @@ def validate_args(args: argparse.Namespace) -> None:
         if not validate_path(args.path, must_exist=True, must_be_dir=True):
             exit_on_validation_error(f"Invalid path: {args.path}")
 
-        if not ensure_database_directory(args.db):
+        # Get correct database path from unified config if not explicitly provided
+        from .utils.config_helpers import args_to_config
+        project_dir = Path(args.path) if hasattr(args, 'path') else Path.cwd()
+        unified_config = args_to_config(args, project_dir)
+        db_path = Path(unified_config.database.path) if unified_config.database.path else Path("chunkhound.db")
+        
+        if not ensure_database_directory(db_path):
             exit_on_validation_error("Cannot access database directory")
 
         # Validate provider-specific arguments for index command
@@ -109,8 +116,14 @@ def validate_args(args: argparse.Namespace) -> None:
                 exit_on_validation_error(f"--base-url required for {args.provider} provider")
 
     elif args.command == "mcp":
+        # Get correct database path from unified config if not explicitly provided
+        from .utils.config_helpers import args_to_config
+        project_dir = Path.cwd()  # MCP doesn't have a path argument
+        unified_config = args_to_config(args, project_dir)
+        db_path = Path(unified_config.database.path) if unified_config.database.path else Path("chunkhound.db")
+        
         # Ensure database directory exists for MCP server
-        if not ensure_database_directory(args.db):
+        if not ensure_database_directory(db_path):
             exit_on_validation_error("Cannot access database directory")
 
 

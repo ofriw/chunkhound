@@ -43,35 +43,49 @@ async def run_command(args: argparse.Namespace) -> None:
     # Initialize output formatter
     formatter = OutputFormatter(verbose=args.verbose)
 
+    # Load unified configuration first to get correct database path
+    project_dir = Path(args.path) if hasattr(args, 'path') else Path.cwd()
+    unified_config = args_to_config(args, project_dir)
+    
+    # Debug logging
+    from loguru import logger
+    logger.debug(f"Unified config database path: {repr(unified_config.database.path)}")
+    logger.debug(f"Database path type: {type(unified_config.database.path)}")
+    
+    if unified_config.database.path is None:
+        logger.error("Database path is None from unified config!")
+        db_path = Path("chunkhound.db")  # Fallback
+    else:
+        db_path = Path(unified_config.database.path)
+
     # Display startup information
     formatter.info(f"Starting ChunkHound v{__version__}")
     formatter.info(f"Processing directory: {args.path}")
-    formatter.info(f"Database: {args.db}")
+    formatter.info(f"Database: {db_path}")
 
     # Process and validate batch arguments (includes deprecation warnings)
     process_batch_arguments(args)
 
-    # Validate arguments
+    # Validate arguments - update args.db to use config value for validation
+    args.db = db_path
     if not _validate_run_arguments(args, formatter):
         sys.exit(1)
 
     # Initialize CLI coordinator for database access coordination
-    cli_coordinator = CLICoordinator(Path(args.db))
+    cli_coordinator = CLICoordinator(db_path)
 
     try:
         # Check for running MCP server and coordinate if needed
         await _handle_mcp_coordination(cli_coordinator, formatter)
 
         # Configure the provider registry
-        config = _build_registry_config(args)
+        config = _build_registry_config(args, unified_config)
         configure_registry(config)
 
-        # Set up file patterns using unified config
-        project_dir = Path(args.path) if hasattr(args, 'path') else Path.cwd()
-        unified_config = args_to_config(args, project_dir)
+        # Set up file patterns using unified config (already loaded)
         include_patterns, exclude_patterns = _setup_file_patterns_from_config(unified_config, args)
         formatter.info(f"Include patterns: {include_patterns}")
-        formatter.verbose_info(f"Exclude patterns: {exclude_patterns}")
+        formatter.info(f"Exclude patterns: {exclude_patterns}")
 
         # Initialize services
         indexing_coordinator = create_indexing_coordinator()
@@ -160,18 +174,20 @@ async def _handle_mcp_coordination(cli_coordinator: CLICoordinator, formatter: O
             sys.exit(1)
 
 
-def _build_registry_config(args: argparse.Namespace) -> dict[str, Any]:
+def _build_registry_config(args: argparse.Namespace, unified_config: Any = None) -> dict[str, Any]:
     """Build configuration for the provider registry.
 
     Args:
         args: Parsed arguments
+        unified_config: Pre-loaded unified configuration (optional)
 
     Returns:
         Configuration dictionary
     """
-    # Convert CLI args to unified configuration
-    project_dir = Path(args.path) if hasattr(args, 'path') else Path.cwd()
-    unified_config = args_to_config(args, project_dir)
+    # Use provided unified configuration or load it
+    if unified_config is None:
+        project_dir = Path(args.path) if hasattr(args, 'path') else Path.cwd()
+        unified_config = args_to_config(args, project_dir)
     
     # Validate configuration for the index command
     validation_errors = validate_config_for_command(unified_config, 'index')
