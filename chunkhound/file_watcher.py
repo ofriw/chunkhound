@@ -126,11 +126,14 @@ class ChunkHoundEventHandler(FileSystemEventHandler):
         import os
         import sys
 
+        # ALWAYS log file events to stderr in debug mode to trace missing events
         if os.environ.get("CHUNKHOUND_DEBUG"):
             print("=== QUEUE EVENT ATTEMPT ===", file=sys.stderr)
             print(f"Path: {path}", file=sys.stderr)
             print(f"Event Type: {event_type}", file=sys.stderr)
             print(f"Queue Available: {self.event_queue is not None}", file=sys.stderr)
+            print(f"File Exists: {path.exists()}", file=sys.stderr)
+            print(f"File Extension: {path.suffix}", file=sys.stderr)
 
         if self.event_queue is None:
             logger.warning(f"TIMING: Event queue not initialized, skipping {event_type} {path}")
@@ -198,6 +201,13 @@ class ChunkHoundEventHandler(FileSystemEventHandler):
 
     def on_modified(self, event):
         """Handle file modification events."""
+        import os
+        import sys
+        
+        # ALWAYS log watchdog events to stderr when debug is enabled
+        if os.environ.get("CHUNKHOUND_DEBUG"):
+            print(f"🔍 WATCHDOG on_modified: {event.src_path} (is_dir: {event.is_directory})", file=sys.stderr)
+        
         debug_log("on_modified_called",
                  path=str(event.src_path),
                  is_directory=event.is_directory,
@@ -211,6 +221,13 @@ class ChunkHoundEventHandler(FileSystemEventHandler):
 
     def on_created(self, event):
         """Handle file creation events."""
+        import os
+        import sys
+        
+        # ALWAYS log watchdog events to stderr when debug is enabled
+        if os.environ.get("CHUNKHOUND_DEBUG"):
+            print(f"🔍 WATCHDOG on_created: {event.src_path} (is_dir: {event.is_directory})", file=sys.stderr)
+        
         debug_log("on_created_called",
                  path=str(event.src_path),
                  is_directory=event.is_directory,
@@ -223,8 +240,6 @@ class ChunkHoundEventHandler(FileSystemEventHandler):
                      file_exists=Path(path_str).exists())
 
             # Diagnostic logging for file creation debugging
-            import os
-            import sys
             if os.environ.get("CHUNKHOUND_DEBUG"):
                 print("=== FILE CREATION EVENT DETECTED ===", file=sys.stderr)
                 print(f"File: {event.src_path}", file=sys.stderr)

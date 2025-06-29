@@ -439,7 +439,13 @@ async def process_file_change(file_path: Path, event_type: str):
     """
     global _database, _embedding_manager, _task_coordinator
 
+    # Debug logging for file change events
+    if "CHUNKHOUND_DEBUG" in os.environ:
+        print(f"🔄 MCP: process_file_change called - {event_type} {file_path}", file=sys.stderr)
+
     if not _database:
+        if "CHUNKHOUND_DEBUG" in os.environ:
+            print("❌ MCP: No database available for file processing", file=sys.stderr)
         return
 
     async def _execute_file_processing():
@@ -451,13 +457,15 @@ async def process_file_change(file_path: Path, event_type: str):
             else:
                 # Process file (created, modified, moved)
                 if file_path.exists() and file_path.is_file():
-                    # Check if file should be excluded before processing
+                    # Check if file should be excluded before processing with .gitignore support
                     try:
                         from .core.config.unified_config import ChunkHoundConfig
                     except ImportError:
                         from chunkhound.core.config.unified_config import ChunkHoundConfig
                     
-                    exclude_patterns = ChunkHoundConfig.get_default_exclude_patterns()
+                    base_dir = Path.cwd()
+                    config = ChunkHoundConfig.load_hierarchical(project_dir=base_dir)
+                    exclude_patterns = config.indexing.get_effective_exclude_patterns(base_dir)
                     
                     from fnmatch import fnmatch
                     should_exclude = False
@@ -487,7 +495,13 @@ async def process_file_change(file_path: Path, event_type: str):
                         return  # Skip if file not ready
 
                     # Use incremental processing for 10-100x performance improvement
-                    await _database.process_file_incremental(file_path=file_path)
+                    if "CHUNKHOUND_DEBUG" in os.environ:
+                        print(f"🔄 MCP: Processing file incrementally: {file_path}", file=sys.stderr)
+                    
+                    result = await _database.process_file_incremental(file_path=file_path)
+                    
+                    if "CHUNKHOUND_DEBUG" in os.environ:
+                        print(f"✅ MCP: File processing result: {result}", file=sys.stderr)
 
                     # Transaction already committed by IndexingCoordinator with backup/rollback safety
         except Exception as e:
@@ -500,18 +514,27 @@ async def process_file_change(file_path: Path, event_type: str):
     # Queue file processing as low-priority task to avoid blocking searches
     if _task_coordinator:
         try:
+            if "CHUNKHOUND_DEBUG" in os.environ:
+                print(f"🔄 MCP: Queuing file processing task for {event_type} {file_path}", file=sys.stderr)
+            
             # Use nowait to avoid blocking the file watcher
             future = await _task_coordinator.queue_task_nowait(
                 TaskPriority.LOW,
                 _execute_file_processing
             )
+            
+            if "CHUNKHOUND_DEBUG" in os.environ:
+                print(f"✅ MCP: File processing task queued successfully", file=sys.stderr)
+                
             # Don't await the future - let file processing happen in background
         except Exception as e:
             if "CHUNKHOUND_DEBUG" in os.environ:
-                print(f"Failed to queue file processing task: {e}", file=sys.stderr)
+                print(f"❌ MCP: Failed to queue file processing task: {e}", file=sys.stderr)
             # Fallback to direct processing if queue is full or coordinator is down
             await _execute_file_processing()
     else:
+        if "CHUNKHOUND_DEBUG" in os.environ:
+            print(f"❌ MCP: No task coordinator available, processing directly", file=sys.stderr)
         # Fallback to direct processing if no task coordinator
         await _execute_file_processing()
 
