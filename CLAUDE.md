@@ -10,6 +10,7 @@ ChunkHound is a semantic and regex search tool for codebases that provides MCP (
 - OpenAI embeddings for semantic search
 - MCP server for AI assistant integration
 - Support for Python, Java, C#, TypeScript, JavaScript, and Markdown
+- Use `uv` to run python code and manage dependencies
 
 ## Project Structure
 - Main indexing and search logic in chunkhound/ directory
