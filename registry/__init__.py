@@ -113,6 +113,9 @@ class ProviderRegistry:
         """
         self._config = config.copy()
 
+        # Register database provider after configuration is available
+        self._register_database_provider()
+        
         # Register embedding provider after configuration is available
         self._register_embedding_provider()
 
@@ -222,8 +225,10 @@ class ProviderRegistry:
 
         try:
             embedding_provider = self.get_provider("embedding")
-        except ValueError:
-            logger.warning("No embedding provider configured")
+        except ValueError as e:
+            logger.warning(f"No embedding provider configured: {e}")
+        except Exception as e:
+            logger.error(f"Failed to create embedding provider: {e}")
 
         language_parsers = self.get_all_language_parsers()
 
@@ -288,8 +293,8 @@ class ProviderRegistry:
 
     def _register_default_providers(self) -> None:
         """Register default provider implementations."""
-        # Database providers
-        self.register_provider("database", DuckDBProvider, singleton=True)
+        # Database providers will be registered after configuration in configure()
+        # This ensures the provider gets the correct configuration parameters
 
         # Embedding providers will be registered after configuration in configure()
         # This ensures the provider gets the correct configuration parameters
@@ -380,10 +385,26 @@ class ProviderRegistry:
         if not os.environ.get("CHUNKHOUND_MCP_MODE"):
             logger.debug("Registered Plain Text parser")
 
+    def _register_database_provider(self) -> None:
+        """Register the appropriate database provider based on configuration."""
+        database_config = self._config.get('database', {})
+        # Support both 'provider' and 'type' for backwards compatibility
+        provider_type = database_config.get('provider', database_config.get('type', 'duckdb'))
+
+        if provider_type == 'duckdb':
+            self.register_provider("database", DuckDBProvider, singleton=True)
+        elif provider_type == 'lancedb':
+            from providers.database.lancedb_provider import LanceDBProvider
+            self.register_provider("database", LanceDBProvider, singleton=True)
+        else:
+            logger.warning(f"Unsupported database provider type: {provider_type}. Falling back to DuckDB.")
+            self.register_provider("database", DuckDBProvider, singleton=True)
+
     def _register_embedding_provider(self) -> None:
         """Register the appropriate embedding provider based on configuration."""
         embedding_config = self._config.get('embedding', {})
         provider_type = embedding_config.get('provider', 'openai')
+        
 
         if provider_type in ['openai', 'openai-compatible']:
             # For both openai and openai-compatible, use OpenAIEmbeddingProvider
@@ -410,10 +431,19 @@ class ProviderRegistry:
         try:
             # Handle specific provider types
             if hasattr(cls, '__name__'):
-                if 'DuckDBProvider' in cls.__name__:
-                    # DuckDB provider needs db_path parameter and connection
+                if 'DuckDBProvider' in cls.__name__ or 'LanceDBProvider' in cls.__name__:
+                    # Database providers need db_path parameter and config
                     db_path = self._config.get('database', {}).get('path', 'chunkhound.db')
-                    instance = cls(db_path)
+                    
+                    # Create DatabaseConfig from registry config
+                    from chunkhound.core.config.unified_config import DatabaseConfig
+                    db_config = DatabaseConfig(
+                        path=db_path,
+                        provider=self._config.get('database', {}).get('type', 'duckdb'),
+                        lancedb_index_type=self._config.get('database', {}).get('lancedb_index_type')
+                    )
+                    
+                    instance = cls(db_path, config=db_config)
                     instance.connect()
                     return instance
                 elif 'Database' in cls.__name__:
@@ -431,7 +461,11 @@ class ProviderRegistry:
                             config_params[key] = embedding_config[key]
 
                     logger.debug(f"Creating embedding provider with config: {config_params}")
-                    return cls(**config_params)
+                    try:
+                        return cls(**config_params)
+                    except Exception as e:
+                        logger.error(f"Failed to create embedding provider {cls.__name__}: {e}")
+                        raise
                 else:
                     # Other services - try with no args first
                     return cls()

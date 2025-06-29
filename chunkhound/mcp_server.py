@@ -741,6 +741,65 @@ async def call_tool(
         except Exception as e:
             raise Exception(f"Semantic search failed: {str(e)}")
 
+    elif name == "search_fuzzy":
+        query = arguments.get("query", "")
+        page_size = max(1, min(arguments.get("page_size", 10), 100))
+        offset = max(0, arguments.get("offset", 0))
+        max_tokens = max(1000, min(arguments.get("max_response_tokens", 20000), 25000))
+        path_filter = arguments.get("path")
+
+        async def _execute_fuzzy_search():
+            # Check connection instead of forcing reconnection (fixes race condition)
+            if _database and not _database.is_connected():
+                if "CHUNKHOUND_DEBUG" in os.environ:
+                    print("Database not connected, reconnecting before fuzzy search", file=sys.stderr)
+                _database.reconnect()
+
+            # Check if provider supports fuzzy search
+            if not hasattr(_database._provider, 'search_fuzzy'):
+                raise Exception("Fuzzy search not supported by current database provider")
+
+            results, pagination = _database._provider.search_fuzzy(
+                query=query, 
+                page_size=page_size, 
+                offset=offset, 
+                path_filter=path_filter
+            )
+
+            # Format response with pagination metadata
+            response_data = {
+                "results": results,
+                "pagination": pagination
+            }
+
+            # Apply response size limiting
+            limited_response = limit_response_size(response_data, max_tokens)
+            response_text = json.dumps(limited_response, default=str)
+
+            # Final safety check - ensure we never exceed MCP limit
+            if estimate_tokens(response_text) > 25000:
+                # Emergency fallback - return minimal response
+                emergency_response = {
+                    "results": [],
+                    "pagination": {
+                        "offset": offset,
+                        "page_size": 0,
+                        "has_more": True,
+                        "total": limited_response["pagination"].get("total", 0)
+                    }
+                }
+                response_text = json.dumps(emergency_response, default=str)
+
+            return [types.TextContent(type="text", text=response_text)]
+
+        try:
+            if _task_coordinator:
+                return await _task_coordinator.queue_task(TaskPriority.HIGH, _execute_fuzzy_search)
+            else:
+                return await _execute_fuzzy_search()
+        except Exception as e:
+            raise Exception(f"Fuzzy search failed: {str(e)}")
+
     elif name == "get_stats":
         async def _execute_get_stats():
             stats = _database.get_stats()
@@ -782,41 +841,11 @@ async def call_tool(
 
 @server.list_tools()
 async def list_tools() -> list[types.Tool]:
-    """List available tools"""
-    return [
-        types.Tool(
-            name="search_regex",
-            description="Search code chunks using regex patterns with pagination support.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "pattern": {"type": "string", "description": "Regular expression pattern to search for"},
-                    "page_size": {"type": "integer", "description": "Number of results per page (1-100)", "default": 10},
-                    "offset": {"type": "integer", "description": "Starting position for pagination", "default": 0},
-                    "max_response_tokens": {"type": "integer", "description": "Maximum response size in tokens (1000-25000)", "default": 20000},
-                    "path": {"type": "string", "description": "Optional relative path to limit search scope (e.g., 'src/', 'tests/')"}
-                },
-                "required": ["pattern"]
-            }
-        ),
-        types.Tool(
-            name="search_semantic",
-            description="Search code using semantic similarity with pagination support.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "query": {"type": "string", "description": "Natural language search query"},
-                    "page_size": {"type": "integer", "description": "Number of results per page (1-100)", "default": 10},
-                    "offset": {"type": "integer", "description": "Starting position for pagination", "default": 0},
-                    "max_response_tokens": {"type": "integer", "description": "Maximum response size in tokens (1000-25000)", "default": 20000},
-                    "provider": {"type": "string", "description": "Embedding provider to use", "default": "openai"},
-                    "model": {"type": "string", "description": "Embedding model to use", "default": "text-embedding-3-small"},
-                    "threshold": {"type": "number", "description": "Distance threshold for filtering results (optional)"},
-                    "path": {"type": "string", "description": "Optional relative path to limit search scope (e.g., 'src/', 'tests/')"}
-                },
-                "required": ["query"]
-            }
-        ),
+    """List tools based on what the database provider supports."""
+    tools = []
+    
+    # Always available tools
+    tools.extend([
         types.Tool(
             name="get_stats",
             description="Get database statistics including file, chunk, and embedding counts",
@@ -832,8 +861,73 @@ async def list_tools() -> list[types.Tool]:
                 "type": "object",
                 "properties": {}
             }
-        )
-    ]
+        ),
+    ])
+    
+    # Check provider capabilities and add supported tools
+    if _database and hasattr(_database, '_provider'):
+        provider = _database._provider
+        
+        # All providers should support semantic search
+        if hasattr(provider, 'search_semantic'):
+            tools.append(types.Tool(
+                name="search_semantic",
+                description="Search code using semantic similarity with pagination support.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string", "description": "Natural language search query"},
+                        "page_size": {"type": "integer", "description": "Number of results per page (1-100)", "default": 10},
+                        "offset": {"type": "integer", "description": "Starting position for pagination", "default": 0},
+                        "max_response_tokens": {"type": "integer", "description": "Maximum response size in tokens (1000-25000)", "default": 20000},
+                        "provider": {"type": "string", "description": "Embedding provider to use", "default": "openai"},
+                        "model": {"type": "string", "description": "Embedding model to use", "default": "text-embedding-3-small"},
+                        "threshold": {"type": "number", "description": "Distance threshold for filtering results (optional)"},
+                        "path": {"type": "string", "description": "Optional relative path to limit search scope (e.g., 'src/', 'tests/')"}
+                    },
+                    "required": ["query"]
+                }
+            ))
+        
+        # DuckDB supports regex search
+        if hasattr(provider, 'search_regex') and not isinstance(
+            getattr(provider, 'search_regex', None), property
+        ):
+            tools.append(types.Tool(
+                name="search_regex",
+                description="Search code chunks using regex patterns with pagination support.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "pattern": {"type": "string", "description": "Regular expression pattern to search for"},
+                        "page_size": {"type": "integer", "description": "Number of results per page (1-100)", "default": 10},
+                        "offset": {"type": "integer", "description": "Starting position for pagination", "default": 0},
+                        "max_response_tokens": {"type": "integer", "description": "Maximum response size in tokens (1000-25000)", "default": 20000},
+                        "path": {"type": "string", "description": "Optional relative path to limit search scope (e.g., 'src/', 'tests/')"}
+                    },
+                    "required": ["pattern"]
+                }
+            ))
+        
+        # LanceDB supports fuzzy search
+        if hasattr(provider, 'search_fuzzy'):
+            tools.append(types.Tool(
+                name="search_fuzzy",
+                description="Perform fuzzy text search using advanced text matching capabilities.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string", "description": "Text query to search for using fuzzy matching"},
+                        "page_size": {"type": "integer", "description": "Number of results per page (1-100)", "default": 10},
+                        "offset": {"type": "integer", "description": "Starting position for pagination", "default": 0},
+                        "max_response_tokens": {"type": "integer", "description": "Maximum response size in tokens (1000-25000)", "default": 20000},
+                        "path": {"type": "string", "description": "Optional relative path to limit search scope (e.g., 'src/', 'tests/')"}
+                    },
+                    "required": ["query"]
+                }
+            ))
+    
+    return tools
 
 
 def send_error_response(message_id: Any, code: int, message: str, data: dict | None = None):

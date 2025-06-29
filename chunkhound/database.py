@@ -19,6 +19,7 @@ from loguru import logger
 
 # Core imports
 from core.types.common import Language
+from chunkhound.core.config.unified_config import DatabaseConfig
 
 # Provider imports
 from providers.database.duckdb_provider import DuckDBProvider
@@ -45,18 +46,30 @@ class Database:
     while delegating operations to the new modular service layer architecture.
     """
 
-    def __init__(self, db_path: Path | str, embedding_manager: EmbeddingManager | None = None):
+    def __init__(self, db_path: Path | str, embedding_manager: EmbeddingManager | None = None, config: DatabaseConfig | None = None):
         """Initialize database connection and service layer.
 
         Args:
-            db_path: Path to DuckDB database file or ":memory:" for in-memory database
+            db_path: Path to database file or ":memory:" for in-memory database
             embedding_manager: Optional embedding manager for vector generation
+            config: Optional database configuration (auto-detected if not provided)
         """
         self._db_path = db_path
         self.embedding_manager = embedding_manager
 
-        # Initialize service layer via registry
-        self._provider = DuckDBProvider(db_path, embedding_manager)
+        # Auto-detect configuration if not provided
+        if config is None:
+            from chunkhound.core.config.unified_config import ChunkHoundConfig
+            try:
+                unified_config = ChunkHoundConfig.load_hierarchical()
+                config = unified_config.database
+            except Exception:
+                # Fallback to default configuration
+                config = DatabaseConfig()
+        
+        # Initialize service layer via registry using factory
+        from chunkhound.providers.database_factory import DatabaseProviderFactory
+        self._provider = DatabaseProviderFactory.create_provider(config, embedding_manager)
 
         # Connection synchronization lock
         self._connection_lock = threading.RLock()
