@@ -214,10 +214,6 @@ class DatabaseProvider(Protocol):
         """Process a file end-to-end: parse, chunk, and store in database."""
         ...
 
-    async def process_file_incremental(self, file_path: Path) -> dict[str, Any]:
-        """Process a file with incremental parsing and differential chunking."""
-        ...
-
     async def process_directory(
         self,
         directory: Path,

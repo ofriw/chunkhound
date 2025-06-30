@@ -274,7 +274,6 @@ class DuckDBConnectionManager:
                     extension TEXT,
                     size INTEGER,
                     modified_time TIMESTAMP,
-                    content_crc32 BIGINT,
                     language TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -299,7 +298,6 @@ class DuckDBConnectionManager:
                     size INTEGER,
                     signature TEXT,
                     language TEXT,
-                    content_hash BIGINT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
@@ -349,16 +347,8 @@ class DuckDBConnectionManager:
             raise RuntimeError("No database connection")
         
         try:
-            # Check if content_crc32 column exists
-            result = self.connection.execute("""
-                SELECT column_name FROM information_schema.columns 
-                WHERE table_name = 'files' AND column_name = 'content_crc32'
-            """).fetchone()
-            
-            if result is None:
-                # Add content_crc32 column to existing files table
-                self.connection.execute("ALTER TABLE files ADD COLUMN content_crc32 BIGINT")
-                logger.info("Added content_crc32 column to files table")
+            # Future schema migrations would go here
+            pass
         
         except Exception as e:
             logger.warning(f"Failed to migrate schema: {e}")
@@ -379,7 +369,6 @@ class DuckDBConnectionManager:
             self.connection.execute("CREATE INDEX IF NOT EXISTS idx_chunks_file_id ON chunks(file_id)")
             self.connection.execute("CREATE INDEX IF NOT EXISTS idx_chunks_type ON chunks(chunk_type)")
             self.connection.execute("CREATE INDEX IF NOT EXISTS idx_chunks_symbol ON chunks(symbol)")
-            self.connection.execute("CREATE INDEX IF NOT EXISTS idx_chunks_content_hash ON chunks(content_hash)")
 
             # Embedding indexes are created per-table in _ensure_embedding_table_exists()
             # No need for global embedding indexes since we use dimension-specific tables

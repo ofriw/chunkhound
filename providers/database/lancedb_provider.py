@@ -56,7 +56,6 @@ def get_chunks_schema(embedding_dims: int | None = None) -> pa.Schema:
         ('id', pa.int64()),
         ('file_id', pa.int64()),
         ('content', pa.string()),
-        ('content_hash', pa.int64()),
         ('start_line', pa.int64()),
         ('end_line', pa.int64()),
         ('chunk_type', pa.string()),
@@ -359,7 +358,6 @@ class LanceDBProvider:
             'id': chunk.id or int(time.time() * 1000000),
             'file_id': chunk.file_id,
             'content': chunk.code or "",
-            'content_hash': chunk.content_hash if chunk.content_hash is not None else 0,
             'start_line': chunk.start_line,
             'end_line': chunk.end_line,
             'chunk_type': str(chunk.chunk_type.value if hasattr(chunk.chunk_type, 'value') else chunk.chunk_type),
@@ -403,8 +401,7 @@ class LanceDBProvider:
                     'id': chunk_id,
                     'file_id': chunk.file_id,
                     'content': chunk.code or "",
-                    'content_hash': chunk.content_hash if chunk.content_hash is not None else 0,
-                    'start_line': chunk.start_line,
+                            'start_line': chunk.start_line,
                     'end_line': chunk.end_line,
                     'chunk_type': str(chunk.chunk_type.value if hasattr(chunk.chunk_type, 'value') else chunk.chunk_type),
                     'language': str(chunk.language.value if hasattr(chunk.language, 'value') else chunk.language),
@@ -446,8 +443,7 @@ class LanceDBProvider:
                     end_line=result['end_line'],
                     chunk_type=ChunkType(result['chunk_type']),
                     language=Language(result['language']),
-                    symbol=result['name'],
-                    content_hash=result.get('content_hash')
+                    symbol=result['name']
                 )
             return result
         except Exception as e:
@@ -472,8 +468,7 @@ class LanceDBProvider:
                         end_line=result['end_line'],
                         chunk_type=ChunkType(result['chunk_type']),
                         language=Language(result['language']),
-                        symbol=result['name'],
-                        content_hash=result.get('content_hash')
+                        symbol=result['name']
                     ) for result in results
                 ]
             return results
@@ -577,7 +572,6 @@ class LanceDBProvider:
                             'id': row['id'],
                             'file_id': row['file_id'],
                             'content': row['content'],
-                            'content_hash': row['content_hash'],
                             'start_line': row['start_line'],
                             'end_line': row['end_line'],
                             'chunk_type': row['chunk_type'],

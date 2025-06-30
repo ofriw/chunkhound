@@ -5,7 +5,6 @@ that has been extracted from a source file. The Chunk model encapsulates chunk m
 content, and provides methods for working with chunk data in a type-safe manner.
 """
 
-import zlib
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -46,7 +45,6 @@ class Chunk:
         end_byte: Ending byte offset (optional)
         created_at: When the chunk was first indexed
         updated_at: When the chunk was last updated
-        content_hash: CRC32 hash of normalized content for change detection
     """
 
     symbol: str
@@ -63,7 +61,6 @@ class Chunk:
     end_byte: ByteOffset | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
-    content_hash: int | None = None
 
     def __post_init__(self):
         """Validate chunk model after initialization."""
@@ -191,10 +188,6 @@ class Chunk:
             if isinstance(updated_at, str):
                 updated_at = datetime.fromisoformat(updated_at)
 
-            content_hash = data.get("content_hash")
-            if content_hash is not None:
-                content_hash = int(content_hash)
-
             return cls(
                 id=chunk_id,
                 symbol=symbol,
@@ -209,8 +202,7 @@ class Chunk:
                 start_byte=start_byte,
                 end_byte=end_byte,
                 created_at=created_at,
-                updated_at=updated_at,
-                content_hash=content_hash
+                updated_at=updated_at
             )
 
         except (ValueError, TypeError) as e:
@@ -255,9 +247,6 @@ class Chunk:
 
         if self.updated_at is not None:
             result["updated_at"] = self.updated_at.isoformat()
-
-        if self.content_hash is not None:
-            result["content_hash"] = self.content_hash
 
         return result
 
@@ -352,33 +341,6 @@ class Chunk:
         """
         return not (self.end_line < other.start_line or other.end_line < self.start_line)
 
-    def compute_content_hash(self) -> int:
-        """Compute stable CRC32 hash of normalized chunk content.
-        
-        Normalizes content by:
-        - Converting to Unix line endings
-        - Stripping trailing whitespace per line
-        - Ensuring consistent encoding
-        
-        Returns:
-            CRC32 hash as signed 32-bit integer
-        """
-        normalized = self._normalize_content(self.code)
-        return zlib.crc32(normalized.encode('utf-8'))
-
-    def _normalize_content(self, content: str) -> str:
-        """Normalize content for stable hashing.
-        
-        Args:
-            content: Raw content to normalize
-            
-        Returns:
-            Normalized content string
-        """
-        # Convert to Unix line endings and strip trailing whitespace per line
-        lines = content.replace('\r\n', '\n').replace('\r', '\n').split('\n')
-        normalized_lines = [line.rstrip() for line in lines]
-        return '\n'.join(normalized_lines)
 
     def with_id(self, chunk_id: ChunkId) -> "Chunk":
         """Create a new Chunk instance with the specified ID.
@@ -403,8 +365,7 @@ class Chunk:
             start_byte=self.start_byte,
             end_byte=self.end_byte,
             created_at=self.created_at,
-            updated_at=self.updated_at,
-            content_hash=self.content_hash
+            updated_at=self.updated_at
         )
 
     def with_file_path(self, file_path: FilePath) -> "Chunk":
@@ -430,8 +391,7 @@ class Chunk:
             start_byte=self.start_byte,
             end_byte=self.end_byte,
             created_at=self.created_at,
-            updated_at=self.updated_at,
-            content_hash=self.content_hash
+            updated_at=self.updated_at
         )
 
     def __str__(self) -> str:

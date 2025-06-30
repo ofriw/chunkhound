@@ -51,13 +51,13 @@ class DuckDBFileRepository:
                 # File exists, update it
                 file_id = self._extract_file_id(existing)
                 if file_id is not None:
-                    self.update_file(file_id, size_bytes=file.size_bytes, mtime=file.mtime, content_crc32=file.content_crc32)
+                    self.update_file(file_id, size_bytes=file.size_bytes, mtime=file.mtime)
                     return file_id
 
             # No existing file, insert new one
             result = self.connection.execute("""
-                INSERT INTO files (path, name, extension, size, modified_time, content_crc32, language)
-                VALUES (?, ?, ?, ?, to_timestamp(?), ?, ?)
+                INSERT INTO files (path, name, extension, size, modified_time, language)
+                VALUES (?, ?, ?, ?, to_timestamp(?), ?)
                 RETURNING id
             """, [
                 str(file.path),
@@ -65,7 +65,6 @@ class DuckDBFileRepository:
                 file.extension,
                 file.size_bytes,
                 file.mtime,
-                file.content_crc32,
                 file.language.value if file.language else None
             ]).fetchone()
 
@@ -93,7 +92,7 @@ class DuckDBFileRepository:
 
         try:
             result = self.connection.execute("""
-                SELECT id, path, name, extension, size, modified_time, content_crc32, language, created_at, updated_at
+                SELECT id, path, name, extension, size, modified_time, language, created_at, updated_at
                 FROM files WHERE path = ?
             """, [path]).fetchone()
 
@@ -107,10 +106,9 @@ class DuckDBFileRepository:
                 "extension": result[3],
                 "size": result[4],
                 "modified_time": result[5],
-                "content_crc32": result[6],
-                "language": result[7],
-                "created_at": result[8],
-                "updated_at": result[9]
+                "language": result[6],
+                "created_at": result[7],
+                "updated_at": result[8]
             }
 
             if as_model:
@@ -118,8 +116,7 @@ class DuckDBFileRepository:
                     path=result[1],
                     mtime=result[5],
                     size_bytes=result[4],
-                    content_crc32=result[6],
-                    language=Language(result[7]) if result[7] else Language.UNKNOWN
+                    language=Language(result[6]) if result[6] else Language.UNKNOWN
                 )
 
             return file_dict
@@ -135,7 +132,7 @@ class DuckDBFileRepository:
 
         try:
             result = self.connection.execute("""
-                SELECT id, path, name, extension, size, modified_time, content_crc32, language, created_at, updated_at
+                SELECT id, path, name, extension, size, modified_time, language, created_at, updated_at
                 FROM files WHERE id = ?
             """, [file_id]).fetchone()
 
@@ -149,10 +146,9 @@ class DuckDBFileRepository:
                 "extension": result[3],
                 "size": result[4],
                 "modified_time": result[5],
-                "content_crc32": result[6],
-                "language": result[7],
-                "created_at": result[8],
-                "updated_at": result[9]
+                "language": result[6],
+                "created_at": result[7],
+                "updated_at": result[8]
             }
 
             if as_model:
@@ -160,8 +156,7 @@ class DuckDBFileRepository:
                     path=result[1],
                     mtime=result[5],
                     size_bytes=result[4],
-                    content_crc32=result[6],
-                    language=Language(result[7]) if result[7] else Language.UNKNOWN
+                    language=Language(result[6]) if result[6] else Language.UNKNOWN
                 )
 
             return file_dict
@@ -170,20 +165,19 @@ class DuckDBFileRepository:
             logger.error(f"Failed to get file by ID {file_id}: {e}")
             return None
 
-    def update_file(self, file_id: int, size_bytes: int | None = None, mtime: float | None = None, content_crc32: int | None = None) -> None:
+    def update_file(self, file_id: int, size_bytes: int | None = None, mtime: float | None = None) -> None:
         """Update file record with new values.
 
         Args:
             file_id: ID of the file to update
             size_bytes: New file size in bytes
             mtime: New modification timestamp
-            content_crc32: New CRC32 checksum of file content
         """
         if self.connection is None:
             raise RuntimeError("No database connection")
 
         # Skip if no updates provided
-        if size_bytes is None and mtime is None and content_crc32 is None:
+        if size_bytes is None and mtime is None:
             return
 
         try:
@@ -200,11 +194,6 @@ class DuckDBFileRepository:
             if mtime is not None:
                 set_clauses.append("modified_time = to_timestamp(?)")
                 values.append(mtime)
-
-            # Add CRC32 update if provided
-            if content_crc32 is not None:
-                set_clauses.append("content_crc32 = ?")
-                values.append(content_crc32)
 
             if set_clauses:
                 set_clauses.append("updated_at = CURRENT_TIMESTAMP")

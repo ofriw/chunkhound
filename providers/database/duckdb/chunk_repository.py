@@ -72,7 +72,7 @@ class DuckDBChunkRepository:
             params = []
             
             for chunk in chunks:
-                values_clauses.append("(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+                values_clauses.append("(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
                 params.extend([
                     chunk.file_id,
                     chunk.chunk_type.value if chunk.chunk_type else None,
@@ -85,14 +85,13 @@ class DuckDBChunkRepository:
                     len(chunk.code),
                     getattr(chunk, 'signature', None),
                     chunk.language.value if chunk.language else None,
-                    getattr(chunk, 'content_hash', None)
                 ])
 
             # Use single bulk INSERT with RETURNING for optimal performance
             values_sql = ", ".join(values_clauses)
             query = f"""
                 INSERT INTO chunks (file_id, chunk_type, symbol, code, start_line, end_line,
-                                  start_byte, end_byte, size, signature, language, content_hash)
+                                  start_byte, end_byte, size, signature, language)
                 VALUES {values_sql}
                 RETURNING id
             """
@@ -119,7 +118,7 @@ class DuckDBChunkRepository:
         try:
             result = self.connection.execute("""
                 SELECT id, file_id, chunk_type, symbol, code, start_line, end_line,
-                       start_byte, end_byte, size, signature, language, content_hash, created_at, updated_at
+                       start_byte, end_byte, size, signature, language, created_at, updated_at
                 FROM chunks WHERE id = ?
             """, [chunk_id]).fetchone()
 
@@ -139,9 +138,8 @@ class DuckDBChunkRepository:
                 "size": result[9],
                 "signature": result[10],
                 "language": result[11],
-                "content_hash": result[12],
-                "created_at": result[13],
-                "updated_at": result[14]
+                "created_at": result[12],
+                "updated_at": result[13]
             }
 
             if as_model:
@@ -154,8 +152,7 @@ class DuckDBChunkRepository:
                     end_line=result[6],
                     start_byte=result[7],
                     end_byte=result[8],
-                    language=Language(result[11]) if result[11] else Language.UNKNOWN,
-                    content_hash=result[12]
+                    language=Language(result[11]) if result[11] else Language.UNKNOWN
                 )
 
             return chunk_dict
@@ -172,7 +169,7 @@ class DuckDBChunkRepository:
         try:
             results = self.connection.execute("""
                 SELECT id, file_id, chunk_type, symbol, code, start_line, end_line,
-                       start_byte, end_byte, size, signature, language, content_hash, created_at, updated_at
+                       start_byte, end_byte, size, signature, language, created_at, updated_at
                 FROM chunks WHERE file_id = ?
                 ORDER BY start_line
             """, [file_id]).fetchall()
@@ -192,9 +189,8 @@ class DuckDBChunkRepository:
                     "size": result[9],
                     "signature": result[10],
                     "language": result[11],
-                    "content_hash": result[12],
-                    "created_at": result[13],
-                    "updated_at": result[14]
+                    "created_at": result[12],
+                    "updated_at": result[13]
                 }
 
                 if as_model:
@@ -207,8 +203,7 @@ class DuckDBChunkRepository:
                         end_line=result[6],
                         start_byte=result[7],
                         end_byte=result[8],
-                        language=Language(result[11]) if result[11] else Language.UNKNOWN,
-                        content_hash=result[12]
+                        language=Language(result[11]) if result[11] else Language.UNKNOWN
                     ))
                 else:
                     chunks.append(chunk_dict)
