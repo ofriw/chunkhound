@@ -5,89 +5,37 @@ from typing import Any, TypeVar
 
 from loguru import logger
 
-# Import core types with PyInstaller fallback
-try:
-    from core.types import Language
-except ImportError:
-    # Fallback for different execution contexts
-    from core.types.common import Language
+# Import core types
+from core.types import Language
 
-# Import concrete providers with PyInstaller fallback
-try:
-    from providers.database.duckdb_provider import DuckDBProvider
-    from providers.embeddings.openai_provider import OpenAIEmbeddingProvider
-    from providers.parsing.bash_parser import BashParser
-    from providers.parsing.c_parser import CParser
-    from providers.parsing.cpp_parser import CppParser
-    from providers.parsing.csharp_parser import CSharpParser
-    from providers.parsing.go_parser import GoParser
-    from providers.parsing.groovy_parser import GroovyParser
-    from providers.parsing.java_parser import JavaParser
-    from providers.parsing.javascript_parser import JavaScriptParser
-    from providers.parsing.kotlin_parser import KotlinParser
-    from providers.parsing.makefile_parser import MakefileParser
-    from providers.parsing.markdown_parser import MarkdownParser
-    from providers.parsing.matlab_parser import MatlabParser
+# Import concrete providers
+from providers.database.duckdb_provider import DuckDBProvider
+from providers.embeddings.openai_provider import OpenAIEmbeddingProvider
+from providers.parsing.bash_parser import BashParser
+from providers.parsing.c_parser import CParser
+from providers.parsing.cpp_parser import CppParser
+from providers.parsing.csharp_parser import CSharpParser
+from providers.parsing.go_parser import GoParser
+from providers.parsing.groovy_parser import GroovyParser
+from providers.parsing.java_parser import JavaParser
+from providers.parsing.javascript_parser import JavaScriptParser
+from providers.parsing.kotlin_parser import KotlinParser
+from providers.parsing.makefile_parser import MakefileParser
+from providers.parsing.markdown_parser import MarkdownParser
+from providers.parsing.matlab_parser import MatlabParser
 
-    # Import language parsers
-    from providers.parsing.python_parser import PythonParser
-    from providers.parsing.rust_parser import RustParser
-    from providers.parsing.text_parser import JsonParser, PlainTextParser, YamlParser
-    from providers.parsing.toml_parser import TomlParser
-    from providers.parsing.typescript_parser import TypeScriptParser
+# Import language parsers
+from providers.parsing.python_parser import PythonParser
+from providers.parsing.rust_parser import RustParser
+from providers.parsing.text_parser import JsonParser, PlainTextParser, YamlParser
+from providers.parsing.toml_parser import TomlParser
+from providers.parsing.typescript_parser import TypeScriptParser
 
-    # Import services
-    from services.base_service import BaseService
-    from services.embedding_service import EmbeddingService
-    from services.indexing_coordinator import IndexingCoordinator
-    from services.search_service import SearchService
-except ImportError:
-    # Alternative imports when running from different contexts
-    try:
-        # Try absolute imports from project root
-        import os
-        import sys
-        from pathlib import Path
-
-        # Add project root to path
-        project_root = Path(__file__).parent.parent
-        if str(project_root) not in sys.path:
-            sys.path.insert(0, str(project_root))
-
-        from providers.database.duckdb_provider import DuckDBProvider
-        from providers.embeddings.openai_provider import OpenAIEmbeddingProvider
-        from providers.parsing.bash_parser import BashParser
-        from providers.parsing.c_parser import CParser
-        from providers.parsing.cpp_parser import CppParser
-        from providers.parsing.csharp_parser import CSharpParser
-        from providers.parsing.go_parser import GoParser
-        from providers.parsing.groovy_parser import GroovyParser
-        from providers.parsing.java_parser import JavaParser
-        from providers.parsing.javascript_parser import JavaScriptParser
-        from providers.parsing.kotlin_parser import KotlinParser
-        from providers.parsing.makefile_parser import MakefileParser
-        from providers.parsing.markdown_parser import MarkdownParser
-        from providers.parsing.matlab_parser import MatlabParser
-
-        # Import language parsers
-        from providers.parsing.python_parser import PythonParser
-        from providers.parsing.rust_parser import RustParser
-        from providers.parsing.text_parser import (
-            JsonParser,
-            PlainTextParser,
-            YamlParser,
-        )
-        from providers.parsing.toml_parser import TomlParser
-        from providers.parsing.typescript_parser import TypeScriptParser
-
-        # Import services
-        from services.base_service import BaseService
-        from services.embedding_service import EmbeddingService
-        from services.indexing_coordinator import IndexingCoordinator
-        from services.search_service import SearchService
-    except ImportError as e:
-        # Final fallback - raise informative error with details
-        raise ImportError(f"Could not import required providers. Please check PYTHONPATH and ensure you're running from the project root directory. Original error: {e}")
+# Import services
+from services.base_service import BaseService
+from services.embedding_service import EmbeddingService
+from services.indexing_coordinator import IndexingCoordinator
+from services.search_service import SearchService
 
 T = TypeVar('T')
 
@@ -394,7 +342,7 @@ class ProviderRegistry:
         if provider_type == 'duckdb':
             self.register_provider("database", DuckDBProvider, singleton=True)
         elif provider_type == 'lancedb':
-            from providers.database.lancedb_provider import LanceDBProvider
+            from chunkhound.providers.database.lancedb_provider import LanceDBProvider
             self.register_provider("database", LanceDBProvider, singleton=True)
         else:
             logger.warning(f"Unsupported database provider type: {provider_type}. Falling back to DuckDB.")
