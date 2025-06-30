@@ -21,6 +21,15 @@ if is_mcp_command():
     # Set MCP mode environment early
     os.environ["CHUNKHOUND_MCP_MODE"] = "1"
 
+    # CRITICAL: Import numpy modules early for DuckDB threading safety in MCP mode
+    # Must happen before any DuckDB operations in async/threading context
+    # See: https://duckdb.org/docs/stable/clients/python/known_issues.html
+    try:
+        import numpy
+        import numpy.core.multiarray
+    except ImportError:
+        pass
+
     # Import only what's needed for MCP
     from pathlib import Path
 

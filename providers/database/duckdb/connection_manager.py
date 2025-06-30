@@ -6,6 +6,20 @@ import time
 from pathlib import Path
 from typing import Any
 
+# CRITICAL: Import numpy modules FIRST to prevent DuckDB threading segfaults
+# This must happen before DuckDB operations start in threaded environments
+# See: https://duckdb.org/docs/stable/clients/python/known_issues.html
+try:
+    import numpy
+    # CRITICAL: Import numpy.core.multiarray specifically for threading safety
+    # DuckDB docs: "If this module has not been imported from the main thread,
+    # and a different thread during execution attempts to import it this causes
+    # either a deadlock or a crash"
+    import numpy.core.multiarray
+except ImportError:
+    # NumPy not available - VSS extension may not work properly
+    pass
+
 import duckdb
 from loguru import logger
 
@@ -28,6 +42,14 @@ class DuckDBConnectionManager:
         self._operations_since_checkpoint = 0
         self._checkpoint_threshold = 100  # Checkpoint every N operations
         self._last_checkpoint_time = time.time()
+        
+        # CRITICAL: Thread-safe connection pool for async/threading environments
+        # DuckDB connections are not thread-safe and must be isolated per task/thread
+        # See: https://github.com/duckdb/duckdb/issues/2959
+        import threading
+        self._main_thread_id = threading.get_ident()
+        self._thread_connections: dict[int, Any] = {}
+        self._connection_lock = threading.RLock()
 
     @property
     def db_path(self) -> Path | str:
@@ -38,6 +60,41 @@ class DuckDBConnectionManager:
     def is_connected(self) -> bool:
         """Check if database connection is active."""
         return self.connection is not None
+
+    def get_thread_safe_connection(self) -> Any:
+        """Get thread-safe DuckDB connection for current thread.
+        
+        This method ensures each thread gets its own DuckDB connection cursor
+        to prevent segfaults from concurrent access. Required for MCP server
+        async operations.
+        
+        Returns:
+            Thread-local DuckDB connection cursor
+        """
+        import threading
+        current_thread_id = threading.get_ident()
+        
+        with self._connection_lock:
+            # Use main connection for main thread
+            if current_thread_id == self._main_thread_id:
+                if self.connection is None:
+                    raise RuntimeError("Main connection not established")
+                return self.connection
+            
+            # Create thread-local cursor for other threads
+            if current_thread_id not in self._thread_connections:
+                if self.connection is None:
+                    raise RuntimeError("Main connection not established")
+                
+                # Create cursor from main connection for thread safety
+                # Each cursor is thread-local and isolated
+                cursor = self.connection.cursor()
+                self._thread_connections[current_thread_id] = cursor
+                
+                if not os.environ.get("CHUNKHOUND_MCP_MODE"):
+                    logger.debug(f"Created thread-local DuckDB cursor for thread {current_thread_id}")
+            
+            return self._thread_connections[current_thread_id]
 
     def connect(self) -> None:
         """Establish database connection and initialize schema with WAL validation."""
@@ -51,17 +108,23 @@ class DuckDBConnectionManager:
             if duckdb is None:
                 raise ImportError("duckdb not available")
 
-            # Connect to DuckDB with WAL corruption handling
-            self._connect_with_wal_validation()
+            # CRITICAL: Thread-safe database connection for MCP server
+            # The MCP server runs with multiple async tasks that can trigger
+            # concurrent database operations during initialization
+            if os.environ.get("CHUNKHOUND_MCP_MODE"):
+                # Force single-threaded mode for MCP to prevent segfaults
+                # This is required because the MCP server uses async tasks
+                # that can cause concurrent WAL operations during startup
+                self._connect_with_mcp_safety()
+            else:
+                # Normal connection path for CLI
+                self._preemptive_wal_cleanup()
+                self._connect_with_wal_validation()
+            
             logger.info("DuckDB connection established")
 
             # Load required extensions
             self._load_extensions()
-
-            # Enable experimental HNSW persistence for disk-based databases
-            if self.connection is not None:
-                self.connection.execute("SET hnsw_enable_experimental_persistence = true")
-                logger.debug("HNSW experimental persistence enabled")
 
             # Create schema and indexes
             self.create_schema()
@@ -69,6 +132,7 @@ class DuckDBConnectionManager:
 
             # Migrate legacy embeddings table if it exists
             self._migrate_legacy_embeddings_table()
+
 
             logger.info("DuckDB connection manager initialization complete")
 
@@ -102,6 +166,45 @@ class DuckDBConnectionManager:
                 # Not a WAL corruption error, re-raise original exception
                 raise
 
+    def _connect_with_mcp_safety(self) -> None:
+        """Connect to DuckDB with MCP-specific safety measures for async environments.
+        
+        This method addresses threading issues that cause segfaults in the MCP server
+        by ensuring single-threaded database access during critical initialization.
+        """
+        try:
+            # Clean up any existing WAL files that might cause issues
+            self._preemptive_wal_cleanup()
+            
+            # Connect with explicit thread safety for MCP async environment
+            self.connection = duckdb.connect(str(self.db_path))
+            
+            # CRITICAL: Set DuckDB to single-threaded mode immediately after connection
+            # This prevents concurrent operations that cause string corruption segfaults
+            self.connection.execute("SET threads = 1")
+            
+            logger.debug("DuckDB connection established with MCP thread safety")
+
+        except duckdb.Error as e:
+            error_msg = str(e)
+
+            # Handle WAL corruption with additional MCP-specific recovery
+            if self._is_wal_corruption_error(error_msg):
+                logger.warning(f"WAL corruption detected in MCP mode: {error_msg}")
+                self._handle_wal_corruption()
+
+                # Retry with safety measures
+                try:
+                    self.connection = duckdb.connect(str(self.db_path))
+                    self.connection.execute("SET threads = 1")
+                    logger.info("DuckDB connection successful after WAL cleanup in MCP mode")
+                except Exception as retry_error:
+                    logger.error(f"MCP connection failed even after WAL cleanup: {retry_error}")
+                    raise
+            else:
+                # Not a WAL corruption error, re-raise original exception
+                raise
+
     def _is_wal_corruption_error(self, error_msg: str) -> bool:
         """Check if error message indicates WAL corruption."""
         corruption_indicators = [
@@ -116,6 +219,43 @@ class DuckDBConnectionManager:
         ]
 
         return any(indicator in error_msg for indicator in corruption_indicators)
+
+    def _preemptive_wal_cleanup(self) -> None:
+        """Proactively check for and clean up potentially corrupted WAL files.
+        
+        This prevents segfaults that occur when DuckDB tries to replay corrupted WAL files
+        during connection, which can happen before proper error handling kicks in.
+        """
+        if str(self.db_path) == ":memory:":
+            return  # No WAL files for in-memory databases
+            
+        db_path = Path(self.db_path)
+        wal_file = db_path.with_suffix(db_path.suffix + '.wal')
+        
+        if not wal_file.exists():
+            return  # No WAL file, nothing to clean up
+            
+        # Check WAL file age - if it's older than 24 hours, it's likely stale
+        try:
+            wal_age = time.time() - wal_file.stat().st_mtime
+            if wal_age > 86400:  # 24 hours
+                logger.warning(f"Found stale WAL file (age: {wal_age/3600:.1f}h), removing preemptively")
+                self._handle_wal_corruption()
+                return
+        except OSError:
+            pass
+            
+        # Try a quick validation by attempting to open the database
+        # If it crashes or fails, clean up the WAL using existing logic
+        try:
+            test_conn = duckdb.connect(str(self.db_path))
+            # Simple query to trigger WAL replay
+            test_conn.execute("SELECT 1").fetchone()
+            test_conn.close()
+            logger.debug("WAL file validation passed")
+        except Exception as e:
+            logger.warning(f"WAL validation failed ({e}), cleaning up WAL file")
+            self._handle_wal_corruption()
 
     def _handle_wal_corruption(self) -> None:
         """Handle WAL corruption using advanced recovery with VSS extension preloading."""
@@ -238,7 +378,7 @@ class DuckDBConnectionManager:
                     logger.info("DuckDB connection closed")
 
     def _load_extensions(self) -> None:
-        """Load required DuckDB extensions."""
+        """Load required DuckDB extensions with macOS x86 crash prevention."""
         logger.info("Loading DuckDB extensions")
 
         if self.connection is None:
@@ -249,6 +389,11 @@ class DuckDBConnectionManager:
             self.connection.execute("INSTALL vss")
             self.connection.execute("LOAD vss")
             logger.info("VSS extension loaded successfully")
+
+            # Enable experimental HNSW persistence AFTER VSS extension is loaded
+            # This prevents segfaults when DuckDB tries to access vector functionality
+            self.connection.execute("SET hnsw_enable_experimental_persistence = true")
+            logger.debug("HNSW experimental persistence enabled")
 
         except Exception as e:
             logger.error(f"Failed to load DuckDB extensions: {e}")

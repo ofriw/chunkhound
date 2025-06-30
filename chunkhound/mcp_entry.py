@@ -20,6 +20,15 @@ for logger_name in ['', 'mcp', 'server', 'fastmcp', 'registry', 'chunkhound']:
 # Set environment variable to signal MCP mode
 os.environ["CHUNKHOUND_MCP_MODE"] = "1"
 
+# CRITICAL: Import numpy modules early for DuckDB threading safety
+# Must happen before any DuckDB operations in async/threading context
+# See: https://duckdb.org/docs/stable/clients/python/known_issues.html
+try:
+    import numpy
+    import numpy.core.multiarray
+except ImportError:
+    pass
+
 # Suppress loguru logger
 try:
     from loguru import logger as loguru_logger
