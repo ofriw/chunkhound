@@ -207,7 +207,6 @@ class DatabaseConfig(BaseModel):
 class ChunkHoundConfig(BaseSettings):
     """
     Unified configuration for ChunkHound.
-    
     This class provides consistent configuration management across all ChunkHound
     components with support for hierarchical loading from multiple sources.
     

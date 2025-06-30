@@ -373,7 +373,7 @@ class PeriodicIndexManager:
             self._current_scan_start_time = 0
 
     async def _process_file_batch(self, files: list[Path]) -> None:
-        """Process a batch of files with CRC32 cache optimization.
+        """Process a batch of files for background indexing.
 
         Args:
             files: List of file paths to process
@@ -383,7 +383,7 @@ class PeriodicIndexManager:
                 break
 
             try:
-                # Use existing process_file method which includes CRC32 cache optimization
+                # Use existing process_file method for consistent processing
                 result = await self._indexing_coordinator.process_file(
                     file_path,
                     skip_embeddings=True  # Skip embeddings for background processing

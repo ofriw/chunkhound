@@ -162,31 +162,37 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
         if "CHUNKHOUND_DEBUG" in os.environ:
             print("Server lifespan: Embedding manager initialized", file=sys.stderr)
 
-        # Setup embedding provider and registry configuration
-        unified_config = None
+        # Load unified configuration FIRST - this is critical for proper initialization
         try:
-            # Load unified configuration with environment variable support
             unified_config = ChunkHoundConfig.load_hierarchical()
-
+            
             # Validate configuration for MCP
             missing_config = unified_config.get_missing_config()
             if missing_config and "CHUNKHOUND_DEBUG" in os.environ:
                 print(f"Server lifespan: Missing config (will use defaults): {missing_config}", file=sys.stderr)
+        except Exception as e:
+            if "CHUNKHOUND_DEBUG" in os.environ:
+                print(f"Server lifespan: Failed to load unified config, using defaults: {e}", file=sys.stderr)
+            # Use default config if loading fails
+            unified_config = ChunkHoundConfig()
 
+        # CRITICAL: Configure registry BEFORE database creation to ensure provider initialization
+        # uses the correct configuration. This must happen even if embedding setup fails.
+        registry_config = _build_mcp_registry_config(unified_config, db_path)
+        configure_registry(registry_config)
+        
+        if "CHUNKHOUND_DEBUG" in os.environ:
+            print("Server lifespan: Registry configured BEFORE database creation", file=sys.stderr)
+            print(f"Server lifespan: Registry config: {registry_config}", file=sys.stderr)
+
+        # Setup embedding provider (optional - continue if it fails)
+        try:
             # Create provider using unified factory
             provider = EmbeddingProviderFactory.create_provider(unified_config.embedding)
             _embedding_manager.register_provider(provider, set_default=True)
 
             if "CHUNKHOUND_DEBUG" in os.environ:
                 print(f"Server lifespan: Embedding provider registered successfully: {unified_config.embedding.provider} with model {unified_config.get_embedding_model()}", file=sys.stderr)
-
-            # CRITICAL FIX: Configure registry BEFORE database creation
-            registry_config = _build_mcp_registry_config(unified_config, db_path)
-            configure_registry(registry_config)
-
-            if "CHUNKHOUND_DEBUG" in os.environ:
-                print("Server lifespan: Registry configured with embedding provider", file=sys.stderr)
-                print(f"Server lifespan: Registry config: {registry_config}", file=sys.stderr)
 
         except ValueError as e:
             # API key or configuration issue - only log in non-MCP mode
@@ -206,8 +212,8 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
                 import traceback
                 traceback.print_exc(file=sys.stderr)
 
-        # Create database AFTER registry configuration
-        _database = Database(db_path)
+        # Create database AFTER registry configuration - provider will use registry config
+        _database = Database(db_path, embedding_manager=_embedding_manager, config=unified_config.database)
         try:
             # Initialize database with connection only - no background refresh thread
             _database.connect()
@@ -215,11 +221,8 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
                 print("Server lifespan: Database connected successfully", file=sys.stderr)
                 # Verify IndexingCoordinator has embedding provider
                 try:
-                    try:
-                        from .registry import get_registry
-                    except ImportError:
-                        from registry import get_registry
-                    indexing_coordinator = get_registry().create_indexing_coordinator()
+                    # Use the same instance from _database to avoid creating duplicates
+                    indexing_coordinator = _database._indexing_coordinator
                     has_embedding_provider = indexing_coordinator._embedding_provider is not None
                     print(f"Server lifespan: IndexingCoordinator embedding provider available: {has_embedding_provider}", file=sys.stderr)
                 except Exception as debug_error:
@@ -294,12 +297,9 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
             # Get base directory from environment or use current working directory
             base_directory = Path(os.getcwd())
             
-            # Get IndexingCoordinator from registry
-            try:
-                from .registry import get_registry
-            except ImportError:
-                from registry import get_registry
-            indexing_coordinator = get_registry().create_indexing_coordinator()
+            # Use the SAME IndexingCoordinator instance from _database to ensure deduplication
+            # This prevents duplicate entries by sharing the same ChunkCacheService state
+            indexing_coordinator = _database._indexing_coordinator
             
             # Create periodic indexer with environment configuration
             _periodic_indexer = PeriodicIndexManager.from_environment(
@@ -418,15 +418,32 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
             print("Server lifespan: Cleanup complete", file=sys.stderr)
 
 
-async def _wait_for_file_completion(file_path: Path, max_retries: int = 3) -> bool:
+async def _wait_for_file_completion(file_path: Path, max_retries: int = 10) -> bool:
     """Wait for file to be fully written (not locked by editor)"""
-    for _ in range(max_retries):
+    # Increased retries and wait time for new files
+    for attempt in range(max_retries):
         try:
+            # Check if file exists first
+            if not file_path.exists():
+                await asyncio.sleep(0.1)
+                continue
+                
+            # Try to read the file
             with open(file_path, 'rb') as f:
                 f.read(1)  # Test read access
+            
+            # Additional check: ensure file size is stable
+            if attempt == 0:
+                initial_size = file_path.stat().st_size
+                await asyncio.sleep(0.05)  # Brief wait
+                if file_path.stat().st_size != initial_size:
+                    continue  # File still being written
+            
             return True
-        except (OSError, PermissionError):
-            await asyncio.sleep(0.1)  # Brief wait
+        except (OSError, PermissionError, FileNotFoundError):
+            # Increase wait time for later attempts
+            wait_time = 0.1 if attempt < 5 else 0.2
+            await asyncio.sleep(wait_time)
     return False
 
 
@@ -439,13 +456,7 @@ async def process_file_change(file_path: Path, event_type: str):
     """
     global _database, _embedding_manager, _task_coordinator
 
-    # Debug logging for file change events
-    if "CHUNKHOUND_DEBUG" in os.environ:
-        print(f"🔄 MCP: process_file_change called - {event_type} {file_path}", file=sys.stderr)
-
     if not _database:
-        if "CHUNKHOUND_DEBUG" in os.environ:
-            print("❌ MCP: No database available for file processing", file=sys.stderr)
         return
 
     async def _execute_file_processing():
@@ -486,55 +497,34 @@ async def process_file_change(file_path: Path, event_type: str):
                             break
                     
                     if should_exclude:
-                        if "CHUNKHOUND_DEBUG" in os.environ:
-                            print(f"MCP: Skipped excluded file: {file_path}", file=sys.stderr)
                         return
 
                     # Phase 4: Verify file is fully written before processing
                     if not await _wait_for_file_completion(file_path):
                         return  # Skip if file not ready
 
-                    # Use incremental processing for 10-100x performance improvement
-                    if "CHUNKHOUND_DEBUG" in os.environ:
-                        print(f"🔄 MCP: Processing file incrementally: {file_path}", file=sys.stderr)
-                    
-                    result = await _database.process_file_incremental(file_path=file_path)
-                    
-                    if "CHUNKHOUND_DEBUG" in os.environ:
-                        print(f"✅ MCP: File processing result: {result}", file=sys.stderr)
+                    # Use standard processing path with smart diff for correct deduplication
+                    result = await _database._indexing_coordinator.process_file(file_path)
 
                     # Transaction already committed by IndexingCoordinator with backup/rollback safety
         except Exception as e:
-            # Log the exception instead of silently handling it
-            if "CHUNKHOUND_DEBUG" in os.environ:
-                print(f"Exception during {event_type} processing: {e}", file=sys.stderr)
-                import traceback
-                print(f"Traceback: {traceback.format_exc()}", file=sys.stderr)
+            # Silently handle exceptions to avoid corrupting JSON-RPC
+            pass
 
     # Queue file processing as low-priority task to avoid blocking searches
     if _task_coordinator:
         try:
-            if "CHUNKHOUND_DEBUG" in os.environ:
-                print(f"🔄 MCP: Queuing file processing task for {event_type} {file_path}", file=sys.stderr)
-            
             # Use nowait to avoid blocking the file watcher
             future = await _task_coordinator.queue_task_nowait(
                 TaskPriority.LOW,
                 _execute_file_processing
             )
             
-            if "CHUNKHOUND_DEBUG" in os.environ:
-                print(f"✅ MCP: File processing task queued successfully", file=sys.stderr)
-                
             # Don't await the future - let file processing happen in background
         except Exception as e:
-            if "CHUNKHOUND_DEBUG" in os.environ:
-                print(f"❌ MCP: Failed to queue file processing task: {e}", file=sys.stderr)
             # Fallback to direct processing if queue is full or coordinator is down
             await _execute_file_processing()
     else:
-        if "CHUNKHOUND_DEBUG" in os.environ:
-            print(f"❌ MCP: No task coordinator available, processing directly", file=sys.stderr)
         # Fallback to direct processing if no task coordinator
         await _execute_file_processing()
 
