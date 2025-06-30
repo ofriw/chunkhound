@@ -133,14 +133,6 @@ class Database:
         """
         return await self._indexing_coordinator.process_file(file_path, skip_embeddings)
 
-    async def process_file_incremental(self, file_path: Path) -> dict[str, Any]:
-        """Process a file with incremental parsing and differential chunking.
-
-        Note: True incremental processing not yet implemented in service layer.
-        This delegates to the provider's incremental processing method.
-        """
-        return await self._provider.process_file_incremental(file_path)
-
     async def process_directory(self, directory: Path, patterns: list[str] | None = None, exclude_patterns: list[str] | None = None) -> dict[str, Any]:
         """Process all supported files in a directory.
 
@@ -344,6 +336,7 @@ class Database:
     def db_path(self) -> Path | str:
         """Get database path."""
         return self._db_path
+
 
     def get_file_discovery_cache_stats(self) -> dict[str, Any]:
         """Get file discovery cache statistics."""

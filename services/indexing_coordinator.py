@@ -1,6 +1,5 @@
 """Indexing coordinator service for ChunkHound - orchestrates indexing workflows."""
 
-import zlib
 from fnmatch import fnmatch
 from pathlib import Path
 from typing import Any
@@ -89,22 +88,6 @@ class IndexingCoordinator(BaseService):
         language = Language.from_file_extension(file_path)
         return language if language != Language.UNKNOWN else None
 
-    def _calculate_file_crc32(self, file_path: Path) -> int | None:
-        """Calculate CRC32 checksum of file content.
-
-        Args:
-            file_path: Path to the file
-
-        Returns:
-            CRC32 checksum as integer, or None if file cannot be read
-        """
-        try:
-            with open(file_path, 'rb') as f:
-                content = f.read()
-                return zlib.crc32(content) & 0xffffffff  # Ensure unsigned 32-bit
-        except Exception as e:
-            logger.warning(f"Failed to calculate CRC32 for {file_path}: {e}")
-            return None
 
     async def process_file(
         self, file_path: Path, skip_embeddings: bool = False
@@ -176,162 +159,86 @@ class IndexingCoordinator(BaseService):
             if not chunks:
                 return {"status": "no_chunks", "chunks": 0}
 
-            # Check if this is an existing file that has been modified
-            # BEFORE storing the record
-            existing_file = self._db.get_file_by_path(str(file_path))
-            is_file_modified = False
-
-            if existing_file:
-                # Check if file was actually modified (different mtime)
-                # Use same field resolution logic as process_file_incremental
-                existing_mtime = 0
-                current_mtime = file_stat.st_mtime
-
-                if isinstance(existing_file, dict):
-                    # Try different possible timestamp field names - modified_time is used by DuckDB
-                    for field in [
-                        'modified_time', 'mtime', 'modification_time', 'timestamp'
-                    ]:
-                        if field in existing_file and existing_file[field] is not None:
-                            timestamp_value = existing_file[field]
-                            if isinstance(timestamp_value, int | float):
-                                existing_mtime = float(timestamp_value)
-                                break
-                            elif hasattr(timestamp_value, "timestamp"):
-                                existing_mtime = timestamp_value.timestamp()
-                                break
-                else:
-                    # Handle File model objects
-                    if hasattr(existing_file, 'mtime'):
-                        existing_mtime = float(existing_file.mtime)
-
-                # Two-tier change detection: mtime first, then CRC32 if needed
-                if abs(current_mtime - existing_mtime) > 0.001:
-                    # mtime changed, file is definitely modified
-                    is_file_modified = True
-                    logger.debug(f"File modification check: {file_path} - mtime changed (existing: {existing_mtime}, current: {current_mtime})")
-                else:
-                    # mtime unchanged, check CRC32 for robust content detection
-                    current_crc32 = self._calculate_file_crc32(file_path)
-                    existing_crc32 = existing_file.get('content_crc32') if isinstance(existing_file, dict) else getattr(existing_file, 'content_crc32', None)
-
-                    if current_crc32 is None:
-                        # Can't calculate CRC32, assume modified for safety
-                        is_file_modified = True
-                        logger.debug(f"File modification check: {file_path} - CRC32 calculation failed, assuming modified")
-                    elif existing_crc32 is None:
-                        # No existing CRC32, file needs processing to store CRC32
-                        is_file_modified = True
-                        logger.debug(f"File modification check: {file_path} - no existing CRC32, needs processing")
-                    else:
-                        # Compare CRC32 checksums
-                        is_file_modified = (current_crc32 != existing_crc32)
-                        logger.debug(f"File modification check: {file_path} - CRC32 comparison (existing: {existing_crc32}, current: {current_crc32}, modified: {is_file_modified})")
-
-                # If file hasn't been modified, return up_to_date status
-                if not is_file_modified:
-                    # Get existing chunk count for consistency
-                    file_id = existing_file.get('id') if isinstance(existing_file, dict) else existing_file.id
-                    existing_chunks = self._db.get_chunks_by_file_id(file_id)
-                    return {
-                        "status": "up_to_date",
-                        "file_id": file_id,
-                        "chunks": len(existing_chunks) if existing_chunks else 0,
-                        "embeddings": 0  # No new embeddings generated
-                    }
-
+            # Always process files - let chunk-level comparison handle change detection
             # Store or update file record
             file_id = self._store_file_record(file_path, file_stat, language)
             if file_id is None:
                 return {"status": "error", "chunks": 0, "error": "Failed to store file record"}
 
-            # Smart chunk update for modified files to preserve embeddings
-            if existing_file and is_file_modified:
-                # For DuckDB, use a simpler approach to avoid duplicate chunks issue
-                # Check if we're using DuckDB provider
-                provider_type = getattr(self._db, 'provider_type', None)
-                use_simple_update = provider_type == 'duckdb' or provider_type is None
+            # Check for existing file to determine if this is an update or new file
+            existing_file = self._db.get_file_by_path(str(file_path))
+            
+            # Smart chunk update for existing files to preserve embeddings
+            if existing_file:
+                # Use smart diff approach for ALL providers to preserve embeddings
+                # This ensures deduplication and reuse works out of the box for any backend
                 
-                if use_simple_update:
-                    # Simple approach: delete all old chunks and insert new ones in a transaction
-                    # This prevents any possibility of duplicate chunks
+                # Get existing chunks as models for comparison
+                existing_chunks = self._db.get_chunks_by_file_id(file_id, as_model=True)
+                
+                if existing_chunks:
+                    # Convert new chunks to models 
+                    new_chunk_models = self._convert_to_chunk_models(file_id, chunks, language)
+                    
+                    # Perform smart diff to identify what changed
+                    chunk_diff = self._chunk_cache.diff_chunks(new_chunk_models, existing_chunks)
+                    
+                    # Wrap entire update in a transaction for atomicity
+                    # This prevents duplicates even if the operation fails mid-way
                     try:
                         self._db.begin_transaction()
                         
-                        # Delete all existing chunks for this file
-                        self._db.delete_file_chunks(file_id)
-                        logger.debug(f"Deleted all existing chunks for file_id {file_id}")
+                        # First, delete all chunks that were modified or removed
+                        # We delete modified chunks because we'll insert new versions
+                        chunks_to_delete = chunk_diff.deleted + chunk_diff.modified
+                        if chunks_to_delete:
+                            # Batch delete by IDs for better performance
+                            chunk_ids_to_delete = [chunk.id for chunk in chunks_to_delete if chunk.id is not None]
+                            if chunk_ids_to_delete:
+                                # Try batch delete first if available, fallback to individual deletes
+                                for chunk_id in chunk_ids_to_delete:
+                                    self._db.delete_chunk(chunk_id)
+                                logger.debug(f"Deleted {len(chunk_ids_to_delete)} modified/removed chunks")
                         
-                        # Compute content hashes for all chunks
-                        chunk_models = self._convert_to_chunk_models(file_id, chunks, language)
-                        chunk_models_with_hash = self._chunk_cache.with_computed_hashes(chunk_models)
-                        chunks_with_hash = [chunk.to_dict() for chunk in chunk_models_with_hash]
+                        # Then, insert only new and modified chunks
+                        # Modified chunks get new IDs but same content hash
+                        chunks_to_store = []
+                        chunks_to_store.extend([chunk.to_dict() for chunk in chunk_diff.added])
+                        chunks_to_store.extend([chunk.to_dict() for chunk in chunk_diff.modified])
                         
-                        # Store all new chunks
-                        chunk_ids = self._store_chunks(file_id, chunks_with_hash, language)
+                        chunk_ids_new = self._store_chunks(file_id, chunks_to_store, language) if chunks_to_store else []
                         
-                        # Commit the transaction
+                        # Commit the transaction - this makes all changes atomic
                         self._db.commit_transaction()
                         
-                        logger.debug(f"Simple chunk update: deleted all old chunks, inserted {len(chunk_ids)} new chunks")
+                        # Combine IDs: unchanged chunks keep their IDs (and embeddings!)
+                        # New and modified chunks get new IDs
+                        unchanged_ids = [chunk.id for chunk in chunk_diff.unchanged if chunk.id is not None]
+                        chunk_ids = unchanged_ids + chunk_ids_new
+                        
+                        logger.debug(f"Smart chunk update: {len(chunk_diff.unchanged)} preserved (with embeddings), "
+                                   f"{len(chunk_diff.added)} added, {len(chunk_diff.modified)} modified, "
+                                   f"{len(chunk_diff.deleted)} deleted")
+                        
                     except Exception as e:
-                        # Rollback on error
-                        self._db.rollback_transaction()
+                        # Rollback on any error to prevent partial updates
+                        logger.error(f"Chunk update failed, rolling back: {e}")
+                        try:
+                            self._db.rollback_transaction()
+                        except Exception as rollback_error:
+                            logger.error(f"Rollback failed: {rollback_error}")
                         raise
                 else:
-                    # Original smart diff approach for other providers
-                    # Get existing chunks as models for comparison
-                    existing_chunks = self._db.get_chunks_by_file_id(file_id, as_model=True)
-                    
-                    if existing_chunks:
-                        # Convert new chunks to models with computed hashes
-                        new_chunk_models = self._convert_to_chunk_models(file_id, chunks, language)
-                        new_chunk_models_with_hash = self._chunk_cache.with_computed_hashes(new_chunk_models)
-                        
-                        # Perform smart diff
-                        chunk_diff = self._chunk_cache.diff_chunks(new_chunk_models_with_hash, existing_chunks)
-                        
-                        # Wrap chunk update in a transaction for atomicity
-                        try:
-                            self._db.begin_transaction()
-                            
-                            # Delete only changed/removed chunks
-                            chunks_to_delete = chunk_diff.deleted + chunk_diff.modified
-                            if chunks_to_delete:
-                                for chunk in chunks_to_delete:
-                                    if chunk.id is not None:
-                                        self._db.delete_chunk(chunk.id)
-                            
-                            # Store only new/modified chunks
-                            chunks_to_store = [chunk.to_dict() for chunk in chunk_diff.added]
-                            chunk_ids_new = self._store_chunks(file_id, chunks_to_store, language) if chunks_to_store else []
-                            
-                            # Commit the transaction
-                            self._db.commit_transaction()
-                            
-                            # Combine IDs of unchanged chunks with new chunk IDs
-                            unchanged_ids = [chunk.id for chunk in chunk_diff.unchanged if chunk.id is not None]
-                            chunk_ids = unchanged_ids + chunk_ids_new
-                            
-                            logger.debug(f"Smart chunk update: {len(chunk_diff.unchanged)} preserved, {len(chunk_diff.added)} added, {len(chunk_diff.deleted)} deleted")
-                        except Exception as e:
-                            # Rollback on error
-                            self._db.rollback_transaction()
-                            raise
-                    else:
-                        # No existing chunks, proceed with normal storage
-                        # Compute content hashes for all chunks to enable future smart diffs
-                        chunk_models = self._convert_to_chunk_models(file_id, chunks, language)
-                        chunk_models_with_hash = self._chunk_cache.with_computed_hashes(chunk_models)
-                        chunks_with_hash = [chunk.to_dict() for chunk in chunk_models_with_hash]
-                        chunk_ids = self._store_chunks(file_id, chunks_with_hash, language)
+                    # No existing chunks, proceed with normal storage
+                    # Compute content hashes for all chunks to enable future smart diffs
+                    chunk_models = self._convert_to_chunk_models(file_id, chunks, language)
+                    chunks_dict = [chunk.to_dict() for chunk in chunk_models]
+                    chunk_ids = self._store_chunks(file_id, chunks_dict, language)
             else:
-                # New file or no modification, proceed with normal storage
-                # Compute content hashes for all chunks to enable future smart diffs
+                # New file, proceed with normal storage
                 chunk_models = self._convert_to_chunk_models(file_id, chunks, language)
-                chunk_models_with_hash = self._chunk_cache.with_computed_hashes(chunk_models)
-                chunks_with_hash = [chunk.to_dict() for chunk in chunk_models_with_hash]
-                chunk_ids = self._store_chunks(file_id, chunks_with_hash, language)
+                chunks_dict = [chunk.to_dict() for chunk in chunk_models]
+                chunk_ids = self._store_chunks(file_id, chunks_dict, language)
             embeddings_generated = 0
             if not skip_embeddings and self._embedding_provider and chunk_ids:
                 embeddings_generated = await self._generate_embeddings(chunk_ids, chunks)
@@ -578,27 +485,23 @@ class IndexingCoordinator(BaseService):
 
 
     def _store_file_record(self, file_path: Path, file_stat: Any, language: Language) -> int:
-        """Store or update file record in database with CRC32."""
-        # Calculate CRC32 for content tracking
-        content_crc32 = self._calculate_file_crc32(file_path)
-
+        """Store or update file record in database."""
         # Check if file already exists
         existing_file = self._db.get_file_by_path(str(file_path))
 
         if existing_file:
-            # Update existing file with new metadata including CRC32
+            # Update existing file with new metadata
             if isinstance(existing_file, dict) and "id" in existing_file:
                 file_id = existing_file["id"]
-                self._db.update_file(file_id, size_bytes=file_stat.st_size, mtime=file_stat.st_mtime, content_crc32=content_crc32)
+                self._db.update_file(file_id, size_bytes=file_stat.st_size, mtime=file_stat.st_mtime)
                 return file_id
 
-        # Create new File model instance with CRC32
+        # Create new File model instance
         file_model = File(
             path=FilePath(str(file_path)),
             size_bytes=file_stat.st_size,
             mtime=file_stat.st_mtime,
-            language=language,
-            content_crc32=content_crc32
+            language=language
         )
         return self._db.insert_file(file_model)
 
@@ -646,8 +549,7 @@ class IndexingCoordinator(BaseService):
                 code=chunk.get("code", ""),
                 chunk_type=chunk_type_enum,
                 language=language,  # Use the file's detected language
-                parent_header=chunk.get("parent_header"),
-                content_hash=chunk.get("content_hash")  # Preserve content hash for smart caching
+                parent_header=chunk.get("parent_header")
             )
             chunk_models.append(chunk_model)
         
@@ -681,8 +583,7 @@ class IndexingCoordinator(BaseService):
                 code=chunk.get("code", ""),
                 chunk_type=chunk_type_enum,
                 language=language,
-                parent_header=chunk.get("parent_header"),
-                content_hash=chunk.get("content_hash")  # Preserve content hash if present
+                parent_header=chunk.get("parent_header")
             )
             chunk_models.append(chunk_model)
         
