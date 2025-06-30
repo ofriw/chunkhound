@@ -28,6 +28,16 @@ TEST_FILE = TEST_DIR / "test_file.py"
 CHUNKHOUND_CMD = "uv run chunkhound"
 UNIQUE_ID = str(uuid.uuid4())[:8]  # Use a unique ID for this test run
 
+# REALTIME_TEST_MARKER: Added to test real-time indexing
+def realtime_test_function():
+    """Test function for real-time indexing verification."""
+    return "realtime_test_marker_12345"
+
+# POST_FIX_MODIFICATION_MARKER: Added after import fixes
+def post_fix_modification_test():
+    """Function added after import path fixes."""
+    return "post_fix_modification_success"
+
 
 def run_command(cmd):
     """Run a command and print its output."""
