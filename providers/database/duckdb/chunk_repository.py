@@ -26,6 +26,15 @@ class DuckDBChunkRepository:
     def connection(self) -> Any | None:
         """Get database connection from connection manager."""
         return self._connection_manager.connection
+    
+    def _get_connection(self) -> Any:
+        """Get thread-safe connection for database operations."""
+        import os
+        # Use thread-safe connection in MCP mode
+        if os.environ.get("CHUNKHOUND_MCP_MODE") and hasattr(self._connection_manager, 'get_thread_safe_connection'):
+            return self._connection_manager.get_thread_safe_connection()
+        # Fallback to main connection for backwards compatibility
+        return self._connection_manager.connection
 
     def insert_chunk(self, chunk: Chunk) -> int:
         """Insert chunk record and return chunk ID."""
@@ -33,7 +42,7 @@ class DuckDBChunkRepository:
             raise RuntimeError("No database connection")
 
         try:
-            result = self.connection.execute("""
+            result = self._get_connection().execute("""
                 INSERT INTO chunks (file_id, chunk_type, symbol, code, start_line, end_line,
                                   start_byte, end_byte, size, signature, language)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -97,7 +106,7 @@ class DuckDBChunkRepository:
             """
             
             # Execute bulk insert and get all IDs in one operation
-            results = self.connection.execute(query, params).fetchall()
+            results = self._get_connection().execute(query, params).fetchall()
             chunk_ids = [result[0] for result in results]
             
             # Track batch operation for checkpoint management  
@@ -116,7 +125,7 @@ class DuckDBChunkRepository:
             raise RuntimeError("No database connection")
 
         try:
-            result = self.connection.execute("""
+            result = self._get_connection().execute("""
                 SELECT id, file_id, chunk_type, symbol, code, start_line, end_line,
                        start_byte, end_byte, size, signature, language, created_at, updated_at
                 FROM chunks WHERE id = ?
@@ -167,7 +176,7 @@ class DuckDBChunkRepository:
             raise RuntimeError("No database connection")
 
         try:
-            results = self.connection.execute("""
+            results = self._get_connection().execute("""
                 SELECT id, file_id, chunk_type, symbol, code, start_line, end_line,
                        start_byte, end_byte, size, signature, language, created_at, updated_at
                 FROM chunks WHERE file_id = ?
@@ -221,7 +230,7 @@ class DuckDBChunkRepository:
 
         try:
             # Get list of chunk IDs for explicit deletion
-            chunk_ids_result = self.connection.execute(
+            chunk_ids_result = self._get_connection().execute(
                 "SELECT id FROM chunks WHERE file_id = ?", [file_id]
             ).fetchall()
             
@@ -234,14 +243,14 @@ class DuckDBChunkRepository:
             for table_name in self._connection_manager._get_all_embedding_tables():
                 # Use explicit chunk IDs instead of subquery to avoid potential issues
                 placeholders = ','.join(['?'] * len(chunk_ids))
-                self.connection.execute(f"""
+                self._get_connection().execute(f"""
                     DELETE FROM {table_name}
                     WHERE chunk_id IN ({placeholders})
                 """, chunk_ids)
 
             # Then delete all chunks using explicit IDs
             placeholders = ','.join(['?'] * len(chunk_ids))
-            self.connection.execute(f"DELETE FROM chunks WHERE id IN ({placeholders})", chunk_ids)
+            self._get_connection().execute(f"DELETE FROM chunks WHERE id IN ({placeholders})", chunk_ids)
 
         except Exception as e:
             logger.error(f"Failed to delete chunks for file {file_id}: {e}")
@@ -255,12 +264,12 @@ class DuckDBChunkRepository:
         try:
             # Delete embeddings for this chunk first
             for table_name in self._connection_manager._get_all_embedding_tables():
-                self.connection.execute(f"""
+                self._get_connection().execute(f"""
                     DELETE FROM {table_name} WHERE chunk_id = ?
                 """, [chunk_id])
 
             # Then delete the chunk itself
-            self.connection.execute("DELETE FROM chunks WHERE id = ?", [chunk_id])
+            self._get_connection().execute("DELETE FROM chunks WHERE id = ?", [chunk_id])
 
         except Exception as e:
             logger.error(f"Failed to delete chunk {chunk_id}: {e}")
@@ -292,7 +301,7 @@ class DuckDBChunkRepository:
                 values.append(chunk_id)
 
                 query = f"UPDATE chunks SET {', '.join(set_clauses)} WHERE id = ?"
-                self.connection.execute(query, values)
+                self._get_connection().execute(query, values)
 
         except Exception as e:
             logger.error(f"Failed to update chunk {chunk_id}: {e}")
@@ -313,7 +322,7 @@ class DuckDBChunkRepository:
                 ORDER BY c.id
             """
             
-            results = self.connection.execute(query).fetchall()
+            results = self._get_connection().execute(query).fetchall()
             
             # Convert to list of dictionaries
             result = []

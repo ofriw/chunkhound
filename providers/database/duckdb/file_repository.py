@@ -26,6 +26,15 @@ class DuckDBFileRepository:
     def connection(self) -> Any | None:
         """Get the database connection from connection manager."""
         return self.connection_manager.connection
+    
+    def _get_connection(self) -> Any:
+        """Get thread-safe connection for database operations."""
+        import os
+        # Use thread-safe connection in MCP mode
+        if os.environ.get("CHUNKHOUND_MCP_MODE") and hasattr(self.connection_manager, 'get_thread_safe_connection'):
+            return self.connection_manager.get_thread_safe_connection()
+        # Fallback to main connection for backwards compatibility
+        return self.connection_manager.connection
 
     def _extract_file_id(self, file_record: dict[str, Any] | File) -> int | None:
         """Safely extract file ID from either dict or File model."""
@@ -55,7 +64,7 @@ class DuckDBFileRepository:
                     return file_id
 
             # No existing file, insert new one
-            result = self.connection.execute("""
+            result = self._get_connection().execute("""
                 INSERT INTO files (path, name, extension, size, modified_time, language)
                 VALUES (?, ?, ?, ?, to_timestamp(?), ?)
                 RETURNING id
@@ -91,7 +100,7 @@ class DuckDBFileRepository:
             raise RuntimeError("No database connection")
 
         try:
-            result = self.connection.execute("""
+            result = self._get_connection().execute("""
                 SELECT id, path, name, extension, size, modified_time, language, created_at, updated_at
                 FROM files WHERE path = ?
             """, [path]).fetchone()
@@ -131,7 +140,7 @@ class DuckDBFileRepository:
             raise RuntimeError("No database connection")
 
         try:
-            result = self.connection.execute("""
+            result = self._get_connection().execute("""
                 SELECT id, path, name, extension, size, modified_time, language, created_at, updated_at
                 FROM files WHERE id = ?
             """, [file_id]).fetchone()
@@ -200,7 +209,7 @@ class DuckDBFileRepository:
                 values.append(file_id)
 
                 query = f"UPDATE files SET {', '.join(set_clauses)} WHERE id = ?"
-                self.connection.execute(query, values)
+                self._get_connection().execute(query, values)
 
         except Exception as e:
             logger.error(f"Failed to update file {file_id}: {e}")
@@ -223,16 +232,16 @@ class DuckDBFileRepository:
             # 1. Delete embeddings first
             # Delete from all embedding tables
             for table_name in self.connection_manager._get_all_embedding_tables():
-                self.connection.execute(f"""
+                self._get_connection().execute(f"""
                     DELETE FROM {table_name}
                     WHERE chunk_id IN (SELECT id FROM chunks WHERE file_id = ?)
                 """, [file_id])
 
             # 2. Delete chunks
-            self.connection.execute("DELETE FROM chunks WHERE file_id = ?", [file_id])
+            self._get_connection().execute("DELETE FROM chunks WHERE file_id = ?", [file_id])
 
             # 3. Delete file
-            self.connection.execute("DELETE FROM files WHERE id = ?", [file_id])
+            self._get_connection().execute("DELETE FROM files WHERE id = ?", [file_id])
 
             logger.debug(f"File {file_path} and all associated data deleted")
             return True
@@ -248,7 +257,7 @@ class DuckDBFileRepository:
 
         try:
             # Get file info
-            file_result = self.connection.execute("""
+            file_result = self._get_connection().execute("""
                 SELECT path, name, extension, size, language
                 FROM files WHERE id = ?
             """, [file_id]).fetchone()
@@ -257,7 +266,7 @@ class DuckDBFileRepository:
                 return {}
 
             # Get chunk count and types
-            chunk_results = self.connection.execute("""
+            chunk_results = self._get_connection().execute("""
                 SELECT chunk_type, COUNT(*) as count
                 FROM chunks WHERE file_id = ?
                 GROUP BY chunk_type
@@ -270,7 +279,7 @@ class DuckDBFileRepository:
             embedding_count = 0
             embedding_tables = self.connection_manager._get_all_embedding_tables()
             for table_name in embedding_tables:
-                count = self.connection.execute(f"""
+                count = self._get_connection().execute(f"""
                     SELECT COUNT(*)
                     FROM {table_name} e
                     JOIN chunks c ON e.chunk_id = c.id

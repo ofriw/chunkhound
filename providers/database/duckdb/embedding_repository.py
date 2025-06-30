@@ -25,6 +25,15 @@ class DuckDBEmbeddingRepository:
     def connection(self) -> Any | None:
         """Get database connection from connection manager."""
         return self.connection_manager.connection
+    
+    def _get_connection(self) -> Any:
+        """Get thread-safe connection for database operations."""
+        import os
+        # Use thread-safe connection in MCP mode
+        if os.environ.get("CHUNKHOUND_MCP_MODE") and hasattr(self.connection_manager, 'get_thread_safe_connection'):
+            return self.connection_manager.get_thread_safe_connection()
+        # Fallback to main connection for backwards compatibility
+        return self.connection_manager.connection
 
     def set_provider_instance(self, provider_instance):
         """Set the provider instance for index management operations."""
@@ -39,7 +48,7 @@ class DuckDBEmbeddingRepository:
             # Ensure appropriate table exists for these dimensions
             table_name = self.connection_manager._ensure_embedding_table_exists(embedding.dims)
             
-            result = self.connection.execute(f"""
+            result = self._get_connection().execute(f"""
                 INSERT INTO {table_name} (chunk_id, provider, model, embedding, dims)
                 VALUES (?, ?, ?, ?, ?)
                 RETURNING id
@@ -332,7 +341,7 @@ class DuckDBEmbeddingRepository:
             # Search across all embedding tables
             embedding_tables = self.connection_manager._get_all_embedding_tables()
             for table_name in embedding_tables:
-                result = self.connection.execute(f"""
+                result = self._get_connection().execute(f"""
                     SELECT id, chunk_id, provider, model, embedding, dims, created_at
                     FROM {table_name}
                     WHERE chunk_id = ? AND provider = ? AND model = ?
@@ -366,7 +375,7 @@ class DuckDBEmbeddingRepository:
             all_chunk_ids = set()
             
             # Get all embedding tables
-            table_result = self.connection.execute("""
+            table_result = self._get_connection().execute("""
                 SELECT table_name FROM information_schema.tables 
                 WHERE table_name LIKE 'embeddings_%'
             """).fetchall()
@@ -376,7 +385,7 @@ class DuckDBEmbeddingRepository:
                 placeholders = ",".join("?" * len(chunk_ids))
                 params = chunk_ids + [provider, model]
 
-                results = self.connection.execute(f"""
+                results = self._get_connection().execute(f"""
                     SELECT DISTINCT chunk_id
                     FROM {table_name}
                     WHERE chunk_id IN ({placeholders}) AND provider = ? AND model = ?
@@ -397,7 +406,7 @@ class DuckDBEmbeddingRepository:
         try:
             # Delete from all embedding tables
             for table_name in self.connection_manager._get_all_embedding_tables():
-                self.connection.execute(f"DELETE FROM {table_name} WHERE chunk_id = ?", [chunk_id])
+                self._get_connection().execute(f"DELETE FROM {table_name} WHERE chunk_id = ?", [chunk_id])
 
         except Exception as e:
             logger.error(f"Failed to delete embeddings for chunk {chunk_id}: {e}")
