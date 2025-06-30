@@ -1,6 +1,5 @@
 """Python language parser provider implementation for ChunkHound - concrete parser using tree-sitter."""
 
-import time
 from pathlib import Path
 from typing import Any
 
@@ -8,23 +7,18 @@ from loguru import logger
 
 from core.types import ChunkType
 from core.types import Language as CoreLanguage
-from interfaces.language_parser import ParseConfig, ParseResult
+from interfaces.language_parser import ParseConfig
+from providers.parsing.base_parser import TreeSitterParserBase
 
 try:
-    import tree_sitter_python as tspython
-    from tree_sitter import Language as TSLanguage
     from tree_sitter import Node as TSNode
-    from tree_sitter import Parser as TSParser
-    TREE_SITTER_AVAILABLE = True
+    PYTHON_AVAILABLE = True
 except ImportError:
-    TREE_SITTER_AVAILABLE = False
-    tspython = None
-    TSLanguage = None
-    TSParser = None
+    PYTHON_AVAILABLE = False
     TSNode = None
 
 
-class PythonParser:
+class PythonParser(TreeSitterParserBase):
     """Python language parser using tree-sitter."""
 
     def __init__(self, config: ParseConfig | None = None):
@@ -33,12 +27,11 @@ class PythonParser:
         Args:
             config: Optional parse configuration
         """
-        self._language = None
-        self._parser = None
-        self._initialized = False
+        super().__init__(CoreLanguage.PYTHON, config)
 
-        # Default configuration
-        self._config = config or ParseConfig(
+    def _get_default_config(self) -> ParseConfig:
+        """Get default configuration for Python parser."""
+        return ParseConfig(
             language=CoreLanguage.PYTHON,
             chunk_types={
                 ChunkType.FUNCTION,
@@ -57,138 +50,41 @@ class PythonParser:
             use_cache=True
         )
 
-        # Initialize if available
-        if TREE_SITTER_AVAILABLE:
-            self._initialize()
-
-    def _initialize(self) -> bool:
-        """Initialize the Python parser.
-
-        Returns:
-            True if initialization successful, False otherwise
-        """
-        if self._initialized:
-            return True
-
-        if not TREE_SITTER_AVAILABLE:
-            logger.error("Python tree-sitter support not available")
-            return False
-
-        try:
-            if tspython and TSLanguage and TSParser:
-                self._language = TSLanguage(tspython.language())
-                self._parser = TSParser(self._language)
-                self._initialized = True
-                logger.debug("Python parser initialized successfully")
-                return True
-            else:
-                logger.error("Python parser dependencies not available")
-                return False
-        except Exception as e:
-            logger.error(f"Failed to initialize Python parser: {e}")
-            return False
-
-    @property
-    def language(self) -> CoreLanguage:
-        """Programming language this parser handles."""
-        return CoreLanguage.PYTHON
-
-    @property
-    def supported_chunk_types(self) -> set[ChunkType]:
-        """Chunk types this parser can extract."""
-        return self._config.chunk_types
-
-    @property
-    def is_available(self) -> bool:
-        """Whether the parser is available and ready to use."""
-        return TREE_SITTER_AVAILABLE and self._initialized
-
-    def parse_file(self, file_path: Path, source: str | None = None) -> ParseResult:
-        """Parse a Python file and extract semantic chunks.
+    def _extract_chunks(self, tree_node: TSNode, source: str, file_path: Path) -> list[dict[str, Any]]:
+        """Extract semantic chunks from Python AST.
 
         Args:
-            file_path: Path to Python file
-            source: Optional source code string
+            tree_node: Root AST node
+            source: Source code string
+            file_path: Path to source file
 
         Returns:
-            ParseResult with extracted chunks and metadata
+            List of extracted chunks
         """
-        start_time = time.time()
         chunks = []
-        errors = []
-        warnings = []
 
-        if not self.is_available:
-            errors.append("Python parser not available")
-            return ParseResult(
-                chunks=chunks,
-                language=self.language,
-                total_chunks=0,
-                parse_time=time.time() - start_time,
-                errors=errors,
-                warnings=warnings,
-                metadata={"file_path": str(file_path)}
-            )
+        # Extract functions
+        if ChunkType.FUNCTION in self._config.chunk_types:
+            chunks.extend(self._extract_functions(tree_node, source, file_path))
 
-        try:
-            # Read source if not provided
-            if source is None:
-                with open(file_path, encoding='utf-8') as f:
-                    source = f.read()
-
-            # Parse with tree-sitter
-            if self._parser is None:
-                errors.append("Python parser not initialized")
-                return ParseResult(
-                    chunks=chunks,
-                    language=self.language,
-                    total_chunks=0,
-                    parse_time=time.time() - start_time,
-                    errors=errors,
-                    warnings=warnings,
-                    metadata={"file_path": str(file_path)}
-                )
-
-            tree = self._parser.parse(bytes(source, 'utf8'))
-
-            # Extract semantic units
-            if ChunkType.FUNCTION in self._config.chunk_types:
-                chunks.extend(self._extract_functions(tree.root_node, source, file_path))
-
-            if ChunkType.CLASS in self._config.chunk_types:
-                chunks.extend(self._extract_classes(tree.root_node, source, file_path))
+        # Extract classes
+        if ChunkType.CLASS in self._config.chunk_types:
+            chunks.extend(self._extract_classes(tree_node, source, file_path))
+        
+        # Extract docstrings
+        if ChunkType.DOCSTRING in self._config.chunk_types:
+            chunks.extend(self._extract_docstrings(tree_node, source, file_path))
             
-            if ChunkType.DOCSTRING in self._config.chunk_types:
-                chunks.extend(self._extract_docstrings(tree.root_node, source, file_path))
-                
-            if ChunkType.COMMENT in self._config.chunk_types:
-                chunks.extend(self._extract_comments(tree.root_node, source, file_path))
+        # Extract comments
+        if ChunkType.COMMENT in self._config.chunk_types:
+            chunks.extend(self._extract_comments(tree_node, source, file_path))
 
-            # Fallback: create a BLOCK chunk if no structured chunks were found
-            if len(chunks) == 0 and ChunkType.BLOCK in self._config.chunk_types:
-                chunks.append(self._create_fallback_block_chunk(source, file_path))
-                logger.debug(f"Created fallback BLOCK chunk for {file_path}")
+        # Fallback: create a BLOCK chunk if no structured chunks were found
+        if len(chunks) == 0 and ChunkType.BLOCK in self._config.chunk_types:
+            chunks.append(self._create_fallback_block_chunk(source, file_path))
+            logger.debug(f"Created fallback BLOCK chunk for {file_path}")
 
-            logger.debug(f"Extracted {len(chunks)} chunks from {file_path}")
-
-        except Exception as e:
-            error_msg = f"Failed to parse Python file {file_path}: {e}"
-            logger.error(error_msg)
-            errors.append(error_msg)
-
-        return ParseResult(
-            chunks=chunks,
-            language=self.language,
-            total_chunks=len(chunks),
-            parse_time=time.time() - start_time,
-            errors=errors,
-            warnings=warnings,
-            metadata={"file_path": str(file_path)}
-        )
-
-    def _get_node_text(self, node: TSNode, source: str) -> str:
-        """Extract text content from a tree-sitter node."""
-        return source[node.start_byte:node.end_byte]
+        return chunks
 
     def _extract_functions(self, tree_node: TSNode, source: str, file_path: Path) -> list[dict[str, Any]]:
         """Extract Python function definitions from AST."""
@@ -228,21 +124,11 @@ class PythonParser:
 
                 display_name = f"{function_name}({param_str})"
 
-                chunk = {
-                    "symbol": function_name,
-                    "start_line": function_node.start_point[0] + 1,
-                    "end_line": function_node.end_point[0] + 1,
-                    "code": function_text,
-                    "chunk_type": ChunkType.FUNCTION.value,
-                    "language": "python",
-                    "path": str(file_path),
-                    "name": function_name,
-                    "display_name": display_name,
-                    "content": function_text,
-                    "start_byte": function_node.start_byte,
-                    "end_byte": function_node.end_byte,
-                    "parameters": parameters,
-                }
+                chunk = self._create_chunk(
+                    function_node, source, file_path,
+                    ChunkType.FUNCTION, function_name, display_name,
+                    parameters=parameters
+                )
 
                 chunks.append(chunk)
 
@@ -283,20 +169,10 @@ class PythonParser:
 
                 class_text = self._get_node_text(class_node, source)
 
-                chunk = {
-                    "symbol": class_name,
-                    "start_line": class_node.start_point[0] + 1,
-                    "end_line": class_node.end_point[0] + 1,
-                    "code": class_text,
-                    "chunk_type": ChunkType.CLASS.value,
-                    "language": "python",
-                    "path": str(file_path),
-                    "name": class_name,
-                    "display_name": class_name,
-                    "content": class_text,
-                    "start_byte": class_node.start_byte,
-                    "end_byte": class_node.end_byte,
-                }
+                chunk = self._create_chunk(
+                    class_node, source, file_path,
+                    ChunkType.CLASS, class_name
+                )
 
                 chunks.append(chunk)
 
@@ -362,22 +238,11 @@ class PythonParser:
                 qualified_name = f"{class_name}.{method_name}"
                 display_name = f"{qualified_name}({param_str})"
 
-                chunk = {
-                    "symbol": qualified_name,
-                    "start_line": method_node.start_point[0] + 1,
-                    "end_line": method_node.end_point[0] + 1,
-                    "code": method_text,
-                    "chunk_type": ChunkType.METHOD.value,
-                    "language": "python",
-                    "path": str(file_path),
-                    "name": qualified_name,
-                    "display_name": display_name,
-                    "content": method_text,
-                    "start_byte": method_node.start_byte,
-                    "end_byte": method_node.end_byte,
-                    "parent": class_name,
-                    "parameters": parameters,
-                }
+                chunk = self._create_chunk(
+                    method_node, source, file_path,
+                    ChunkType.METHOD, qualified_name, display_name,
+                    parent=class_name, parameters=parameters
+                )
 
                 chunks.append(chunk)
 
@@ -508,21 +373,11 @@ class PythonParser:
                             
                         symbol = f"docstring:{context}:{node.start_point[0] + 1}"
                         
-                        chunk = {
-                            "symbol": symbol,
-                            "start_line": node.start_point[0] + 1,
-                            "end_line": node.end_point[0] + 1,
-                            "code": docstring_text,
-                            "chunk_type": ChunkType.DOCSTRING.value,
-                            "language": "python",
-                            "path": str(file_path),
-                            "name": symbol,
-                            "display_name": f"{context.capitalize()} docstring",
-                            "content": cleaned_text,
-                            "start_byte": node.start_byte,
-                            "end_byte": node.end_byte,
-                            "context": context,
-                        }
+                        chunk = self._create_chunk(
+                            node, source, file_path,
+                            ChunkType.DOCSTRING, symbol, f"{context.capitalize()} docstring",
+                            content=cleaned_text, context=context
+                        )
                         
                         chunks.append(chunk)
                         
@@ -562,20 +417,11 @@ class PythonParser:
                         
                     symbol = f"comment:{comment_node.start_point[0] + 1}"
                     
-                    chunk = {
-                        "symbol": symbol,
-                        "start_line": comment_node.start_point[0] + 1,
-                        "end_line": comment_node.end_point[0] + 1,
-                        "code": comment_text,
-                        "chunk_type": ChunkType.COMMENT.value,
-                        "language": "python",
-                        "path": str(file_path),
-                        "name": symbol,
-                        "display_name": f"Comment at line {comment_node.start_point[0] + 1}",
-                        "content": cleaned_text,
-                        "start_byte": comment_node.start_byte,
-                        "end_byte": comment_node.end_byte,
-                    }
+                    chunk = self._create_chunk(
+                        comment_node, source, file_path,
+                        ChunkType.COMMENT, symbol, f"Comment at line {comment_node.start_point[0] + 1}",
+                        content=cleaned_text
+                    )
                     
                     chunks.append(chunk)
                     
