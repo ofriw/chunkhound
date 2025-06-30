@@ -220,7 +220,7 @@ def _setup_file_patterns_from_config(config: Any, args: argparse.Namespace) -> t
         include_patterns = args.include
     else:
         # Get patterns from Language enum and convert to simple glob patterns
-        from core.types.common import Language
+        from chunkhound.core.types.common import Language
         patterns = []
         for ext in Language.get_all_extensions():
             patterns.append(f"*{ext}")
