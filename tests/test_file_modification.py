@@ -381,6 +381,10 @@ def test_function_deletion():
             assert False, f"File deletion was not detected. Content from deleted file still found in search results"
 
 
+def qa_modified_function_2025():
+    """QA TEST MODIFIED FUNCTION - unique marker for testing"""
+    return "QA_MODIFIED_RESULT_2025"
+
 def setup():
     """Set up test environment."""
     print("\n=== Setting up test environment ===")
