@@ -8,12 +8,13 @@ through the main MCP server thread.
 """
 
 import asyncio
+import collections
 import json
 import logging
 import os
+import threading
 import time
 from collections.abc import Awaitable, Callable
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -100,15 +101,22 @@ class FileChangeEvent:
 
 
 class ChunkHoundEventHandler(FileSystemEventHandler):
-    """Filesystem event handler that queues events for processing."""
+    """Filesystem event handler that buffers events for polling."""
 
-    def __init__(self, event_queue: asyncio.Queue, include_patterns: set[str] | None = None):
+    def __init__(self, include_patterns: set[str] | None = None):
         super().__init__()
-        debug_log("handler_init", event_queue_available=event_queue is not None,
-                 include_patterns=list(include_patterns) if include_patterns else None)
-        self.event_queue = event_queue
+        debug_log("handler_init", include_patterns=list(include_patterns) if include_patterns else None)
+        # Thread-safe event buffer - simple deque with lock
+        self._events = collections.deque(maxlen=1000)
+        self._lock = threading.Lock()
         self.include_patterns = include_patterns or SUPPORTED_EXTENSIONS
 
+    def get_events(self) -> list[FileChangeEvent]:
+        """Get and clear all buffered events. Thread-safe for polling."""
+        with self._lock:
+            events = list(self._events)
+            self._events.clear()
+            return events
 
     def _should_process_file(self, file_path: Path) -> bool:
         """Check if file should be processed based on extension and patterns."""
@@ -118,9 +126,9 @@ class ChunkHoundEventHandler(FileSystemEventHandler):
 
 
 
-    def _queue_event(self, path: Path, event_type: str, old_path: Path | None = None):
-        """Queue a file change event if it passes filters and debouncing."""
-        debug_log("queue_event_called", path=str(path), watchdog_event_type=event_type, queue_available=self.event_queue is not None)
+    def _buffer_event(self, path: Path, event_type: str, old_path: Path | None = None):
+        """Buffer a file change event if it passes filters."""
+        debug_log("buffer_event_called", path=str(path), watchdog_event_type=event_type)
 
         # Enhanced diagnostic logging for debugging
         import os
@@ -128,20 +136,11 @@ class ChunkHoundEventHandler(FileSystemEventHandler):
 
         # ALWAYS log file events to stderr in debug mode to trace missing events
         if os.environ.get("CHUNKHOUND_DEBUG"):
-            print("=== QUEUE EVENT ATTEMPT ===", file=sys.stderr)
+            print("=== BUFFER EVENT ATTEMPT ===", file=sys.stderr)
             print(f"Path: {path}", file=sys.stderr)
             print(f"Event Type: {event_type}", file=sys.stderr)
-            print(f"Queue Available: {self.event_queue is not None}", file=sys.stderr)
             print(f"File Exists: {path.exists()}", file=sys.stderr)
             print(f"File Extension: {path.suffix}", file=sys.stderr)
-
-        if self.event_queue is None:
-            logger.warning(f"TIMING: Event queue not initialized, skipping {event_type} {path}")
-            debug_log("queue_event_no_queue", path=str(path))
-            if os.environ.get("CHUNKHOUND_DEBUG"):
-                print("❌ EVENT QUEUE NOT INITIALIZED", file=sys.stderr)
-                print("==========================", file=sys.stderr)
-            return
 
         # For deletion events, always check extension pattern
         # For other events, also verify file exists
@@ -157,7 +156,7 @@ class ChunkHoundEventHandler(FileSystemEventHandler):
         if os.environ.get("CHUNKHOUND_DEBUG"):
             print(f"Should Process File: {should_process}", file=sys.stderr)
         if not should_process:
-            debug_log("queue_event_rejected", path=str(path), reason="should_not_process")
+            debug_log("buffer_event_rejected", path=str(path), reason="should_not_process")
             if os.environ.get("CHUNKHOUND_DEBUG"):
                 print("❌ FILE SHOULD NOT BE PROCESSED", file=sys.stderr)
                 print("==========================", file=sys.stderr)
@@ -172,24 +171,18 @@ class ChunkHoundEventHandler(FileSystemEventHandler):
             old_path=old_path
         )
 
-        # Put event in queue (non-blocking)
-        try:
-            self.event_queue.put_nowait(event)
-            logger.debug(f"TIMING: Event queued at {event_timestamp:.6f} - {event_type} {path}")
-            debug_log("event_queued_success", path=str(path), watchdog_event_type=event_type, queue_size=self.event_queue.qsize())
+        # Add event to thread-safe buffer
+        with self._lock:
+            self._events.append(event)
+            buffer_size = len(self._events)
+        
+        logger.debug(f"TIMING: Event buffered at {event_timestamp:.6f} - {event_type} {path}")
+        debug_log("event_buffered_success", path=str(path), watchdog_event_type=event_type, buffer_size=buffer_size)
 
-            if os.environ.get("CHUNKHOUND_DEBUG"):
-                print("✅ EVENT SUCCESSFULLY QUEUED", file=sys.stderr)
-                print(f"Queue Size After: {self.event_queue.qsize()}", file=sys.stderr)
-                print("==========================", file=sys.stderr)
-        except asyncio.QueueFull:
-            # Queue is full, skip this event
-            logger.warning(f"TIMING: Event queue full, skipping {event_type} {path} at {event_timestamp:.6f}")
-            debug_log("event_queue_full", path=str(path), watchdog_event_type=event_type)
-
-            if os.environ.get("CHUNKHOUND_DEBUG"):
-                print("❌ EVENT QUEUE FULL", file=sys.stderr)
-                print("==========================", file=sys.stderr)
+        if os.environ.get("CHUNKHOUND_DEBUG"):
+            print("✅ EVENT SUCCESSFULLY BUFFERED", file=sys.stderr)
+            print(f"Buffer Size After: {buffer_size}", file=sys.stderr)
+            print("==========================", file=sys.stderr)
 
     def on_any_event(self, event):
         """Log all events for debugging - this should be called for EVERY event."""
@@ -217,7 +210,7 @@ class ChunkHoundEventHandler(FileSystemEventHandler):
             path_str = str(event.src_path)
             logger.debug(f"TIMING: File modified detected at {time.time():.6f} - {event.src_path}")
             debug_log("on_modified_calling_queue", path=path_str, watchdog_event_type="modified")
-            self._queue_event(Path(event.src_path), 'modified')
+            self._buffer_event(Path(event.src_path), 'modified')
 
     def on_created(self, event):
         """Handle file creation events."""
@@ -247,7 +240,7 @@ class ChunkHoundEventHandler(FileSystemEventHandler):
                 print(f"Is Directory: {event.is_directory}", file=sys.stderr)
                 print("====================================", file=sys.stderr)
             debug_log("on_created_calling_queue", path=path_str, watchdog_event_type="created")
-            self._queue_event(Path(event.src_path), 'created')
+            self._buffer_event(Path(event.src_path), 'created')
 
     def on_moved(self, event):
         """Handle file move/rename events."""
@@ -255,12 +248,12 @@ class ChunkHoundEventHandler(FileSystemEventHandler):
             old_path = Path(event.src_path)
             new_path = Path(event.dest_path)
 
-            # Queue deletion of old path
+            # Buffer deletion of old path
             if self._should_process_file(old_path):
-                self._queue_event(old_path, 'deleted')
+                self._buffer_event(old_path, 'deleted')
 
-            # Queue creation of new path
-            self._queue_event(new_path, 'moved', old_path)
+            # Buffer creation of new path
+            self._buffer_event(new_path, 'moved', old_path)
 
     def on_deleted(self, event):
         """Handle file deletion events."""
@@ -269,43 +262,43 @@ class ChunkHoundEventHandler(FileSystemEventHandler):
         if not event.is_directory:
             logger.debug(f"TIMING: File deleted detected at {time.time():.6f} - {event.src_path}")
             debug_log("on_deleted_calling_queue", path=str(event.src_path), watchdog_event_type="deleted")
-            self._queue_event(Path(event.src_path), 'deleted')
+            self._buffer_event(Path(event.src_path), 'deleted')
 
 
 class FileWatcher:
     """
-    Thread-safe filesystem watcher with queue-based event processing.
+    Simple filesystem watcher with polling-based event consumption.
 
-    Designed to work with DuckDB's single-process constraint by queuing
-    filesystem events for processing by the main thread.
+    Uses thread-safe buffer for events, no asyncio dependencies.
+    Completely decoupled from database operations.
     """
 
     def __init__(self,
                  watch_paths: list[Path],
-                 event_queue: asyncio.Queue,
                  include_patterns: set[str] | None = None):
         """
         Initialize the file watcher.
 
         Args:
             watch_paths: List of paths to watch for changes
-            event_queue: Asyncio queue for communicating events to main thread
-            include_patterns: File extensions to monitor (default: Python and Markdown)
+            include_patterns: File extensions to monitor (default: from Language enum)
         """
         if not WATCHDOG_AVAILABLE:
             raise ImportError("watchdog package is required for filesystem watching")
 
         self.watch_paths = watch_paths
-        self.event_queue = event_queue
         self.include_patterns = include_patterns or SUPPORTED_EXTENSIONS
 
         self.observer: Any | None = None
-        self.event_handler = ChunkHoundEventHandler(event_queue, include_patterns)
+        self.event_handler = ChunkHoundEventHandler(include_patterns)
         self.is_watching = False
-        self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="FileWatcher")
 
-    def start(self):
-        """Start filesystem watching in a background thread."""
+    def get_events(self) -> list[FileChangeEvent]:
+        """Get all buffered events for polling. Thread-safe."""
+        return self.event_handler.get_events()
+
+    def start(self) -> bool:
+        """Start filesystem watching. Returns True if successful."""
         if not WATCHDOG_AVAILABLE:
             # Improved error reporting for missing watchdog
             import sys
@@ -387,18 +380,16 @@ class FileWatcher:
 
     def stop(self):
         """Stop filesystem watching and cleanup resources."""
-        if self.observer and self.is_watching:
+        self.is_watching = False
+        
+        if self.observer:
             try:
                 self.observer.stop()
                 self.observer.join(timeout=5.0)
             except Exception:
                 pass
 
-        self.is_watching = False
         self.observer = None
-
-        # Shutdown executor
-        self.executor.shutdown(wait=True)
 
     def is_available(self) -> bool:
         """Check if filesystem watching is available and working."""
@@ -540,78 +531,20 @@ def is_filesystem_watching_enabled() -> bool:
     return os.environ.get('CHUNKHOUND_WATCH_ENABLED', '1').lower() in ('1', 'true', 'yes', 'on')
 
 
-async def process_file_change_queue(
-    event_queue: asyncio.Queue,
-    process_callback: Callable[[Path, str], Awaitable[None]],
-    max_batch_size: int = 10
-):
-    """
-    Process file change events from the queue.
-
-    This function runs in the main thread to ensure single-threaded database access.
-
-    Args:
-        event_queue: Queue containing FileChangeEvent objects
-        process_callback: Async function to call for each file change
-        max_batch_size: Maximum number of events to process in one batch
-    """
-    logger.info(f"🔄 process_file_change_queue called - queue size: {event_queue.qsize()}")
-    if os.environ.get("CHUNKHOUND_DEBUG"):
-        print(f"DEBUG: process_file_change_queue called - queue size: {event_queue.qsize()}")
-    batch = []
-
-    try:
-        logger.info("📥 Starting event collection from queue...")
-        # Collect events up to batch size or until queue is empty
-        while len(batch) < max_batch_size:
-            try:
-                event = event_queue.get_nowait()
-                batch.append(event)
-                logger.info(f"📥 Collected event {len(batch)}: {event.event_type} - {event.path}")
-            except asyncio.QueueEmpty:
-                logger.info(f"📥 Queue empty after collecting {len(batch)} events")
-                break
-            except Exception as e:
-                logger.error(f"❌ Error collecting event from queue: {e}")
-                break
-
-        # Process collected events
-        for event in batch:
-            try:
-                logger.info(f"Processing file change: {event.event_type} - {event.path}")
-                await process_callback(event.path, event.event_type)
-                logger.info(f"Successfully processed: {event.event_type} - {event.path}")
-            except Exception as e:
-                # Log error but continue processing other events
-                logger.error(f"Failed to process file change: {event.event_type} - {event.path}: {e}")
-                import traceback
-                logger.error(f"Traceback: {traceback.format_exc()}")
-            finally:
-                event_queue.task_done()
-
-    except Exception:
-        # Ensure we mark tasks as done even if processing fails
-        for _ in batch:
-            try:
-                event_queue.task_done()
-            except ValueError:
-                pass
-
 
 class FileWatcherManager:
     """
     High-level manager for filesystem watching integration with MCP server.
 
     Handles the complete lifecycle including offline catch-up, live watching,
-    and queue processing coordination.
+    and simple polling-based event processing.
     """
 
     def __init__(self):
         self.watcher: FileWatcher | None = None
-        self.event_queue: asyncio.Queue | None = None
         self.last_scan_time: float = time.time()
         self.watch_paths: list[Path] = []
-        self.processing_task: asyncio.Task | None = None
+        self.polling_task: asyncio.Task | None = None
 
     async def initialize(self,
                         process_callback: Callable[[Path, str], Awaitable[None]],
@@ -643,26 +576,19 @@ class FileWatcherManager:
         pass
 
         try:
-            # Create event queue
-            self.event_queue = asyncio.Queue(maxsize=1000)
-
             # Perform offline catch-up scan with timeout to prevent MCP startup delays
             offline_changes = await scan_for_offline_changes(
                 self.watch_paths,
                 self.last_scan_time - 300,  # 5 minutes buffer
                 timeout=3.0  # 3 second timeout to prevent IDE timeouts
             )
-            # Queue offline changes for processing
-            for change in offline_changes:
-                try:
-                    self.event_queue.put_nowait(change)
-                except asyncio.QueueFull:
-                    break
-
+            
             # Start filesystem watcher
             if WATCHDOG_AVAILABLE:
-                self.watcher = FileWatcher(self.watch_paths, self.event_queue)
-                self.watcher.start()
+                self.watcher = FileWatcher(self.watch_paths)
+                success = self.watcher.start()
+                if not success:
+                    logging.warning("FileWatcherManager: Failed to start filesystem watcher")
             else:
                 # Log warning when watchdog is unavailable
                 import sys
@@ -671,9 +597,16 @@ class FileWatcherManager:
                     print("   File modification detection is DISABLED", file=sys.stderr)
                     print("   Only initial file scanning will work", file=sys.stderr)
 
-            # Start queue processing task
-            self.processing_task = asyncio.create_task(
-                self._queue_processing_loop(process_callback)
+            # Process offline changes immediately
+            for change in offline_changes:
+                try:
+                    await process_callback(change.path, change.event_type)
+                except Exception as e:
+                    logging.error(f"FileWatcherManager: Failed to process offline change {change}: {e}")
+
+            # Start simple polling task
+            self.polling_task = asyncio.create_task(
+                self._polling_loop(process_callback)
             )
 
             return True
@@ -683,50 +616,55 @@ class FileWatcherManager:
             await self.cleanup()
             return False
 
-    async def _queue_processing_loop(self,
-                                   process_callback: Callable[[Path, str], Awaitable[None]]):
-        """Background task to process file change events."""
-        logger.info("🔄 Queue processing loop started")
+    async def _polling_loop(self,
+                           process_callback: Callable[[Path, str], Awaitable[None]]):
+        """Simple polling loop to process file change events."""
+        logger.info("🔄 Polling loop started")
         loop_count = 0
 
         while True:
             try:
-                # Process queue if items exist
-                if self.event_queue and not self.event_queue.empty():
-                    queue_size = self.event_queue.qsize()
-                    logger.info(f"📋 Processing queue with {queue_size} events")
-                    await process_file_change_queue(self.event_queue, process_callback)
-                    logger.info("✅ Queue processing batch completed")
+                # Get events from watcher if available
+                if self.watcher:
+                    events = self.watcher.get_events()
+                    if events:
+                        logger.info(f"📋 Processing {len(events)} events")
+                        for event in events:
+                            try:
+                                await process_callback(event.path, event.event_type)
+                            except Exception as e:
+                                logger.error(f"❌ Failed to process event {event}: {e}")
+                        logger.info("✅ Event processing batch completed")
                 
-                # Use wait_for to allow checking for cancellation more responsively
+                # Poll every 200ms - simple and responsive
                 try:
-                    await asyncio.wait_for(asyncio.sleep(1.0), timeout=1.0)
+                    await asyncio.wait_for(asyncio.sleep(0.2), timeout=0.2)
                 except asyncio.TimeoutError:
                     pass
                 
                 loop_count += 1
-                if loop_count % 30 == 0:  # Log every 30 seconds
-                    queue_size = self.event_queue.qsize() if self.event_queue else 0
-                    logger.info(f"🔄 Queue processing loop active - queue size: {queue_size}")
+                if loop_count % 150 == 0:  # Log every 30 seconds (150 * 0.2s)
+                    event_count = len(self.watcher.get_events()) if self.watcher else 0
+                    logger.info(f"🔄 Polling loop active - buffered events: {event_count}")
 
             except asyncio.CancelledError:
-                logger.info("🛑 Queue processing loop cancelled")
+                logger.info("🛑 Polling loop cancelled")
                 break
             except Exception as e:
-                # Continue processing even if individual batches fail
-                logger.error(f"❌ Queue processing loop error: {e}")
+                # Continue polling even if individual batches fail
+                logger.error(f"❌ Polling loop error: {e}")
                 try:
-                    await asyncio.wait_for(asyncio.sleep(5.0), timeout=5.0)
+                    await asyncio.wait_for(asyncio.sleep(1.0), timeout=1.0)
                 except (asyncio.TimeoutError, asyncio.CancelledError):
                     break
 
     async def cleanup(self):
         """Clean up resources and stop filesystem watching."""
-        # Cancel processing task
-        if self.processing_task:
-            self.processing_task.cancel()
+        # Cancel polling task
+        if self.polling_task:
+            self.polling_task.cancel()
             try:
-                await self.processing_task
+                await self.polling_task
             except asyncio.CancelledError:
                 pass
 
@@ -734,16 +672,7 @@ class FileWatcherManager:
         if self.watcher:
             self.watcher.stop()
 
-        # Clear queue
-        if self.event_queue:
-            while not self.event_queue.empty():
-                try:
-                    self.event_queue.get_nowait()
-                    self.event_queue.task_done()
-                except asyncio.QueueEmpty:
-                    break
-
     def is_active(self) -> bool:
         """Check if filesystem watching is currently active."""
         return bool(self.watcher and self.watcher.is_available() and
-                   self.processing_task and not self.processing_task.done())
+                   self.polling_task and not self.polling_task.done())
