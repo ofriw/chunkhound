@@ -250,6 +250,7 @@ debug_test_file.py
 
 # ChunkHound project config (may contain API keys)
 .chunkhound.json
+config.json
 
 # ChunkHound database directories
 .chunkhound/
