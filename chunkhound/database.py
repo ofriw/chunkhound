@@ -1,7 +1,9 @@
 """Database module for ChunkHound - Service layer delegation wrapper.
 
-This is a compatibility wrapper that delegates operations to the new modular service layer.
-The original monolithic Database class (2055 lines) has been moved to database_legacy.py.
+This is a compatibility wrapper that delegates operations to the new modular
+service layer.
+The original monolithic Database class (2055 lines) has been moved to
+database_legacy.py.
 This new implementation reduces the Database class to ~150 lines by delegating to:
 - DuckDBProvider for database operations
 - IndexingCoordinator for file processing workflows
@@ -17,13 +19,12 @@ from typing import Any
 
 from loguru import logger
 
-# Core imports
-from core.types.common import Language
 from chunkhound.core.config.unified_config import DatabaseConfig
 
-# Provider imports
-from providers.database.duckdb_provider import DuckDBProvider
+# Core imports
+from core.types.common import Language
 
+# Provider imports
 # Registry import for service layer
 from registry import (
     create_embedding_service,
@@ -46,7 +47,12 @@ class Database:
     while delegating operations to the new modular service layer architecture.
     """
 
-    def __init__(self, db_path: Path | str, embedding_manager: EmbeddingManager | None = None, config: DatabaseConfig | None = None):
+    def __init__(
+        self,
+        db_path: Path | str,
+        embedding_manager: EmbeddingManager | None = None,
+        config: DatabaseConfig | None = None
+    ):
         """Initialize database connection and service layer.
 
         Args:
@@ -66,22 +72,40 @@ class Database:
             except Exception:
                 # Fallback to default configuration
                 config = DatabaseConfig()
-        
-        # Initialize service layer via registry using factory
-        from chunkhound.providers.database_factory import DatabaseProviderFactory
-        self._provider = DatabaseProviderFactory.create_provider(config, embedding_manager)
 
         # Connection synchronization lock
         self._connection_lock = threading.RLock()
 
-        # Configure registry with database provider
+        # Check if registry is already configured with a database provider
         registry = get_registry()
-        registry.register_provider("database", lambda: self._provider, singleton=True)
+        try:
+            existing_provider = registry.get_provider("database")
+            # Registry already has a database provider, use it instead of
+            # creating new one
+            self._provider = existing_provider
 
-        # Create services via registry (includes language parser setup)
-        self._indexing_coordinator = create_indexing_coordinator()
-        self._search_service = create_search_service()
-        self._embedding_service = create_embedding_service()
+            # Use existing services from registry
+            self._indexing_coordinator = create_indexing_coordinator()
+            self._search_service = create_search_service()
+            self._embedding_service = create_embedding_service()
+        except ValueError:
+            # No database provider registered yet, create and configure it
+
+            # Initialize service layer via registry using factory
+            from chunkhound.providers.database_factory import DatabaseProviderFactory
+            self._provider = DatabaseProviderFactory.create_provider(
+                config, embedding_manager
+            )
+
+            # Register the new provider
+            registry.register_provider(
+                "database", lambda: self._provider, singleton=True
+            )
+
+            # Create services via registry (includes language parser setup)
+            self._indexing_coordinator = create_indexing_coordinator()
+            self._search_service = create_search_service()
+            self._embedding_service = create_embedding_service()
 
         # Legacy compatibility: expose provider connection as self.connection
         self.connection = None  # Will be set after connect()
@@ -126,14 +150,21 @@ class Database:
     # File Processing Methods - Delegate to IndexingCoordinator
     # =============================================================================
 
-    async def process_file(self, file_path: Path, skip_embeddings: bool = False) -> dict[str, Any]:
+    async def process_file(
+        self, file_path: Path, skip_embeddings: bool = False
+    ) -> dict[str, Any]:
         """Process a file end-to-end: parse, chunk, and store in database.
 
         Delegates to IndexingCoordinator for actual processing.
         """
         return await self._indexing_coordinator.process_file(file_path, skip_embeddings)
 
-    async def process_directory(self, directory: Path, patterns: list[str] | None = None, exclude_patterns: list[str] | None = None) -> dict[str, Any]:
+    async def process_directory(
+        self,
+        directory: Path,
+        patterns: list[str] | None = None,
+        exclude_patterns: list[str] | None = None
+    ) -> dict[str, Any]:
         """Process all supported files in a directory.
 
         Delegates to IndexingCoordinator for actual processing.
@@ -150,7 +181,16 @@ class Database:
     # Search Methods - Delegate to SearchService
     # =============================================================================
 
-    def search_semantic(self, query_vector: list[float], provider: str, model: str, page_size: int = 10, offset: int = 0, threshold: float | None = None, path_filter: str | None = None) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    def search_semantic(
+        self,
+        query_vector: list[float],
+        provider: str,
+        model: str,
+        page_size: int = 10,
+        offset: int = 0,
+        threshold: float | None = None,
+        path_filter: str | None = None
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         """Perform semantic similarity search.
 
         Delegates to provider for actual search.
@@ -165,12 +205,23 @@ class Database:
             path_filter=path_filter
         )
 
-    def search_regex(self, pattern: str, page_size: int = 10, offset: int = 0, path_filter: str | None = None) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    def search_regex(
+        self,
+        pattern: str,
+        page_size: int = 10,
+        offset: int = 0,
+        path_filter: str | None = None
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         """Search code chunks using regex pattern.
 
         Delegates to provider for actual search.
         """
-        return self._provider.search_regex(pattern=pattern, page_size=page_size, offset=offset, path_filter=path_filter)
+        return self._provider.search_regex(
+            pattern=pattern,
+            page_size=page_size,
+            offset=offset,
+            path_filter=path_filter
+        )
 
     # =============================================================================
     # Database Operations - Delegate to Provider
@@ -212,7 +263,8 @@ class Database:
     def insert_chunk(self, chunk_or_file_id: int | dict, symbol: str | None = None,
                     start_line: int | None = None, end_line: int | None = None,
                     code: str | None = None, chunk_type: str | None = None,
-                    language_info: str | None = None, parent_header: str | None = None) -> int:
+                    language_info: str | None = None,
+                    parent_header: str | None = None) -> int:
         """Insert a new chunk record."""
         # Import here to avoid circular dependency
         from core.models import Chunk

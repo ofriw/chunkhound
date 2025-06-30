@@ -14,6 +14,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
+
 import mcp.server.stdio
 import mcp.types as types
 from mcp.server import Server
@@ -215,7 +216,9 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
         # Create database AFTER registry configuration - provider will use registry config
         _database = Database(db_path, embedding_manager=_embedding_manager, config=unified_config.database)
         try:
-            # Initialize database with connection only - no background refresh thread
+            # CRITICAL: Ensure thread-safe database initialization for MCP server
+            # The database connection must be established before any async tasks start
+            # to prevent concurrent database operations during initialization
             _database.connect()
             if "CHUNKHOUND_DEBUG" in os.environ:
                 print("Server lifespan: Database connected successfully", file=sys.stderr)

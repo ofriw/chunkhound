@@ -72,6 +72,17 @@ class DuckDBProvider:
     def connection(self) -> Any | None:
         """Database connection - delegate to connection manager."""
         return self._connection_manager.connection
+    
+    def _get_connection(self) -> Any:
+        """Get thread-safe connection for database operations.
+        
+        Returns thread-local cursor for async/threading safety in MCP server.
+        """
+        # Use thread-safe connection in MCP mode
+        if os.environ.get("CHUNKHOUND_MCP_MODE") and hasattr(self._connection_manager, 'get_thread_safe_connection'):
+            return self._connection_manager.get_thread_safe_connection()
+        # Fallback to main connection for backwards compatibility
+        return self._connection_manager.connection
 
     @property
     def db_path(self) -> Path | str:
@@ -196,7 +207,7 @@ class DuckDBProvider:
             index_name = f"hnsw_{provider}_{model}_{dims}_{metric}".replace("-", "_").replace(".", "_")
 
             # Create HNSW index using VSS extension on the dimension-specific table
-            self.connection.execute(f"""
+            self._get_connection().execute(f"""
                 CREATE INDEX {index_name} ON {table_name}
                 USING HNSW (embedding)
                 WITH (metric = '{metric}')
@@ -216,7 +227,7 @@ class DuckDBProvider:
             raise RuntimeError("No database connection")
 
         try:
-            self.connection.execute(f"DROP INDEX IF EXISTS {index_name}")
+            self._get_connection().execute(f"DROP INDEX IF EXISTS {index_name}")
             logger.info(f"HNSW index {index_name} dropped successfully")
             return index_name
 
@@ -232,7 +243,7 @@ class DuckDBProvider:
         try:
             # Query DuckDB system tables for indexes on all embedding tables
             # Look for both legacy 'hnsw_' and standard 'idx_hnsw_' index patterns
-            results = self.connection.execute("""
+            results = self._get_connection().execute("""
                 SELECT index_name, table_name
                 FROM duckdb_indexes()
                 WHERE table_name LIKE 'embeddings_%'
@@ -308,10 +319,10 @@ class DuckDBProvider:
 
         try:
             # Start transaction for atomic operation
-            self.connection.execute("BEGIN TRANSACTION")
+            self._get_connection().execute("BEGIN TRANSACTION")
 
             # Optimize settings for bulk loading
-            self.connection.execute("SET preserve_insertion_order = false")
+            self._get_connection().execute("SET preserve_insertion_order = false")
 
             # Drop existing HNSW vector indexes to improve bulk performance
             if existing_indexes:
@@ -347,7 +358,7 @@ class DuckDBProvider:
                         # Continue with other indexes
 
             # Commit transaction
-            self.connection.execute("COMMIT")
+            self._get_connection().execute("COMMIT")
 
             # Force checkpoint after bulk operations to ensure durability
             self._maybe_checkpoint(force=True)
@@ -358,7 +369,7 @@ class DuckDBProvider:
         except Exception as e:
             # Rollback transaction on any error
             try:
-                self.connection.execute("ROLLBACK")
+                self._get_connection().execute("ROLLBACK")
                 logger.info("Transaction rolled back due to error")
             except:
                 pass
@@ -567,12 +578,12 @@ class DuckDBProvider:
                 count_query += " AND f.path LIKE ?"
                 count_params.append(f"%/{normalized_path}%")
 
-            total_count = self.connection.execute(count_query, count_params).fetchone()[0]
+            total_count = self._get_connection().execute(count_query, count_params).fetchone()[0]
 
             query += " ORDER BY similarity DESC LIMIT ? OFFSET ?"
             params.extend([page_size, offset])
 
-            results = self.connection.execute(query, params).fetchall()
+            results = self._get_connection().execute(query, params).fetchall()
 
             result_list = [
                 {
@@ -629,7 +640,7 @@ class DuckDBProvider:
                 JOIN files f ON c.file_id = f.id
                 WHERE {where_clause}
             """
-            total_count = self.connection.execute(count_query, params).fetchone()[0]
+            total_count = self._get_connection().execute(count_query, params).fetchone()[0]
 
             # Get results
             results_query = f"""
@@ -648,7 +659,7 @@ class DuckDBProvider:
                 ORDER BY f.path, c.start_line
                 LIMIT ? OFFSET ?
             """
-            results = self.connection.execute(results_query, params + [page_size, offset]).fetchall()
+            results = self._get_connection().execute(results_query, params + [page_size, offset]).fetchall()
 
 
 
@@ -689,7 +700,7 @@ class DuckDBProvider:
             # Simple text search using LIKE operator
             search_pattern = f"%{query}%"
 
-            results = self.connection.execute("""
+            results = self._get_connection().execute("""
                 SELECT
                     c.id as chunk_id,
                     c.symbol,
@@ -731,20 +742,20 @@ class DuckDBProvider:
 
         try:
             # Get counts from each table
-            file_count = self.connection.execute("SELECT COUNT(*) FROM files").fetchone()[0]
-            chunk_count = self.connection.execute("SELECT COUNT(*) FROM chunks").fetchone()[0]
+            file_count = self._get_connection().execute("SELECT COUNT(*) FROM files").fetchone()[0]
+            chunk_count = self._get_connection().execute("SELECT COUNT(*) FROM chunks").fetchone()[0]
 
             # Count embeddings across all dimension-specific tables
             embedding_count = 0
             embedding_tables = self._get_all_embedding_tables()
             for table_name in embedding_tables:
-                count = self.connection.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0]
+                count = self._get_connection().execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0]
                 embedding_count += count
 
             # Get unique providers/models across all embedding tables
             provider_results = []
             for table_name in embedding_tables:
-                results = self.connection.execute(f"""
+                results = self._get_connection().execute(f"""
                     SELECT DISTINCT provider, model, COUNT(*) as count
                     FROM {table_name}
                     GROUP BY provider, model
@@ -787,14 +798,14 @@ class DuckDBProvider:
 
             for table_name in embedding_tables:
                 # Count embeddings for this provider/model in this table
-                count = self.connection.execute(f"""
+                count = self._get_connection().execute(f"""
                     SELECT COUNT(*) FROM {table_name}
                     WHERE provider = ? AND model = ?
                 """, [provider, model]).fetchone()[0]
                 embedding_count += count
 
                 # Get unique file IDs for this provider/model in this table
-                file_results = self.connection.execute(f"""
+                file_results = self._get_connection().execute(f"""
                     SELECT DISTINCT c.file_id
                     FROM {table_name} e
                     JOIN chunks c ON e.chunk_id = c.id
@@ -804,7 +815,7 @@ class DuckDBProvider:
 
                 # Get dimensions (should be consistent across all tables for same provider/model)
                 if count > 0 and dims == 0:
-                    dims_result = self.connection.execute(f"""
+                    dims_result = self._get_connection().execute(f"""
                         SELECT DISTINCT dims FROM {table_name}
                         WHERE provider = ? AND model = ?
                         LIMIT 1
@@ -833,14 +844,14 @@ class DuckDBProvider:
 
         try:
             if params:
-                results = self.connection.execute(query, params).fetchall()
+                results = self._get_connection().execute(query, params).fetchall()
             else:
-                results = self.connection.execute(query).fetchall()
+                results = self._get_connection().execute(query).fetchall()
 
             # Convert to list of dictionaries
             if results:
                 # Get column names
-                column_names = [desc[0] for desc in self.connection.description]
+                column_names = [desc[0] for desc in self._get_connection().description]
                 return [dict(zip(column_names, row)) for row in results]
 
             return []
@@ -854,18 +865,18 @@ class DuckDBProvider:
         if self.connection is None:
             raise RuntimeError("No database connection")
 
-        self.connection.execute("BEGIN TRANSACTION")
+        self._get_connection().execute("BEGIN TRANSACTION")
 
     def commit_transaction(self, force_checkpoint: bool = False) -> None:
         """Commit the current transaction with optional checkpoint."""
         if self.connection is None:
             raise RuntimeError("No database connection")
         
-        self.connection.execute("COMMIT")
+        self._get_connection().execute("COMMIT")
         
         if force_checkpoint:
             try:
-                self.connection.execute("CHECKPOINT")
+                self._get_connection().execute("CHECKPOINT")
                 if not os.environ.get("CHUNKHOUND_MCP_MODE"):
                     logger.debug("Transaction committed with checkpoint")
             except Exception as e:
@@ -877,7 +888,7 @@ class DuckDBProvider:
         if self.connection is None:
             raise RuntimeError("No database connection")
 
-        self.connection.execute("ROLLBACK")
+        self._get_connection().execute("ROLLBACK")
 
     async def process_file(self, file_path: Path, skip_embeddings: bool = False) -> dict[str, Any]:
         """Process a file end-to-end: parse, chunk, and store in database.

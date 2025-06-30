@@ -220,6 +220,11 @@ class IndexingCoordinator(BaseService):
                                    f"{len(chunk_diff.added)} added, {len(chunk_diff.modified)} modified, "
                                    f"{len(chunk_diff.deleted)} deleted")
                         
+                        # Generate embeddings only for new/modified chunks
+                        # Store chunk data for embedding generation
+                        chunks_needing_embeddings = chunks_to_store
+                        chunk_ids_needing_embeddings = chunk_ids_new
+                        
                     except Exception as e:
                         # Rollback on any error to prevent partial updates
                         logger.error(f"Chunk update failed, rolling back: {e}")
@@ -234,14 +239,31 @@ class IndexingCoordinator(BaseService):
                     chunk_models = self._convert_to_chunk_models(file_id, chunks, language)
                     chunks_dict = [chunk.to_dict() for chunk in chunk_models]
                     chunk_ids = self._store_chunks(file_id, chunks_dict, language)
+                    
+                    # All chunks need embeddings for new files with no existing chunks
+                    chunks_needing_embeddings = chunks_dict
+                    chunk_ids_needing_embeddings = chunk_ids
             else:
                 # New file, proceed with normal storage
                 chunk_models = self._convert_to_chunk_models(file_id, chunks, language)
                 chunks_dict = [chunk.to_dict() for chunk in chunk_models]
                 chunk_ids = self._store_chunks(file_id, chunks_dict, language)
+                
+                # All chunks need embeddings for new files
+                chunks_needing_embeddings = chunks_dict
+                chunk_ids_needing_embeddings = chunk_ids
+            
+            # Generate embeddings with correctly aligned data
             embeddings_generated = 0
-            if not skip_embeddings and self._embedding_provider and chunk_ids:
-                embeddings_generated = await self._generate_embeddings(chunk_ids, chunks)
+            if not skip_embeddings and chunk_ids_needing_embeddings:
+                if self._embedding_provider:
+                    embeddings_generated = await self._generate_embeddings(chunk_ids_needing_embeddings, chunks_needing_embeddings)
+                else:
+                    logger.warning(f"Embedding provider is None - skipping embedding generation for {len(chunk_ids_needing_embeddings)} chunks")
+            elif skip_embeddings:
+                logger.debug("Skipping embedding generation (skip_embeddings=True)")
+            elif not chunk_ids_needing_embeddings:
+                logger.debug("No chunks need embeddings")
 
             result = {
                 "status": "success",
