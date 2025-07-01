@@ -37,14 +37,19 @@ class ChunkCacheService:
             ChunkDiff object categorizing chunk changes
         """
         # Build content lookup for existing chunks using direct string comparison
-        existing_by_content: dict[str, Chunk] = {}
+        # Use chunk content as key, but handle potential duplicates by using lists
+        existing_by_content: dict[str, list[Chunk]] = {}
         for chunk in existing_chunks:
-            existing_by_content[chunk.code] = chunk
+            if chunk.code not in existing_by_content:
+                existing_by_content[chunk.code] = []
+            existing_by_content[chunk.code].append(chunk)
 
         # Build content lookup for new chunks  
-        new_by_content: dict[str, Chunk] = {}
+        new_by_content: dict[str, list[Chunk]] = {}
         for chunk in new_chunks:
-            new_by_content[chunk.code] = chunk
+            if chunk.code not in new_by_content:
+                new_by_content[chunk.code] = []
+            new_by_content[chunk.code].append(chunk)
 
         # Find intersections and differences using content strings
         existing_content = set(existing_by_content.keys())
@@ -54,9 +59,22 @@ class ChunkCacheService:
         deleted_content = existing_content - new_content
         added_content = new_content - existing_content
 
+        # Flatten lists for result
+        unchanged_chunks = []
+        for content in unchanged_content:
+            unchanged_chunks.extend(existing_by_content[content])
+            
+        deleted_chunks = []
+        for content in deleted_content:
+            deleted_chunks.extend(existing_by_content[content])
+            
+        added_chunks = []
+        for content in added_content:
+            added_chunks.extend(new_by_content[content])
+
         return ChunkDiff(
-            unchanged=[existing_by_content[content] for content in unchanged_content],
-            modified=[],  # For now, we consider all changes as add/delete
-            added=[new_by_content[content] for content in added_content], 
-            deleted=[existing_by_content[content] for content in deleted_content]
+            unchanged=unchanged_chunks,
+            modified=[],  # Still using add/delete approach for simplicity
+            added=added_chunks, 
+            deleted=deleted_chunks
         )

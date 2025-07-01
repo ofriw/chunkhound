@@ -170,79 +170,95 @@ class IndexingCoordinator(BaseService):
             
             # Smart chunk update for existing files to preserve embeddings
             if existing_file:
-                # Use smart diff approach for ALL providers to preserve embeddings
-                # This ensures deduplication and reuse works out of the box for any backend
+                # CRITICAL: Always clean up old chunks for existing files to prevent content deletion bug
+                # This ensures that stale chunks don't persist in the database when files are modified
                 
                 # Get existing chunks as models for comparison
                 existing_chunks = self._db.get_chunks_by_file_id(file_id, as_model=True)
                 
-                if existing_chunks:
-                    # Convert new chunks to models 
-                    new_chunk_models = self._convert_to_chunk_models(file_id, chunks, language)
+                # ALWAYS process existing files with transaction safety, regardless of existing_chunks
+                # This fixes the content deletion bug where old chunks persist when existing_chunks is empty
+                logger.debug(f"Processing existing file with {len(existing_chunks)} existing chunks")
+                
+                # Convert new chunks to models for comparison
+                new_chunk_models = self._convert_to_chunk_models(file_id, chunks, language)
+                
+                # Wrap entire update in a transaction for atomicity
+                try:
+                    self._db.begin_transaction()
                     
-                    # Perform smart diff to identify what changed
-                    chunk_diff = self._chunk_cache.diff_chunks(new_chunk_models, existing_chunks)
-                    
-                    # Wrap entire update in a transaction for atomicity
-                    # This prevents duplicates even if the operation fails mid-way
-                    try:
-                        self._db.begin_transaction()
+                    if existing_chunks:
+                        # Perform smart diff to identify what changed
+                        chunk_diff = self._chunk_cache.diff_chunks(new_chunk_models, existing_chunks)
                         
-                        # First, delete all chunks that were modified or removed
-                        # We delete modified chunks because we'll insert new versions
+                        logger.debug(f"Smart diff results for file_id {file_id}: "
+                                   f"unchanged={len(chunk_diff.unchanged)}, "
+                                   f"added={len(chunk_diff.added)}, "
+                                   f"modified={len(chunk_diff.modified)}, "
+                                   f"deleted={len(chunk_diff.deleted)}")
+                        
+                        # Delete all chunks that were modified or removed
                         chunks_to_delete = chunk_diff.deleted + chunk_diff.modified
                         if chunks_to_delete:
-                            # Batch delete by IDs for better performance
                             chunk_ids_to_delete = [chunk.id for chunk in chunks_to_delete if chunk.id is not None]
                             if chunk_ids_to_delete:
-                                # Try batch delete first if available, fallback to individual deletes
+                                logger.debug(f"Deleting {len(chunk_ids_to_delete)} chunks with IDs: {chunk_ids_to_delete}")
                                 for chunk_id in chunk_ids_to_delete:
                                     self._db.delete_chunk(chunk_id)
-                                logger.debug(f"Deleted {len(chunk_ids_to_delete)} modified/removed chunks")
+                                logger.debug(f"Successfully deleted {len(chunk_ids_to_delete)} modified/removed chunks")
                         
-                        # Then, insert only new and modified chunks
-                        # Modified chunks get new IDs but same content hash
+                        # Insert only new and modified chunks
                         chunks_to_store = []
                         chunks_to_store.extend([chunk.to_dict() for chunk in chunk_diff.added])
                         chunks_to_store.extend([chunk.to_dict() for chunk in chunk_diff.modified])
                         
-                        chunk_ids_new = self._store_chunks(file_id, chunks_to_store, language) if chunks_to_store else []
-                        
-                        # Commit the transaction - this makes all changes atomic
-                        self._db.commit_transaction()
+                        if chunks_to_store:
+                            logger.debug(f"Storing {len(chunks_to_store)} new/modified chunks")
+                            chunk_ids_new = self._store_chunks(file_id, chunks_to_store, language)
+                        else:
+                            chunk_ids_new = []
                         
                         # Combine IDs: unchanged chunks keep their IDs (and embeddings!)
-                        # New and modified chunks get new IDs
                         unchanged_ids = [chunk.id for chunk in chunk_diff.unchanged if chunk.id is not None]
                         chunk_ids = unchanged_ids + chunk_ids_new
                         
-                        logger.debug(f"Smart chunk update: {len(chunk_diff.unchanged)} preserved (with embeddings), "
-                                   f"{len(chunk_diff.added)} added, {len(chunk_diff.modified)} modified, "
-                                   f"{len(chunk_diff.deleted)} deleted")
-                        
                         # Generate embeddings only for new/modified chunks
-                        # Store chunk data for embedding generation
                         chunks_needing_embeddings = chunks_to_store
                         chunk_ids_needing_embeddings = chunk_ids_new
                         
-                    except Exception as e:
-                        # Rollback on any error to prevent partial updates
-                        logger.error(f"Chunk update failed, rolling back: {e}")
-                        try:
-                            self._db.rollback_transaction()
-                        except Exception as rollback_error:
-                            logger.error(f"Rollback failed: {rollback_error}")
-                        raise
-                else:
-                    # No existing chunks, proceed with normal storage
-                    # Compute content hashes for all chunks to enable future smart diffs
-                    chunk_models = self._convert_to_chunk_models(file_id, chunks, language)
-                    chunks_dict = [chunk.to_dict() for chunk in chunk_models]
-                    chunk_ids = self._store_chunks(file_id, chunks_dict, language)
+                        logger.debug(f"Smart chunk update complete: {len(chunk_diff.unchanged)} preserved, "
+                                   f"{len(chunk_diff.added)} added, {len(chunk_diff.modified)} modified, "
+                                   f"{len(chunk_diff.deleted)} deleted")
+                    else:
+                        # No existing chunks found - this could be due to race conditions or inconsistencies
+                        # CRITICAL FIX: Always clean up ALL chunks for this file_id to prevent stale data
+                        logger.debug(f"No existing chunks found for file_id {file_id}, cleaning up any stale chunks")
+                        
+                        # Force cleanup of any chunks that might exist for this file
+                        self._db.delete_file_chunks(file_id)
+                        
+                        # Store all new chunks
+                        chunks_dict = [chunk.to_dict() for chunk in new_chunk_models]
+                        chunk_ids = self._store_chunks(file_id, chunks_dict, language)
+                        
+                        # All chunks need embeddings
+                        chunks_needing_embeddings = chunks_dict
+                        chunk_ids_needing_embeddings = chunk_ids
+                        
+                        logger.debug(f"Stored {len(chunk_ids)} new chunks after cleanup")
                     
-                    # All chunks need embeddings for new files with no existing chunks
-                    chunks_needing_embeddings = chunks_dict
-                    chunk_ids_needing_embeddings = chunk_ids
+                    # Commit the transaction - this makes all changes atomic
+                    self._db.commit_transaction()
+                    logger.debug("Transaction committed successfully")
+                    
+                except Exception as e:
+                    # Rollback on any error to prevent partial updates
+                    logger.error(f"Chunk update failed, rolling back: {e}")
+                    try:
+                        self._db.rollback_transaction()
+                    except Exception as rollback_error:
+                        logger.error(f"Rollback failed: {rollback_error}")
+                    raise
             else:
                 # New file, proceed with normal storage
                 chunk_models = self._convert_to_chunk_models(file_id, chunks, language)
