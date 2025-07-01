@@ -240,8 +240,8 @@ class Database:
                    language: str | None = None, size_bytes: int | None = None) -> int:
         """Insert a new file record."""
         # Import here to avoid circular dependency
-        from chunkhound.core.models import File
-        from chunkhound.core.types import FilePath, Language, Timestamp
+        from core.models import File
+        from core.types import FilePath, Language, Timestamp
 
         if isinstance(file_or_path, str):
             file_model = File(
@@ -267,8 +267,8 @@ class Database:
                     parent_header: str | None = None) -> int:
         """Insert a new chunk record."""
         # Import here to avoid circular dependency
-        from chunkhound.core.models import Chunk
-        from chunkhound.core.types import ChunkType, FileId, Language, LineNumber
+        from core.models import Chunk
+        from core.types import ChunkType, FileId, Language, LineNumber
 
         if isinstance(chunk_or_file_id, int):
             chunk_model = Chunk(
@@ -298,7 +298,7 @@ class Database:
 
     def delete_file_chunks(self, file_id: int) -> None:
         """Delete all chunks for a file."""
-        from chunkhound.core.types import FileId
+        from core.types import FileId
         self._provider.delete_file_chunks(FileId(file_id))
 
     def update_file(self, file_id: int, size_bytes: int, mtime: float) -> None:

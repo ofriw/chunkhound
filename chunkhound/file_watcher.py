@@ -47,7 +47,7 @@ def debug_log(event_type, **data):
         pass  # Silent fail for MCP safety
 
 # Import Language enum for centralized extension management
-from core.types import Language
+from core.types.common import Language
 
 # Use centralized extension list from Language enum
 SUPPORTED_EXTENSIONS = Language.get_all_extensions()
