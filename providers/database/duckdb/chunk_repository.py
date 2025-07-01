@@ -14,13 +14,15 @@ if TYPE_CHECKING:
 class DuckDBChunkRepository:
     """Repository for chunk CRUD operations in DuckDB."""
 
-    def __init__(self, connection_manager: "DuckDBConnectionManager"):
+    def __init__(self, connection_manager: "DuckDBConnectionManager", provider=None):
         """Initialize chunk repository.
         
         Args:
             connection_manager: DuckDB connection manager instance
+            provider: Optional provider instance for transaction-aware connections
         """
         self._connection_manager = connection_manager
+        self._provider = provider
 
     @property
     def connection(self) -> Any | None:
@@ -30,6 +32,9 @@ class DuckDBChunkRepository:
     def _get_connection(self) -> Any:
         """Get thread-safe connection for database operations."""
         import os
+        # Use provider's transaction-aware connection if available
+        if self._provider and hasattr(self._provider, '_get_connection'):
+            return self._provider._get_connection()
         # Use thread-safe connection in MCP mode
         if os.environ.get("CHUNKHOUND_MCP_MODE") and hasattr(self._connection_manager, 'get_thread_safe_connection'):
             return self._connection_manager.get_thread_safe_connection()
