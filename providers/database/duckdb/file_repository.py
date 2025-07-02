@@ -14,26 +14,19 @@ if TYPE_CHECKING:
 class DuckDBFileRepository:
     """Repository for file CRUD operations using DuckDB."""
 
-    def __init__(self, connection_manager: "DuckDBConnectionManager"):
+    def __init__(self, connection_manager: "DuckDBConnectionManager", provider=None):
         """Initialize file repository with connection manager.
         
         Args:
             connection_manager: DuckDB connection manager instance
+            provider: Optional provider instance for transaction-aware connections
         """
         self.connection_manager = connection_manager
+        self._provider = provider
 
     @property
     def connection(self) -> Any | None:
         """Get the database connection from connection manager."""
-        return self.connection_manager.connection
-    
-    def _get_connection(self) -> Any:
-        """Get thread-safe connection for database operations."""
-        import os
-        # Use thread-safe connection in MCP mode
-        if os.environ.get("CHUNKHOUND_MCP_MODE") and hasattr(self.connection_manager, 'get_thread_safe_connection'):
-            return self.connection_manager.get_thread_safe_connection()
-        # Fallback to main connection for backwards compatibility
         return self.connection_manager.connection
 
     def _extract_file_id(self, file_record: dict[str, Any] | File) -> int | None:
@@ -64,25 +57,26 @@ class DuckDBFileRepository:
                     return file_id
 
             # No existing file, insert new one
-            result = self._get_connection().execute("""
-                INSERT INTO files (path, name, extension, size, modified_time, language)
-                VALUES (?, ?, ?, ?, to_timestamp(?), ?)
-                RETURNING id
-            """, [
-                str(file.path),
-                file.name,
-                file.extension,
-                file.size_bytes,
-                file.mtime,
-                file.language.value if file.language else None
-            ]).fetchone()
+            if self._provider:
+                # Delegate to provider for proper executor handling
+                return self._provider._execute_in_db_thread_sync('insert_file', file)
+            else:
+                # Fallback for tests
+                result = self.connection_manager.connection.execute("""
+                    INSERT INTO files (path, name, extension, size, modified_time, language)
+                    VALUES (?, ?, ?, ?, to_timestamp(?), ?)
+                    RETURNING id
+                """, [
+                    str(file.path),
+                    file.name,
+                    file.extension,
+                    file.size_bytes,
+                    file.mtime,
+                    file.language.value if file.language else None
+                ]).fetchone()
 
-            file_id = result[0] if result else 0
-            
-            # Track operation for checkpoint management (delegate to connection manager)
-            self._maybe_checkpoint()
-            
-            return file_id
+                file_id = result[0] if result else 0
+                return file_id
 
         except Exception as e:
             logger.error(f"Failed to insert file {file.path}: {e}")
@@ -100,10 +94,14 @@ class DuckDBFileRepository:
             raise RuntimeError("No database connection")
 
         try:
-            result = self._get_connection().execute("""
-                SELECT id, path, name, extension, size, modified_time, language, created_at, updated_at
-                FROM files WHERE path = ?
-            """, [path]).fetchone()
+            if self._provider:
+                return self._provider._execute_in_db_thread_sync('get_file_by_path', path, as_model)
+            else:
+                # Fallback for tests
+                result = self.connection_manager.connection.execute("""
+                    SELECT id, path, name, extension, size, modified_time, language, created_at, updated_at
+                    FROM files WHERE path = ?
+                """, [path]).fetchone()
 
             if not result:
                 return None
@@ -140,10 +138,14 @@ class DuckDBFileRepository:
             raise RuntimeError("No database connection")
 
         try:
-            result = self._get_connection().execute("""
-                SELECT id, path, name, extension, size, modified_time, language, created_at, updated_at
-                FROM files WHERE id = ?
-            """, [file_id]).fetchone()
+            if self._provider:
+                return self._provider._execute_in_db_thread_sync('get_file_by_id_query', file_id, as_model)
+            else:
+                # Fallback for tests
+                result = self.connection_manager.connection.execute("""
+                    SELECT id, path, name, extension, size, modified_time, language, created_at, updated_at
+                    FROM files WHERE id = ?
+                """, [file_id]).fetchone()
 
             if not result:
                 return None
@@ -209,7 +211,11 @@ class DuckDBFileRepository:
                 values.append(file_id)
 
                 query = f"UPDATE files SET {', '.join(set_clauses)} WHERE id = ?"
-                self._get_connection().execute(query, values)
+                if self._provider:
+                    self._provider._execute_in_db_thread_sync('update_file', file_id, size_bytes, mtime)
+                else:
+                    # Fallback for tests
+                    self.connection_manager.connection.execute(query, values)
 
         except Exception as e:
             logger.error(f"Failed to update file {file_id}: {e}")
@@ -231,17 +237,27 @@ class DuckDBFileRepository:
             # Delete in correct order due to foreign key constraints
             # 1. Delete embeddings first
             # Delete from all embedding tables
-            for table_name in self.connection_manager._get_all_embedding_tables():
-                self._get_connection().execute(f"""
+            if self._provider:
+                embedding_tables = self._provider._get_all_embedding_tables()
+            else:
+                # Fallback for tests
+                tables = self.connection_manager.connection.execute("""
+                    SELECT table_name FROM information_schema.tables
+                    WHERE table_name LIKE 'embeddings_%'
+                """).fetchall()
+                embedding_tables = [table[0] for table in tables]
+                
+            for table_name in embedding_tables:
+                self.connection_manager.connection.execute(f"""
                     DELETE FROM {table_name}
                     WHERE chunk_id IN (SELECT id FROM chunks WHERE file_id = ?)
                 """, [file_id])
 
             # 2. Delete chunks
-            self._get_connection().execute("DELETE FROM chunks WHERE file_id = ?", [file_id])
+            self.connection_manager.connection.execute("DELETE FROM chunks WHERE file_id = ?", [file_id])
 
             # 3. Delete file
-            self._get_connection().execute("DELETE FROM files WHERE id = ?", [file_id])
+            self.connection_manager.connection.execute("DELETE FROM files WHERE id = ?", [file_id])
 
             logger.debug(f"File {file_path} and all associated data deleted")
             return True
@@ -257,7 +273,7 @@ class DuckDBFileRepository:
 
         try:
             # Get file info
-            file_result = self._get_connection().execute("""
+            file_result = self.connection_manager.connection.execute("""
                 SELECT path, name, extension, size, language
                 FROM files WHERE id = ?
             """, [file_id]).fetchone()
@@ -266,7 +282,7 @@ class DuckDBFileRepository:
                 return {}
 
             # Get chunk count and types
-            chunk_results = self._get_connection().execute("""
+            chunk_results = self.connection_manager.connection.execute("""
                 SELECT chunk_type, COUNT(*) as count
                 FROM chunks WHERE file_id = ?
                 GROUP BY chunk_type
@@ -277,9 +293,18 @@ class DuckDBFileRepository:
 
             # Get embedding count across all embedding tables
             embedding_count = 0
-            embedding_tables = self.connection_manager._get_all_embedding_tables()
+            if self._provider:
+                embedding_tables = self._provider._get_all_embedding_tables()
+            else:
+                # Fallback for tests
+                tables = self.connection_manager.connection.execute("""
+                    SELECT table_name FROM information_schema.tables
+                    WHERE table_name LIKE 'embeddings_%'
+                """).fetchall()
+                embedding_tables = [table[0] for table in tables]
+                
             for table_name in embedding_tables:
-                count = self._get_connection().execute(f"""
+                count = self.connection_manager.connection.execute(f"""
                     SELECT COUNT(*)
                     FROM {table_name} e
                     JOIN chunks c ON e.chunk_id = c.id
@@ -304,5 +329,9 @@ class DuckDBFileRepository:
             return {}
 
     def _maybe_checkpoint(self, force: bool = False) -> None:
-        """Perform checkpoint if needed - delegate to connection manager."""
-        self.connection_manager._maybe_checkpoint(force)
+        """Perform checkpoint if needed - delegate to provider."""
+        if self._provider:
+            self._provider._maybe_checkpoint(force)
+        else:
+            # Fallback for tests - no checkpoint needed
+            pass

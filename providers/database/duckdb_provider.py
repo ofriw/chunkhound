@@ -114,14 +114,14 @@ class DuckDBProvider:
         # Initialize connection manager (will be simplified later)
         self._connection_manager = DuckDBConnectionManager(db_path, config)
 
-        # Initialize file repository
-        self._file_repository = DuckDBFileRepository(self._connection_manager)
+        # Initialize file repository with provider reference for transaction awareness
+        self._file_repository = DuckDBFileRepository(self._connection_manager, self)
         
         # Initialize chunk repository with provider reference for transaction awareness
         self._chunk_repository = DuckDBChunkRepository(self._connection_manager, self)
         
-        # Initialize embedding repository
-        self._embedding_repository = DuckDBEmbeddingRepository(self._connection_manager)
+        # Initialize embedding repository with provider reference for transaction awareness
+        self._embedding_repository = DuckDBEmbeddingRepository(self._connection_manager, self)
         self._embedding_repository.set_provider_instance(self)
 
         # Service layer components and legacy chunker instances
@@ -197,16 +197,6 @@ class DuckDBProvider:
         """
         return self._connection_manager.connection
     
-    def _get_connection(self) -> Any:
-        """Get thread-safe connection for database operations.
-        
-        DEPRECATED: This method is maintained for backward compatibility.
-        All new code should use executor methods instead.
-        """
-        # This method should not be called in the new architecture
-        # All database operations should go through the executor
-        logger.warning("_get_connection called - should use executor methods instead")
-        return self._connection_manager.connection
 
     @property
     def db_path(self) -> Path | str:
@@ -317,8 +307,8 @@ class DuckDBProvider:
         return result is not None
 
     def _get_table_name_for_dimensions(self, dims: int) -> str:
-        """Get table name for given embedding dimensions - delegate to connection manager."""
-        return self._connection_manager._get_table_name_for_dimensions(dims)
+        """Get table name for given embedding dimensions."""
+        return f"embeddings_{dims}"
 
     def _ensure_embedding_table_exists(self, dims: int) -> str:
         """Ensure embedding table exists for given dimensions - delegate to connection manager."""
@@ -338,7 +328,7 @@ class DuckDBProvider:
             conn.execute(f"""
                 CREATE TABLE {table_name} (
                     id INTEGER PRIMARY KEY DEFAULT nextval('embeddings_id_seq'),
-                    chunk_id INTEGER REFERENCES chunks(id),
+                    chunk_id INTEGER NOT NULL,
                     provider TEXT NOT NULL,
                     model TEXT NOT NULL,
                     embedding FLOAT[{dims}],
@@ -502,7 +492,7 @@ class DuckDBProvider:
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS embeddings_1536 (
                     id INTEGER PRIMARY KEY DEFAULT nextval('embeddings_id_seq'),
-                    chunk_id INTEGER REFERENCES chunks(id),
+                    chunk_id INTEGER NOT NULL,
                     provider TEXT NOT NULL,
                     model TEXT NOT NULL,
                     embedding FLOAT[1536],
@@ -511,7 +501,7 @@ class DuckDBProvider:
                 )
             """)
             
-            # Create HNSW index for 1536-dimensional embeddings
+            # Create indexes for 1536-dimensional embeddings
             try:
                 conn.execute("""
                     CREATE INDEX IF NOT EXISTS idx_hnsw_1536 ON embeddings_1536
@@ -522,11 +512,79 @@ class DuckDBProvider:
             except Exception as e:
                 logger.warning(f"Failed to create HNSW index for 1536-dimensional embeddings: {e}")
             
+            # Create index on chunk_id for efficient deletions
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_embeddings_1536_chunk_id ON embeddings_1536(chunk_id)
+            """)
+            
+            # Handle schema migrations for existing databases
+            self._executor_migrate_schema(conn, state)
+            
             logger.info("DuckDB schema created successfully with multi-dimension support")
             
         except Exception as e:
             logger.error(f"Failed to create DuckDB schema: {e}")
             raise
+    
+    def _executor_migrate_schema(self, conn: Any, state: dict[str, Any]) -> None:
+        """Executor method for schema migrations - runs in DB thread."""
+        try:
+            # Check if 'size' and 'signature' columns exist and drop them
+            columns_info = conn.execute("""
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_name = 'chunks' 
+                AND column_name IN ('size', 'signature')
+            """).fetchall()
+            
+            if columns_info:
+                logger.info("Migrating chunks table: removing unused 'size' and 'signature' columns")
+                
+                # SQLite/DuckDB doesn't support DROP COLUMN directly, need to recreate table
+                # First, create a temporary table with the new schema
+                conn.execute("""
+                    CREATE TEMP TABLE chunks_new AS
+                    SELECT id, file_id, chunk_type, symbol, code, 
+                           start_line, end_line, start_byte, end_byte, 
+                           language, created_at, updated_at
+                    FROM chunks
+                """)
+                
+                # Drop the old table
+                conn.execute("DROP TABLE chunks")
+                
+                # Create the new table with correct schema
+                conn.execute("""
+                    CREATE TABLE chunks (
+                        id INTEGER PRIMARY KEY DEFAULT nextval('chunks_id_seq'),
+                        file_id INTEGER REFERENCES files(id),
+                        chunk_type TEXT NOT NULL,
+                        symbol TEXT,
+                        code TEXT NOT NULL,
+                        start_line INTEGER,
+                        end_line INTEGER,
+                        start_byte INTEGER,
+                        end_byte INTEGER,
+                        language TEXT,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                
+                # Copy data back
+                conn.execute("""
+                    INSERT INTO chunks 
+                    SELECT * FROM chunks_new
+                """)
+                
+                # Drop the temporary table
+                conn.execute("DROP TABLE chunks_new")
+                
+                # Recreate indexes (will be done in _executor_create_indexes)
+                logger.info("Successfully migrated chunks table schema")
+
+        except Exception as e:
+            logger.warning(f"Failed to migrate schema: {e}")
 
 
 
@@ -749,26 +807,31 @@ class DuckDBProvider:
 
     def bulk_operation_with_index_management(self, operation_func, *args, **kwargs):
         """Execute bulk operation with automatic HNSW index management and transaction safety."""
-        if self.connection is None:
-            raise RuntimeError("No database connection")
-
+        # Delegate to executor for proper thread safety
+        return self._execute_in_db_thread_sync('bulk_operation_with_index_management_executor', 
+                                             operation_func, args, kwargs)
+    
+    def _executor_bulk_operation_with_index_management_executor(self, conn: Any, state: dict[str, Any],
+                                                              operation_func, args, kwargs):
+        """Executor method for bulk operations with index management - runs in DB thread."""
         # Get existing indexes before starting
-        existing_indexes = self.get_existing_vector_indexes()
+        existing_indexes = self._executor_get_existing_vector_indexes(conn, state)
         dropped_indexes = []
 
         try:
             # Start transaction for atomic operation
-            self._get_connection().execute("BEGIN TRANSACTION")
+            conn.execute("BEGIN TRANSACTION")
+            state['transaction_active'] = True
 
             # Optimize settings for bulk loading
-            self._get_connection().execute("SET preserve_insertion_order = false")
+            conn.execute("SET preserve_insertion_order = false")
 
             # Drop existing HNSW vector indexes to improve bulk performance
             if existing_indexes:
                 logger.info(f"Dropping {len(existing_indexes)} HNSW indexes for bulk operation")
                 for index_info in existing_indexes:
                     try:
-                        self.drop_vector_index(
+                        self._executor_drop_vector_index(conn, state,
                             index_info['provider'],
                             index_info['model'],
                             index_info['dims'],
@@ -786,7 +849,7 @@ class DuckDBProvider:
                 logger.info(f"Recreating {len(dropped_indexes)} HNSW indexes after bulk operation")
                 for index_info in dropped_indexes:
                     try:
-                        self.create_vector_index(
+                        self._executor_create_vector_index(conn, state,
                             index_info['provider'],
                             index_info['model'],
                             index_info['dims'],
@@ -797,10 +860,11 @@ class DuckDBProvider:
                         # Continue with other indexes
 
             # Commit transaction
-            self._get_connection().execute("COMMIT")
+            conn.execute("COMMIT")
+            state['transaction_active'] = False
 
             # Force checkpoint after bulk operations to ensure durability
-            self._maybe_checkpoint(force=True)
+            self._executor_maybe_checkpoint(conn, state, True)
 
             logger.info("Bulk operation completed successfully with index management")
             return result
@@ -808,7 +872,8 @@ class DuckDBProvider:
         except Exception as e:
             # Rollback transaction on any error
             try:
-                self._get_connection().execute("ROLLBACK")
+                conn.execute("ROLLBACK")
+                state['transaction_active'] = False
                 logger.info("Transaction rolled back due to error")
             except:
                 pass
@@ -818,7 +883,7 @@ class DuckDBProvider:
                 logger.info("Attempting to recreate dropped indexes after failure")
                 for index_info in dropped_indexes:
                     try:
-                        self.create_vector_index(
+                        self._executor_create_vector_index(conn, state,
                             index_info['provider'],
                             index_info['model'],
                             index_info['dims'],
@@ -1112,6 +1177,91 @@ class DuckDBProvider:
     def update_chunk(self, chunk_id: int, **kwargs) -> None:
         """Update chunk record with new values - delegate to chunk repository."""
         self._chunk_repository.update_chunk(chunk_id, **kwargs)
+    
+    def _executor_insert_chunk_single(self, conn: Any, state: dict[str, Any], chunk: Chunk) -> int:
+        """Executor method for insert_chunk - runs in DB thread."""
+        # Track operation for checkpoint management
+        _track_operation(state)
+        
+        result = conn.execute("""
+            INSERT INTO chunks (file_id, chunk_type, symbol, code, start_line, end_line,
+                              start_byte, end_byte, language)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            RETURNING id
+        """, [
+            chunk.file_id,
+            chunk.chunk_type.value if chunk.chunk_type else None,
+            chunk.symbol,
+            chunk.code,
+            chunk.start_line,
+            chunk.end_line,
+            chunk.start_byte,
+            chunk.end_byte,
+            chunk.language.value if chunk.language else None
+        ]).fetchone()
+        
+        return result[0] if result else 0
+    
+    def _executor_get_chunk_by_id_query(self, conn: Any, state: dict[str, Any], chunk_id: int) -> Any:
+        """Executor method for get_chunk_by_id query - runs in DB thread."""
+        return conn.execute("""
+            SELECT id, file_id, chunk_type, symbol, code, start_line, end_line,
+                   start_byte, end_byte, language, created_at, updated_at
+            FROM chunks WHERE id = ?
+        """, [chunk_id]).fetchone()
+    
+    def _executor_get_chunks_by_file_id_query(self, conn: Any, state: dict[str, Any], file_id: int) -> list:
+        """Executor method for get_chunks_by_file_id query - runs in DB thread."""
+        return conn.execute("""
+            SELECT id, file_id, chunk_type, symbol, code, start_line, end_line,
+                   start_byte, end_byte, language, created_at, updated_at
+            FROM chunks WHERE file_id = ?
+            ORDER BY start_line
+        """, [file_id]).fetchall()
+    
+    def _executor_update_chunk_query(self, conn: Any, state: dict[str, Any], 
+                                   chunk_id: int, query: str, values: list) -> None:
+        """Executor method for update_chunk query - runs in DB thread."""
+        # Track operation for checkpoint management
+        _track_operation(state)
+        conn.execute(query, values)
+    
+    def _executor_get_all_chunks_with_metadata_query(self, conn: Any, state: dict[str, Any], query: str) -> list:
+        """Executor method for get_all_chunks_with_metadata query - runs in DB thread."""
+        return conn.execute(query).fetchall()
+    
+    def _executor_get_file_by_id_query(self, conn: Any, state: dict[str, Any], 
+                                     file_id: int, as_model: bool) -> dict[str, Any] | File | None:
+        """Executor method for get_file_by_id query - runs in DB thread."""
+        result = conn.execute("""
+            SELECT id, path, name, extension, size, modified_time, language, created_at, updated_at
+            FROM files WHERE id = ?
+        """, [file_id]).fetchone()
+        
+        if not result:
+            return None
+        
+        file_dict = {
+            "id": result[0],
+            "path": result[1],
+            "name": result[2],
+            "extension": result[3],
+            "size": result[4],
+            "modified_time": result[5],
+            "language": result[6],
+            "created_at": result[7],
+            "updated_at": result[8]
+        }
+        
+        if as_model:
+            return File(
+                path=result[1],
+                mtime=result[5],
+                size_bytes=result[4],
+                language=Language(result[6]) if result[6] else Language.UNKNOWN
+            )
+        
+        return file_dict
 
     def insert_embedding(self, embedding: Embedding) -> int:
         """Insert embedding record and return embedding ID - delegate to embedding repository."""
@@ -1599,26 +1749,28 @@ class DuckDBProvider:
 
     def get_provider_stats(self, provider: str, model: str) -> dict[str, Any]:
         """Get statistics for a specific embedding provider/model."""
-        if self.connection is None:
-            raise RuntimeError("No database connection")
-
+        return self._execute_in_db_thread_sync('get_provider_stats', provider, model)
+        
+    def _executor_get_provider_stats(self, conn: Any, state: dict[str, Any],
+                                   provider: str, model: str) -> dict[str, Any]:
+        """Executor method for get_provider_stats - runs in DB thread."""
         try:
             # Get embedding count across all embedding tables
             embedding_count = 0
             file_ids = set()
             dims = 0
-            embedding_tables = self._get_all_embedding_tables()
+            embedding_tables = self._executor_get_all_embedding_tables(conn, state)
 
             for table_name in embedding_tables:
                 # Count embeddings for this provider/model in this table
-                count = self._get_connection().execute(f"""
+                count = conn.execute(f"""
                     SELECT COUNT(*) FROM {table_name}
                     WHERE provider = ? AND model = ?
                 """, [provider, model]).fetchone()[0]
                 embedding_count += count
 
                 # Get unique file IDs for this provider/model in this table
-                file_results = self._get_connection().execute(f"""
+                file_results = conn.execute(f"""
                     SELECT DISTINCT c.file_id
                     FROM {table_name} e
                     JOIN chunks c ON e.chunk_id = c.id
@@ -1628,7 +1780,7 @@ class DuckDBProvider:
 
                 # Get dimensions (should be consistent across all tables for same provider/model)
                 if count > 0 and dims == 0:
-                    dims_result = self._get_connection().execute(f"""
+                    dims_result = conn.execute(f"""
                         SELECT DISTINCT dims FROM {table_name}
                         WHERE provider = ? AND model = ?
                         LIMIT 1

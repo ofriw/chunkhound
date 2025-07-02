@@ -12,27 +12,20 @@ from providers.database.duckdb.connection_manager import DuckDBConnectionManager
 class DuckDBEmbeddingRepository:
     """Repository for embedding operations in DuckDB."""
 
-    def __init__(self, connection_manager: DuckDBConnectionManager):
+    def __init__(self, connection_manager: DuckDBConnectionManager, provider=None):
         """Initialize the embedding repository.
         
         Args:
             connection_manager: DuckDB connection manager for database access
+            provider: Optional provider instance for transaction-aware connections
         """
         self.connection_manager = connection_manager
+        self._provider = provider
         self._provider_instance = None  # Will be set by provider
 
     @property
     def connection(self) -> Any | None:
         """Get database connection from connection manager."""
-        return self.connection_manager.connection
-    
-    def _get_connection(self) -> Any:
-        """Get thread-safe connection for database operations."""
-        import os
-        # Use thread-safe connection in MCP mode
-        if os.environ.get("CHUNKHOUND_MCP_MODE") and hasattr(self.connection_manager, 'get_thread_safe_connection'):
-            return self.connection_manager.get_thread_safe_connection()
-        # Fallback to main connection for backwards compatibility
         return self.connection_manager.connection
 
     def set_provider_instance(self, provider_instance):
@@ -46,9 +39,30 @@ class DuckDBEmbeddingRepository:
 
         try:
             # Ensure appropriate table exists for these dimensions
-            table_name = self.connection_manager._ensure_embedding_table_exists(embedding.dims)
+            if self._provider:
+                table_name = self._provider._ensure_embedding_table_exists(embedding.dims)
+            else:
+                # Fallback for tests - create table if needed
+                table_name = f"embeddings_{embedding.dims}"
+                # Check if table exists by querying information_schema
+                result = self.connection_manager.connection.execute(
+                    "SELECT table_name FROM information_schema.tables WHERE table_name = ?",
+                    [table_name]
+                ).fetchone()
+                if result is None:
+                    self.connection_manager.connection.execute(f"""  
+                        CREATE TABLE {table_name} (
+                            id INTEGER PRIMARY KEY DEFAULT nextval('embeddings_id_seq'),
+                            chunk_id INTEGER REFERENCES chunks(id),
+                            provider TEXT NOT NULL,
+                            model TEXT NOT NULL,
+                            embedding FLOAT[{embedding.dims}],
+                            dims INTEGER NOT NULL DEFAULT {embedding.dims},
+                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                        )
+                    """)
             
-            result = self._get_connection().execute(f"""
+            result = self.connection_manager.connection.execute(f"""
                 INSERT INTO {table_name} (chunk_id, provider, model, embedding, dims)
                 VALUES (?, ?, ?, ?, ?)
                 RETURNING id
@@ -111,7 +125,28 @@ class DuckDBEmbeddingRepository:
                                f"expected {detected_dims} (detected from first embedding)")
 
         # Ensure appropriate table exists for these dimensions
-        table_name = self.connection_manager._ensure_embedding_table_exists(detected_dims)
+        if self._provider:
+            table_name = self._provider._ensure_embedding_table_exists(detected_dims)
+        else:
+            # Fallback for tests
+            table_name = f"embeddings_{detected_dims}"
+            # Check if table exists by querying information_schema
+            result = conn.execute(
+                "SELECT table_name FROM information_schema.tables WHERE table_name = ?",
+                [table_name]
+            ).fetchone()
+            if result is None:
+                conn.execute(f"""
+                    CREATE TABLE {table_name} (
+                        id INTEGER PRIMARY KEY DEFAULT nextval('embeddings_id_seq'),
+                        chunk_id INTEGER REFERENCES chunks(id),
+                        provider TEXT NOT NULL,
+                        model TEXT NOT NULL,
+                        embedding FLOAT[{detected_dims}],
+                        dims INTEGER NOT NULL DEFAULT {detected_dims},
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
         logger.debug(f"Using table {table_name} for {detected_dims}-dimensional embeddings")
 
         # Extract provider/model for conflict checking
@@ -314,14 +349,8 @@ class DuckDBEmbeddingRepository:
             else:
                 logger.debug(f"🎯 Standard batch insert: {total_inserted} embeddings in {insert_time:.3f}s ({total_inserted/insert_time:.1f} embeddings/sec)")
 
-            # Track embedding operations for checkpoint management
-            self.connection_manager._operations_since_checkpoint += total_inserted
-            
-            # Force checkpoint for large embedding batches to minimize WAL growth
-            if total_inserted >= 50:
-                self.connection_manager._maybe_checkpoint(force=True)
-            else:
-                self.connection_manager._maybe_checkpoint()
+            # Checkpoint management is handled by the provider's executor pattern
+            # No direct checkpoint calls needed here
 
             return total_inserted
 
@@ -339,9 +368,18 @@ class DuckDBEmbeddingRepository:
 
         try:
             # Search across all embedding tables
-            embedding_tables = self.connection_manager._get_all_embedding_tables()
+            if self._provider:
+                embedding_tables = self._provider._get_all_embedding_tables()
+            else:
+                # Fallback for tests - query information_schema
+                tables = self.connection_manager.connection.execute("""
+                    SELECT table_name FROM information_schema.tables
+                    WHERE table_name LIKE 'embeddings_%'
+                """).fetchall()
+                embedding_tables = [table[0] for table in tables]
+                
             for table_name in embedding_tables:
-                result = self._get_connection().execute(f"""
+                result = self.connection_manager.connection.execute(f"""
                     SELECT id, chunk_id, provider, model, embedding, dims, created_at
                     FROM {table_name}
                     WHERE chunk_id = ? AND provider = ? AND model = ?
@@ -375,7 +413,7 @@ class DuckDBEmbeddingRepository:
             all_chunk_ids = set()
             
             # Get all embedding tables
-            table_result = self._get_connection().execute("""
+            table_result = self.connection_manager.connection.execute("""
                 SELECT table_name FROM information_schema.tables 
                 WHERE table_name LIKE 'embeddings_%'
             """).fetchall()
@@ -385,7 +423,7 @@ class DuckDBEmbeddingRepository:
                 placeholders = ",".join("?" * len(chunk_ids))
                 params = chunk_ids + [provider, model]
 
-                results = self._get_connection().execute(f"""
+                results = self.connection_manager.connection.execute(f"""
                     SELECT DISTINCT chunk_id
                     FROM {table_name}
                     WHERE chunk_id IN ({placeholders}) AND provider = ? AND model = ?
@@ -405,8 +443,18 @@ class DuckDBEmbeddingRepository:
 
         try:
             # Delete from all embedding tables
-            for table_name in self.connection_manager._get_all_embedding_tables():
-                self._get_connection().execute(f"DELETE FROM {table_name} WHERE chunk_id = ?", [chunk_id])
+            if self._provider:
+                embedding_tables = self._provider._get_all_embedding_tables()
+            else:
+                # Fallback for tests
+                tables = self.connection_manager.connection.execute("""
+                    SELECT table_name FROM information_schema.tables
+                    WHERE table_name LIKE 'embeddings_%'
+                """).fetchall()
+                embedding_tables = [table[0] for table in tables]
+                
+            for table_name in embedding_tables:
+                self.connection_manager.connection.execute(f"DELETE FROM {table_name} WHERE chunk_id = ?", [chunk_id])
 
         except Exception as e:
             logger.error(f"Failed to delete embeddings for chunk {chunk_id}: {e}")

@@ -842,16 +842,21 @@ class IndexingCoordinator(BaseService):
         patterns: list[str] | None,
         exclude_patterns: list[str] | None
     ) -> list[Path]:
-        """Discover files in directory matching patterns with efficient exclude filtering."""
+        """Discover files in directory matching patterns with efficient exclude filtering.
+        
+        Args:
+            directory: Directory to search
+            patterns: File patterns to include (REQUIRED - must be provided by configuration layer)
+            exclude_patterns: File patterns to exclude (optional - will load from config if None)
+        
+        Raises:
+            ValueError: If patterns is None/empty (configuration layer error)
+        """
 
-        # Default patterns for supported languages
+        # Validate inputs - fail fast on configuration errors
         if not patterns:
-            # Get patterns from Language enum
-            patterns = []
-            for ext in Language.get_all_extensions():
-                patterns.append(f"*{ext}")
-            # Add special filenames
-            patterns.extend(["Makefile", "makefile", "GNUmakefile", "gnumakefile"])
+            raise ValueError(f"patterns parameter is required for directory discovery. "
+                           f"Configuration layer must provide file patterns.")
 
         # Default exclude patterns from unified config with .gitignore support
         if not exclude_patterns:
