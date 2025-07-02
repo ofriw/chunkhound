@@ -473,8 +473,15 @@ def get_watch_paths_from_env() -> list[Path]:
     Get watch paths from environment configuration.
 
     Returns:
-        List of paths to watch, defaults to current working directory
+        List of paths to watch, defaults to project root directory
     """
+    # Import project detection
+    try:
+        from .utils.project_detection import get_project_watch_paths
+        return get_project_watch_paths()
+    except ImportError:
+        pass
+    
     paths_env = os.environ.get('CHUNKHOUND_WATCH_PATHS', '')
 
     if paths_env:
@@ -589,6 +596,7 @@ class FileWatcherManager:
                 success = self.watcher.start()
                 if not success:
                     logging.warning("FileWatcherManager: Failed to start filesystem watcher")
+                    self.watcher = None  # Ensure watcher is None if start failed
             else:
                 # Log warning when watchdog is unavailable
                 import sys
@@ -596,6 +604,7 @@ class FileWatcherManager:
                     print("⚠️  FileWatcherManager: watchdog library not available", file=sys.stderr)
                     print("   File modification detection is DISABLED", file=sys.stderr)
                     print("   Only initial file scanning will work", file=sys.stderr)
+                self.watcher = None  # Ensure watcher is None if watchdog unavailable
 
             # Process offline changes immediately
             for change in offline_changes:
@@ -637,15 +646,11 @@ class FileWatcherManager:
                         logger.info("✅ Event processing batch completed")
                 
                 # Poll every 200ms - simple and responsive
-                try:
-                    await asyncio.wait_for(asyncio.sleep(0.2), timeout=0.2)
-                except asyncio.TimeoutError:
-                    pass
+                await asyncio.sleep(0.2)
                 
                 loop_count += 1
                 if loop_count % 150 == 0:  # Log every 30 seconds (150 * 0.2s)
-                    event_count = len(self.watcher.get_events()) if self.watcher else 0
-                    logger.info(f"🔄 Polling loop active - buffered events: {event_count}")
+                    logger.info("🔄 Polling loop active")
 
             except asyncio.CancelledError:
                 logger.info("🛑 Polling loop cancelled")
@@ -653,10 +658,7 @@ class FileWatcherManager:
             except Exception as e:
                 # Continue polling even if individual batches fail
                 logger.error(f"❌ Polling loop error: {e}")
-                try:
-                    await asyncio.wait_for(asyncio.sleep(1.0), timeout=1.0)
-                except (asyncio.TimeoutError, asyncio.CancelledError):
-                    break
+                await asyncio.sleep(1.0)
 
     async def cleanup(self):
         """Clean up resources and stop filesystem watching."""

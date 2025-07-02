@@ -34,7 +34,7 @@ if is_mcp_command():
     from pathlib import Path
 
     # Parse MCP arguments minimally
-    db_path = Path("chunkhound.db")
+    db_path = Path(".chunkhound.db")
     if "--db" in sys.argv:
         db_index = sys.argv.index("--db")
         if db_index + 1 < len(sys.argv):
@@ -108,7 +108,7 @@ def validate_args(args: argparse.Namespace) -> None:
         from .utils.config_helpers import args_to_config
         project_dir = Path(args.path) if hasattr(args, 'path') else Path.cwd()
         unified_config = args_to_config(args, project_dir)
-        db_path = Path(unified_config.database.path) if unified_config.database.path else Path("chunkhound.db")
+        db_path = Path(unified_config.database.path) if unified_config.database.path else Path(".chunkhound.db")
         
         if not ensure_database_directory(db_path):
             exit_on_validation_error("Cannot access database directory")
@@ -129,7 +129,7 @@ def validate_args(args: argparse.Namespace) -> None:
         from .utils.config_helpers import args_to_config
         project_dir = Path.cwd()  # MCP doesn't have a path argument
         unified_config = args_to_config(args, project_dir)
-        db_path = Path(unified_config.database.path) if unified_config.database.path else Path("chunkhound.db")
+        db_path = Path(unified_config.database.path) if unified_config.database.path else Path(".chunkhound.db")
         
         # Ensure database directory exists for MCP server
         if not ensure_database_directory(db_path):

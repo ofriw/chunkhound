@@ -1,5 +1,6 @@
 """Indexing coordinator service for ChunkHound - orchestrates indexing workflows."""
 
+import asyncio
 from fnmatch import fnmatch
 from pathlib import Path
 from typing import Any
@@ -42,6 +43,12 @@ class IndexingCoordinator(BaseService):
         
         # Chunk cache service for content-based comparison
         self._chunk_cache = ChunkCacheService()
+        
+        # File-level locking to prevent concurrent processing of the same file
+        # Using a regular dict to store lock references - locks will be created lazily
+        # within the event loop context to ensure proper event loop binding
+        self._file_locks: dict[str, asyncio.Lock] = {}
+        self._locks_lock = None  # Will be initialized when first needed
 
     def add_language_parser(self, language: Language, parser: LanguageParser) -> None:
         """Add or update a language parser.
@@ -67,9 +74,7 @@ class IndexingCoordinator(BaseService):
         if language not in self._parser_cache:
             if language in self._language_parsers:
                 parser = self._language_parsers[language]
-                # Ensure parser is initialized if setup method exists
-                if hasattr(parser, 'setup') and callable(getattr(parser, 'setup')):
-                    parser.setup()
+                # Parser setup() already called during registration - no need to call again
                 self._parser_cache[language] = parser
             else:
                 return None
@@ -88,6 +93,41 @@ class IndexingCoordinator(BaseService):
         language = Language.from_file_extension(file_path)
         return language if language != Language.UNKNOWN else None
 
+    async def _get_file_lock(self, file_path: Path) -> asyncio.Lock:
+        """Get or create a lock for the given file path.
+        
+        Creates locks lazily within the event loop context to ensure proper binding.
+        Uses a lock to protect the locks dictionary itself from concurrent access.
+        
+        Args:
+            file_path: Path to the file
+            
+        Returns:
+            AsyncIO lock for the file
+        """
+        # Initialize the locks lock if needed (first time, in event loop context)
+        if self._locks_lock is None:
+            self._locks_lock = asyncio.Lock()
+        
+        file_key = str(file_path.absolute())
+        
+        # Use the locks lock to ensure thread-safe access to the locks dictionary
+        async with self._locks_lock:
+            if file_key not in self._file_locks:
+                # Create the lock within the event loop context
+                self._file_locks[file_key] = asyncio.Lock()
+            return self._file_locks[file_key]
+    
+    def _cleanup_file_lock(self, file_path: Path) -> None:
+        """Remove lock for a file that no longer exists.
+        
+        Args:
+            file_path: Path to the file
+        """
+        file_key = str(file_path.absolute())
+        if file_key in self._file_locks:
+            del self._file_locks[file_key]
+            logger.debug(f"Cleaned up lock for deleted file: {file_key}")
 
     async def process_file(
         self, file_path: Path, skip_embeddings: bool = False
@@ -102,6 +142,21 @@ class IndexingCoordinator(BaseService):
             Dictionary with processing results including status, chunks, and embeddings
         """
 
+        # Acquire file-level lock to prevent concurrent processing
+        file_lock = await self._get_file_lock(file_path)
+        async with file_lock:
+            return await self._process_file_locked(file_path, skip_embeddings)
+    
+    async def _process_file_locked(self, file_path: Path, skip_embeddings: bool = False) -> dict[str, Any]:
+        """Process file with lock held - internal implementation.
+        
+        Args:
+            file_path: Path to the file to process
+            skip_embeddings: If True, skip embedding generation for batch processing
+            
+        Returns:
+            Dictionary with processing results
+        """
         try:
             # Validate file exists and is readable
             if not file_path.exists() or not file_path.is_file():
@@ -173,19 +228,20 @@ class IndexingCoordinator(BaseService):
                 # CRITICAL: Always clean up old chunks for existing files to prevent content deletion bug
                 # This ensures that stale chunks don't persist in the database when files are modified
                 
-                # Get existing chunks as models for comparison
-                existing_chunks = self._db.get_chunks_by_file_id(file_id, as_model=True)
-                
-                # ALWAYS process existing files with transaction safety, regardless of existing_chunks
-                # This fixes the content deletion bug where old chunks persist when existing_chunks is empty
-                logger.debug(f"Processing existing file with {len(existing_chunks)} existing chunks")
-                
                 # Convert new chunks to models for comparison
                 new_chunk_models = self._convert_to_chunk_models(file_id, chunks, language)
                 
                 # Wrap entire update in a transaction for atomicity
                 try:
                     self._db.begin_transaction()
+                    
+                    # CRITICAL FIX: Get existing chunks INSIDE transaction to prevent race condition
+                    # This ensures we see the latest state and prevents duplicate insertions
+                    existing_chunks = self._db.get_chunks_by_file_id(file_id, as_model=True)
+                    
+                    # ALWAYS process existing files with transaction safety, regardless of existing_chunks
+                    # This fixes the content deletion bug where old chunks persist when existing_chunks is empty
+                    logger.debug(f"Processing existing file with {len(existing_chunks)} existing chunks")
                     
                     if existing_chunks:
                         # Perform smart diff to identify what changed
@@ -260,10 +316,28 @@ class IndexingCoordinator(BaseService):
                         logger.error(f"Rollback failed: {rollback_error}")
                     raise
             else:
-                # New file, proceed with normal storage
+                # New file, wrap in transaction for consistency
                 chunk_models = self._convert_to_chunk_models(file_id, chunks, language)
                 chunks_dict = [chunk.to_dict() for chunk in chunk_models]
-                chunk_ids = self._store_chunks(file_id, chunks_dict, language)
+                
+                try:
+                    self._db.begin_transaction()
+                    
+                    # Store chunks inside transaction
+                    chunk_ids = self._store_chunks(file_id, chunks_dict, language)
+                    
+                    # Commit transaction
+                    self._db.commit_transaction()
+                    logger.debug("New file transaction committed successfully")
+                    
+                except Exception as e:
+                    # Rollback on any error
+                    logger.error(f"New file chunk storage failed, rolling back: {e}")
+                    try:
+                        self._db.rollback_transaction()
+                    except Exception as rollback_error:
+                        logger.error(f"Rollback failed: {rollback_error}")
+                    raise
                 
                 # All chunks need embeddings for new files
                 chunks_needing_embeddings = chunks_dict
@@ -661,6 +735,11 @@ class IndexingCoordinator(BaseService):
 
             # Delete the file completely (this will also delete chunks and embeddings)
             success = self._db.delete_file_completely(file_path)
+            
+            # Clean up the file lock since the file no longer exists
+            if success:
+                self._cleanup_file_lock(Path(file_path))
+            
             return chunk_count if success else 0
 
         except Exception as e:
@@ -955,6 +1034,8 @@ class IndexingCoordinator(BaseService):
                     for file_path in orphaned_files:
                         if self._db.delete_file_completely(file_path):
                             orphaned_count += 1
+                            # Clean up the file lock for orphaned file
+                            self._cleanup_file_lock(Path(file_path))
                         pbar.update(1)
 
                 logger.info(f"Cleaned up {orphaned_count} orphaned files from database")

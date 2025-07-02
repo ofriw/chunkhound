@@ -78,7 +78,7 @@ def add_database_argument(parser: argparse.ArgumentParser, required: bool = Fals
         type=Path,
         default=None,
         required=required,
-        help="Database file path (default: from config file or chunkhound.db)",
+        help="Database file path (default: from config file or .chunkhound.db)",
     )
 
 

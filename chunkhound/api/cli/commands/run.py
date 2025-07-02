@@ -2,6 +2,7 @@
 
 import argparse
 import asyncio
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -43,20 +44,20 @@ async def run_command(args: argparse.Namespace) -> None:
     # Initialize output formatter
     formatter = OutputFormatter(verbose=args.verbose)
 
-    # Load unified configuration first to get correct database path
+    # Load unified configuration first
     project_dir = Path(args.path) if hasattr(args, 'path') else Path.cwd()
     unified_config = args_to_config(args, project_dir)
     
-    # Debug logging
-    from loguru import logger
-    logger.debug(f"Unified config database path: {repr(unified_config.database.path)}")
-    logger.debug(f"Database path type: {type(unified_config.database.path)}")
-    
-    if unified_config.database.path is None:
-        logger.error("Database path is None from unified config!")
-        db_path = Path("chunkhound.db")  # Fallback
+    # Use consistent database path resolution between MCP and CLI
+    # Prefer environment variable, then explicit CLI arg, then project-aware default
+    if env_db_path := os.environ.get("CHUNKHOUND_DB_PATH"):
+        db_path = Path(env_db_path)
+    elif hasattr(args, 'db') and args.db is not None:
+        db_path = Path(args.db)
     else:
-        db_path = Path(unified_config.database.path)
+        # Use project-aware database path like MCP server
+        from chunkhound.utils.project_detection import get_project_database_path
+        db_path = get_project_database_path()
 
     # Display startup information
     formatter.info(f"Starting ChunkHound v{__version__}")
@@ -228,8 +229,9 @@ def _setup_file_patterns_from_config(config: Any, args: argparse.Namespace) -> t
         patterns.extend(["Makefile", "makefile", "GNUmakefile", "gnumakefile"])
         include_patterns = patterns
 
-    # Use configuration exclude patterns, fallback to CLI args, then defaults
-    exclude_patterns = list(config.indexing.exclude_patterns)
+    # Use effective exclude patterns that include .gitignore patterns
+    project_dir = Path(args.path) if hasattr(args, 'path') else Path.cwd()
+    exclude_patterns = config.indexing.get_effective_exclude_patterns(project_dir)
     if hasattr(args, 'exclude') and args.exclude:
         exclude_patterns.extend(args.exclude)
 

@@ -84,7 +84,7 @@ def _build_mcp_registry_config(config: ChunkHoundConfig, db_path: Path) -> dict[
     registry_config = {
         'database': {
             'path': str(db_path),
-            'type': 'duckdb',
+            'type': config.database.provider,
             'batch_size': config.indexing.db_batch_size,
         },
         'embedding': {
@@ -151,21 +151,20 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
         # Log environment diagnostics for API key debugging
         log_environment_diagnostics()
 
-        # Initialize database path
-        db_path = Path(os.environ.get("CHUNKHOUND_DB_PATH", "chunkhound.db"))
-        db_path.parent.mkdir(parents=True, exist_ok=True)
+        # Import project detection utilities
+        try:
+            from .utils.project_detection import get_project_database_path, find_project_root
+        except ImportError:
+            from chunkhound.utils.project_detection import get_project_database_path, find_project_root
 
+        # Find project root first
+        project_root = find_project_root()
         if "CHUNKHOUND_DEBUG" in os.environ:
-            print(f"Server lifespan: Using database at {db_path}", file=sys.stderr)
-
-        # Initialize embedding configuration BEFORE database creation
-        _embedding_manager = EmbeddingManager()
-        if "CHUNKHOUND_DEBUG" in os.environ:
-            print("Server lifespan: Embedding manager initialized", file=sys.stderr)
+            print(f"Server lifespan: Detected project root: {project_root}", file=sys.stderr)
 
         # Load unified configuration FIRST - this is critical for proper initialization
         try:
-            unified_config = ChunkHoundConfig.load_hierarchical()
+            unified_config = ChunkHoundConfig.load_hierarchical(project_dir=project_root)
             
             # Validate configuration for MCP
             missing_config = unified_config.get_missing_config()
@@ -176,6 +175,24 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
                 print(f"Server lifespan: Failed to load unified config, using defaults: {e}", file=sys.stderr)
             # Use default config if loading fails
             unified_config = ChunkHoundConfig()
+
+        # Use consistent database path resolution between MCP and CLI
+        # Prefer environment variable, then project-aware default
+        if env_db_path := os.environ.get("CHUNKHOUND_DB_PATH"):
+            db_path = Path(env_db_path)
+        else:
+            # Use project-aware database path
+            db_path = get_project_database_path()
+        
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+
+        if "CHUNKHOUND_DEBUG" in os.environ:
+            print(f"Server lifespan: Using database at {db_path}", file=sys.stderr)
+
+        # Initialize embedding configuration BEFORE database creation
+        _embedding_manager = EmbeddingManager()
+        if "CHUNKHOUND_DEBUG" in os.environ:
+            print("Server lifespan: Embedding manager initialized", file=sys.stderr)
 
         # CRITICAL: Configure registry BEFORE database creation to ensure provider initialization
         # uses the correct configuration. This must happen even if embedding setup fails.

@@ -1,5 +1,6 @@
 """DuckDB provider implementation for ChunkHound - concrete database provider using DuckDB."""
 
+import contextvars
 import importlib
 import os
 import time
@@ -28,6 +29,9 @@ if TYPE_CHECKING:
     from services.indexing_coordinator import IndexingCoordinator
     from services.search_service import SearchService
 
+# Task-local transaction state to ensure proper isolation in async contexts
+_transaction_context = contextvars.ContextVar('transaction_active', default=False)
+
 
 class DuckDBProvider:
     """DuckDB implementation of DatabaseProvider protocol."""
@@ -44,7 +48,6 @@ class DuckDBProvider:
         self.embedding_manager = embedding_manager
         self.config = config
         self.provider_type = 'duckdb'  # Identify this as DuckDB provider
-        self._in_transaction = False  # Track transaction state for atomicity
 
         # Initialize connection manager
         self._connection_manager = DuckDBConnectionManager(db_path, config)
@@ -81,7 +84,8 @@ class DuckDBProvider:
         During transactions, always uses main connection for atomicity.
         """
         # Always use main connection during transactions for atomicity
-        if self._in_transaction:
+        # Use task-local context variable to check transaction state
+        if _transaction_context.get():
             return self._connection_manager.connection
         # Use thread-safe connection in MCP mode
         if os.environ.get("CHUNKHOUND_MCP_MODE") and hasattr(self._connection_manager, 'get_thread_safe_connection'):
@@ -870,7 +874,10 @@ class DuckDBProvider:
         if self.connection is None:
             raise RuntimeError("No database connection")
 
-        self._in_transaction = True
+        # Set task-local transaction state
+        _transaction_context.set(True)
+        # Notify connection manager about transaction start
+        self._connection_manager.begin_transaction()
         # Use main connection for transaction atomicity
         self._connection_manager.connection.execute("BEGIN TRANSACTION")
 
@@ -883,16 +890,21 @@ class DuckDBProvider:
             # Use main connection for transaction atomicity
             self._connection_manager.connection.execute("COMMIT")
             
+            # Notify connection manager about transaction commit
+            # This will handle any deferred checkpoints
+            self._connection_manager.commit_transaction()
+            
             if force_checkpoint:
                 try:
                     self._connection_manager.connection.execute("CHECKPOINT")
                     if not os.environ.get("CHUNKHOUND_MCP_MODE"):
-                        logger.debug("Transaction committed with checkpoint")
+                        logger.debug("Transaction committed with explicit checkpoint")
                 except Exception as e:
                     if not os.environ.get("CHUNKHOUND_MCP_MODE"):
-                        logger.warning(f"Post-commit checkpoint failed: {e}")
+                        logger.warning(f"Post-commit explicit checkpoint failed: {e}")
         finally:
-            self._in_transaction = False
+            # Clear task-local transaction state
+            _transaction_context.set(False)
 
     def rollback_transaction(self) -> None:
         """Rollback the current transaction."""
@@ -902,8 +914,11 @@ class DuckDBProvider:
         try:
             # Use main connection for transaction atomicity
             self._connection_manager.connection.execute("ROLLBACK")
+            # Notify connection manager about rollback
+            self._connection_manager.rollback_transaction()
         finally:
-            self._in_transaction = False
+            # Clear task-local transaction state
+            _transaction_context.set(False)
 
     async def process_file(self, file_path: Path, skip_embeddings: bool = False) -> dict[str, Any]:
         """Process a file end-to-end: parse, chunk, and store in database.

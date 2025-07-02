@@ -11,11 +11,12 @@ from typing import Any
 # See: https://duckdb.org/docs/stable/clients/python/known_issues.html
 try:
     import numpy
+
     # CRITICAL: Import numpy.core.multiarray specifically for threading safety
     # DuckDB docs: "If this module has not been imported from the main thread,
     # and a different thread during execution attempts to import it this causes
     # either a deadlock or a crash"
-    import numpy.core.multiarray
+    import numpy.core.multiarray  # noqa: F401
 except ImportError:
     # NumPy not available - VSS extension may not work properly
     pass
@@ -26,10 +27,10 @@ from loguru import logger
 
 class DuckDBConnectionManager:
     """Manages DuckDB connections, schema creation, and database operations."""
-    
-    def __init__(self, db_path: Path | str, config: "DatabaseConfig | None" = None):
+
+    def __init__(self, db_path: Path | str, config: Any | None = None):
         """Initialize DuckDB connection manager.
-        
+
         Args:
             db_path: Path to DuckDB database file or ":memory:" for in-memory database
             config: Database configuration for provider-specific settings
@@ -37,12 +38,16 @@ class DuckDBConnectionManager:
         self._db_path = db_path
         self.connection: Any | None = None
         self.config = config
-        
+
         # Enhanced checkpoint tracking
         self._operations_since_checkpoint = 0
         self._checkpoint_threshold = 100  # Checkpoint every N operations
         self._last_checkpoint_time = time.time()
-        
+
+        # Transaction tracking for checkpoint safety
+        self._in_transaction = False
+        self._deferred_checkpoint = False
+
         # CRITICAL: Thread-safe connection pool for async/threading environments
         # DuckDB connections are not thread-safe and must be isolated per task/thread
         # See: https://github.com/duckdb/duckdb/issues/2959
@@ -63,37 +68,40 @@ class DuckDBConnectionManager:
 
     def get_thread_safe_connection(self) -> Any:
         """Get thread-safe DuckDB connection for current thread.
-        
+
         This method ensures each thread gets its own DuckDB connection cursor
         to prevent segfaults from concurrent access. Required for MCP server
         async operations.
-        
+
         Returns:
             Thread-local DuckDB connection cursor
         """
         import threading
         current_thread_id = threading.get_ident()
-        
+
         with self._connection_lock:
             # Use main connection for main thread
             if current_thread_id == self._main_thread_id:
                 if self.connection is None:
                     raise RuntimeError("Main connection not established")
                 return self.connection
-            
+
             # Create thread-local cursor for other threads
             if current_thread_id not in self._thread_connections:
                 if self.connection is None:
                     raise RuntimeError("Main connection not established")
-                
+
                 # Create cursor from main connection for thread safety
                 # Each cursor is thread-local and isolated
                 cursor = self.connection.cursor()
                 self._thread_connections[current_thread_id] = cursor
-                
+
                 if not os.environ.get("CHUNKHOUND_MCP_MODE"):
-                    logger.debug(f"Created thread-local DuckDB cursor for thread {current_thread_id}")
-            
+                    logger.debug(
+                        f"Created thread-local DuckDB cursor for thread "
+                        f"{current_thread_id}"
+                    )
+
             return self._thread_connections[current_thread_id]
 
     def connect(self) -> None:
@@ -120,7 +128,7 @@ class DuckDBConnectionManager:
                 # Normal connection path for CLI
                 self._preemptive_wal_cleanup()
                 self._connect_with_wal_validation()
-            
+
             logger.info("DuckDB connection established")
 
             # Load required extensions
@@ -160,7 +168,9 @@ class DuckDBConnectionManager:
                     self.connection = duckdb.connect(str(self.db_path))
                     logger.info("DuckDB connection successful after WAL cleanup")
                 except Exception as retry_error:
-                    logger.error(f"Connection failed even after WAL cleanup: {retry_error}")
+                    logger.error(
+                        f"Connection failed even after WAL cleanup: {retry_error}"
+                    )
                     raise
             else:
                 # Not a WAL corruption error, re-raise original exception
@@ -168,21 +178,21 @@ class DuckDBConnectionManager:
 
     def _connect_with_mcp_safety(self) -> None:
         """Connect to DuckDB with MCP-specific safety measures for async environments.
-        
+
         This method addresses threading issues that cause segfaults in the MCP server
         by ensuring single-threaded database access during critical initialization.
         """
         try:
             # Clean up any existing WAL files that might cause issues
             self._preemptive_wal_cleanup()
-            
+
             # Connect with explicit thread safety for MCP async environment
             self.connection = duckdb.connect(str(self.db_path))
-            
+
             # CRITICAL: Set DuckDB to single-threaded mode immediately after connection
             # This prevents concurrent operations that cause string corruption segfaults
             self.connection.execute("SET threads = 1")
-            
+
             logger.debug("DuckDB connection established with MCP thread safety")
 
         except duckdb.Error as e:
@@ -197,9 +207,13 @@ class DuckDBConnectionManager:
                 try:
                     self.connection = duckdb.connect(str(self.db_path))
                     self.connection.execute("SET threads = 1")
-                    logger.info("DuckDB connection successful after WAL cleanup in MCP mode")
+                    logger.info(
+                        "DuckDB connection successful after WAL cleanup in MCP mode"
+                    )
                 except Exception as retry_error:
-                    logger.error(f"MCP connection failed even after WAL cleanup: {retry_error}")
+                    logger.error(
+                        f"MCP connection failed even after WAL cleanup: {retry_error}"
+                    )
                     raise
             else:
                 # Not a WAL corruption error, re-raise original exception
@@ -222,29 +236,33 @@ class DuckDBConnectionManager:
 
     def _preemptive_wal_cleanup(self) -> None:
         """Proactively check for and clean up potentially corrupted WAL files.
-        
-        This prevents segfaults that occur when DuckDB tries to replay corrupted WAL files
-        during connection, which can happen before proper error handling kicks in.
+
+        This prevents segfaults that occur when DuckDB tries to replay corrupted
+        WAL files during connection, which can happen before proper error handling
+        kicks in.
         """
         if str(self.db_path) == ":memory:":
             return  # No WAL files for in-memory databases
-            
+
         db_path = Path(self.db_path)
         wal_file = db_path.with_suffix(db_path.suffix + '.wal')
-        
+
         if not wal_file.exists():
             return  # No WAL file, nothing to clean up
-            
+
         # Check WAL file age - if it's older than 24 hours, it's likely stale
         try:
             wal_age = time.time() - wal_file.stat().st_mtime
             if wal_age > 86400:  # 24 hours
-                logger.warning(f"Found stale WAL file (age: {wal_age/3600:.1f}h), removing preemptively")
+                logger.warning(
+                    f"Found stale WAL file (age: {wal_age/3600:.1f}h), "
+                    "removing preemptively"
+                )
                 self._handle_wal_corruption()
                 return
         except OSError:
             pass
-            
+
         # Try a quick validation by attempting to open the database
         # If it crashes or fails, clean up the WAL using existing logic
         try:
@@ -258,12 +276,14 @@ class DuckDBConnectionManager:
             self._handle_wal_corruption()
 
     def _handle_wal_corruption(self) -> None:
-        """Handle WAL corruption using advanced recovery with VSS extension preloading."""
+        """Handle WAL corruption using advanced recovery with VSS extension."""
         db_path = Path(self.db_path)
         wal_file = db_path.with_suffix(db_path.suffix + '.wal')
 
         if not wal_file.exists():
-            logger.warning(f"WAL corruption detected but no WAL file found at: {wal_file}")
+            logger.warning(
+                f"WAL corruption detected but no WAL file found at: {wal_file}"
+            )
             return
 
         # Get WAL file size for logging
@@ -272,88 +292,105 @@ class DuckDBConnectionManager:
 
         # First attempt: Try recovery with VSS extension preloaded
         logger.info("Attempting WAL recovery with VSS extension preloaded...")
-        
+
         try:
             # Create a temporary recovery connection
             recovery_conn = duckdb.connect(":memory:")
-            
+
             # Load VSS extension first
             recovery_conn.execute("INSTALL vss")
             recovery_conn.execute("LOAD vss")
-            
+
             # Enable experimental persistence for HNSW indexes
             recovery_conn.execute("SET hnsw_enable_experimental_persistence = true")
-            
-            # Now attach the database file - this will trigger WAL replay with extension loaded
+
+            # Now attach the database file - this will trigger WAL replay
+            # with extension loaded
             recovery_conn.execute(f"ATTACH '{db_path}' AS recovery_db")
-            
+
             # Verify tables are accessible
             recovery_conn.execute("SELECT COUNT(*) FROM recovery_db.files").fetchone()
-            
+
             # Force a checkpoint to ensure WAL is integrated
             recovery_conn.execute("CHECKPOINT recovery_db")
-            
+
             # Detach and close
             recovery_conn.execute("DETACH recovery_db")
             recovery_conn.close()
-            
+
             logger.info("WAL recovery successful with VSS extension preloaded")
             return
-            
+
         except Exception as recovery_error:
             logger.warning(f"Recovery with VSS preloading failed: {recovery_error}")
-            
+
             # Second attempt: Conservative recovery - remove WAL but create backup first
             try:
                 # Create backup of WAL file before removal
                 backup_path = wal_file.with_suffix('.wal.corrupt')
                 shutil.copy2(wal_file, backup_path)
                 logger.info(f"Created WAL backup at: {backup_path}")
-                
+
                 # Remove corrupted WAL file
                 os.remove(wal_file)
-                logger.warning(f"Removed corrupted WAL file: {wal_file} (backup saved)")
-                
+                logger.warning(
+                    f"Removed corrupted WAL file: {wal_file} (backup saved)"
+                )
+
             except Exception as e:
-                logger.error(f"Failed to handle corrupted WAL file {wal_file}: {e}")
+                logger.error(
+                    f"Failed to handle corrupted WAL file {wal_file}: {e}"
+                )
                 raise
 
     def _maybe_checkpoint(self, force: bool = False) -> None:
         """Perform checkpoint if needed based on operations count or time elapsed.
-        
+
         Args:
             force: Force checkpoint regardless of thresholds
         """
         if self.connection is None:
             return
-            
+
+        # Defer checkpoint if we're in a transaction
+        if self._in_transaction:
+            self._deferred_checkpoint = True
+            if not os.environ.get("CHUNKHOUND_MCP_MODE"):
+                logger.debug("Deferring checkpoint until transaction completes")
+            return
+
         current_time = time.time()
         time_since_checkpoint = current_time - self._last_checkpoint_time
-        
+
         # Checkpoint if forced, operations threshold reached, or 5 minutes elapsed
         should_checkpoint = (
-            force or 
+            force or
             self._operations_since_checkpoint >= self._checkpoint_threshold or
             time_since_checkpoint >= 300  # 5 minutes
         )
-        
+
         if should_checkpoint:
             try:
                 self.connection.execute("CHECKPOINT")
                 self._operations_since_checkpoint = 0
                 self._last_checkpoint_time = current_time
                 if not os.environ.get("CHUNKHOUND_MCP_MODE"):
-                    logger.debug(f"Checkpoint completed (operations: {self._operations_since_checkpoint}, time: {time_since_checkpoint:.1f}s)")
+                    logger.debug(
+                        f"Checkpoint completed (operations: "
+                        f"{self._operations_since_checkpoint}, "
+                        f"time: {time_since_checkpoint:.1f}s)"
+                    )
             except Exception as e:
                 if not os.environ.get("CHUNKHOUND_MCP_MODE"):
                     logger.warning(f"Checkpoint failed: {e}")
 
     def disconnect(self, skip_checkpoint: bool = False) -> None:
         """Close database connection with optional checkpointing.
-        
+
         Args:
-            skip_checkpoint: If True, skip the checkpoint operation (useful when checkpoint 
-                           was already done recently to avoid checkpoint conflicts)
+            skip_checkpoint: If True, skip the checkpoint operation (useful when
+                           checkpoint was already done recently to avoid
+                           checkpoint conflicts)
         """
         if self.connection is not None:
             try:
@@ -365,7 +402,9 @@ class DuckDBConnectionManager:
                         logger.debug("Database checkpoint completed before disconnect")
                 else:
                     if not os.environ.get("CHUNKHOUND_MCP_MODE"):
-                        logger.debug("Skipping checkpoint before disconnect (already done)")
+                        logger.debug(
+                            "Skipping checkpoint before disconnect (already done)"
+                        )
             except Exception as e:
                 # Only log errors in non-MCP mode
                 if not os.environ.get("CHUNKHOUND_MCP_MODE"):
@@ -471,16 +510,22 @@ class DuckDBConnectionManager:
                     USING HNSW (embedding)
                     WITH (metric = 'cosine')
                 """)
-                logger.info("HNSW index for 1536-dimensional embeddings created successfully")
+                logger.info(
+                    "HNSW index for 1536-dimensional embeddings created successfully"
+                )
             except Exception as e:
-                logger.warning(f"Failed to create HNSW index for 1536-dimensional embeddings: {e}")
+                logger.warning(
+                    f"Failed to create HNSW index for 1536-dimensional embeddings: {e}"
+                )
 
             # Note: Additional dimension tables (4096, etc.) will be created on-demand
-            
+
             # Handle schema migrations for existing databases
             self._migrate_schema()
-            
-            logger.info("DuckDB schema created successfully with multi-dimension support")
+
+            logger.info(
+                "DuckDB schema created successfully with multi-dimension support"
+            )
 
         except Exception as e:
             logger.error(f"Failed to create DuckDB schema: {e}")
@@ -490,11 +535,11 @@ class DuckDBConnectionManager:
         """Handle schema migrations for existing databases."""
         if self.connection is None:
             raise RuntimeError("No database connection")
-        
+
         try:
             # Future schema migrations would go here
             pass
-        
+
         except Exception as e:
             logger.warning(f"Failed to migrate schema: {e}")
 
@@ -507,16 +552,28 @@ class DuckDBConnectionManager:
 
         try:
             # File indexes
-            self.connection.execute("CREATE INDEX IF NOT EXISTS idx_files_path ON files(path)")
-            self.connection.execute("CREATE INDEX IF NOT EXISTS idx_files_language ON files(language)")
+            self.connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_files_path ON files(path)"
+            )
+            self.connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_files_language ON files(language)"
+            )
 
             # Chunk indexes
-            self.connection.execute("CREATE INDEX IF NOT EXISTS idx_chunks_file_id ON chunks(file_id)")
-            self.connection.execute("CREATE INDEX IF NOT EXISTS idx_chunks_type ON chunks(chunk_type)")
-            self.connection.execute("CREATE INDEX IF NOT EXISTS idx_chunks_symbol ON chunks(symbol)")
+            self.connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_chunks_file_id ON chunks(file_id)"
+            )
+            self.connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_chunks_type ON chunks(chunk_type)"
+            )
+            self.connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_chunks_symbol ON chunks(symbol)"
+            )
 
-            # Embedding indexes are created per-table in _ensure_embedding_table_exists()
-            # No need for global embedding indexes since we use dimension-specific tables
+            # Embedding indexes are created per-table in
+            # _ensure_embedding_table_exists()
+            # No need for global embedding indexes since we use
+            # dimension-specific tables
 
             logger.info("DuckDB indexes created successfully")
 
@@ -533,7 +590,9 @@ class DuckDBConnectionManager:
         if not self._table_exists("embeddings"):
             return
 
-        logger.info("Found legacy embeddings table, migrating to dimension-specific tables...")
+        logger.info(
+            "Found legacy embeddings table, migrating to dimension-specific tables..."
+        )
 
         try:
             # Get all embeddings with their dimensions
@@ -564,13 +623,17 @@ class DuckDBConnectionManager:
                 for emb in emb_list:
                     vector_str = str(emb[4])  # embedding column
                     self.connection.execute(f"""
-                        INSERT INTO {table_name} (chunk_id, provider, model, embedding, dims, created_at)
+                        INSERT INTO {table_name} 
+                        (chunk_id, provider, model, embedding, dims, created_at)
                         VALUES (?, ?, ?, {vector_str}, ?, ?)
                     """, [emb[1], emb[2], emb[3], emb[5], emb[6]])
 
             # Drop legacy table
             self.connection.execute("DROP TABLE embeddings")
-            logger.info(f"Successfully migrated embeddings to {len(by_dims)} dimension-specific tables")
+            logger.info(
+                f"Successfully migrated embeddings to {len(by_dims)} "
+                "dimension-specific tables"
+            )
 
         except Exception as e:
             logger.error(f"Failed to migrate legacy embeddings table: {e}")
@@ -640,7 +703,9 @@ class DuckDBConnectionManager:
             "db_path": str(self.db_path),
             "connected": self.is_connected,
             "memory_database": str(self.db_path) == ":memory:",
-            "connection_type": type(self.connection).__name__ if self.connection else None
+            "connection_type": (
+                type(self.connection).__name__ if self.connection else None
+            )
         }
 
     def _table_exists(self, table_name: str) -> bool:
@@ -693,10 +758,19 @@ class DuckDBConnectionManager:
             """)
 
             # Create regular indexes for fast lookups
-            self.connection.execute(f"CREATE INDEX IF NOT EXISTS idx_{dims}_chunk_id ON {table_name}(chunk_id)")
-            self.connection.execute(f"CREATE INDEX IF NOT EXISTS idx_{dims}_provider_model ON {table_name}(provider, model)")
+            self.connection.execute(
+                f"CREATE INDEX IF NOT EXISTS idx_{dims}_chunk_id "
+                f"ON {table_name}(chunk_id)"
+            )
+            self.connection.execute(
+                f"CREATE INDEX IF NOT EXISTS idx_{dims}_provider_model "
+                f"ON {table_name}(provider, model)"
+            )
 
-            logger.info(f"Created {table_name} with HNSW index {hnsw_index_name} and regular indexes")
+            logger.info(
+                f"Created {table_name} with HNSW index {hnsw_index_name} "
+                "and regular indexes"
+            )
             return table_name
 
         except Exception as e:
@@ -714,3 +788,26 @@ class DuckDBConnectionManager:
         """).fetchall()
 
         return [table[0] for table in tables]
+
+    def begin_transaction(self) -> None:
+        """Mark beginning of a transaction."""
+        self._in_transaction = True
+        if not os.environ.get("CHUNKHOUND_MCP_MODE"):
+            logger.debug("Transaction started, checkpoints deferred")
+
+    def commit_transaction(self) -> None:
+        """Mark end of a transaction and execute deferred checkpoint if needed."""
+        self._in_transaction = False
+        if self._deferred_checkpoint:
+            if not os.environ.get("CHUNKHOUND_MCP_MODE"):
+                logger.debug("Executing deferred checkpoint after transaction commit")
+            self._maybe_checkpoint(force=True)
+            self._deferred_checkpoint = False
+
+    def rollback_transaction(self) -> None:
+        """Mark transaction rollback."""
+        self._in_transaction = False
+        self._deferred_checkpoint = False  # Clear deferred checkpoint on rollback
+        if not os.environ.get("CHUNKHOUND_MCP_MODE"):
+            logger.debug("Transaction rolled back, deferred checkpoint cleared")
+
