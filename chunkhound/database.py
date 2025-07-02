@@ -24,6 +24,13 @@ from chunkhound.core.config.unified_config import DatabaseConfig
 # Core imports
 from core.types.common import Language
 
+# Service imports for type hints only
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from services.embedding_service import EmbeddingService
+    from services.indexing_coordinator import IndexingCoordinator
+    from services.search_service import SearchService
+
 # Provider imports
 # Registry import for service layer
 from registry import (
@@ -51,7 +58,11 @@ class Database:
         self,
         db_path: Path | str,
         embedding_manager: EmbeddingManager | None = None,
-        config: DatabaseConfig | None = None
+        config: DatabaseConfig | None = None,
+        indexing_coordinator: "IndexingCoordinator | None" = None,
+        search_service: "SearchService | None" = None,
+        embedding_service: "EmbeddingService | None" = None,
+        provider: Any | None = None
     ):
         """Initialize database connection and service layer.
 
@@ -59,53 +70,61 @@ class Database:
             db_path: Path to database file or ":memory:" for in-memory database
             embedding_manager: Optional embedding manager for vector generation
             config: Optional database configuration (auto-detected if not provided)
+            indexing_coordinator: Pre-configured IndexingCoordinator (recommended)
+            search_service: Pre-configured SearchService (recommended)
+            embedding_service: Pre-configured EmbeddingService (recommended)
+            provider: Pre-configured database provider (recommended)
         """
         self._db_path = db_path
         self.embedding_manager = embedding_manager
 
-        # Auto-detect configuration if not provided
-        if config is None:
-            from chunkhound.core.config.unified_config import ChunkHoundConfig
-            try:
-                unified_config = ChunkHoundConfig.load_hierarchical()
-                config = unified_config.database
-            except Exception:
-                # Fallback to default configuration
-                config = DatabaseConfig()
-
         # Connection synchronization lock
         self._connection_lock = threading.RLock()
 
-        # Check if registry is already configured with a database provider
-        registry = get_registry()
-        try:
-            existing_provider = registry.get_provider("database")
-            # Registry already has a database provider, use it instead of
-            # creating new one
-            self._provider = existing_provider
+        # Use injected dependencies if provided (preferred path)
+        if (indexing_coordinator and search_service and embedding_service and provider):
+            self._indexing_coordinator = indexing_coordinator
+            self._search_service = search_service
+            self._embedding_service = embedding_service
+            self._provider = provider
+        else:
+            # Legacy path: Auto-configure (deprecated, use create_database_with_dependencies)
+            logger.warning("Using legacy Database initialization - consider using create_database_with_dependencies()")
+            
+            # Auto-detect configuration if not provided
+            if config is None:
+                from chunkhound.core.config.unified_config import ChunkHoundConfig
+                try:
+                    unified_config = ChunkHoundConfig.load_hierarchical()
+                    config = unified_config.database
+                except Exception:
+                    # Fallback to default configuration
+                    config = DatabaseConfig()
 
-            # Use existing services from registry
-            self._indexing_coordinator = create_indexing_coordinator()
-            self._search_service = create_search_service()
-            self._embedding_service = create_embedding_service()
-        except ValueError:
-            # No database provider registered yet, create and configure it
+            # Check if registry is already configured with a database provider
+            registry = get_registry()
+            try:
+                existing_provider = registry.get_provider("database")
+                self._provider = existing_provider
+                self._indexing_coordinator = create_indexing_coordinator()
+                self._search_service = create_search_service()
+                self._embedding_service = create_embedding_service()
+            except ValueError:
+                # Initialize service layer via registry using factory
+                from chunkhound.providers.database_factory import DatabaseProviderFactory
+                self._provider = DatabaseProviderFactory.create_provider(
+                    config, embedding_manager
+                )
 
-            # Initialize service layer via registry using factory
-            from chunkhound.providers.database_factory import DatabaseProviderFactory
-            self._provider = DatabaseProviderFactory.create_provider(
-                config, embedding_manager
-            )
+                # Register the new provider
+                registry.register_provider(
+                    "database", lambda: self._provider, singleton=True
+                )
 
-            # Register the new provider
-            registry.register_provider(
-                "database", lambda: self._provider, singleton=True
-            )
-
-            # Create services via registry (includes language parser setup)
-            self._indexing_coordinator = create_indexing_coordinator()
-            self._search_service = create_search_service()
-            self._embedding_service = create_embedding_service()
+                # Create services via registry (includes language parser setup)
+                self._indexing_coordinator = create_indexing_coordinator()
+                self._search_service = create_search_service()
+                self._embedding_service = create_embedding_service()
 
         # Legacy compatibility: expose provider connection as self.connection
         self.connection = None  # Will be set after connect()
