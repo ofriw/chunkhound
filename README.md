@@ -55,6 +55,22 @@ uv run chunkhound index --db /path/to/my-chunks.db
 uv run chunkhound mcp --db /path/to/my-chunks.db
 ```
 
+## Usage Modes
+
+ChunkHound works in two modes depending on your setup:
+
+**🔍 Regex Search Only** (no API key needed):
+- Works immediately after installation
+- Search with exact patterns: `class.*Error`, `async def.*`
+- Perfect for code structure analysis and precise matching
+
+**🧠 Semantic + Regex Search** (requires embedding provider):
+- Natural language queries: "find database connection code"
+- Uses OpenAI API, or local servers like Ollama/LocalAI
+- Includes all regex functionality plus AI-powered search
+
+**Choose your preferred setup below** ⬇️
+
 ## AI Assistant Setup
 
 ChunkHound integrates with all major AI development tools. Choose your setup method:
@@ -319,11 +335,14 @@ Use this method only if you encounter Python/uv installation issues. First, inst
 
 ## What You Get
 
-- **Semantic search** - "Find database connection code"
-- **Regex search** - Find exact patterns like `async def.*error`
-- **Code context** - AI assistants understand your codebase structure
+**Always Available:**
+- **Regex search** - Find exact patterns like `async def.*error` (no API key needed)
+- **Code context** - AI assistants understand your codebase structure  
 - **Multi-language** - Python, TypeScript, Java, C#, JavaScript, Groovy, Kotlin, Go, Rust, C, C++, Matlab, Bash, Makefile, Markdown, JSON, YAML, TOML
 - **Pagination** - Efficiently handle large result sets with smart pagination controls
+
+**With Embedding Provider:**
+- **Semantic search** - "Find database connection code" (requires OpenAI API or local server)
 
 ## Search Pagination
 
@@ -398,17 +417,28 @@ By default, ChunkHound creates `chunkhound.db` in your current directory. You ca
 
 ### Embedding Providers
 
-ChunkHound supports multiple embedding providers:
+ChunkHound supports multiple embedding providers for semantic search:
 
-**OpenAI (default)**:
+**OpenAI (requires API key)**:
 ```bash
 export OPENAI_API_KEY="sk-your-key-here"
 uv run chunkhound index --provider openai --model text-embedding-3-small
 ```
 
-**OpenAI-compatible servers** (Ollama, LocalAI, etc.):
+**Local embedding servers (no API key required)**:
+
+**Ollama**:
 ```bash
+# First, start Ollama with an embedding model
+ollama pull nomic-embed-text
+
+# Then use ChunkHound with Ollama
 uv run chunkhound index --provider openai-compatible --base-url http://localhost:11434 --model nomic-embed-text
+```
+
+**LocalAI, LM Studio, or other OpenAI-compatible servers**:
+```bash
+uv run chunkhound index --provider openai-compatible --base-url http://localhost:1234 --model your-embedding-model
 ```
 
 **Text Embeddings Inference (TEI)**:
@@ -416,19 +446,26 @@ uv run chunkhound index --provider openai-compatible --base-url http://localhost
 uv run chunkhound index --provider tei --base-url http://localhost:8080
 ```
 
+**Regex-only mode (no embeddings)**:
+```bash
+# Skip embedding setup entirely - only regex search will be available
+uv run chunkhound index --no-embeddings
+```
+
 ### Environment Variables
 ```bash
-# Required for semantic search (OpenAI)
+# For OpenAI semantic search only
 export OPENAI_API_KEY="sk-your-key-here"
+
+# For local embedding servers (Ollama, LocalAI, etc.)
+export CHUNKHOUND_EMBEDDING_PROVIDER="openai-compatible"
+export CHUNKHOUND_EMBEDDING_BASE_URL="http://localhost:11434"  # Ollama default
+export CHUNKHOUND_EMBEDDING_MODEL="nomic-embed-text"
 
 # Optional: Database location
 export CHUNKHOUND_DB_PATH="/path/to/chunkhound.db"
 
-# Optional: Custom embedding model
-export CHUNKHOUND_EMBEDDING_MODEL="text-embedding-3-small"
-
-# Optional: Custom base URL for compatible providers
-export CHUNKHOUND_BASE_URL="http://localhost:11434"
+# Note: No environment variables needed for regex-only usage
 ```
 
 ## Security
@@ -445,7 +482,9 @@ Your code never leaves your environment unless you explicitly configure external
 ## Requirements
 
 - **Python**: 3.10+
-- **OpenAI API key**: Required for semantic search (regex works without)
+- **API Key**: Only required for semantic search - **regex search works without any API key**
+  - **OpenAI API key**: For OpenAI semantic search
+  - **No API key needed**: For local embedding servers (Ollama, LocalAI, TEI) or regex-only usage
 
 ## How Indexing Works
 
