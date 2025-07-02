@@ -86,3 +86,30 @@ This eliminates "_get_connection called - should use executor methods" warnings 
   - Fixed placeholder count in INSERT (L1011)
   - Updated INSERT column list (L1016-1017)
 - Now works for both initial indexing and re-indexing
+
+### 2025-07-02 - WAL Corruption "Catalog 'chunkhound' does not exist"
+
+**Root Cause**: DuckDB infers catalog name from filename during corrupted WAL replay
+- Not from code - only 1 ATTACH site with explicit alias `recovery_db`
+- Happens when process killed during transaction, WAL contains partial references
+
+**Fixes Applied**:
+1. **Connection Order** (`duckdb_provider.py`):
+   - Changed: Connection manager validates WAL BEFORE executor creates connection
+   - Fixed: `_get_thread_local_connection()` now reuses validated connection
+   
+2. **Delete Operations** (`duckdb_provider.py`):
+   - Added: `_executor_delete_chunk()` - deletes embeddings first, then chunk
+   - Fixed: Foreign key constraint errors (DuckDB doesn't support CASCADE)
+   
+3. **Call Sites Updated**:
+   - `delete_chunk()` now uses executor pattern
+   - No more direct `_get_connection()` calls
+
+**Results**:
+- ✅ WAL corruption handled gracefully
+- ✅ No "_get_connection" warnings  
+- ✅ No foreign key errors
+- ✅ All files process successfully
+
+**Architecture Debt**: Duplicate connection logic between provider and connection manager needs refactoring.

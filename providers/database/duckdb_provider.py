@@ -39,23 +39,18 @@ _transaction_context = contextvars.ContextVar('transaction_active', default=Fals
 _executor_local = threading.local()
 
 
-def _get_thread_local_connection(db_path: str) -> Any:
+def _get_thread_local_connection(provider: "DuckDBProvider") -> Any:
     """Get thread-local DuckDB connection for executor thread.
     
     This function should ONLY be called from within the executor thread.
-    It creates a connection on first access and reuses it for all subsequent calls.
+    It reuses the connection from the connection manager.
     """
     if not hasattr(_executor_local, 'connection'):
-        # Create connection in executor thread
-        _executor_local.connection = duckdb.connect(str(db_path))
-        # Load required extensions
-        _executor_local.connection.execute("INSTALL vss")
-        _executor_local.connection.execute("LOAD vss")
-        _executor_local.connection.execute("SET hnsw_enable_experimental_persistence = true")
-        if os.environ.get("CHUNKHOUND_MCP_MODE"):
-            # Set single-threaded mode for MCP safety
-            _executor_local.connection.execute("SET threads = 1")
-        logger.debug(f"Created thread-local connection for executor thread {threading.get_ident()}")
+        # Use the connection from connection manager (already validated for WAL)
+        _executor_local.connection = provider._connection_manager.connection
+        if _executor_local.connection is None:
+            raise RuntimeError("Connection manager has no active connection")
+        logger.debug(f"Using connection manager's connection in executor thread {threading.get_ident()}")
     return _executor_local.connection
 
 
@@ -157,7 +152,7 @@ class DuckDBProvider:
         
         def executor_operation():
             # Get thread-local connection (created on first access)
-            conn = _get_thread_local_connection(self._db_path)
+            conn = _get_thread_local_connection(self)
             
             # Get thread-local state
             state = _get_thread_local_state()
@@ -180,7 +175,7 @@ class DuckDBProvider:
         """Synchronous version of _execute_in_db_thread for non-async methods."""
         def executor_operation():
             # Get thread-local connection (created on first access)
-            conn = _get_thread_local_connection(self._db_path)
+            conn = _get_thread_local_connection(self)
             
             # Get thread-local state
             state = _get_thread_local_state()
@@ -230,12 +225,11 @@ class DuckDBProvider:
     def connect(self) -> None:
         """Establish database connection and initialize schema with WAL validation."""
         try:
+            # Initialize connection manager FIRST - this handles WAL validation
+            self._connection_manager.connect()
+            
             # Execute connection in DB thread to ensure proper initialization
             self._execute_in_db_thread_sync('connect')
-            
-            # Initialize connection manager for backward compatibility
-            # This will be simplified later
-            self._connection_manager.connect()
 
             # Initialize shared parser and chunker instances for performance
             self._initialize_shared_instances()
@@ -1091,10 +1085,29 @@ class DuckDBProvider:
         _track_operation(state)
         
         conn.execute("DELETE FROM chunks WHERE file_id = ?", [file_id])
+        
+    def _executor_delete_chunk(self, conn: Any, state: dict[str, Any], chunk_id: int) -> None:
+        """Executor method for delete_chunk - runs in DB thread."""
+        # Track operation
+        _track_operation(state)
+        
+        # Delete embeddings first to avoid foreign key constraint
+        # Get all embedding tables
+        result = conn.execute("""
+            SELECT table_name 
+            FROM information_schema.tables 
+            WHERE table_name LIKE 'embeddings_%'
+        """).fetchall()
+        
+        for (table_name,) in result:
+            conn.execute(f"DELETE FROM {table_name} WHERE chunk_id = ?", [chunk_id])
+        
+        # Then delete the chunk
+        conn.execute("DELETE FROM chunks WHERE id = ?", [chunk_id])
 
     def delete_chunk(self, chunk_id: int) -> None:
-        """Delete a single chunk by ID - delegate to chunk repository."""
-        self._chunk_repository.delete_chunk(chunk_id)
+        """Delete a single chunk by ID with proper foreign key handling."""
+        self._execute_in_db_thread_sync('delete_chunk', chunk_id)
 
     def update_chunk(self, chunk_id: int, **kwargs) -> None:
         """Update chunk record with new values - delegate to chunk repository."""
