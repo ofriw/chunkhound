@@ -18,6 +18,21 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from .embedding_config import EmbeddingConfig
 
 
+def _get_default_include_patterns() -> list[str]:
+    """Get complete default patterns from Language enum.
+    
+    Returns all supported file extensions as glob patterns.
+    This is the single source of truth for default file discovery.
+    """
+    from core.types.common import Language
+    patterns = []
+    for ext in Language.get_all_extensions():
+        patterns.append(f"**/*{ext}")
+    # Add special filename patterns
+    patterns.extend(["**/Makefile", "**/makefile", "**/GNUmakefile", "**/gnumakefile"])
+    return patterns
+
+
 class MCPConfig(BaseModel):
     """MCP server configuration."""
     
@@ -48,8 +63,8 @@ class IndexingConfig(BaseModel):
     """Indexing configuration."""
     
     include_patterns: list[str] = Field(
-        default_factory=lambda: ['**/*.py', '**/*.md', '**/*.js', '**/*.ts', '**/*.tsx', '**/*.jsx'],
-        description="File patterns to include in indexing"
+        default_factory=_get_default_include_patterns,
+        description="File patterns to include in indexing (all supported languages)"
     )
     
     exclude_patterns: list[str] = Field(

@@ -273,13 +273,13 @@ class PeriodicIndexManager:
 
         try:
             # Discover all files in base directory
-            # Use default exclude patterns from unified config with .gitignore support
+            # Get patterns and exclude patterns from unified config 
             from chunkhound.core.config.unified_config import ChunkHoundConfig
             config = ChunkHoundConfig.load_hierarchical(project_dir=self._base_directory)
             exclude_patterns = config.indexing.get_effective_exclude_patterns(self._base_directory)
             files = self._indexing_coordinator._discover_files(
                 self._base_directory, 
-                patterns=None,  # Use default patterns
+                patterns=config.indexing.include_patterns,  # Use config layer patterns
                 exclude_patterns=exclude_patterns
             )
 

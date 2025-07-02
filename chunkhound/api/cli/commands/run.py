@@ -214,20 +214,11 @@ def _setup_file_patterns_from_config(config: Any, args: argparse.Namespace) -> t
     Returns:
         Tuple of (include_patterns, exclude_patterns)
     """
-    # Use configuration include patterns, fallback to CLI args, then defaults
-    if config.indexing.include_patterns:
-        include_patterns = config.indexing.include_patterns
-    elif hasattr(args, 'include') and args.include:
-        include_patterns = args.include
+    # Trust config layer to provide complete patterns, allow CLI override
+    if hasattr(args, 'include') and args.include:
+        include_patterns = args.include  # CLI override
     else:
-        # Get patterns from Language enum and convert to simple glob patterns
-        from chunkhound.core.types.common import Language
-        patterns = []
-        for ext in Language.get_all_extensions():
-            patterns.append(f"*{ext}")
-        # Add special filenames
-        patterns.extend(["Makefile", "makefile", "GNUmakefile", "gnumakefile"])
-        include_patterns = patterns
+        include_patterns = config.indexing.include_patterns  # Config layer (now complete)
 
     # Use effective exclude patterns that include .gitignore patterns
     project_dir = Path(args.path) if hasattr(args, 'path') else Path.cwd()
