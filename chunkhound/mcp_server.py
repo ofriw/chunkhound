@@ -43,6 +43,7 @@ try:
     from .embeddings import EmbeddingManager
     from .file_watcher import FileWatcherManager
     from .periodic_indexer import PeriodicIndexManager
+    from .database_factory import create_database_with_dependencies
     from .registry import configure_registry, get_registry
     from .signal_coordinator import SignalCoordinator
     from .task_coordinator import TaskCoordinator, TaskPriority
@@ -56,6 +57,7 @@ except ImportError:
     from chunkhound.periodic_indexer import PeriodicIndexManager
     from chunkhound.signal_coordinator import SignalCoordinator
     from chunkhound.task_coordinator import TaskCoordinator, TaskPriority
+    from chunkhound.database_factory import create_database_with_dependencies
     from registry import configure_registry
 
 # Global database, embedding manager, and file watcher instances
@@ -194,13 +196,11 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
         if "CHUNKHOUND_DEBUG" in os.environ:
             print("Server lifespan: Embedding manager initialized", file=sys.stderr)
 
-        # CRITICAL: Configure registry BEFORE database creation to ensure provider initialization
-        # uses the correct configuration. This must happen even if embedding setup fails.
+        # Build registry config for unified factory
         registry_config = _build_mcp_registry_config(unified_config, db_path)
-        configure_registry(registry_config)
         
         if "CHUNKHOUND_DEBUG" in os.environ:
-            print("Server lifespan: Registry configured BEFORE database creation", file=sys.stderr)
+            print("Server lifespan: Registry config prepared for unified factory", file=sys.stderr)
             print(f"Server lifespan: Registry config: {registry_config}", file=sys.stderr)
 
         # Setup embedding provider (optional - continue if it fails)
@@ -230,8 +230,12 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
                 import traceback
                 traceback.print_exc(file=sys.stderr)
 
-        # Create database AFTER registry configuration - provider will use registry config
-        _database = Database(db_path, embedding_manager=_embedding_manager, config=unified_config.database)
+        # Create database using unified factory to ensure consistent initialization with CLI
+        _database = create_database_with_dependencies(
+            db_path=db_path,
+            config=registry_config,
+            embedding_manager=_embedding_manager
+        )
         try:
             # CRITICAL: Ensure thread-safe database initialization for MCP server
             # The database connection must be established before any async tasks start

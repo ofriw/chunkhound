@@ -17,6 +17,7 @@ from chunkhound.embeddings import (
     create_tei_provider,
 )
 from chunkhound.signal_coordinator import CLICoordinator
+from chunkhound.database_factory import create_database_with_dependencies
 from registry import configure_registry, create_indexing_coordinator
 
 from ..parsers.run_parser import process_batch_arguments
@@ -79,16 +80,15 @@ async def run_command(args: argparse.Namespace) -> None:
         # Check for running MCP server and coordinate if needed
         await _handle_mcp_coordination(cli_coordinator, formatter)
 
-        # Configure the provider registry
-        config = _build_registry_config(args, unified_config)
-        configure_registry(config)
-
         # Set up file patterns using unified config (already loaded)
         include_patterns, exclude_patterns = _setup_file_patterns_from_config(unified_config, args)
         formatter.info(f"Include patterns: {include_patterns}")
         formatter.info(f"Exclude patterns: {exclude_patterns}")
 
-        # Initialize services
+        # Create database using unified factory to ensure consistent initialization
+        config = _build_registry_config(args, unified_config)
+        # Note: Not creating Database here - the indexing_coordinator is sufficient for CLI operations
+        configure_registry(config)
         indexing_coordinator = create_indexing_coordinator()
 
         formatter.success(f"Service layer initialized: {args.db}")
