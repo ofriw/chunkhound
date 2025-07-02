@@ -37,6 +37,7 @@ from services.embedding_service import EmbeddingService
 from services.indexing_coordinator import IndexingCoordinator
 from services.search_service import SearchService
 
+
 T = TypeVar('T')
 
 
@@ -510,6 +511,8 @@ def create_embedding_service() -> EmbeddingService:
         Configured EmbeddingService instance
     """
     return get_registry().create_embedding_service()
+
+
 
 
 __all__ = [
