@@ -41,7 +41,7 @@ Download from [GitHub Releases](https://github.com/ofriw/chunkhound/releases) - 
 # Set your OpenAI API key
 export OPENAI_API_KEY="sk-your-key-here"
 
-# Index your codebase first (creates chunkhound.db in current directory)
+# Index your codebase first (creates .chunkhound.db in current directory)
 uv run chunkhound index
 
 # OR: Index and watch for changes (standalone mode)
@@ -51,8 +51,8 @@ uv run chunkhound index --watch
 uv run chunkhound mcp
 
 # Use custom database location
-uv run chunkhound index --db /path/to/my-chunks.db
-uv run chunkhound mcp --db /path/to/my-chunks.db
+uv run chunkhound index --db /path/to/my-chunks
+uv run chunkhound mcp --db /path/to/my-chunks
 ```
 
 ## Usage Modes
@@ -410,10 +410,10 @@ ChunkHound operates in two main modes:
 
 ### Database Location
 
-By default, ChunkHound creates `chunkhound.db` in your current directory. You can customize this with:
+By default, ChunkHound creates `.chunkhound.db` in your current directory. You can customize this with:
 
-- **Command line**: `--db /path/to/my-chunks.db`
-- **Environment variable**: `CHUNKHOUND_DB_PATH="/path/to/chunkhound.db"`
+- **Command line**: `--db /path/to/my-chunks`
+- **Environment variable**: `CHUNKHOUND_DB_PATH="/path/to/.chunkhound.db"`
 
 ### Embedding Providers
 
@@ -463,7 +463,7 @@ export CHUNKHOUND_EMBEDDING_BASE_URL="http://localhost:11434"  # Ollama default
 export CHUNKHOUND_EMBEDDING_MODEL="nomic-embed-text"
 
 # Optional: Database location
-export CHUNKHOUND_DB_PATH="/path/to/chunkhound.db"
+export CHUNKHOUND_DB_PATH="/path/to/.chunkhound.db"
 
 # Note: No environment variables needed for regex-only usage
 ```
@@ -472,7 +472,7 @@ export CHUNKHOUND_DB_PATH="/path/to/chunkhound.db"
 
 ChunkHound prioritizes data security through a local-first architecture:
 
-- **Local database**: All code chunks stored in local DuckDB - no data sent to external servers
+- **Local database**: All code chunks stored in local DuckDB file - no data sent to external servers
 - **Local embeddings**: Supports self-hosted embedding servers (Ollama, LocalAI, TEI) for complete data isolation
 - **MCP over stdio**: Uses standard input/output for AI assistant communication - no network exposure
 - **No authentication complexity**: Zero auth required since everything runs locally on your machine
