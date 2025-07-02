@@ -419,7 +419,7 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
                 
                 # Force final checkpoint before closing to minimize WAL size
                 try:
-                    _database._maybe_checkpoint(force=True)
+                    _database._execute_in_db_thread_sync('maybe_checkpoint', True)
                     if "CHUNKHOUND_DEBUG" in os.environ:
                         print("Server lifespan: Final checkpoint completed", file=sys.stderr)
                 except Exception as checkpoint_error:

@@ -139,8 +139,8 @@ class SignalCoordinator:
             # Perform checkpoint before disconnect to minimize WAL size
             # This is safer now that it's done within the task context
             try:
-                if hasattr(self.database_manager, '_maybe_checkpoint'):
-                    self.database_manager._maybe_checkpoint(force=True)
+                if hasattr(self.database_manager, '_execute_in_db_thread_sync'):
+                    self.database_manager._execute_in_db_thread_sync('maybe_checkpoint', True)
                     logger.info("Checkpoint completed before shutdown")
             except Exception as checkpoint_error:
                 logger.warning(f"Checkpoint before shutdown failed: {checkpoint_error}")
