@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.0] - 2025-07-02
+
+### Fixed
+- Database duplication in MCP server by implementing single-threaded executor pattern
+- WAL corruption handling during DuckDB catalog replay
+- Parser architecture inconsistencies for C, Bash, and Makefile parsers
+- DuckDB foreign key constraint transaction limitations
+- Python parser CLI/MCP divergence through unified factory pattern
+- Connection management architectural violations
+
+### Changed
+- Consolidated database operations through DuckDBProvider executor pattern
+- Simplified ConnectionManager to handle only connection lifecycle
+- Updated file discovery patterns to include all 16 supported languages
+- Removed deprecated connection methods and schema fields
+- Enhanced transaction handling with contextvars for task isolation
+
+### Added
+- Automatic database migration system for schema updates
+- Enhanced parser functionality for C pointer functions and Bash function bodies
+- Task-local transaction state management
+- Comprehensive executor methods for database operations
+
 ## [2.0.0] - 2025-06-26
 
 ### Added
@@ -132,7 +155,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 For more information, visit: https://github.com/chunkhound/chunkhound
 
-[Unreleased]: https://github.com/chunkhound/chunkhound/compare/v2.0.0...HEAD
+[Unreleased]: https://github.com/chunkhound/chunkhound/compare/v2.1.0...HEAD
+[2.1.0]: https://github.com/chunkhound/chunkhound/compare/v2.0.0...v2.1.0
 [2.0.0]: https://github.com/chunkhound/chunkhound/compare/v1.2.3...v2.0.0
 [1.2.3]: https://github.com/chunkhound/chunkhound/compare/v1.2.2...v1.2.3
 [1.2.2]: https://github.com/chunkhound/chunkhound/compare/v1.2.1...v1.2.2
