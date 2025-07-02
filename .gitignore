@@ -206,6 +206,8 @@ cython_debug/
 *.db
 *.duckdb
 *.wal
+*.wal.backup
+*.wal.corrupt
 
 # MCP configuration files (may contain API keys)
 .vscode/mcp.json
