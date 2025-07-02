@@ -496,7 +496,7 @@ class EmbeddingService(BaseService):
                     filtered_chunks.append(chunk)
             all_chunks = filtered_chunks
         
-        all_chunk_ids = [chunk['id'] for chunk in all_chunks]
+        all_chunk_ids = [chunk.get('chunk_id', chunk.get('id')) for chunk in all_chunks]
         
         if not all_chunk_ids:
             return []
@@ -606,10 +606,11 @@ class EmbeddingService(BaseService):
         filtered_chunks = []
         
         for chunk in all_chunks_data:
-            if chunk.get('id') in chunk_id_set:
+            chunk_id = chunk.get('chunk_id', chunk.get('id'))
+            if chunk_id in chunk_id_set:
                 # Ensure we have the expected fields
                 filtered_chunk = {
-                    'id': chunk.get('id'),
+                    'id': chunk_id,
                     'code': chunk.get('content', chunk.get('code', '')),  # LanceDB uses 'content'
                     'symbol': chunk.get('name', chunk.get('symbol', '')),  # LanceDB uses 'name'
                     'path': chunk.get('file_path', '')

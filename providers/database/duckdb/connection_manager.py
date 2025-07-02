@@ -48,13 +48,8 @@ class DuckDBConnectionManager:
         self._in_transaction = False
         self._deferred_checkpoint = False
 
-        # CRITICAL: Thread-safe connection pool for async/threading environments
-        # DuckDB connections are not thread-safe and must be isolated per task/thread
-        # See: https://github.com/duckdb/duckdb/issues/2959
-        import threading
-        self._main_thread_id = threading.get_ident()
-        self._thread_connections: dict[int, Any] = {}
-        self._connection_lock = threading.RLock()
+        # Note: Thread safety is now handled by DuckDBProvider's executor pattern
+        # All database operations are serialized to a single thread
 
     @property
     def db_path(self) -> Path | str:
@@ -68,41 +63,17 @@ class DuckDBConnectionManager:
 
     def get_thread_safe_connection(self) -> Any:
         """Get thread-safe DuckDB connection for current thread.
-
-        This method ensures each thread gets its own DuckDB connection cursor
-        to prevent segfaults from concurrent access. Required for MCP server
-        async operations.
-
+        
+        DEPRECATED: This method is maintained for backward compatibility.
+        Thread safety is now handled by DuckDBProvider's executor pattern.
+        
         Returns:
-            Thread-local DuckDB connection cursor
+            The main connection (operations should use executor instead)
         """
-        import threading
-        current_thread_id = threading.get_ident()
-
-        with self._connection_lock:
-            # Use main connection for main thread
-            if current_thread_id == self._main_thread_id:
-                if self.connection is None:
-                    raise RuntimeError("Main connection not established")
-                return self.connection
-
-            # Create thread-local cursor for other threads
-            if current_thread_id not in self._thread_connections:
-                if self.connection is None:
-                    raise RuntimeError("Main connection not established")
-
-                # Create cursor from main connection for thread safety
-                # Each cursor is thread-local and isolated
-                cursor = self.connection.cursor()
-                self._thread_connections[current_thread_id] = cursor
-
-                if not os.environ.get("CHUNKHOUND_MCP_MODE"):
-                    logger.debug(
-                        f"Created thread-local DuckDB cursor for thread "
-                        f"{current_thread_id}"
-                    )
-
-            return self._thread_connections[current_thread_id]
+        logger.warning("get_thread_safe_connection called - should use executor pattern instead")
+        if self.connection is None:
+            raise RuntimeError("Main connection not established")
+        return self.connection
 
     def connect(self) -> None:
         """Establish database connection and initialize schema with WAL validation."""
@@ -116,18 +87,10 @@ class DuckDBConnectionManager:
             if duckdb is None:
                 raise ImportError("duckdb not available")
 
-            # CRITICAL: Thread-safe database connection for MCP server
-            # The MCP server runs with multiple async tasks that can trigger
-            # concurrent database operations during initialization
-            if os.environ.get("CHUNKHOUND_MCP_MODE"):
-                # Force single-threaded mode for MCP to prevent segfaults
-                # This is required because the MCP server uses async tasks
-                # that can cause concurrent WAL operations during startup
-                self._connect_with_mcp_safety()
-            else:
-                # Normal connection path for CLI
-                self._preemptive_wal_cleanup()
-                self._connect_with_wal_validation()
+            # Connect to database with WAL validation
+            # Thread safety is now handled by DuckDBProvider's executor pattern
+            self._preemptive_wal_cleanup()
+            self._connect_with_wal_validation()
 
             logger.info("DuckDB connection established")
 
@@ -176,48 +139,7 @@ class DuckDBConnectionManager:
                 # Not a WAL corruption error, re-raise original exception
                 raise
 
-    def _connect_with_mcp_safety(self) -> None:
-        """Connect to DuckDB with MCP-specific safety measures for async environments.
-
-        This method addresses threading issues that cause segfaults in the MCP server
-        by ensuring single-threaded database access during critical initialization.
-        """
-        try:
-            # Clean up any existing WAL files that might cause issues
-            self._preemptive_wal_cleanup()
-
-            # Connect with explicit thread safety for MCP async environment
-            self.connection = duckdb.connect(str(self.db_path))
-
-            # CRITICAL: Set DuckDB to single-threaded mode immediately after connection
-            # This prevents concurrent operations that cause string corruption segfaults
-            self.connection.execute("SET threads = 1")
-
-            logger.debug("DuckDB connection established with MCP thread safety")
-
-        except duckdb.Error as e:
-            error_msg = str(e)
-
-            # Handle WAL corruption with additional MCP-specific recovery
-            if self._is_wal_corruption_error(error_msg):
-                logger.warning(f"WAL corruption detected in MCP mode: {error_msg}")
-                self._handle_wal_corruption()
-
-                # Retry with safety measures
-                try:
-                    self.connection = duckdb.connect(str(self.db_path))
-                    self.connection.execute("SET threads = 1")
-                    logger.info(
-                        "DuckDB connection successful after WAL cleanup in MCP mode"
-                    )
-                except Exception as retry_error:
-                    logger.error(
-                        f"MCP connection failed even after WAL cleanup: {retry_error}"
-                    )
-                    raise
-            else:
-                # Not a WAL corruption error, re-raise original exception
-                raise
+    # Method removed - MCP safety is now handled by executor pattern
 
     def _is_wal_corruption_error(self, error_msg: str) -> bool:
         """Check if error message indicates WAL corruption."""
@@ -479,8 +401,6 @@ class DuckDBConnectionManager:
                     end_line INTEGER,
                     start_byte INTEGER,
                     end_byte INTEGER,
-                    size INTEGER,
-                    signature TEXT,
                     language TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -537,8 +457,69 @@ class DuckDBConnectionManager:
             raise RuntimeError("No database connection")
 
         try:
-            # Future schema migrations would go here
-            pass
+            # Check if 'size' and 'signature' columns exist and drop them
+            columns_info = self.connection.execute("""
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_name = 'chunks' 
+                AND column_name IN ('size', 'signature')
+            """).fetchall()
+            
+            if columns_info:
+                logger.info("Migrating chunks table: removing unused 'size' and 'signature' columns")
+                
+                # SQLite/DuckDB doesn't support DROP COLUMN directly, need to recreate table
+                # First, create a temporary table with the new schema
+                self.connection.execute("""
+                    CREATE TEMP TABLE chunks_new AS
+                    SELECT id, file_id, chunk_type, symbol, code, 
+                           start_line, end_line, start_byte, end_byte, 
+                           language, created_at, updated_at
+                    FROM chunks
+                """)
+                
+                # Drop the old table
+                self.connection.execute("DROP TABLE chunks")
+                
+                # Create the new table with correct schema
+                self.connection.execute("""
+                    CREATE TABLE chunks (
+                        id INTEGER PRIMARY KEY DEFAULT nextval('chunks_id_seq'),
+                        file_id INTEGER REFERENCES files(id),
+                        chunk_type TEXT NOT NULL,
+                        symbol TEXT,
+                        code TEXT NOT NULL,
+                        start_line INTEGER,
+                        end_line INTEGER,
+                        start_byte INTEGER,
+                        end_byte INTEGER,
+                        language TEXT,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                
+                # Copy data back
+                self.connection.execute("""
+                    INSERT INTO chunks 
+                    SELECT * FROM chunks_new
+                """)
+                
+                # Drop the temporary table
+                self.connection.execute("DROP TABLE chunks_new")
+                
+                # Recreate indexes
+                self.connection.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_chunks_file_id ON chunks(file_id)"
+                )
+                self.connection.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_chunks_type ON chunks(chunk_type)"
+                )
+                self.connection.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_chunks_symbol ON chunks(symbol)"
+                )
+                
+                logger.info("Successfully migrated chunks table schema")
 
         except Exception as e:
             logger.warning(f"Failed to migrate schema: {e}")
