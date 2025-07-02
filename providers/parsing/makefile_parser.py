@@ -11,15 +11,25 @@ from interfaces.language_parser import ParseConfig
 from providers.parsing.base_parser import TreeSitterParserBase
 
 try:
-    import tree_sitter_make
-    from tree_sitter import Language, Parser
+    from tree_sitter import Language as TSLanguage
     from tree_sitter import Node as TSNode
+    from tree_sitter import Parser as TSParser
+    from tree_sitter_language_pack import get_language, get_parser
     TREE_SITTER_AVAILABLE = True
 except ImportError:
     TREE_SITTER_AVAILABLE = False
+    get_language = None
+    get_parser = None
+    TSLanguage = None
+    TSParser = None
     TSNode = None
-    Language = None
-    Parser = None
+
+# Try direct import as fallback
+try:
+    import tree_sitter_make
+    MAKE_DIRECT_AVAILABLE = True
+except ImportError:
+    MAKE_DIRECT_AVAILABLE = False
     tree_sitter_make = None
 
 
@@ -48,8 +58,12 @@ class MakefileParser(TreeSitterParserBase):
             use_cache=True
         )
 
+    def _get_tree_sitter_language_name(self) -> str:
+        """Get tree-sitter language name for Makefile."""
+        return "make"
+
     def _initialize(self) -> bool:
-        """Initialize the Makefile parser using direct tree-sitter-make package.
+        """Initialize the Makefile parser using language pack pattern with fallback.
 
         Returns:
             True if initialization successful, False otherwise
@@ -57,19 +71,34 @@ class MakefileParser(TreeSitterParserBase):
         if self._initialized:
             return True
 
-        if not TREE_SITTER_AVAILABLE or tree_sitter_make is None:
+        if not TREE_SITTER_AVAILABLE and not MAKE_DIRECT_AVAILABLE:
             logger.error("Makefile tree-sitter support not available")
             return False
 
+        # Try language pack first
         try:
-            self._language = Language(tree_sitter_make.language())
-            self._parser = Parser(self._language)
-            self._initialized = True
-            logger.debug("Makefile parser initialized successfully")
-            return True
+            if TREE_SITTER_AVAILABLE and get_language and get_parser:
+                self._language = get_language('make')
+                self._parser = get_parser('make')
+                self._initialized = True
+                logger.debug("Makefile parser initialized successfully (language pack)")
+                return True
         except Exception as e:
-            logger.error(f"Failed to initialize Makefile parser: {e}")
-            return False
+            logger.debug(f"Language pack Makefile parser initialization failed: {e}")
+
+        # Fallback to direct import
+        try:
+            if MAKE_DIRECT_AVAILABLE and tree_sitter_make and TSLanguage and TSParser:
+                self._language = TSLanguage(tree_sitter_make.language())
+                self._parser = TSParser(self._language)
+                self._initialized = True
+                logger.debug("Makefile parser initialized successfully (direct)")
+                return True
+        except Exception as e:
+            logger.error(f"Direct Makefile parser initialization failed: {e}")
+
+        logger.error("Makefile parser initialization failed with both methods")
+        return False
 
     def _extract_chunks(self, tree_node: TSNode, source: str, file_path: Path) -> list[dict[str, Any]]:
         """Extract semantic chunks from Makefile AST.

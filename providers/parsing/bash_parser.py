@@ -51,7 +51,7 @@ class BashParser(TreeSitterParserBase):
             language=CoreLanguage.BASH,
             chunk_types={ChunkType.FUNCTION, ChunkType.BLOCK, ChunkType.COMMENT},
             max_chunk_size=8000,
-            min_chunk_size=100,
+            min_chunk_size=20,  # Lower threshold for bash functions
             include_imports=True,
             include_comments=False,
             include_docstrings=True,
@@ -119,7 +119,13 @@ class BashParser(TreeSitterParserBase):
             return self._extract_fallback_chunks(source, file_path)
 
         try:
-            self._traverse_node(tree_node, source, chunks, file_path)
+            # Extract functions using direct queries
+            if ChunkType.FUNCTION in self._config.chunk_types:
+                chunks.extend(self._extract_functions_direct(tree_node, source, file_path))
+            
+            # Extract control structures using direct queries
+            if ChunkType.BLOCK in self._config.chunk_types:
+                chunks.extend(self._extract_control_structures_direct(tree_node, source, file_path))
             
             # Extract comments
             if ChunkType.COMMENT in self._config.chunk_types:
@@ -129,6 +135,97 @@ class BashParser(TreeSitterParserBase):
         except Exception as e:
             logger.error(f"Failed to extract Bash chunks: {e}")
             return self._extract_fallback_chunks(source, file_path)
+
+    def _extract_functions_direct(self, tree_node: TSNode, source: str, file_path: Path) -> list[dict[str, Any]]:
+        """Extract Bash function definitions using direct queries."""
+        chunks = []
+
+        try:
+            if self._language is None:
+                return chunks
+
+            # Query for function definitions
+            query = self._language.query("""
+                (function_definition) @function_def
+            """)
+
+            matches = query.matches(tree_node)
+
+            for match in matches:
+                pattern_index, captures = match
+
+                if "function_def" not in captures:
+                    continue
+
+                function_node = captures["function_def"][0]
+                
+                # Extract function name from the AST manually
+                function_name = "anonymous_function"
+                for child in function_node.children:
+                    if child.type == "word":
+                        function_name = self._get_node_text(child, source).strip()
+                        break
+
+                # Fallback for empty function names
+                if not function_name or function_name == "function":
+                    function_name = f"function_{function_node.start_point[0] + 1}"
+
+                function_text = self._get_node_text(function_node, source)
+
+                if self._should_include_chunk(function_text, ChunkType.FUNCTION):
+                    chunk = self._create_chunk(
+                        function_node, source, file_path, ChunkType.FUNCTION,
+                        function_name, function_name
+                    )
+                    chunks.append(chunk)
+
+        except Exception as e:
+            logger.error(f"Failed to extract Bash functions: {e}")
+
+        return chunks
+
+    def _extract_control_structures_direct(self, tree_node: TSNode, source: str, file_path: Path) -> list[dict[str, Any]]:
+        """Extract Bash control structures using direct queries."""
+        chunks = []
+
+        try:
+            if self._language is None:
+                return chunks
+
+            # Query for control structures
+            query = self._language.query("""
+                (if_statement) @if_stmt
+                (while_statement) @while_stmt
+                (for_statement) @for_stmt
+                (case_statement) @case_stmt
+            """)
+
+            matches = query.matches(tree_node)
+
+            for match in matches:
+                pattern_index, captures = match
+
+                for capture_name, nodes in captures.items():
+                    for node in nodes:
+                        start_line = node.start_point[0] + 1
+                        end_line = node.end_point[0] + 1
+                        chunk_text = self._get_node_text(node, source)
+
+                        # Only include multi-line structures
+                        if end_line > start_line and self._should_include_chunk(chunk_text, ChunkType.BLOCK):
+                            structure_type = capture_name.replace('_stmt', '')
+                            symbol = f"{structure_type}_{start_line}"
+                            
+                            chunk = self._create_chunk(
+                                node, source, file_path, ChunkType.BLOCK,
+                                symbol, symbol
+                            )
+                            chunks.append(chunk)
+
+        except Exception as e:
+            logger.error(f"Failed to extract Bash control structures: {e}")
+
+        return chunks
 
     def _traverse_node(
         self,
