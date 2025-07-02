@@ -311,10 +311,11 @@ chunkhound/api/
 
 ChunkHound uses a hierarchical configuration system:
 
-```yaml
-# ~/.chunkhound/config.yaml
-servers:
-  openai:
+```json
+# ~/.chunkhound/config.json
+{
+  "embedding": {
+    "provider": "openai",
     type: openai
     base_url: https://api.openai.com/v1
     model: text-embedding-3-small
@@ -341,11 +342,10 @@ parsing:
 
 **Configuration Priority:**
 1. Command-line arguments
-2. Project-specific config (`.chunkhound/config.yaml`)
-3. User config (`~/.chunkhound/config.yaml`)
-4. System config (`/etc/chunkhound/config.yaml`)
-5. Environment variables
-6. Default values
+2. Environment variables  
+3. Project-specific config (`.chunkhound.json`)
+4. User config (`~/.chunkhound/config.json`)
+5. Default values
 
 ## Performance Optimizations
 
