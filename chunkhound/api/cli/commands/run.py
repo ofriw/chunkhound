@@ -9,12 +9,9 @@ from typing import Any
 
 from loguru import logger
 
-from chunkhound.embeddings import (
-    EmbeddingManager,
-    create_openai_compatible_provider,
-    create_openai_provider,
-    create_tei_provider,
-)
+from chunkhound.embeddings import EmbeddingManager
+from chunkhound.core.config.embedding_factory import EmbeddingProviderFactory
+from chunkhound.core.config.embedding_config import EmbeddingConfig
 from chunkhound.signal_coordinator import CLICoordinator
 from chunkhound.version import __version__
 from registry import configure_registry, create_indexing_coordinator
@@ -252,7 +249,7 @@ def _setup_file_patterns_from_config(
 async def _setup_embedding_manager(
     args: argparse.Namespace, formatter: OutputFormatter
 ) -> EmbeddingManager | None:
-    """Set up embedding manager based on provider configuration.
+    """Set up embedding manager using factory-based provider configuration.
 
     Args:
         args: Parsed arguments
@@ -268,46 +265,37 @@ async def _setup_embedding_manager(
     try:
         embedding_manager = EmbeddingManager()
 
-        if args.provider == "openai":
-            model = args.model or "text-embedding-3-small"
-            provider = create_openai_provider(
-                api_key=args.api_key,
-                base_url=args.base_url,
-                model=model,
-            )
-            embedding_manager.register_provider(provider, set_default=True)
-            formatter.success(f"Embedding provider: {args.provider}/{model}")
+        # Build configuration from CLI arguments
+        config_dict = {
+            "provider": args.provider,
+        }
+        
+        # Add optional parameters if provided
+        if args.model:
+            config_dict["model"] = args.model
+        if args.api_key:
+            config_dict["api_key"] = args.api_key
+        if args.base_url:
+            config_dict["base_url"] = args.base_url
 
-        elif args.provider == "openai-compatible":
-            model = args.model or "auto-detected"
-            provider = create_openai_compatible_provider(
-                base_url=args.base_url,
-                model=model,
-                api_key=args.api_key,
-            )
-            embedding_manager.register_provider(provider, set_default=True)
+        # Create EmbeddingConfig and validate
+        config = EmbeddingConfig(**config_dict)
+        
+        # Use factory to create provider
+        provider = EmbeddingProviderFactory.create_provider(config)
+        embedding_manager.register_provider(provider, set_default=True)
+        
+        # Display success message with appropriate details
+        if args.provider == "openai":
+            model = config.get_model()
+            formatter.success(f"Embedding provider: {args.provider}/{model}")
+        elif args.provider in ["openai-compatible", "tei", "bge-in-icl"]:
+            model = config.get_model()
             formatter.success(
                 f"Embedding provider: {args.provider}/{model} at {args.base_url}"
             )
-
-        elif args.provider == "tei":
-            provider = create_tei_provider(
-                base_url=args.base_url,
-                model=args.model,
-            )
-            embedding_manager.register_provider(provider, set_default=True)
-            formatter.success(f"Embedding provider: {args.provider} at {args.base_url}")
-
-        elif args.provider == "bge-in-icl":
-            # BGE-IN-ICL provider setup would go here
-            formatter.warning(
-                "BGE-IN-ICL provider not yet implemented in service layer"
-            )
-            return None
-
         else:
-            formatter.warning(f"Unknown embedding provider: {args.provider}")
-            return None
+            formatter.success(f"Embedding provider: {args.provider}")
 
         return embedding_manager
 

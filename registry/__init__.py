@@ -11,6 +11,10 @@ from core.types import Language
 # Import concrete providers
 from providers.database.duckdb_provider import DuckDBProvider
 from providers.embeddings.openai_provider import OpenAIEmbeddingProvider
+
+# Import embedding factory for unified provider creation
+from chunkhound.core.config.embedding_factory import EmbeddingProviderFactory
+from chunkhound.core.config.embedding_config import EmbeddingConfig
 from providers.parsing.bash_parser import BashParser
 from providers.parsing.c_parser import CParser
 from providers.parsing.cpp_parser import CppParser
@@ -369,23 +373,32 @@ class ProviderRegistry:
             self.register_provider("database", DuckDBProvider, singleton=True)
 
     def _register_embedding_provider(self) -> None:
-        """Register the appropriate embedding provider based on configuration."""
-        embedding_config = self._config.get("embedding", {})
-        provider_type = embedding_config.get("provider", "openai")
-
-        if provider_type in ["openai", "openai-compatible"]:
-            # For both openai and openai-compatible, use OpenAIEmbeddingProvider
-            # The OpenAIEmbeddingProvider supports custom base_url for compatibility
-            self.register_provider("embedding", OpenAIEmbeddingProvider, singleton=True)
-        else:
-            logger.warning(
-                f"Unsupported embedding provider type: {provider_type}. Falling back to OpenAI."
-            )
-            self.register_provider("embedding", OpenAIEmbeddingProvider, singleton=True)
-
+        """Register the appropriate embedding provider based on configuration using factory."""
+        embedding_config_dict = self._config.get("embedding", {})
+        
+        # Register a factory-based provider that creates the correct instance on demand
+        class FactoryEmbeddingProvider:
+            """Wrapper that uses factory to create correct provider type."""
+            def __new__(cls, **kwargs):
+                # Merge config with any runtime kwargs
+                merged_config = {**embedding_config_dict, **kwargs}
+                
+                try:
+                    # Create EmbeddingConfig from merged configuration
+                    config = EmbeddingConfig(**merged_config)
+                    # Use factory to create the correct provider
+                    return EmbeddingProviderFactory.create_provider(config)
+                except Exception as e:
+                    logger.warning(f"Failed to create configured embedding provider: {e}. Falling back to OpenAI.")
+                    # Fallback to OpenAI with minimal config
+                    fallback_config = EmbeddingConfig(provider="openai", api_key=merged_config.get("api_key"))
+                    return EmbeddingProviderFactory.create_provider(fallback_config)
+        
+        self.register_provider("embedding", FactoryEmbeddingProvider, singleton=True)
+        
         # Suppress logging during MCP mode initialization
         if not os.environ.get("CHUNKHOUND_MCP_MODE"):
-            logger.info("Default providers registered")
+            logger.info("Factory-based embedding provider registered")
 
     def _create_instance(self, cls: Any) -> Any:
         """Create an instance with basic dependency injection.
@@ -425,30 +438,34 @@ class ProviderRegistry:
                 elif "Database" in cls.__name__:
                     # Other database providers - use default path
                     return cls()
-                elif "Embedding" in cls.__name__:
-                    # Embedding provider - inject configuration
+                elif "Embedding" in cls.__name__ or cls.__name__ == "FactoryEmbeddingProvider":
+                    # Factory-based embedding provider or legacy embedding provider
                     embedding_config = self._config.get("embedding", {})
 
-                    # Extract relevant config parameters, filtering out None values
-                    # to allow constructor defaults to take effect
-                    config_params = {}
-                    for key in ["api_key", "base_url", "model", "batch_size"]:
-                        if (
-                            key in embedding_config
-                            and embedding_config[key] is not None
-                        ):
-                            config_params[key] = embedding_config[key]
+                    # For factory provider, pass the config; for legacy, use old approach
+                    if cls.__name__ == "FactoryEmbeddingProvider":
+                        logger.debug(f"Creating factory-based embedding provider with config: {embedding_config}")
+                        return cls()
+                    else:
+                        # Legacy embedding provider - inject configuration
+                        config_params = {}
+                        for key in ["api_key", "base_url", "model", "batch_size"]:
+                            if (
+                                key in embedding_config
+                                and embedding_config[key] is not None
+                            ):
+                                config_params[key] = embedding_config[key]
 
-                    logger.debug(
-                        f"Creating embedding provider with config: {config_params}"
-                    )
-                    try:
-                        return cls(**config_params)
-                    except Exception as e:
-                        logger.error(
-                            f"Failed to create embedding provider {cls.__name__}: {e}"
+                        logger.debug(
+                            f"Creating legacy embedding provider with config: {config_params}"
                         )
-                        raise
+                        try:
+                            return cls(**config_params)
+                        except Exception as e:
+                            logger.error(
+                                f"Failed to create embedding provider {cls.__name__}: {e}"
+                            )
+                            raise
                 else:
                     # Other services - try with no args first
                     return cls()
