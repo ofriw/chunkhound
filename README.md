@@ -314,12 +314,6 @@ BGE-IN-ICL:
   - `include_patterns`: Glob patterns for files to index
   - `exclude_patterns`: Glob patterns to ignore
 
-- **`mcp`**: MCP server settings
-  - `transport`: `stdio` (default) or `http`
-  - `port`: Port for HTTP transport
-  - `host`: Host for HTTP transport
-  - `cors`: Enable CORS for HTTP
-
 - **`debug`**: Enable debug logging
 
 **Security Note**: Never commit API keys to your config file. Use environment variables instead:
