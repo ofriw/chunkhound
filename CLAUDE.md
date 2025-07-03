@@ -21,3 +21,22 @@ ChunkHound is a semantic and regex search tool for codebases that provides MCP (
 
 # Important!
 - Avoid logs in the MCP server that will mess with the JSON-RPC
+
+## Version Management
+
+ChunkHound uses centralized version management with a single source of truth in `chunkhound/version.py`. All version references automatically import from this file.
+
+### Updating the Version
+```bash
+# Update to a new version (e.g., 2.2.0)
+uv run scripts/update_version.py 2.2.0
+
+# Verify versions are in sync
+uv run scripts/sync_version.py
+```
+
+The version is automatically used in:
+- `chunkhound/__init__.py` - Package version
+- `chunkhound/api/cli/parsers/main_parser.py` - CLI `--version` flag
+- `chunkhound/api/cli/commands/run.py` - CLI startup display
+- `chunkhound/mcp_server.py` - MCP server version

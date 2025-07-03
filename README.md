@@ -14,9 +14,8 @@ The easiest way to install and configure ChunkHound is to use your AI assistant.
 - Check the current OS type and version.
 - Detect what IDE and agent versions are you running in.
 - Read https://raw.githubusercontent.com/ofriw/chunkhound/refs/heads/main/README.md
-- Install and configure ChunkHound for the current IDE and agent:
-	- If using Ubuntu 20 with python < 3.10, prefer the prebuilt onedir binary
-	- Edit the current IDE / agent's config files to configure chunkhound as an MCP server. See instructions in the README
+- Install ChunkHound using uv and configure it for the current IDE and agent
+- Edit the current IDE / agent's config files to configure chunkhound as an MCP server. See instructions in the README
 - Upgrade chunkhound if already installed
 
 Start by asking the user:
@@ -27,13 +26,28 @@ Start by asking the user:
 
 Your AI assistant will automatically detect your environment, install ChunkHound, and configure it for your specific IDE and embedding provider preferences.
 
-### Python Package
+### Installation
+
+ChunkHound requires [uv](https://github.com/astral-sh/uv), an extremely fast Python package manager written in Rust. If you don't have uv installed:
+
+**Install uv** (choose one method):
+```bash
+# macOS/Linux
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Windows
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+
+# Or using pip (if you have Python)
+pip install uv
+```
+
+**What is uv?** It's a modern Python tool that replaces pip, virtualenv, and other Python development tools with a single, fast utility. It manages packages, Python versions, and project dependencies 10-100x faster than traditional tools.
+
+**Install ChunkHound**:
 ```bash
 uv tool install chunkhound
 ```
-
-### Binary (Fallback Option)
-Download from [GitHub Releases](https://github.com/ofriw/chunkhound/releases) - zero dependencies required. Use only if you encounter Python/uv installation issues on Ubuntu 20.04 or Windows.
 
 ## Quick Start
 
@@ -73,10 +87,10 @@ ChunkHound works in two modes depending on your setup:
 
 ## AI Assistant Setup
 
-ChunkHound integrates with all major AI development tools. Choose your setup method:
+ChunkHound integrates with all major AI development tools:
 
 <details>
-<summary><strong>Method 1: Using <code>uv run</code> (Recommended)</strong></summary>
+<summary><strong>Configuration for Each IDE/Tool</strong></summary>
 
 <details>
 <summary><strong>Claude Desktop</strong></summary>
@@ -206,131 +220,6 @@ Go to Settings > Tools > AI Assistant > Model Context Protocol (MCP) and add:
 
 </details>
 
-<details>
-<summary><strong>Method 2: Using Standalone Binary (Fallback)</strong></summary>
-
-Use this method only if you encounter Python/uv installation issues. First, install the binary from [GitHub Releases](https://github.com/ofriw/chunkhound/releases).
-
-<details>
-<summary><strong>Claude Desktop</strong></summary>
-
-```json
-{
-  "mcpServers": {
-    "chunkhound": {
-      "command": "chunkhound",
-      "args": ["mcp"],
-      "env": {
-        "OPENAI_API_KEY": "sk-your-key-here"
-      }
-    }
-  }
-}
-```
-</details>
-
-<details>
-<summary><strong>Claude Code</strong></summary>
-
-```json
-{
-  "mcpServers": {
-    "chunkhound": {
-      "command": "chunkhound",
-      "args": ["mcp"],
-      "env": {
-        "OPENAI_API_KEY": "sk-your-key-here"
-      }
-    }
-  }
-}
-```
-</details>
-
-<details>
-<summary><strong>VS Code</strong></summary>
-
-```json
-{
-  "servers": {
-    "chunkhound": {
-      "command": "chunkhound",
-      "args": ["mcp"],
-      "env": {
-        "OPENAI_API_KEY": "sk-your-key-here"
-      }
-    }
-  }
-}
-```
-</details>
-
-<details>
-<summary><strong>Cursor</strong></summary>
-
-```json
-{
-  "chunkhound": {
-    "command": "chunkhound",
-    "args": ["mcp"],
-    "env": {
-      "OPENAI_API_KEY": "sk-your-key-here"
-    }
-  }
-}
-```
-</details>
-
-<details>
-<summary><strong>Windsurf</strong></summary>
-
-```json
-{
-  "mcpServers": {
-    "chunkhound": {
-      "command": "chunkhound",
-      "args": ["mcp"],
-      "env": {
-        "OPENAI_API_KEY": "sk-your-key-here"
-      }
-    }
-  }
-}
-```
-</details>
-
-<details>
-<summary><strong>Zed</strong></summary>
-
-```json
-{
-  "context_servers": {
-    "chunkhound": {
-      "source": "custom",
-      "command": {
-        "path": "chunkhound",
-        "args": ["mcp"],
-        "env": {
-          "OPENAI_API_KEY": "sk-your-key-here"
-        }
-      }
-    }
-  }
-}
-```
-</details>
-
-<details>
-<summary><strong>IntelliJ IDEA / PyCharm / WebStorm</strong> (2025.1+)</summary>
-
-- **Name**: chunkhound
-- **Command**: chunkhound
-- **Arguments**: mcp
-- **Environment Variables**: OPENAI_API_KEY=sk-your-key-here
-- **Working Directory**: (leave empty or set to project root)
-</details>
-
-</details>
 
 
 ## What You Get
@@ -414,6 +303,94 @@ By default, ChunkHound creates `.chunkhound.db` in your current directory. You c
 
 - **Command line**: `--db /path/to/my-chunks`
 - **Environment variable**: `CHUNKHOUND_DB_PATH="/path/to/.chunkhound.db"`
+
+### Project Configuration File
+
+ChunkHound supports project-level configuration through a `.chunkhound.json` file in your project root. This allows you to maintain consistent settings across your team and avoid repetitive command-line arguments.
+
+**Configuration Hierarchy** (highest to lowest priority):
+1. Command-line arguments
+2. Environment variables
+3. Project config file (`.chunkhound.json` in current directory)
+4. User config file (`~/.chunkhound/config.json`)
+5. Default values
+
+**Example `.chunkhound.json`**:
+```json
+{
+  "embedding": {
+    "provider": "openai",
+    "model": "text-embedding-3-small",
+    "batch_size": 50,
+    "timeout": 30,
+    "max_retries": 3,
+    "max_concurrent_batches": 3
+  },
+  "database": {
+    "path": ".chunkhound.db",
+    "provider": "duckdb"
+  },
+  "indexing": {
+    "watch": true,
+    "debounce_ms": 500,
+    "batch_size": 100,
+    "db_batch_size": 500,
+    "max_concurrent": 4,
+    "include_patterns": [
+      "**/*.py",
+      "**/*.ts",
+      "**/*.jsx"
+    ],
+    "exclude_patterns": [
+      "**/node_modules/**",
+      "**/__pycache__/**",
+      "**/dist/**"
+    ]
+  },
+  "mcp": {
+    "transport": "stdio"
+  },
+  "debug": false
+}
+```
+
+**Configuration Options**:
+
+- **`embedding`**: Embedding provider settings
+  - `provider`: Choose from `openai`, `openai-compatible`, `tei`, `bge-in-icl`
+  - `model`: Model name (uses provider default if not specified)
+  - `api_key`: API key for authentication (omit from file, use env vars for security)
+  - `base_url`: Base URL for API (for local/custom providers)
+  - `batch_size`: Number of texts to embed at once (1-1000)
+  - `timeout`: Request timeout in seconds
+  - `max_retries`: Retry attempts for failed requests
+  - `max_concurrent_batches`: Concurrent embedding batches
+
+- **`database`**: Database settings
+  - `path`: Database file location (relative or absolute)
+  - `provider`: Database type (`duckdb` or `lancedb`)
+
+- **`indexing`**: File indexing behavior
+  - `watch`: Enable file watching in standalone mode
+  - `debounce_ms`: Delay before processing file changes
+  - `batch_size`: Files to process per batch
+  - `db_batch_size`: Database records per transaction
+  - `max_concurrent`: Parallel file processing limit
+  - `include_patterns`: Glob patterns for files to index
+  - `exclude_patterns`: Glob patterns to ignore
+
+- **`mcp`**: MCP server settings
+  - `transport`: `stdio` (default) or `http`
+  - `port`: Port for HTTP transport
+  - `host`: Host for HTTP transport
+  - `cors`: Enable CORS for HTTP
+
+- **`debug`**: Enable debug logging
+
+**Security Note**: Never commit API keys to your config file. Use environment variables instead:
+```bash
+export CHUNKHOUND_EMBEDDING__API_KEY="sk-your-key-here"
+```
 
 ### Embedding Providers
 
