@@ -10,7 +10,7 @@ import os
 # CRITICAL: Suppress ALL logging BEFORE any other imports
 # This must happen before importing loguru or any chunkhound modules
 logging.disable(logging.CRITICAL)
-for logger_name in ['', 'mcp', 'server', 'fastmcp', 'registry', 'chunkhound']:
+for logger_name in ["", "mcp", "server", "fastmcp", "registry", "chunkhound"]:
     logging.getLogger(logger_name).setLevel(logging.CRITICAL + 1)
 
 # Note: Do NOT redirect stderr to /dev/null as it breaks MCP SDK's internal error handling
@@ -32,10 +32,12 @@ except ImportError:
 # Suppress loguru logger
 try:
     from loguru import logger as loguru_logger
+
     loguru_logger.remove()
     loguru_logger.add(lambda _: None, level="CRITICAL")
 except ImportError:
     pass
+
 
 async def main() -> None:
     """Main entry point for MCP server with proper logging suppression."""
@@ -43,6 +45,7 @@ async def main() -> None:
     db_path = os.environ.get("CHUNKHOUND_DB_PATH")
     if not db_path:
         from pathlib import Path
+
         db_path = str(Path.home() / ".cache" / "chunkhound" / "chunks.duckdb")
         os.environ["CHUNKHOUND_DB_PATH"] = db_path
 
@@ -61,12 +64,14 @@ async def main() -> None:
 
     # Now import and run the MCP server
     from chunkhound.mcp_server import main as run_mcp_server
+
     await run_mcp_server()
 
 
 def main_sync() -> None:
     """Synchronous entry point for CLI integration."""
     import asyncio
+
     asyncio.run(main())
 
 

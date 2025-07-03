@@ -57,7 +57,7 @@ class TextParser:
         """
         try:
             # Read file content
-            with open(file_path, encoding='utf-8') as f:
+            with open(file_path, encoding="utf-8") as f:
                 content = f.read().strip()
 
             if not content:
@@ -73,15 +73,19 @@ class TextParser:
 
         except Exception as e:
             # Return a single chunk with the raw content if parsing fails
-            return [{
-                "symbol": f"file:{file_path.stem}",
-                "start_line": 1,
-                "end_line": 1,
-                "code": content[:1000] if 'content' in locals() else f"Error reading file: {e}",
-                "chunk_type": ChunkType.BLOCK,
-                "language": self._language,
-                "file_path": str(file_path)
-            }]
+            return [
+                {
+                    "symbol": f"file:{file_path.stem}",
+                    "start_line": 1,
+                    "end_line": 1,
+                    "code": content[:1000]
+                    if "content" in locals()
+                    else f"Error reading file: {e}",
+                    "chunk_type": ChunkType.BLOCK,
+                    "language": self._language,
+                    "file_path": str(file_path),
+                }
+            ]
 
     def _parse_json(self, content: str, file_path: Path) -> list[dict[str, Any]]:
         """Parse JSON content into searchable chunks."""
@@ -96,15 +100,17 @@ class TextParser:
 
         except json.JSONDecodeError:
             # If JSON is invalid, treat as raw text
-            chunks.append({
-                "symbol": f"file:{file_path.stem}",
-                "start_line": 1,
-                "end_line": len(content.split('\n')),
-                "code": content,
-                "chunk_type": ChunkType.BLOCK,
-                "language": self._language,
-                "file_path": str(file_path)
-            })
+            chunks.append(
+                {
+                    "symbol": f"file:{file_path.stem}",
+                    "start_line": 1,
+                    "end_line": len(content.split("\n")),
+                    "code": content,
+                    "chunk_type": ChunkType.BLOCK,
+                    "language": self._language,
+                    "file_path": str(file_path),
+                }
+            )
 
         return chunks
 
@@ -121,22 +127,24 @@ class TextParser:
 
         except yaml.YAMLError:
             # If YAML is invalid, treat as raw text
-            chunks.append({
-                "symbol": f"file:{file_path.stem}",
-                "start_line": 1,
-                "end_line": len(content.split('\n')),
-                "code": content,
-                "chunk_type": ChunkType.BLOCK,
-                "language": self._language,
-                "file_path": str(file_path)
-            })
+            chunks.append(
+                {
+                    "symbol": f"file:{file_path.stem}",
+                    "start_line": 1,
+                    "end_line": len(content.split("\n")),
+                    "code": content,
+                    "chunk_type": ChunkType.BLOCK,
+                    "language": self._language,
+                    "file_path": str(file_path),
+                }
+            )
 
         return chunks
 
     def _parse_text(self, content: str, file_path: Path) -> list[dict[str, Any]]:
         """Parse plain text content into searchable chunks."""
         chunks = []
-        lines = content.split('\n')
+        lines = content.split("\n")
 
         # Split text into logical chunks (paragraphs, sections)
         current_chunk = []
@@ -148,17 +156,19 @@ class TextParser:
             # Empty line indicates potential chunk boundary
             if not line:
                 if current_chunk:
-                    chunk_content = '\n'.join(current_chunk).strip()
+                    chunk_content = "\n".join(current_chunk).strip()
                     if chunk_content:
-                        chunks.append({
-                            "symbol": f"text_block_{len(chunks) + 1}",
-                            "start_line": current_start_line,
-                            "end_line": i - 1,
-                            "code": chunk_content,
-                            "chunk_type": ChunkType.PARAGRAPH,
-                            "language": self._language,
-                            "file_path": str(file_path)
-                        })
+                        chunks.append(
+                            {
+                                "symbol": f"text_block_{len(chunks) + 1}",
+                                "start_line": current_start_line,
+                                "end_line": i - 1,
+                                "code": chunk_content,
+                                "chunk_type": ChunkType.PARAGRAPH,
+                                "language": self._language,
+                                "file_path": str(file_path),
+                            }
+                        )
                     current_chunk = []
                     current_start_line = i + 1
             else:
@@ -166,33 +176,39 @@ class TextParser:
 
         # Handle final chunk
         if current_chunk:
-            chunk_content = '\n'.join(current_chunk).strip()
+            chunk_content = "\n".join(current_chunk).strip()
             if chunk_content:
-                chunks.append({
-                    "symbol": f"text_block_{len(chunks) + 1}",
-                    "start_line": current_start_line,
-                    "end_line": len(lines),
-                    "code": chunk_content,
-                    "chunk_type": ChunkType.PARAGRAPH,
-                    "language": self._language,
-                    "file_path": str(file_path)
-                })
+                chunks.append(
+                    {
+                        "symbol": f"text_block_{len(chunks) + 1}",
+                        "start_line": current_start_line,
+                        "end_line": len(lines),
+                        "code": chunk_content,
+                        "chunk_type": ChunkType.PARAGRAPH,
+                        "language": self._language,
+                        "file_path": str(file_path),
+                    }
+                )
 
         # If no chunks were created, create one big chunk
         if not chunks:
-            chunks.append({
-                "symbol": f"file:{file_path.stem}",
-                "start_line": 1,
-                "end_line": len(lines),
-                "code": content,
-                "chunk_type": ChunkType.BLOCK,
-                "language": self._language,
-                "file_path": str(file_path)
-            })
+            chunks.append(
+                {
+                    "symbol": f"file:{file_path.stem}",
+                    "start_line": 1,
+                    "end_line": len(lines),
+                    "code": content,
+                    "chunk_type": ChunkType.BLOCK,
+                    "language": self._language,
+                    "file_path": str(file_path),
+                }
+            )
 
         return chunks
 
-    def _extract_json_chunks(self, data: Any, file_path: Path, prefix: str = "") -> list[dict[str, Any]]:
+    def _extract_json_chunks(
+        self, data: Any, file_path: Path, prefix: str = ""
+    ) -> list[dict[str, Any]]:
         """Extract searchable chunks from JSON data structure."""
         chunks = []
 
@@ -202,28 +218,36 @@ class TextParser:
 
                 # Create chunk for key-value pairs with string values
                 if isinstance(value, str) and len(value) > 10:
-                    chunks.append({
-                        "symbol": f"json_{current_prefix}",
-                        "start_line": 1,  # JSON doesn't have meaningful line numbers
-                        "end_line": 1,
-                        "code": f"{key}: {value}",
-                        "chunk_type": ChunkType.PROPERTY,
-                        "language": self._language,
-                        "file_path": str(file_path)
-                    })
+                    chunks.append(
+                        {
+                            "symbol": f"json_{current_prefix}",
+                            "start_line": 1,  # JSON doesn't have meaningful line numbers
+                            "end_line": 1,
+                            "code": f"{key}: {value}",
+                            "chunk_type": ChunkType.PROPERTY,
+                            "language": self._language,
+                            "file_path": str(file_path),
+                        }
+                    )
 
                 # Recursively process nested structures
                 elif isinstance(value, (dict, list)):
-                    chunks.extend(self._extract_json_chunks(value, file_path, current_prefix))
+                    chunks.extend(
+                        self._extract_json_chunks(value, file_path, current_prefix)
+                    )
 
         elif isinstance(data, list):
             for i, item in enumerate(data):
                 current_prefix = f"{prefix}[{i}]" if prefix else f"[{i}]"
-                chunks.extend(self._extract_json_chunks(item, file_path, current_prefix))
+                chunks.extend(
+                    self._extract_json_chunks(item, file_path, current_prefix)
+                )
 
         return chunks
 
-    def _extract_yaml_chunks(self, data: Any, raw_content: str, file_path: Path, prefix: str = "") -> list[dict[str, Any]]:
+    def _extract_yaml_chunks(
+        self, data: Any, raw_content: str, file_path: Path, prefix: str = ""
+    ) -> list[dict[str, Any]]:
         """Extract searchable chunks from YAML data structure."""
         chunks = []
 
@@ -232,15 +256,17 @@ class TextParser:
 
         for i, section in enumerate(sections):
             if section.strip():
-                chunks.append({
-                    "symbol": f"yaml_section_{i + 1}",
-                    "start_line": 1,  # YAML line tracking is complex
-                    "end_line": len(section.split('\n')),
-                    "code": section.strip(),
-                    "chunk_type": ChunkType.BLOCK,
-                    "language": self._language,
-                    "file_path": str(file_path)
-                })
+                chunks.append(
+                    {
+                        "symbol": f"yaml_section_{i + 1}",
+                        "start_line": 1,  # YAML line tracking is complex
+                        "end_line": len(section.split("\n")),
+                        "code": section.strip(),
+                        "chunk_type": ChunkType.BLOCK,
+                        "language": self._language,
+                        "file_path": str(file_path),
+                    }
+                )
 
         # If no sections found, create chunks from data structure
         if not chunks:
@@ -254,23 +280,30 @@ class TextParser:
         current_section = []
         indent_level = 0
 
-        for line in content.split('\n'):
+        for line in content.split("\n"):
             # Detect top-level keys (no indentation, ends with colon)
-            if line and not line.startswith(' ') and not line.startswith('\t') and ':' in line:
+            if (
+                line
+                and not line.startswith(" ")
+                and not line.startswith("\t")
+                and ":" in line
+            ):
                 # Save previous section
                 if current_section:
-                    sections.append('\n'.join(current_section))
+                    sections.append("\n".join(current_section))
                     current_section = []
 
             current_section.append(line)
 
         # Add final section
         if current_section:
-            sections.append('\n'.join(current_section))
+            sections.append("\n".join(current_section))
 
         return sections
 
-    def _extract_yaml_data_chunks(self, data: Any, file_path: Path, prefix: str = "") -> list[dict[str, Any]]:
+    def _extract_yaml_data_chunks(
+        self, data: Any, file_path: Path, prefix: str = ""
+    ) -> list[dict[str, Any]]:
         """Extract chunks from YAML data structure when section splitting fails."""
         chunks = []
 
@@ -279,22 +312,28 @@ class TextParser:
                 current_prefix = f"{prefix}.{key}" if prefix else key
 
                 if isinstance(value, str) and len(value) > 10:
-                    chunks.append({
-                        "symbol": f"yaml_{current_prefix}",
-                        "start_line": 1,
-                        "end_line": 1,
-                        "code": f"{key}: {value}",
-                        "chunk_type": ChunkType.PROPERTY,
-                        "language": self._language,
-                        "file_path": str(file_path)
-                    })
+                    chunks.append(
+                        {
+                            "symbol": f"yaml_{current_prefix}",
+                            "start_line": 1,
+                            "end_line": 1,
+                            "code": f"{key}: {value}",
+                            "chunk_type": ChunkType.PROPERTY,
+                            "language": self._language,
+                            "file_path": str(file_path),
+                        }
+                    )
                 elif isinstance(value, (dict, list)):
-                    chunks.extend(self._extract_yaml_data_chunks(value, file_path, current_prefix))
+                    chunks.extend(
+                        self._extract_yaml_data_chunks(value, file_path, current_prefix)
+                    )
 
         elif isinstance(data, list):
             for i, item in enumerate(data):
                 current_prefix = f"{prefix}[{i}]" if prefix else f"[{i}]"
-                chunks.extend(self._extract_yaml_data_chunks(item, file_path, current_prefix))
+                chunks.extend(
+                    self._extract_yaml_data_chunks(item, file_path, current_prefix)
+                )
 
         return chunks
 

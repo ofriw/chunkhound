@@ -25,7 +25,6 @@ from .core import (
 __all__ = [
     # Base exception
     "ChunkHoundError",
-
     # Domain-specific exceptions
     "ValidationError",
     "ModelError",

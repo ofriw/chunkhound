@@ -53,14 +53,14 @@ class BGEInICLPhase3Demo:
         default_config.update(kwargs)
 
         self.provider = create_bge_in_icl_provider(
-            base_url=self.base_url,
-            model="bge-in-icl",
-            **default_config
+            base_url=self.base_url, model="bge-in-icl", **default_config
         )
 
         print("✅ BGE-IN-ICL Provider initialized with Phase 3 features:")
         print(f"   - Adaptive Batching: {default_config['adaptive_batching']}")
-        print(f"   - Batch Size Range: {default_config['min_batch_size']}-{default_config['max_batch_size']}")
+        print(
+            f"   - Batch Size Range: {default_config['min_batch_size']}-{default_config['max_batch_size']}"
+        )
         print(f"   - Context Cache Size: {default_config['context_cache_size']}")
         print(f"   - ICL Enabled: {default_config['enable_icl']}")
 
@@ -77,26 +77,26 @@ class BGEInICLPhase3Demo:
                 "def calculate_fibonacci(n: int) -> int:\n    if n <= 1:\n        return n\n    return calculate_fibonacci(n-1) + calculate_fibonacci(n-2)",
                 "class DataProcessor:\n    def __init__(self, config: dict):\n        self.config = config\n    \n    def process(self, data: list) -> list:\n        return [self.transform(item) for item in data]",
                 "import asyncio\n\nasync def fetch_data(url: str) -> dict:\n    async with aiohttp.ClientSession() as session:\n        async with session.get(url) as response:\n            return await response.json()",
-                "from typing import List, Optional\n\ndef find_duplicates(items: List[str]) -> List[str]:\n    seen = set()\n    duplicates = []\n    for item in items:\n        if item in seen:\n            duplicates.append(item)\n        else:\n            seen.add(item)\n    return duplicates"
+                "from typing import List, Optional\n\ndef find_duplicates(items: List[str]) -> List[str]:\n    seen = set()\n    duplicates = []\n    for item in items:\n        if item in seen:\n            duplicates.append(item)\n        else:\n            seen.add(item)\n    return duplicates",
             ],
             "javascript": [
                 "async function processData(data) {\n    const results = await Promise.all(\n        data.map(async item => {\n            const processed = await transform(item);\n            return processed;\n        })\n    );\n    return results;\n}",
                 "const userService = {\n    async getUser(id) {\n        const response = await fetch(`/api/users/${id}`);\n        if (!response.ok) {\n            throw new Error('User not found');\n        }\n        return response.json();\n    }\n};",
                 "function debounce(func, delay) {\n    let timeoutId;\n    return function(...args) {\n        clearTimeout(timeoutId);\n        timeoutId = setTimeout(() => func.apply(this, args), delay);\n    };\n}",
-                "class EventEmitter {\n    constructor() {\n        this.events = {};\n    }\n    \n    on(event, callback) {\n        if (!this.events[event]) {\n            this.events[event] = [];\n        }\n        this.events[event].push(callback);\n    }\n}"
+                "class EventEmitter {\n    constructor() {\n        this.events = {};\n    }\n    \n    on(event, callback) {\n        if (!this.events[event]) {\n            this.events[event] = [];\n        }\n        this.events[event].push(callback);\n    }\n}",
             ],
             "typescript": [
                 "interface User {\n    id: number;\n    name: string;\n    email: string;\n    roles: string[];\n}\n\nfunction validateUser(user: User): boolean {\n    return user.id > 0 && user.name.length > 0 && user.email.includes('@');\n}",
                 "type ApiResponse<T> = {\n    data: T;\n    status: 'success' | 'error';\n    message?: string;\n};\n\nasync function apiCall<T>(url: string): Promise<ApiResponse<T>> {\n    const response = await fetch(url);\n    return response.json();\n}",
                 "class GenericRepository<T> {\n    private items: T[] = [];\n    \n    add(item: T): void {\n        this.items.push(item);\n    }\n    \n    findById<K extends keyof T>(key: K, value: T[K]): T | undefined {\n        return this.items.find(item => item[key] === value);\n    }\n}",
-                "enum TaskStatus {\n    PENDING = 'pending',\n    IN_PROGRESS = 'in_progress',\n    COMPLETED = 'completed',\n    FAILED = 'failed'\n}\n\ninterface Task {\n    id: string;\n    title: string;\n    status: TaskStatus;\n    createdAt: Date;\n}"
+                "enum TaskStatus {\n    PENDING = 'pending',\n    IN_PROGRESS = 'in_progress',\n    COMPLETED = 'completed',\n    FAILED = 'failed'\n}\n\ninterface Task {\n    id: string;\n    title: string;\n    status: TaskStatus;\n    createdAt: Date;\n}",
             ],
             "mixed": [
                 "// This is a comment in multiple languages",
                 "function generic() { return 'hello'; }",
                 "var x = 10;",
-                "def simple(): pass"
-            ]
+                "def simple(): pass",
+            ],
         }
 
     async def demonstrate_context_optimization(self):
@@ -153,7 +153,9 @@ class BGEInICLPhase3Demo:
 
         print(f"Initial batch size: {self.provider.batch_size}")
         print(f"Adaptive batching enabled: {self.provider._adaptive_batching}")
-        print(f"Batch size range: {self.provider._min_batch_size}-{self.provider._max_batch_size}")
+        print(
+            f"Batch size range: {self.provider._min_batch_size}-{self.provider._max_batch_size}"
+        )
 
         # Simulate different performance scenarios
         print("\n🧪 Simulating performance scenarios:")
@@ -163,7 +165,9 @@ class BGEInICLPhase3Demo:
         for i in range(5):
             response_time = 0.3 + (i * 0.1)  # 0.3-0.7 seconds
             self.provider._adapt_batch_size(response_time)
-            print(f"   Response {i+1}: {response_time:.1f}s → Batch size: {self.provider.batch_size}")
+            print(
+                f"   Response {i + 1}: {response_time:.1f}s → Batch size: {self.provider.batch_size}"
+            )
 
         # Reset to original size
         original_size = 15
@@ -182,9 +186,13 @@ class BGEInICLPhase3Demo:
         for i in range(5):
             response_time = 3.0 + (i * 0.5)  # 3.0-5.0 seconds
             self.provider._adapt_batch_size(response_time)
-            print(f"   Response {i+1}: {response_time:.1f}s → Batch size: {self.provider.batch_size}")
+            print(
+                f"   Response {i + 1}: {response_time:.1f}s → Batch size: {self.provider.batch_size}"
+            )
 
-        print("\n✅ Adaptive batching successfully adjusted batch size based on performance")
+        print(
+            "\n✅ Adaptive batching successfully adjusted batch size based on performance"
+        )
 
     async def demonstrate_performance_monitoring(self):
         """Demonstrate comprehensive performance monitoring."""
@@ -236,9 +244,15 @@ class BGEInICLPhase3Demo:
 
         # Show metrics comparison
         print("\n📈 Metrics comparison:")
-        print(f"   Requests: {initial_metrics['total_requests']} → {final_metrics['total_requests']}")
-        print(f"   Texts processed: {initial_metrics['total_texts']} → {final_metrics['total_texts']}")
-        print(f"   Total time: {initial_metrics['total_time']:.2f}s → {final_metrics['total_time']:.2f}s")
+        print(
+            f"   Requests: {initial_metrics['total_requests']} → {final_metrics['total_requests']}"
+        )
+        print(
+            f"   Texts processed: {initial_metrics['total_texts']} → {final_metrics['total_texts']}"
+        )
+        print(
+            f"   Total time: {initial_metrics['total_time']:.2f}s → {final_metrics['total_time']:.2f}s"
+        )
 
     def print_metrics(self, metrics: dict[str, Any]):
         """Pretty print performance metrics.
@@ -254,7 +268,7 @@ class BGEInICLPhase3Demo:
         print(f"   Cache hit rate: {metrics['cache_hit_rate']:.1%}")
         print(f"   Current batch size: {metrics['current_batch_size']}")
         print(f"   Adaptive batching: {metrics['adaptive_batching_enabled']}")
-        if metrics['recent_batch_sizes']:
+        if metrics["recent_batch_sizes"]:
             print(f"   Recent batch sizes: {metrics['recent_batch_sizes']}")
 
     async def run_comprehensive_demo(self):

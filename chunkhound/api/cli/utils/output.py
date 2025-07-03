@@ -77,7 +77,9 @@ class OutputFormatter:
             widths: Optional column widths
         """
         if widths:
-            row = " | ".join(header.ljust(width) for header, width in zip(headers, widths))
+            row = " | ".join(
+                header.ljust(width) for header, width in zip(headers, widths)
+            )
         else:
             row = " | ".join(headers)
 
@@ -92,7 +94,9 @@ class OutputFormatter:
             widths: Optional column widths
         """
         if widths:
-            row = " | ".join(str(value).ljust(width) for value, width in zip(values, widths))
+            row = " | ".join(
+                str(value).ljust(width) for value, width in zip(values, widths)
+            )
         else:
             row = " | ".join(str(value) for value in values)
 
@@ -108,9 +112,9 @@ def format_stats(stats: dict[str, Any]) -> str:
     Returns:
         Formatted statistics string
     """
-    files = stats.get('files', 0)
-    chunks = stats.get('chunks', 0)
-    embeddings = stats.get('embeddings', 0)
+    files = stats.get("files", 0)
+    chunks = stats.get("chunks", 0)
+    embeddings = stats.get("embeddings", 0)
 
     return f"{files} files, {chunks} chunks, {embeddings} embeddings"
 
@@ -124,11 +128,11 @@ def format_health_status(status: dict[str, Any]) -> str:
     Returns:
         Formatted status string with emoji
     """
-    if status.get('healthy', False):
-        response_time = status.get('response_time_ms', 0)
+    if status.get("healthy", False):
+        response_time = status.get("response_time_ms", 0)
         return f"🟢 Healthy ({response_time}ms)"
     else:
-        error = status.get('error', 'Unknown error')
+        error = status.get("error", "Unknown error")
         return f"🔴 Unhealthy: {error}"
 
 
@@ -141,7 +145,7 @@ def format_file_size(size_bytes: float) -> str:
     Returns:
         Human-readable size string
     """
-    for unit in ['B', 'KB', 'MB', 'GB']:
+    for unit in ["B", "KB", "MB", "GB"]:
         if size_bytes < 1024:
             return f"{size_bytes:.1f} {unit}"
         size_bytes /= 1024
@@ -209,12 +213,12 @@ def format_server_info(server_config: dict[str, Any]) -> list[str]:
     Returns:
         List of formatted values for table row
     """
-    name = server_config.get('name', 'Unknown')
-    server_type = server_config.get('type', 'Unknown')
-    base_url = server_config.get('base_url', 'N/A')
-    model = server_config.get('model', 'Auto')
-    enabled = "Yes" if server_config.get('enabled', False) else "No"
-    is_default = "Yes" if server_config.get('default', False) else "No"
+    name = server_config.get("name", "Unknown")
+    server_type = server_config.get("type", "Unknown")
+    base_url = server_config.get("base_url", "N/A")
+    model = server_config.get("model", "Auto")
+    enabled = "Yes" if server_config.get("enabled", False) else "No"
+    is_default = "Yes" if server_config.get("default", False) else "No"
 
     # Truncate long URLs for display
     if len(base_url) > 40:

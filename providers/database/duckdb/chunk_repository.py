@@ -1,6 +1,6 @@
 """DuckDB chunk repository implementation - handles chunk CRUD operations."""
 
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
@@ -16,7 +16,7 @@ class DuckDBChunkRepository:
 
     def __init__(self, connection_manager: "DuckDBConnectionManager", provider=None):
         """Initialize chunk repository.
-        
+
         Args:
             connection_manager: DuckDB connection manager instance
             provider: Optional provider instance for transaction-aware connections
@@ -28,7 +28,6 @@ class DuckDBChunkRepository:
     def connection(self) -> Any | None:
         """Get database connection from connection manager."""
         return self._connection_manager.connection
-    
 
     def insert_chunk(self, chunk: Chunk) -> int:
         """Insert chunk record and return chunk ID."""
@@ -38,25 +37,30 @@ class DuckDBChunkRepository:
         try:
             # Delegate to provider's executor for thread safety
             if self._provider:
-                return self._provider._execute_in_db_thread_sync('insert_chunk_single', chunk)
+                return self._provider._execute_in_db_thread_sync(
+                    "insert_chunk_single", chunk
+                )
             else:
                 # Fallback for tests
-                result = self._connection_manager.connection.execute("""
+                result = self._connection_manager.connection.execute(
+                    """
                     INSERT INTO chunks (file_id, chunk_type, symbol, code, start_line, end_line,
                                       start_byte, end_byte, language)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                     RETURNING id
-                """, [
-                    chunk.file_id,
-                    chunk.chunk_type.value if chunk.chunk_type else None,
-                    chunk.symbol,
-                    chunk.code,
-                    chunk.start_line,
-                    chunk.end_line,
-                    chunk.start_byte,
-                    chunk.end_byte,
-                    chunk.language.value if chunk.language else None
-                ]).fetchone()
+                """,
+                    [
+                        chunk.file_id,
+                        chunk.chunk_type.value if chunk.chunk_type else None,
+                        chunk.symbol,
+                        chunk.code,
+                        chunk.start_line,
+                        chunk.end_line,
+                        chunk.start_byte,
+                        chunk.end_byte,
+                        chunk.language.value if chunk.language else None,
+                    ],
+                ).fetchone()
 
                 return result[0] if result else 0
 
@@ -76,20 +80,22 @@ class DuckDBChunkRepository:
             # Prepare values for bulk INSERT statement
             values_clauses = []
             params = []
-            
+
             for chunk in chunks:
                 values_clauses.append("(?, ?, ?, ?, ?, ?, ?, ?, ?)")
-                params.extend([
-                    chunk.file_id,
-                    chunk.chunk_type.value if chunk.chunk_type else None,
-                    chunk.symbol,
-                    chunk.code,
-                    chunk.start_line,
-                    chunk.end_line,
-                    chunk.start_byte,
-                    chunk.end_byte,
-                    chunk.language.value if chunk.language else None,
-                ])
+                params.extend(
+                    [
+                        chunk.file_id,
+                        chunk.chunk_type.value if chunk.chunk_type else None,
+                        chunk.symbol,
+                        chunk.code,
+                        chunk.start_line,
+                        chunk.end_line,
+                        chunk.start_byte,
+                        chunk.end_byte,
+                        chunk.language.value if chunk.language else None,
+                    ]
+                )
 
             # Use single bulk INSERT with RETURNING for optimal performance
             values_sql = ", ".join(values_clauses)
@@ -99,35 +105,46 @@ class DuckDBChunkRepository:
                 VALUES {values_sql}
                 RETURNING id
             """
-            
+
             # Execute bulk insert and get all IDs in one operation
             if self._provider:
                 # Provider not used for batch operations currently
-                results = self._connection_manager.connection.execute(query, params).fetchall()
+                results = self._connection_manager.connection.execute(
+                    query, params
+                ).fetchall()
             else:
-                results = self._connection_manager.connection.execute(query, params).fetchall()
+                results = self._connection_manager.connection.execute(
+                    query, params
+                ).fetchall()
             chunk_ids = [result[0] for result in results]
-            
+
             return chunk_ids
 
         except Exception as e:
             logger.error(f"Failed to insert chunks batch: {e}")
             raise
 
-    def get_chunk_by_id(self, chunk_id: int, as_model: bool = False) -> dict[str, Any] | Chunk | None:
+    def get_chunk_by_id(
+        self, chunk_id: int, as_model: bool = False
+    ) -> dict[str, Any] | Chunk | None:
         """Get chunk record by ID."""
         if self.connection is None:
             raise RuntimeError("No database connection")
 
         try:
             if self._provider:
-                result = self._provider._execute_in_db_thread_sync('get_chunk_by_id_query', chunk_id)
+                result = self._provider._execute_in_db_thread_sync(
+                    "get_chunk_by_id_query", chunk_id
+                )
             else:
-                result = self._connection_manager.connection.execute("""
+                result = self._connection_manager.connection.execute(
+                    """
                     SELECT id, file_id, chunk_type, symbol, code, start_line, end_line,
                            start_byte, end_byte, language, created_at, updated_at
                     FROM chunks WHERE id = ?
-                """, [chunk_id]).fetchone()
+                """,
+                    [chunk_id],
+                ).fetchone()
 
             if not result:
                 return None
@@ -144,7 +161,7 @@ class DuckDBChunkRepository:
                 "end_byte": result[8],
                 "language": result[9],
                 "created_at": result[10],
-                "updated_at": result[11]
+                "updated_at": result[11],
             }
 
             if as_model:
@@ -157,7 +174,7 @@ class DuckDBChunkRepository:
                     end_line=result[6],
                     start_byte=result[7],
                     end_byte=result[8],
-                    language=Language(result[9]) if result[9] else Language.UNKNOWN
+                    language=Language(result[9]) if result[9] else Language.UNKNOWN,
                 )
 
             return chunk_dict
@@ -166,21 +183,28 @@ class DuckDBChunkRepository:
             logger.error(f"Failed to get chunk by ID {chunk_id}: {e}")
             return None
 
-    def get_chunks_by_file_id(self, file_id: int, as_model: bool = False) -> list[dict[str, Any] | Chunk]:
+    def get_chunks_by_file_id(
+        self, file_id: int, as_model: bool = False
+    ) -> list[dict[str, Any] | Chunk]:
         """Get all chunks for a specific file."""
         if self.connection is None:
             raise RuntimeError("No database connection")
 
         try:
             if self._provider:
-                results = self._provider._execute_in_db_thread_sync('get_chunks_by_file_id_query', file_id)
+                results = self._provider._execute_in_db_thread_sync(
+                    "get_chunks_by_file_id_query", file_id
+                )
             else:
-                results = self._connection_manager.connection.execute("""
+                results = self._connection_manager.connection.execute(
+                    """
                     SELECT id, file_id, chunk_type, symbol, code, start_line, end_line,
                            start_byte, end_byte, language, created_at, updated_at
                     FROM chunks WHERE file_id = ?
                     ORDER BY start_line
-                """, [file_id]).fetchall()
+                """,
+                    [file_id],
+                ).fetchall()
 
             chunks = []
             for result in results:
@@ -196,21 +220,27 @@ class DuckDBChunkRepository:
                     "end_byte": result[8],
                     "language": result[9],
                     "created_at": result[10],
-                    "updated_at": result[11]
+                    "updated_at": result[11],
                 }
 
                 if as_model:
-                    chunks.append(Chunk(
-                        file_id=result[1],
-                        chunk_type=ChunkType(result[2]) if result[2] else ChunkType.UNKNOWN,
-                        symbol=result[3],
-                        code=result[4],
-                        start_line=result[5],
-                        end_line=result[6],
-                        start_byte=result[7],
-                        end_byte=result[8],
-                        language=Language(result[9]) if result[9] else Language.UNKNOWN
-                    ))
+                    chunks.append(
+                        Chunk(
+                            file_id=result[1],
+                            chunk_type=ChunkType(result[2])
+                            if result[2]
+                            else ChunkType.UNKNOWN,
+                            symbol=result[3],
+                            code=result[4],
+                            start_line=result[5],
+                            end_line=result[6],
+                            start_byte=result[7],
+                            end_byte=result[8],
+                            language=Language(result[9])
+                            if result[9]
+                            else Language.UNKNOWN,
+                        )
+                    )
                 else:
                     chunks.append(chunk_dict)
 
@@ -228,7 +258,7 @@ class DuckDBChunkRepository:
         try:
             # Delegate to provider if available for proper executor handling
             if self._provider:
-                self._provider._execute_in_db_thread_sync('delete_file_chunks', file_id)
+                self._provider._execute_in_db_thread_sync("delete_file_chunks", file_id)
             else:
                 # Fallback for tests - simplified version without embedding cleanup
                 self._connection_manager.connection.execute(
@@ -247,7 +277,7 @@ class DuckDBChunkRepository:
         try:
             # Delegate to provider if available for proper executor handling
             if self._provider:
-                self._provider._execute_in_db_thread_sync('delete_chunk', chunk_id)
+                self._provider._execute_in_db_thread_sync("delete_chunk", chunk_id)
             else:
                 # Fallback for tests - simplified version without embedding cleanup
                 self._connection_manager.connection.execute(
@@ -271,8 +301,16 @@ class DuckDBChunkRepository:
             set_clauses = []
             values = []
 
-            valid_fields = ["chunk_type", "symbol", "code", "start_line", "end_line",
-                          "start_byte", "end_byte", "language"]
+            valid_fields = [
+                "chunk_type",
+                "symbol",
+                "code",
+                "start_line",
+                "end_line",
+                "start_byte",
+                "end_byte",
+                "language",
+            ]
 
             for key, value in kwargs.items():
                 if key in valid_fields:
@@ -285,7 +323,9 @@ class DuckDBChunkRepository:
 
                 query = f"UPDATE chunks SET {', '.join(set_clauses)} WHERE id = ?"
                 if self._provider:
-                    self._provider._execute_in_db_thread_sync('update_chunk_query', chunk_id, query, values)
+                    self._provider._execute_in_db_thread_sync(
+                        "update_chunk_query", chunk_id, query, values
+                    )
                 else:
                     self._connection_manager.connection.execute(query, values)
 
@@ -307,29 +347,33 @@ class DuckDBChunkRepository:
                 JOIN files f ON c.file_id = f.id
                 ORDER BY c.id
             """
-            
+
             if self._provider:
-                results = self._provider._execute_in_db_thread_sync('get_all_chunks_with_metadata_query', query)
+                results = self._provider._execute_in_db_thread_sync(
+                    "get_all_chunks_with_metadata_query", query
+                )
             else:
                 results = self._connection_manager.connection.execute(query).fetchall()
-            
+
             # Convert to list of dictionaries
             result = []
             for row in results:
-                result.append({
-                    'id': row[0],
-                    'file_id': row[1], 
-                    'file_path': row[2],
-                    'content': row[3],
-                    'start_line': row[4],
-                    'end_line': row[5],
-                    'chunk_type': row[6],
-                    'language': row[7],
-                    'name': row[8]
-                })
-                
+                result.append(
+                    {
+                        "id": row[0],
+                        "file_id": row[1],
+                        "file_path": row[2],
+                        "content": row[3],
+                        "start_line": row[4],
+                        "end_line": row[5],
+                        "chunk_type": row[6],
+                        "language": row[7],
+                        "name": row[8],
+                    }
+                )
+
             return result
-            
+
         except Exception as e:
             logger.error(f"Failed to get all chunks with metadata: {e}")
             return []

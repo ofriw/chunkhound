@@ -52,7 +52,6 @@ class DuckDBConnectionManager:
         """Check if database connection is active."""
         return self.connection is not None
 
-
     def connect(self) -> None:
         """Establish database connection and initialize schema with WAL validation."""
         logger.info(f"Connecting to DuckDB database: {self.db_path}")
@@ -76,7 +75,6 @@ class DuckDBConnectionManager:
             self._load_extensions()
 
             # Note: Schema and index creation is now handled by DuckDBProvider's executor
-
 
             logger.info("DuckDB connection manager initialization complete")
 
@@ -118,13 +116,13 @@ class DuckDBConnectionManager:
         """Check if error message indicates WAL corruption."""
         corruption_indicators = [
             "Failure while replaying WAL file",
-            "Catalog \"chunkhound\" does not exist",
+            'Catalog "chunkhound" does not exist',
             "BinderException",
             "Binder Error",
             "Cannot bind index",
             "unknown index type",
             "HNSW",
-            "You need to load the extension"
+            "You need to load the extension",
         ]
 
         return any(indicator in error_msg for indicator in corruption_indicators)
@@ -140,7 +138,7 @@ class DuckDBConnectionManager:
             return  # No WAL files for in-memory databases
 
         db_path = Path(self.db_path)
-        wal_file = db_path.with_suffix(db_path.suffix + '.wal')
+        wal_file = db_path.with_suffix(db_path.suffix + ".wal")
 
         if not wal_file.exists():
             return  # No WAL file, nothing to clean up
@@ -150,7 +148,7 @@ class DuckDBConnectionManager:
             wal_age = time.time() - wal_file.stat().st_mtime
             if wal_age > 86400:  # 24 hours
                 logger.warning(
-                    f"Found stale WAL file (age: {wal_age/3600:.1f}h), "
+                    f"Found stale WAL file (age: {wal_age / 3600:.1f}h), "
                     "removing preemptively"
                 )
                 self._handle_wal_corruption()
@@ -173,7 +171,7 @@ class DuckDBConnectionManager:
     def _handle_wal_corruption(self) -> None:
         """Handle WAL corruption using advanced recovery with VSS extension."""
         db_path = Path(self.db_path)
-        wal_file = db_path.with_suffix(db_path.suffix + '.wal')
+        wal_file = db_path.with_suffix(db_path.suffix + ".wal")
 
         if not wal_file.exists():
             logger.warning(
@@ -222,22 +220,17 @@ class DuckDBConnectionManager:
             # Second attempt: Conservative recovery - remove WAL but create backup first
             try:
                 # Create backup of WAL file before removal
-                backup_path = wal_file.with_suffix('.wal.corrupt')
+                backup_path = wal_file.with_suffix(".wal.corrupt")
                 shutil.copy2(wal_file, backup_path)
                 logger.info(f"Created WAL backup at: {backup_path}")
 
                 # Remove corrupted WAL file
                 os.remove(wal_file)
-                logger.warning(
-                    f"Removed corrupted WAL file: {wal_file} (backup saved)"
-                )
+                logger.warning(f"Removed corrupted WAL file: {wal_file} (backup saved)")
 
             except Exception as e:
-                logger.error(
-                    f"Failed to handle corrupted WAL file {wal_file}: {e}"
-                )
+                logger.error(f"Failed to handle corrupted WAL file {wal_file}: {e}")
                 raise
-
 
     def disconnect(self, skip_checkpoint: bool = False) -> None:
         """Close database connection with optional checkpointing.
@@ -293,10 +286,6 @@ class DuckDBConnectionManager:
             logger.error(f"Failed to load DuckDB extensions: {e}")
             raise
 
-
-
-
-
     def health_check(self) -> dict[str, Any]:
         """Perform health check and return status information."""
         status = {
@@ -306,7 +295,7 @@ class DuckDBConnectionManager:
             "version": None,
             "extensions": [],
             "tables": [],
-            "errors": []
+            "errors": [],
         }
 
         if not self.is_connected:
@@ -331,10 +320,9 @@ class DuckDBConnectionManager:
             """).fetchone()
 
             if extensions_result:
-                status["extensions"].append({
-                    "name": extensions_result[0],
-                    "loaded": extensions_result[1]
-                })
+                status["extensions"].append(
+                    {"name": extensions_result[0], "loaded": extensions_result[1]}
+                )
 
             # Check if tables exist
             tables_result = self.connection.execute("""
@@ -363,8 +351,5 @@ class DuckDBConnectionManager:
             "memory_database": str(self.db_path) == ":memory:",
             "connection_type": (
                 type(self.connection).__name__ if self.connection else None
-            )
+            ),
         }
-
-
-

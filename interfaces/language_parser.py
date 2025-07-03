@@ -10,6 +10,7 @@ from core.types import ChunkType, Language
 @dataclass
 class ParseConfig:
     """Configuration for language parsers."""
+
     language: Language
     chunk_types: set[ChunkType]
     max_chunk_size: int = 8000
@@ -24,6 +25,7 @@ class ParseConfig:
 @dataclass
 class ParseResult:
     """Result from parsing operation."""
+
     chunks: list[dict[str, Any]]
     language: Language
     total_chunks: int
@@ -81,7 +83,9 @@ class LanguageParser(Protocol):
         """
         ...
 
-    def parse_content(self, content: str, file_path: Path | None = None) -> list[dict[str, Any]]:
+    def parse_content(
+        self, content: str, file_path: Path | None = None
+    ) -> list[dict[str, Any]]:
         """Parse content string and extract semantic chunks.
 
         Args:
@@ -116,9 +120,7 @@ class LanguageParser(Protocol):
         ...
 
     def parse_incremental(
-        self,
-        file_path: Path,
-        previous_chunks: list[dict[str, Any]] | None = None
+        self, file_path: Path, previous_chunks: list[dict[str, Any]] | None = None
     ) -> list[dict[str, Any]]:
         """Parse file incrementally, reusing previous results when possible.
 

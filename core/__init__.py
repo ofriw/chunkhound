@@ -26,13 +26,11 @@ __all__ = [
     "Chunk",
     "Embedding",
     "EmbeddingResult",
-
     # Types
     "ChunkType",
     "Language",
     "ProviderName",
     "ModelName",
-
     # Exceptions
     "ChunkHoundError",
     "ValidationError",

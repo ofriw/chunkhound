@@ -17,15 +17,17 @@ logger = logging.getLogger(__name__)
 
 class TaskPriority(IntEnum):
     """Task priority levels - lower numbers = higher priority."""
-    HIGH = 1      # Search operations (regex, semantic)
-    MEDIUM = 5    # Health checks, stats
-    LOW = 10      # File updates, embeddings generation
+
+    HIGH = 1  # Search operations (regex, semantic)
+    MEDIUM = 5  # Health checks, stats
+    LOW = 10  # File updates, embeddings generation
     BACKGROUND = 20  # Periodic indexing, maintenance tasks
 
 
 @dataclass
 class Task:
     """Represents a task to be executed."""
+
     priority: TaskPriority
     func: Callable
     args: tuple = field(default_factory=tuple)
@@ -33,7 +35,7 @@ class Task:
     future: asyncio.Future | None = field(default=None)
     created_at: float = field(default_factory=time.time)
 
-    def __lt__(self, other: 'Task') -> bool:
+    def __lt__(self, other: "Task") -> bool:
         """Priority queue comparison - lower priority number = higher priority."""
         if self.priority != other.priority:
             return self.priority < other.priority
@@ -54,15 +56,17 @@ class TaskCoordinator:
         Args:
             max_queue_size: Maximum number of tasks to queue before blocking
         """
-        self._queue: asyncio.PriorityQueue = asyncio.PriorityQueue(maxsize=max_queue_size)
+        self._queue: asyncio.PriorityQueue = asyncio.PriorityQueue(
+            maxsize=max_queue_size
+        )
         self._worker_task: asyncio.Task | None = None
         self._shutdown_event = asyncio.Event()
         self._running = False
         self._stats = {
-            'tasks_queued': 0,
-            'tasks_completed': 0,
-            'tasks_failed': 0,
-            'queue_size': 0
+            "tasks_queued": 0,
+            "tasks_completed": 0,
+            "tasks_failed": 0,
+            "queue_size": 0,
         }
 
     async def start(self) -> None:
@@ -94,7 +98,9 @@ class TaskCoordinator:
             try:
                 await asyncio.wait_for(self._worker_task, timeout=timeout)
             except asyncio.TimeoutError:
-                logger.warning("TaskCoordinator worker did not stop gracefully, cancelling")
+                logger.warning(
+                    "TaskCoordinator worker did not stop gracefully, cancelling"
+                )
                 self._worker_task.cancel()
                 try:
                     await self._worker_task
@@ -103,11 +109,13 @@ class TaskCoordinator:
 
         logger.info("TaskCoordinator stopped")
 
-    async def queue_task(self,
-                        priority: TaskPriority,
-                        func: Callable[..., Any],
-                        *args: Any,
-                        **kwargs: Any) -> Any:
+    async def queue_task(
+        self,
+        priority: TaskPriority,
+        func: Callable[..., Any],
+        *args: Any,
+        **kwargs: Any,
+    ) -> Any:
         """
         Queue a task for execution with given priority.
 
@@ -129,17 +137,13 @@ class TaskCoordinator:
 
         future: asyncio.Future[Any] = asyncio.Future()
         task = Task(
-            priority=priority,
-            func=func,
-            args=args,
-            kwargs=kwargs,
-            future=future
+            priority=priority, func=func, args=args, kwargs=kwargs, future=future
         )
 
         try:
             await self._queue.put(task)
-            self._stats['tasks_queued'] += 1
-            self._stats['queue_size'] = self._queue.qsize()
+            self._stats["tasks_queued"] += 1
+            self._stats["queue_size"] = self._queue.qsize()
 
             # Wait for task completion
             return await future
@@ -148,11 +152,13 @@ class TaskCoordinator:
             logger.error("Task queue is full, rejecting task")
             raise
 
-    async def queue_task_nowait(self,
-                               priority: TaskPriority,
-                               func: Callable[..., Any],
-                               *args: Any,
-                               **kwargs: Any) -> asyncio.Future[Any]:
+    async def queue_task_nowait(
+        self,
+        priority: TaskPriority,
+        func: Callable[..., Any],
+        *args: Any,
+        **kwargs: Any,
+    ) -> asyncio.Future[Any]:
         """
         Queue a task without waiting for completion.
 
@@ -174,17 +180,13 @@ class TaskCoordinator:
 
         future: asyncio.Future[Any] = asyncio.Future()
         task = Task(
-            priority=priority,
-            func=func,
-            args=args,
-            kwargs=kwargs,
-            future=future
+            priority=priority, func=func, args=args, kwargs=kwargs, future=future
         )
 
         try:
             self._queue.put_nowait(task)
-            self._stats['tasks_queued'] += 1
-            self._stats['queue_size'] = self._queue.qsize()
+            self._stats["tasks_queued"] += 1
+            self._stats["queue_size"] = self._queue.qsize()
             return future
 
         except asyncio.QueueFull:
@@ -195,8 +197,8 @@ class TaskCoordinator:
         """Get task coordinator statistics."""
         return {
             **self._stats,
-            'queue_size': self._queue.qsize(),
-            'is_running': self._running
+            "queue_size": self._queue.qsize(),
+            "is_running": self._running,
         }
 
     async def _worker_loop(self) -> None:
@@ -214,7 +216,7 @@ class TaskCoordinator:
                         break
                     continue
 
-                self._stats['queue_size'] = self._queue.qsize()
+                self._stats["queue_size"] = self._queue.qsize()
 
                 # Execute the task
                 try:
@@ -224,12 +226,12 @@ class TaskCoordinator:
                         result = task.func(*task.args, **task.kwargs)
 
                     task.future.set_result(result)
-                    self._stats['tasks_completed'] += 1
+                    self._stats["tasks_completed"] += 1
 
                 except Exception as e:
                     logger.error(f"Task execution failed: {e}", exc_info=True)
                     task.future.set_exception(e)
-                    self._stats['tasks_failed'] += 1
+                    self._stats["tasks_failed"] += 1
 
                 finally:
                     self._queue.task_done()

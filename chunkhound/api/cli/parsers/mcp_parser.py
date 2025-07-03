@@ -18,7 +18,7 @@ def add_mcp_subparser(subparsers: Any) -> argparse.ArgumentParser:
     mcp_parser = subparsers.add_parser(
         "mcp",
         help="Run Model Context Protocol server",
-        description="Start the MCP server for integration with MCP-compatible clients"
+        description="Start the MCP server for integration with MCP-compatible clients",
     )
 
     # Add common arguments

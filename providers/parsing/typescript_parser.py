@@ -12,6 +12,7 @@ from providers.parsing.base_parser import TreeSitterParserBase
 
 try:
     from tree_sitter import Node as TSNode
+
     TYPESCRIPT_AVAILABLE = True
 except ImportError:
     TYPESCRIPT_AVAILABLE = False
@@ -41,7 +42,7 @@ class TypeScriptParser(TreeSitterParserBase):
                 ChunkType.ENUM,
                 ChunkType.TYPE_ALIAS,
                 ChunkType.COMMENT,
-                ChunkType.DOCSTRING
+                ChunkType.DOCSTRING,
             },
             max_chunk_size=8000,
             min_chunk_size=100,
@@ -49,14 +50,16 @@ class TypeScriptParser(TreeSitterParserBase):
             include_comments=False,
             include_docstrings=True,
             max_depth=10,
-            use_cache=True
+            use_cache=True,
         )
 
     def _get_tree_sitter_language_name(self) -> str:
         """Get tree-sitter language name for TypeScript."""
         return "typescript"
 
-    def _extract_chunks(self, tree_node: TSNode, source: str, file_path: Path) -> list[dict[str, Any]]:
+    def _extract_chunks(
+        self, tree_node: TSNode, source: str, file_path: Path
+    ) -> list[dict[str, Any]]:
         """Extract semantic chunks from TypeScript AST.
 
         Args:
@@ -96,23 +99,29 @@ class TypeScriptParser(TreeSitterParserBase):
         # Extract comments
         if ChunkType.COMMENT in self._config.chunk_types:
             comment_patterns = ["(comment) @comment"]
-            chunks.extend(self._extract_comments_generic(tree_node, source, file_path, comment_patterns))
+            chunks.extend(
+                self._extract_comments_generic(
+                    tree_node, source, file_path, comment_patterns
+                )
+            )
 
         # Extract JSDoc comments as docstrings
         if ChunkType.DOCSTRING in self._config.chunk_types:
-            docstring_patterns = [
-                ("(comment) @jsdoc", "jsdoc")
-            ]
+            docstring_patterns = [("(comment) @jsdoc", "jsdoc")]
             # Filter for JSDoc-style comments only
             jsdoc_chunks = []
-            for chunk in self._extract_docstrings_generic(tree_node, source, file_path, docstring_patterns):
+            for chunk in self._extract_docstrings_generic(
+                tree_node, source, file_path, docstring_patterns
+            ):
                 if chunk["code"].strip().startswith("/**"):
                     jsdoc_chunks.append(chunk)
             chunks.extend(jsdoc_chunks)
 
         return chunks
 
-    def _extract_functions(self, tree_node: TSNode, source: str, file_path: Path) -> list[dict[str, Any]]:
+    def _extract_functions(
+        self, tree_node: TSNode, source: str, file_path: Path
+    ) -> list[dict[str, Any]]:
         """Extract TypeScript function declarations from AST."""
         chunks = []
 
@@ -173,9 +182,13 @@ class TypeScriptParser(TreeSitterParserBase):
                     display_name += f": {return_type}"
 
                 chunk = self._create_chunk(
-                    function_node, source, file_path,
-                    ChunkType.FUNCTION, function_name, display_name,
-                    parameters=parameters
+                    function_node,
+                    source,
+                    file_path,
+                    ChunkType.FUNCTION,
+                    function_name,
+                    display_name,
+                    parameters=parameters,
                 )
 
                 if return_type:
@@ -188,7 +201,9 @@ class TypeScriptParser(TreeSitterParserBase):
 
         return chunks
 
-    def _extract_classes(self, tree_node: TSNode, source: str, file_path: Path) -> list[dict[str, Any]]:
+    def _extract_classes(
+        self, tree_node: TSNode, source: str, file_path: Path
+    ) -> list[dict[str, Any]]:
         """Extract TypeScript class declarations from AST."""
         chunks = []
 
@@ -222,15 +237,21 @@ class TypeScriptParser(TreeSitterParserBase):
                     display_name = class_name
 
                 chunk = self._create_chunk(
-                    class_node, source, file_path,
-                    ChunkType.CLASS, class_name, display_name
+                    class_node,
+                    source,
+                    file_path,
+                    ChunkType.CLASS,
+                    class_name,
+                    display_name,
                 )
 
                 chunks.append(chunk)
 
                 # Extract methods from class
                 if ChunkType.METHOD in self._config.chunk_types:
-                    method_chunks = self._extract_class_methods(class_node, source, file_path, class_name)
+                    method_chunks = self._extract_class_methods(
+                        class_node, source, file_path, class_name
+                    )
                     chunks.extend(method_chunks)
 
         except Exception as e:
@@ -238,7 +259,9 @@ class TypeScriptParser(TreeSitterParserBase):
 
         return chunks
 
-    def _extract_interfaces(self, tree_node: TSNode, source: str, file_path: Path) -> list[dict[str, Any]]:
+    def _extract_interfaces(
+        self, tree_node: TSNode, source: str, file_path: Path
+    ) -> list[dict[str, Any]]:
         """Extract TypeScript interface declarations from AST."""
         chunks = []
 
@@ -272,8 +295,12 @@ class TypeScriptParser(TreeSitterParserBase):
                     display_name = interface_name
 
                 chunk = self._create_chunk(
-                    interface_node, source, file_path,
-                    ChunkType.INTERFACE, interface_name, display_name
+                    interface_node,
+                    source,
+                    file_path,
+                    ChunkType.INTERFACE,
+                    interface_name,
+                    display_name,
                 )
 
                 chunks.append(chunk)
@@ -283,7 +310,9 @@ class TypeScriptParser(TreeSitterParserBase):
 
         return chunks
 
-    def _extract_enums(self, tree_node: TSNode, source: str, file_path: Path) -> list[dict[str, Any]]:
+    def _extract_enums(
+        self, tree_node: TSNode, source: str, file_path: Path
+    ) -> list[dict[str, Any]]:
         """Extract TypeScript enum declarations from AST."""
         chunks = []
 
@@ -310,8 +339,7 @@ class TypeScriptParser(TreeSitterParserBase):
                 enum_name = self._get_node_text(enum_name_node, source)
 
                 chunk = self._create_chunk(
-                    enum_node, source, file_path,
-                    ChunkType.ENUM, enum_name, enum_name
+                    enum_node, source, file_path, ChunkType.ENUM, enum_name, enum_name
                 )
 
                 chunks.append(chunk)
@@ -321,7 +349,9 @@ class TypeScriptParser(TreeSitterParserBase):
 
         return chunks
 
-    def _extract_type_aliases(self, tree_node: TSNode, source: str, file_path: Path) -> list[dict[str, Any]]:
+    def _extract_type_aliases(
+        self, tree_node: TSNode, source: str, file_path: Path
+    ) -> list[dict[str, Any]]:
         """Extract TypeScript type alias declarations from AST."""
         chunks = []
 
@@ -355,8 +385,12 @@ class TypeScriptParser(TreeSitterParserBase):
                     display_name = type_name
 
                 chunk = self._create_chunk(
-                    type_node, source, file_path,
-                    ChunkType.TYPE_ALIAS, type_name, display_name
+                    type_node,
+                    source,
+                    file_path,
+                    ChunkType.TYPE_ALIAS,
+                    type_name,
+                    display_name,
                 )
 
                 chunks.append(chunk)
@@ -366,7 +400,9 @@ class TypeScriptParser(TreeSitterParserBase):
 
         return chunks
 
-    def _extract_components(self, tree_node: TSNode, source: str, file_path: Path) -> list[dict[str, Any]]:
+    def _extract_components(
+        self, tree_node: TSNode, source: str, file_path: Path
+    ) -> list[dict[str, Any]]:
         """Extract React component declarations from TypeScript/TSX."""
         chunks = []
 
@@ -421,9 +457,13 @@ class TypeScriptParser(TreeSitterParserBase):
                 display_name = f"{component_name}({param_types_str})"
 
                 chunk = self._create_chunk(
-                    component_node, source, file_path,
-                    ChunkType.FUNCTION, component_name, display_name,
-                    parameters=parameters
+                    component_node,
+                    source,
+                    file_path,
+                    ChunkType.FUNCTION,
+                    component_name,
+                    display_name,
+                    parameters=parameters,
                 )
 
                 chunks.append(chunk)
@@ -433,8 +473,9 @@ class TypeScriptParser(TreeSitterParserBase):
 
         return chunks
 
-    def _extract_class_methods(self, class_node: TSNode, source: str,
-                              file_path: Path, class_name: str) -> list[dict[str, Any]]:
+    def _extract_class_methods(
+        self, class_node: TSNode, source: str, file_path: Path, class_name: str
+    ) -> list[dict[str, Any]]:
         """Extract methods from a TypeScript class."""
         chunks = []
 
@@ -496,9 +537,14 @@ class TypeScriptParser(TreeSitterParserBase):
                     display_name += f": {return_type}"
 
                 chunk = self._create_chunk(
-                    method_node, source, file_path,
-                    ChunkType.METHOD, qualified_name, display_name,
-                    parent=class_name, parameters=parameters
+                    method_node,
+                    source,
+                    file_path,
+                    ChunkType.METHOD,
+                    qualified_name,
+                    display_name,
+                    parent=class_name,
+                    parameters=parameters,
                 )
 
                 if return_type:
@@ -526,7 +572,9 @@ class TypeScriptParser(TreeSitterParserBase):
             logger.error(f"Failed to extract TypeScript type parameters: {e}")
             return ""
 
-    def _extract_function_parameters(self, function_node: TSNode, source: str) -> list[str]:
+    def _extract_function_parameters(
+        self, function_node: TSNode, source: str
+    ) -> list[str]:
         """Extract parameter types from a TypeScript function."""
         parameters = []
 
@@ -551,7 +599,12 @@ class TypeScriptParser(TreeSitterParserBase):
                 if child and child.type in ["required_parameter", "optional_parameter"]:
                     # Get parameter with type annotation
                     param_text = self._get_node_text(child, source).strip()
-                    if param_text and param_text != "," and param_text != "(" and param_text != ")":
+                    if (
+                        param_text
+                        and param_text != ","
+                        and param_text != "("
+                        and param_text != ")"
+                    ):
                         parameters.append(param_text)
 
         except Exception as e:
@@ -559,7 +612,9 @@ class TypeScriptParser(TreeSitterParserBase):
 
         return parameters
 
-    def _extract_function_return_type(self, function_node: TSNode, source: str) -> str | None:
+    def _extract_function_return_type(
+        self, function_node: TSNode, source: str
+    ) -> str | None:
         """Extract return type from a TypeScript function."""
         try:
             if self._language is None:

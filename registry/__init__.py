@@ -37,8 +37,7 @@ from services.embedding_service import EmbeddingService
 from services.indexing_coordinator import IndexingCoordinator
 from services.search_service import SearchService
 
-
-T = TypeVar('T')
+T = TypeVar("T")
 
 
 class ProviderRegistry:
@@ -64,13 +63,15 @@ class ProviderRegistry:
 
         # Register database provider after configuration is available
         self._register_database_provider()
-        
+
         # Register embedding provider after configuration is available
         self._register_embedding_provider()
 
         logger.info("Provider registry configured")
 
-    def register_provider(self, name: str, implementation: Any, singleton: bool = True) -> None:
+    def register_provider(
+        self, name: str, implementation: Any, singleton: bool = True
+    ) -> None:
         """Register a provider implementation.
 
         Args:
@@ -97,7 +98,7 @@ class ProviderRegistry:
         """
         # Create and setup parser instance
         parser = parser_class()
-        if hasattr(parser, 'setup'):
+        if hasattr(parser, "setup"):
             parser.setup()
 
         self._language_parsers[language] = parser
@@ -184,7 +185,7 @@ class ProviderRegistry:
         return IndexingCoordinator(
             database_provider=database_provider,
             embedding_provider=embedding_provider,
-            language_parsers=language_parsers
+            language_parsers=language_parsers,
         )
 
     def create_search_service(self) -> SearchService:
@@ -202,8 +203,7 @@ class ProviderRegistry:
             logger.warning("No embedding provider configured for search service")
 
         return SearchService(
-            database_provider=database_provider,
-            embedding_provider=embedding_provider
+            database_provider=database_provider, embedding_provider=embedding_provider
         )
 
     def create_embedding_service(self) -> EmbeddingService:
@@ -222,22 +222,36 @@ class ProviderRegistry:
 
         # Get unified batch configuration from config with environment variable override
         # Optimized defaults based on DuckDB performance research and HNSW vector index best practices
-        embedding_batch_size = int(os.getenv('CHUNKHOUND_EMBEDDING_BATCH_SIZE',
-                                             self._config.get('embedding', {}).get('batch_size', 1000)))
-        db_batch_size = int(os.getenv('CHUNKHOUND_DB_BATCH_SIZE',
-                                      self._config.get('database', {}).get('batch_size', 5000)))
-        max_concurrent = int(os.getenv('CHUNKHOUND_MAX_CONCURRENT_EMBEDDINGS',
-                                       self._config.get('embedding', {}).get('max_concurrent_batches', 8)))
+        embedding_batch_size = int(
+            os.getenv(
+                "CHUNKHOUND_EMBEDDING_BATCH_SIZE",
+                self._config.get("embedding", {}).get("batch_size", 1000),
+            )
+        )
+        db_batch_size = int(
+            os.getenv(
+                "CHUNKHOUND_DB_BATCH_SIZE",
+                self._config.get("database", {}).get("batch_size", 5000),
+            )
+        )
+        max_concurrent = int(
+            os.getenv(
+                "CHUNKHOUND_MAX_CONCURRENT_EMBEDDINGS",
+                self._config.get("embedding", {}).get("max_concurrent_batches", 8),
+            )
+        )
 
-        logger.info(f"EmbeddingService configuration: embedding_batch_size={embedding_batch_size}, "
-                   f"db_batch_size={db_batch_size}, max_concurrent={max_concurrent}")
+        logger.info(
+            f"EmbeddingService configuration: embedding_batch_size={embedding_batch_size}, "
+            f"db_batch_size={db_batch_size}, max_concurrent={max_concurrent}"
+        )
 
         return EmbeddingService(
             database_provider=database_provider,
             embedding_provider=embedding_provider,
             embedding_batch_size=embedding_batch_size,
             db_batch_size=db_batch_size,
-            max_concurrent_batches=max_concurrent
+            max_concurrent_batches=max_concurrent,
         )
 
     def _register_default_providers(self) -> None:
@@ -336,33 +350,38 @@ class ProviderRegistry:
 
     def _register_database_provider(self) -> None:
         """Register the appropriate database provider based on configuration."""
-        database_config = self._config.get('database', {})
+        database_config = self._config.get("database", {})
         # Support both 'provider' and 'type' for backwards compatibility
-        provider_type = database_config.get('provider', database_config.get('type', 'duckdb'))
+        provider_type = database_config.get(
+            "provider", database_config.get("type", "duckdb")
+        )
 
-        if provider_type == 'duckdb':
+        if provider_type == "duckdb":
             self.register_provider("database", DuckDBProvider, singleton=True)
-        elif provider_type == 'lancedb':
+        elif provider_type == "lancedb":
             from chunkhound.providers.database.lancedb_provider import LanceDBProvider
+
             self.register_provider("database", LanceDBProvider, singleton=True)
         else:
-            logger.warning(f"Unsupported database provider type: {provider_type}. Falling back to DuckDB.")
+            logger.warning(
+                f"Unsupported database provider type: {provider_type}. Falling back to DuckDB."
+            )
             self.register_provider("database", DuckDBProvider, singleton=True)
 
     def _register_embedding_provider(self) -> None:
         """Register the appropriate embedding provider based on configuration."""
-        embedding_config = self._config.get('embedding', {})
-        provider_type = embedding_config.get('provider', 'openai')
-        
+        embedding_config = self._config.get("embedding", {})
+        provider_type = embedding_config.get("provider", "openai")
 
-        if provider_type in ['openai', 'openai-compatible']:
+        if provider_type in ["openai", "openai-compatible"]:
             # For both openai and openai-compatible, use OpenAIEmbeddingProvider
             # The OpenAIEmbeddingProvider supports custom base_url for compatibility
             self.register_provider("embedding", OpenAIEmbeddingProvider, singleton=True)
         else:
-            logger.warning(f"Unsupported embedding provider type: {provider_type}. Falling back to OpenAI.")
+            logger.warning(
+                f"Unsupported embedding provider type: {provider_type}. Falling back to OpenAI."
+            )
             self.register_provider("embedding", OpenAIEmbeddingProvider, singleton=True)
-
 
         # Suppress logging during MCP mode initialization
         if not os.environ.get("CHUNKHOUND_MCP_MODE"):
@@ -379,41 +398,56 @@ class ProviderRegistry:
         """
         try:
             # Handle specific provider types
-            if hasattr(cls, '__name__'):
-                if 'DuckDBProvider' in cls.__name__ or 'LanceDBProvider' in cls.__name__:
+            if hasattr(cls, "__name__"):
+                if (
+                    "DuckDBProvider" in cls.__name__
+                    or "LanceDBProvider" in cls.__name__
+                ):
                     # Database providers need db_path parameter and config
-                    db_path = self._config.get('database', {}).get('path', 'chunkhound.db')
-                    
+                    db_path = self._config.get("database", {}).get(
+                        "path", "chunkhound.db"
+                    )
+
                     # Create DatabaseConfig from registry config
                     from chunkhound.core.config.unified_config import DatabaseConfig
+
                     db_config = DatabaseConfig(
                         path=db_path,
-                        provider=self._config.get('database', {}).get('type', 'duckdb'),
-                        lancedb_index_type=self._config.get('database', {}).get('lancedb_index_type')
+                        provider=self._config.get("database", {}).get("type", "duckdb"),
+                        lancedb_index_type=self._config.get("database", {}).get(
+                            "lancedb_index_type"
+                        ),
                     )
-                    
+
                     instance = cls(db_path, config=db_config)
                     instance.connect()
                     return instance
-                elif 'Database' in cls.__name__:
+                elif "Database" in cls.__name__:
                     # Other database providers - use default path
                     return cls()
-                elif 'Embedding' in cls.__name__:
+                elif "Embedding" in cls.__name__:
                     # Embedding provider - inject configuration
-                    embedding_config = self._config.get('embedding', {})
+                    embedding_config = self._config.get("embedding", {})
 
                     # Extract relevant config parameters, filtering out None values
                     # to allow constructor defaults to take effect
                     config_params = {}
-                    for key in ['api_key', 'base_url', 'model', 'batch_size']:
-                        if key in embedding_config and embedding_config[key] is not None:
+                    for key in ["api_key", "base_url", "model", "batch_size"]:
+                        if (
+                            key in embedding_config
+                            and embedding_config[key] is not None
+                        ):
                             config_params[key] = embedding_config[key]
 
-                    logger.debug(f"Creating embedding provider with config: {config_params}")
+                    logger.debug(
+                        f"Creating embedding provider with config: {config_params}"
+                    )
                     try:
                         return cls(**config_params)
                     except Exception as e:
-                        logger.error(f"Failed to create embedding provider {cls.__name__}: {e}")
+                        logger.error(
+                            f"Failed to create embedding provider {cls.__name__}: {e}"
+                        )
                         raise
                 else:
                     # Other services - try with no args first
@@ -427,24 +461,28 @@ class ProviderRegistry:
     def begin_transaction(self) -> None:
         """Begin transaction on registered database provider."""
         database_provider = self.get_provider("database")
-        if hasattr(database_provider, 'begin_transaction'):
+        if hasattr(database_provider, "begin_transaction"):
             database_provider.begin_transaction()
 
     def commit_transaction(self) -> None:
         """Commit transaction on registered database provider."""
         database_provider = self.get_provider("database")
-        if hasattr(database_provider, 'commit_transaction'):
+        if hasattr(database_provider, "commit_transaction"):
             database_provider.commit_transaction()
-        elif hasattr(database_provider, '_provider') and hasattr(database_provider._provider, '_connection'):
+        elif hasattr(database_provider, "_provider") and hasattr(
+            database_provider._provider, "_connection"
+        ):
             # Fallback for existing pattern
             database_provider._provider._connection.commit()
 
     def rollback_transaction(self) -> None:
         """Rollback transaction on registered database provider."""
         database_provider = self.get_provider("database")
-        if hasattr(database_provider, 'rollback_transaction'):
+        if hasattr(database_provider, "rollback_transaction"):
             database_provider.rollback_transaction()
-        elif hasattr(database_provider, '_provider') and hasattr(database_provider._provider, '_connection'):
+        elif hasattr(database_provider, "_provider") and hasattr(
+            database_provider._provider, "_connection"
+        ):
             # Fallback for existing pattern
             database_provider._provider._connection.rollback()
 
@@ -513,14 +551,12 @@ def create_embedding_service() -> EmbeddingService:
     return get_registry().create_embedding_service()
 
 
-
-
 __all__ = [
-    'ProviderRegistry',
-    'get_registry',
-    'configure_registry',
-    'get_provider',
-    'create_indexing_coordinator',
-    'create_search_service',
-    'create_embedding_service'
+    "ProviderRegistry",
+    "get_registry",
+    "configure_registry",
+    "get_provider",
+    "create_indexing_coordinator",
+    "create_search_service",
+    "create_embedding_service",
 ]

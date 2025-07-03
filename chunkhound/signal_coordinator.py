@@ -48,7 +48,9 @@ class SignalCoordinator:
             self.coordination_dir.mkdir(parents=True, exist_ok=True)
             logger.debug(f"Coordination directory ready: {self.coordination_dir}")
         except OSError as e:
-            logger.error(f"Failed to create coordination directory {self.coordination_dir}: {e}")
+            logger.error(
+                f"Failed to create coordination directory {self.coordination_dir}: {e}"
+            )
             raise
 
     def setup_mcp_signal_handling(self) -> None:
@@ -133,39 +135,41 @@ class SignalCoordinator:
             logger.info("Starting graceful database shutdown...")
 
             # Store original database path for restoration
-            if self.database_manager and hasattr(self.database_manager, 'db_path'):
+            if self.database_manager and hasattr(self.database_manager, "db_path"):
                 self._original_db_path = Path(self.database_manager.db_path)
 
             # Perform checkpoint before disconnect to minimize WAL size
             # This is safer now that it's done within the task context
             try:
-                if hasattr(self.database_manager, '_execute_in_db_thread_sync'):
-                    self.database_manager._execute_in_db_thread_sync('maybe_checkpoint', True)
+                if hasattr(self.database_manager, "_execute_in_db_thread_sync"):
+                    self.database_manager._execute_in_db_thread_sync(
+                        "maybe_checkpoint", True
+                    )
                     logger.info("Checkpoint completed before shutdown")
             except Exception as checkpoint_error:
                 logger.warning(f"Checkpoint before shutdown failed: {checkpoint_error}")
 
             # Disconnect database connection (preferred method)
-            if hasattr(self.database_manager, 'disconnect'):
+            if hasattr(self.database_manager, "disconnect"):
                 if not self.database_manager.disconnect():
                     # If disconnect fails, try detach as fallback
                     logger.warning("Disconnect failed, attempting detach")
-                    if hasattr(self.database_manager, 'detach_database'):
+                    if hasattr(self.database_manager, "detach_database"):
                         if not self.database_manager.detach_database():
                             # If detach also fails, try complete close
                             logger.warning("Detach failed, attempting complete close")
-                            if hasattr(self.database_manager, 'close'):
+                            if hasattr(self.database_manager, "close"):
                                 self.database_manager.close()
-                    elif hasattr(self.database_manager, 'close'):
+                    elif hasattr(self.database_manager, "close"):
                         self.database_manager.close()
-            elif hasattr(self.database_manager, 'detach_database'):
+            elif hasattr(self.database_manager, "detach_database"):
                 # Legacy fallback to detach if disconnect not available
                 if not self.database_manager.detach_database():
                     # If detach fails, try complete close
                     logger.warning("Detach failed, attempting complete close")
-                    if hasattr(self.database_manager, 'close'):
+                    if hasattr(self.database_manager, "close"):
                         self.database_manager.close()
-            elif hasattr(self.database_manager, 'close'):
+            elif hasattr(self.database_manager, "close"):
                 # Final fallback to close if neither disconnect nor detach available
                 self.database_manager.close()
 
@@ -195,41 +199,46 @@ class SignalCoordinator:
             logger.info("Starting database reconnection...")
 
             # Reconnect to database (preferred method)
-            if hasattr(self.database_manager, 'reconnect'):
+            if hasattr(self.database_manager, "reconnect"):
                 if not self.database_manager.reconnect():
                     # If reconnect fails, try reattach as fallback
                     logger.warning("Reconnect failed, attempting reattach")
-                    if hasattr(self.database_manager, 'reattach_database'):
+                    if hasattr(self.database_manager, "reattach_database"):
                         if not self.database_manager.reattach_database():
                             # If reattach also fails, try complete reconnect
-                            logger.warning("Reattach failed, attempting complete reconnection")
-                            if hasattr(self.database_manager, 'connect'):
+                            logger.warning(
+                                "Reattach failed, attempting complete reconnection"
+                            )
+                            if hasattr(self.database_manager, "connect"):
                                 self.database_manager.connect()
                             elif self._original_db_path:
                                 # Recreate database connection if needed
                                 from .database import Database
+
                                 self.database_manager = Database(self._original_db_path)
                                 self.database_manager.connect()
-                    elif hasattr(self.database_manager, 'connect'):
+                    elif hasattr(self.database_manager, "connect"):
                         self.database_manager.connect()
                     elif self._original_db_path:
                         # Recreate database connection if needed
                         from .database import Database
+
                         self.database_manager = Database(self._original_db_path)
                         self.database_manager.connect()
-            elif hasattr(self.database_manager, 'reattach_database'):
+            elif hasattr(self.database_manager, "reattach_database"):
                 # Legacy fallback to reattach if reconnect not available
                 if not self.database_manager.reattach_database():
                     # If reattach fails, try complete reconnect
                     logger.warning("Reattach failed, attempting complete reconnection")
-                    if hasattr(self.database_manager, 'connect'):
+                    if hasattr(self.database_manager, "connect"):
                         self.database_manager.connect()
                     elif self._original_db_path:
                         # Recreate database connection if needed
                         from .database import Database
+
                         self.database_manager = Database(self._original_db_path)
                         self.database_manager.connect()
-            elif hasattr(self.database_manager, 'connect'):
+            elif hasattr(self.database_manager, "connect"):
                 # Final fallback to connect if neither reconnect nor reattach available
                 self.database_manager.connect()
 
@@ -270,7 +279,9 @@ class SignalCoordinator:
         else:
             logger.warning("Indexing completion not confirmed")
 
-    def send_coordination_signal(self, signal_type: str, target_pid: int | None = None) -> bool:
+    def send_coordination_signal(
+        self, signal_type: str, target_pid: int | None = None
+    ) -> bool:
         """Send coordination signal to MCP server.
 
         Args:
@@ -288,10 +299,10 @@ class SignalCoordinator:
             return False
 
         try:
-            if signal_type == 'shutdown':
+            if signal_type == "shutdown":
                 os.kill(target_pid, signal.SIGUSR1)
                 logger.info(f"Sent shutdown signal to PID {target_pid}")
-            elif signal_type == 'reopen':
+            elif signal_type == "reopen":
                 os.kill(target_pid, signal.SIGUSR2)
                 logger.info(f"Sent reopen signal to PID {target_pid}")
             else:
@@ -301,7 +312,9 @@ class SignalCoordinator:
             return True
 
         except (ProcessLookupError, PermissionError) as e:
-            logger.error(f"Failed to send {signal_type} signal to PID {target_pid}: {e}")
+            logger.error(
+                f"Failed to send {signal_type} signal to PID {target_pid}: {e}"
+            )
             return False
         except Exception as e:
             logger.error(f"Unexpected error sending signal: {e}")
@@ -377,7 +390,7 @@ class SignalCoordinator:
         """Check if MCP server is currently running."""
         return self.process_detector.is_mcp_server_running()
 
-    def __enter__(self) -> 'SignalCoordinator':
+    def __enter__(self) -> "SignalCoordinator":
         """Context manager entry."""
         return self
 
@@ -416,7 +429,7 @@ class CLICoordinator:
         logger.info("Requesting database access from MCP server")
 
         # Send shutdown signal to MCP server
-        if not self.signal_coordinator.send_coordination_signal('shutdown'):
+        if not self.signal_coordinator.send_coordination_signal("shutdown"):
             return False
 
         # Wait for ready flag
@@ -443,7 +456,7 @@ class CLICoordinator:
         self.signal_coordinator.signal_indexing_complete()
 
         # Send reopen signal to MCP server
-        success = self.signal_coordinator.send_coordination_signal('reopen')
+        success = self.signal_coordinator.send_coordination_signal("reopen")
 
         # Clean up coordination files
         self.signal_coordinator.cleanup_coordination_files()
@@ -457,7 +470,7 @@ class CLICoordinator:
 
         return success
 
-    def __enter__(self) -> 'CLICoordinator':
+    def __enter__(self) -> "CLICoordinator":
         """Context manager entry."""
         return self
 

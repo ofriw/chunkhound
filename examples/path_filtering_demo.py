@@ -34,27 +34,33 @@ async def main():
 
     # Demo 2: Search for class definitions only in providers/ directory
     print("\n=== Demo 2: Search for class definitions in providers/ ===")
-    results, pagination = db.search_regex(r"class\s+\w+", page_size=10, path_filter="providers/")
+    results, pagination = db.search_regex(
+        r"class\s+\w+", page_size=10, path_filter="providers/"
+    )
     print(f"Found {pagination['total']} results:")
     for r in results:
         print(f"  - {r['file_path']}: {r['symbol']} (line {r['start_line']})")
 
     # Demo 3: Search for test functions
     print("\n=== Demo 3: Search for test functions in tests/ ===")
-    results, pagination = db.search_regex(r"def\s+test_\w+", page_size=10, path_filter="tests/")
+    results, pagination = db.search_regex(
+        r"def\s+test_\w+", page_size=10, path_filter="tests/"
+    )
     print(f"Found {pagination['total']} test functions:")
     for r in results[:5]:  # Show first 5
         print(f"  - {r['file_path']}: {r['symbol']} (line {r['start_line']})")
-    if pagination['total'] > 5:
+    if pagination["total"] > 5:
         print(f"  ... and {pagination['total'] - 5} more")
 
     # Demo 4: Search in specific file
     print("\n=== Demo 4: Search in specific file ===")
-    results, pagination = db.search_regex(r"def\s+\w+", page_size=20, path_filter="chunkhound/mcp_server.py")
+    results, pagination = db.search_regex(
+        r"def\s+\w+", page_size=20, path_filter="chunkhound/mcp_server.py"
+    )
     print(f"Found {pagination['total']} functions in mcp_server.py:")
     for r in results[:3]:
         print(f"  - {r['symbol']} (line {r['start_line']})")
-    if pagination['total'] > 3:
+    if pagination["total"] > 3:
         print(f"  ... and {pagination['total'] - 3} more")
 
     # Demo 5: Invalid path patterns (security)

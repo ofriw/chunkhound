@@ -1,6 +1,5 @@
 """C language parser provider implementation for ChunkHound using tree-sitter."""
 
-import time
 from pathlib import Path
 from typing import Any
 
@@ -8,7 +7,7 @@ from loguru import logger
 
 from core.types import ChunkType
 from core.types import Language as CoreLanguage
-from interfaces.language_parser import ParseConfig, ParseResult
+from interfaces.language_parser import ParseConfig
 from providers.parsing.base_parser import TreeSitterParserBase
 
 try:
@@ -16,6 +15,7 @@ try:
     from tree_sitter import Node as TSNode
     from tree_sitter import Parser as TSParser
     from tree_sitter_language_pack import get_language, get_parser
+
     C_AVAILABLE = True
 except ImportError:
     C_AVAILABLE = False
@@ -28,6 +28,7 @@ except ImportError:
 # Try direct import as fallback
 try:
     import tree_sitter_c as ts_c
+
     C_DIRECT_AVAILABLE = True
 except ImportError:
     C_DIRECT_AVAILABLE = False
@@ -65,7 +66,7 @@ class CParser(TreeSitterParserBase):
             include_comments=False,
             include_docstrings=True,
             max_depth=10,
-            use_cache=True
+            use_cache=True,
         )
 
     def _initialize(self) -> bool:
@@ -95,8 +96,8 @@ class CParser(TreeSitterParserBase):
         # Fallback to language pack
         try:
             if C_AVAILABLE and get_language and get_parser:
-                self._language = get_language('c')
-                self._parser = get_parser('c')
+                self._language = get_language("c")
+                self._parser = get_parser("c")
                 self._initialized = True
                 logger.debug("C parser initialized successfully (language pack)")
                 return True
@@ -132,9 +133,7 @@ class CParser(TreeSitterParserBase):
         try:
             # Extract different chunk types based on configuration
             if ChunkType.FUNCTION in self._config.chunk_types:
-                chunks.extend(
-                    self._extract_functions(tree_node, source, file_path)
-                )
+                chunks.extend(self._extract_functions(tree_node, source, file_path))
 
             if ChunkType.CLASS in self._config.chunk_types:
                 chunks.extend(
@@ -142,35 +141,23 @@ class CParser(TreeSitterParserBase):
                 )
 
             if ChunkType.ENUM in self._config.chunk_types:
-                chunks.extend(
-                    self._extract_enums(tree_node, source, file_path)
-                )
+                chunks.extend(self._extract_enums(tree_node, source, file_path))
 
             if ChunkType.VARIABLE in self._config.chunk_types:
-                chunks.extend(
-                    self._extract_variables(tree_node, source, file_path)
-                )
+                chunks.extend(self._extract_variables(tree_node, source, file_path))
 
             if ChunkType.TYPE in self._config.chunk_types:
-                chunks.extend(
-                    self._extract_typedefs(tree_node, source, file_path)
-                )
+                chunks.extend(self._extract_typedefs(tree_node, source, file_path))
 
             if ChunkType.MACRO in self._config.chunk_types:
-                chunks.extend(
-                    self._extract_macros(tree_node, source, file_path)
-                )
+                chunks.extend(self._extract_macros(tree_node, source, file_path))
 
             # Extract comments and docstrings
             if ChunkType.COMMENT in self._config.chunk_types:
-                chunks.extend(
-                    self._extract_comments(tree_node, source, file_path)
-                )
+                chunks.extend(self._extract_comments(tree_node, source, file_path))
 
             if ChunkType.DOCSTRING in self._config.chunk_types:
-                chunks.extend(
-                    self._extract_docstrings(tree_node, source, file_path)
-                )
+                chunks.extend(self._extract_docstrings(tree_node, source, file_path))
 
         except Exception as e:
             logger.error(f"Failed to extract C chunks: {e}")
@@ -215,8 +202,12 @@ class CParser(TreeSitterParserBase):
                 function_name = self._get_node_text(function_name_node, source)
 
                 chunk = self._create_chunk(
-                    function_node, source, file_path, ChunkType.FUNCTION,
-                    function_name, function_name
+                    function_node,
+                    source,
+                    file_path,
+                    ChunkType.FUNCTION,
+                    function_name,
+                    function_name,
                 )
 
                 chunks.append(chunk)
@@ -257,20 +248,28 @@ class CParser(TreeSitterParserBase):
                 if "struct_def" in captures and "struct_name" in captures:
                     struct_node = captures["struct_def"][0]
                     struct_name_node = captures["struct_name"][0]
-                    struct_name = f"struct {self._get_node_text(struct_name_node, source)}"
+                    struct_name = (
+                        f"struct {self._get_node_text(struct_name_node, source)}"
+                    )
 
                 # Handle unions
                 elif "union_def" in captures and "union_name" in captures:
                     struct_node = captures["union_def"][0]
                     union_name_node = captures["union_name"][0]
-                    struct_name = f"union {self._get_node_text(union_name_node, source)}"
+                    struct_name = (
+                        f"union {self._get_node_text(union_name_node, source)}"
+                    )
 
                 if not struct_node or not struct_name:
                     continue
 
                 chunk = self._create_chunk(
-                    struct_node, source, file_path, ChunkType.CLASS,
-                    struct_name, struct_name
+                    struct_node,
+                    source,
+                    file_path,
+                    ChunkType.CLASS,
+                    struct_name,
+                    struct_name,
                 )
 
                 chunks.append(chunk)
@@ -307,8 +306,7 @@ class CParser(TreeSitterParserBase):
                 enum_name = f"enum {self._get_node_text(enum_name_node, source)}"
 
                 chunk = self._create_chunk(
-                    enum_node, source, file_path, ChunkType.ENUM,
-                    enum_name, enum_name
+                    enum_node, source, file_path, ChunkType.ENUM, enum_name, enum_name
                 )
 
                 chunks.append(chunk)
@@ -356,8 +354,7 @@ class CParser(TreeSitterParserBase):
                 var_name = self._get_node_text(var_name_node, source)
 
                 chunk = self._create_chunk(
-                    var_node, source, file_path, ChunkType.VARIABLE,
-                    var_name, var_name
+                    var_node, source, file_path, ChunkType.VARIABLE, var_name, var_name
                 )
 
                 chunks.append(chunk)
@@ -391,11 +388,17 @@ class CParser(TreeSitterParserBase):
 
                 typedef_node = captures["typedef_def"][0]
                 typedef_name_node = captures["typedef_name"][0]
-                typedef_name = f"typedef {self._get_node_text(typedef_name_node, source)}"
+                typedef_name = (
+                    f"typedef {self._get_node_text(typedef_name_node, source)}"
+                )
 
                 chunk = self._create_chunk(
-                    typedef_node, source, file_path, ChunkType.TYPE,
-                    typedef_name, typedef_name
+                    typedef_node,
+                    source,
+                    file_path,
+                    ChunkType.TYPE,
+                    typedef_name,
+                    typedef_name,
                 )
 
                 chunks.append(chunk)
@@ -436,7 +439,9 @@ class CParser(TreeSitterParserBase):
                 if "macro_def" in captures and "macro_name" in captures:
                     macro_node = captures["macro_def"][0]
                     macro_name_node = captures["macro_name"][0]
-                    macro_name = f"#define {self._get_node_text(macro_name_node, source)}"
+                    macro_name = (
+                        f"#define {self._get_node_text(macro_name_node, source)}"
+                    )
 
                 # Handle function-like macros
                 elif "func_macro_def" in captures and "func_macro_name" in captures:
@@ -448,8 +453,12 @@ class CParser(TreeSitterParserBase):
                     continue
 
                 chunk = self._create_chunk(
-                    macro_node, source, file_path, ChunkType.MACRO,
-                    macro_name, macro_name
+                    macro_node,
+                    source,
+                    file_path,
+                    ChunkType.MACRO,
+                    macro_name,
+                    macro_name,
                 )
 
                 chunks.append(chunk)
@@ -459,37 +468,41 @@ class CParser(TreeSitterParserBase):
 
         return chunks
 
-    def _extract_comments(self, tree_node: TSNode, source: str, file_path: Path) -> list[dict[str, Any]]:
+    def _extract_comments(
+        self, tree_node: TSNode, source: str, file_path: Path
+    ) -> list[dict[str, Any]]:
         """Extract C comments (// and /* */)."""
-        comment_patterns = [
-            "(comment) @comment"
-        ]
-        return self._extract_comments_generic(tree_node, source, file_path, comment_patterns)
+        comment_patterns = ["(comment) @comment"]
+        return self._extract_comments_generic(
+            tree_node, source, file_path, comment_patterns
+        )
 
-    def _extract_docstrings(self, tree_node: TSNode, source: str, file_path: Path) -> list[dict[str, Any]]:
+    def _extract_docstrings(
+        self, tree_node: TSNode, source: str, file_path: Path
+    ) -> list[dict[str, Any]]:
         """Extract C documentation comments (/** */)."""
         chunks = []
-        
+
         if self._language is None:
             return chunks
-            
+
         try:
             # Extract documentation comments (/** ... */)
             query = self._language.query("(comment) @comment")
             matches = query.matches(tree_node)
-            
+
             for match in matches:
                 pattern_index, captures = match
-                
+
                 for capture_name, nodes in captures.items():
                     for node in nodes:
                         comment_text = self._get_node_text(node, source)
-                        
+
                         # Check if it's a documentation comment (starts with /**)
                         if comment_text.strip().startswith("/**"):
                             cleaned_text = self._clean_doc_comment_text(comment_text)
                             symbol = f"doc:{node.start_point[0] + 1}"
-                            
+
                             chunk = self._create_chunk(
                                 node=node,
                                 source=source,
@@ -497,32 +510,31 @@ class CParser(TreeSitterParserBase):
                                 chunk_type=ChunkType.DOCSTRING,
                                 name=symbol,
                                 display_name=f"Documentation at line {node.start_point[0] + 1}",
-                                content=cleaned_text
+                                content=cleaned_text,
                             )
-                            
+
                             chunks.append(chunk)
-                            
+
         except Exception as e:
             logger.error(f"Failed to extract C docstrings: {e}")
-            
+
         return chunks
 
     def _clean_doc_comment_text(self, text: str) -> str:
         """Clean documentation comment text by removing /** */ markers and * prefixes."""
         cleaned = text.strip()
-        
+
         # Remove /** */ markers
         if cleaned.startswith("/**") and cleaned.endswith("*/"):
             cleaned = cleaned[3:-2]
-        
+
         # Remove leading * from each line
-        lines = cleaned.split('\n')
+        lines = cleaned.split("\n")
         cleaned_lines = []
         for line in lines:
             line = line.strip()
-            if line.startswith('*'):
+            if line.startswith("*"):
                 line = line[1:].lstrip()
             cleaned_lines.append(line)
-            
-        return '\n'.join(cleaned_lines).strip()
 
+        return "\n".join(cleaned_lines).strip()

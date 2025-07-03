@@ -27,14 +27,15 @@ except ImportError:
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
+
 
 @dataclass
 class BenchmarkConfig:
     """Configuration for benchmark tests."""
+
     server_url: str
     api_key: str | None = None
     batch_sizes: list[int] = None
@@ -45,7 +46,7 @@ class BenchmarkConfig:
     enable_icl: bool = True
     adaptive_batching: bool = True
     context_cache_size: int = 100
-    output_format: str = 'json'  # json, csv, both
+    output_format: str = "json"  # json, csv, both
     output_file: str | None = None
     verbose: bool = False
 
@@ -53,11 +54,13 @@ class BenchmarkConfig:
         if self.batch_sizes is None:
             self.batch_sizes = [1, 5, 10, 25, 50, 100]
         if self.languages is None:
-            self.languages = ['auto', 'python', 'typescript', 'java', 'csharp']
+            self.languages = ["auto", "python", "typescript", "java", "csharp"]
+
 
 @dataclass
 class BenchmarkResult:
     """Results from a single benchmark test."""
+
     test_name: str
     language: str
     batch_size: int
@@ -74,6 +77,7 @@ class BenchmarkResult:
     failed_runs: int
     timestamp: float
 
+
 class BGEICLBenchmark:
     """BGE-IN-ICL performance benchmark suite."""
 
@@ -85,7 +89,7 @@ class BGEICLBenchmark:
     def _generate_test_data(self) -> dict[str, list[str]]:
         """Generate test data for different programming languages."""
         return {
-            'auto': [
+            "auto": [
                 "def fibonacci(n): return n if n <= 1 else fibonacci(n-1) + fibonacci(n-2)",
                 "class DataProcessor: def __init__(self): self.data = []",
                 "async function fetchData() { return await api.get('/data'); }",
@@ -105,9 +109,9 @@ class BGEICLBenchmark:
                 "type EventHandler<T> = (event: T) => void;",
                 "async def fetch_user_data(user_id: int) -> Optional[UserData]: pass",
                 "public class UserService : IUserService { private readonly IRepository _repo; }",
-                "const useUserData = (userId: number) => { const [user, setUser] = useState(null); }"
+                "const useUserData = (userId: number) => { const [user, setUser] = useState(null); }",
             ],
-            'python': [
+            "python": [
                 "def process_data(data: List[str]) -> Dict[str, int]:",
                 "class APIClient:\n    def __init__(self, base_url: str):",
                 "async def fetch_user(user_id: int) -> Optional[User]:",
@@ -127,9 +131,9 @@ class BGEICLBenchmark:
                 "def merge_configs(*configs: Dict[str, Any]) -> Dict[str, Any]:",
                 "class EventProcessor:\n    def handle_event(self, event: Event):",
                 "import pandas as pd\ndf = pd.read_csv('data.csv')",
-                "async def stream_data() -> AsyncGenerator[bytes, None]:"
+                "async def stream_data() -> AsyncGenerator[bytes, None]:",
             ],
-            'typescript': [
+            "typescript": [
                 "interface APIResponse<T> { data: T; status: number; }",
                 "const fetchUser = async (id: number): Promise<User> => {",
                 "type EventHandler = (event: Event) => void;",
@@ -149,9 +153,9 @@ class BGEICLBenchmark:
                 "export type DeepPartial<T> = { [P in keyof T]?: T[P] extends object ? DeepPartial<T[P]> : T[P]; };",
                 "const debounce = <T extends (...args: any[]) => any>(func: T, delay: number): T => {",
                 "interface GraphQLResponse<T> { data?: T; errors?: GraphQLError[]; }",
-                "const mapAsync = async <T, U>(items: T[], mapper: (item: T) => Promise<U>): Promise<U[]> => {"
+                "const mapAsync = async <T, U>(items: T[], mapper: (item: T) => Promise<U>): Promise<U[]> => {",
             ],
-            'java': [
+            "java": [
                 "public class UserRepository implements Repository<User> {",
                 "@Service\npublic class UserService {",
                 "public Optional<User> findById(Long id) {",
@@ -164,23 +168,23 @@ class BGEICLBenchmark:
                 "public interface UserRepository extends JpaRepository<User, Long> {",
                 "@Transactional\npublic void updateUser(User user) {",
                 "public class AsyncTaskExecutor implements TaskExecutor {",
-                "@Cacheable(\"users\")\npublic User getUserById(Long id) {",
+                '@Cacheable("users")\npublic User getUserById(Long id) {',
                 "public Stream<User> findActiveUsers() {",
                 "@EventListener\npublic void handleUserCreated(UserCreatedEvent event) {",
                 "public class UserMapper { public static UserDto toDto(User user) {",
-                "@Value(\"${app.database.url}\")\nprivate String databaseUrl;",
+                '@Value("${app.database.url}")\nprivate String databaseUrl;',
                 "public class RetryableOperation<T> {",
                 "@Scheduled(fixedRate = 30000)\npublic void cleanupExpiredSessions() {",
-                "public class GenericResponse<T> { private T data; private String message; }"
+                "public class GenericResponse<T> { private T data; private String message; }",
             ],
-            'csharp': [
+            "csharp": [
                 "public class UserController : ControllerBase {",
                 "public async Task<User> GetUserAsync(int id) {",
                 "public interface IUserRepository { Task<User> FindAsync(int id); }",
                 "[HttpGet]\npublic ActionResult<User> GetUser(int id) {",
                 "public class UserService : IUserService {",
                 "public async Task<IEnumerable<User>> GetUsersAsync() {",
-                "[ApiController, Route(\"[controller]\")]\npublic class UsersController {",
+                '[ApiController, Route("[controller]")]\npublic class UsersController {',
                 "public class DatabaseContext : DbContext {",
                 "public class ConfigurationService : IConfigurationService {",
                 "[Authorize]\npublic async Task<IActionResult> CreateUser([FromBody] CreateUserRequest request) {",
@@ -192,12 +196,14 @@ class BGEICLBenchmark:
                 "public class GenericRepository<T> : IRepository<T> where T : class {",
                 "public async Task<PagedResult<T>> GetPagedAsync<T>(int page, int size) {",
                 "public class BackgroundTaskService : BackgroundService {",
-                "[JsonPropertyName(\"user_id\")]\npublic int UserId { get; set; }",
-                "public class DependencyInjectionExtensions {"
-            ]
+                '[JsonPropertyName("user_id")]\npublic int UserId { get; set; }',
+                "public class DependencyInjectionExtensions {",
+            ],
         }
 
-    async def create_provider(self, language: str = 'auto', batch_size: int = 50) -> BGEInICLProvider:
+    async def create_provider(
+        self, language: str = "auto", batch_size: int = 50
+    ) -> BGEInICLProvider:
         """Create a BGE-IN-ICL provider with specified configuration."""
         return create_bge_in_icl_provider(
             base_url=self.config.server_url,
@@ -207,14 +213,11 @@ class BGEICLBenchmark:
             adaptive_batching=self.config.adaptive_batching,
             batch_size=batch_size,
             timeout=self.config.timeout,
-            context_cache_size=self.config.context_cache_size
+            context_cache_size=self.config.context_cache_size,
         )
 
     async def run_single_test(
-        self,
-        provider: BGEInICLProvider,
-        texts: list[str],
-        test_name: str
+        self, provider: BGEInICLProvider, texts: list[str], test_name: str
     ) -> tuple[float, dict[str, Any]]:
         """Run a single benchmark test and return timing and metrics."""
         start_time = time.time()
@@ -225,7 +228,9 @@ class BGEICLBenchmark:
 
             # Verify results
             if len(embeddings) != len(texts):
-                raise ValueError(f"Expected {len(texts)} embeddings, got {len(embeddings)}")
+                raise ValueError(
+                    f"Expected {len(texts)} embeddings, got {len(embeddings)}"
+                )
 
             # Get performance metrics
             metrics = provider.get_performance_metrics()
@@ -237,7 +242,9 @@ class BGEICLBenchmark:
             logger.error(f"Test {test_name} failed: {e}")
             raise
 
-    async def benchmark_batch_size(self, language: str, batch_size: int) -> BenchmarkResult:
+    async def benchmark_batch_size(
+        self, language: str, batch_size: int
+    ) -> BenchmarkResult:
         """Benchmark a specific batch size for a language."""
         test_name = f"batch_size_{batch_size}"
         logger.info(f"Benchmarking {language} with batch size {batch_size}")
@@ -245,7 +252,7 @@ class BGEICLBenchmark:
         provider = await self.create_provider(language=language, batch_size=batch_size)
 
         # Get test texts
-        available_texts = self.test_data.get(language, self.test_data['auto'])
+        available_texts = self.test_data.get(language, self.test_data["auto"])
 
         # Create batch by repeating texts if necessary
         if batch_size <= len(available_texts):
@@ -263,7 +270,9 @@ class BGEICLBenchmark:
         # Warmup runs
         for i in range(self.config.warmup_runs):
             try:
-                await self.run_single_test(provider, texts[:min(5, len(texts))], f"warmup_{i}")
+                await self.run_single_test(
+                    provider, texts[: min(5, len(texts))], f"warmup_{i}"
+                )
             except Exception as e:
                 logger.warning(f"Warmup run {i} failed: {e}")
 
@@ -274,14 +283,18 @@ class BGEICLBenchmark:
 
         for run in range(self.config.runs_per_test):
             try:
-                elapsed, metrics = await self.run_single_test(provider, texts, f"{test_name}_run_{run}")
+                elapsed, metrics = await self.run_single_test(
+                    provider, texts, f"{test_name}_run_{run}"
+                )
                 times.append(elapsed)
                 metrics_list.append(metrics)
 
                 if self.config.verbose:
                     throughput = len(texts) / elapsed
-                    cache_hit_rate = metrics.get('cache_hit_rate', 0)
-                    logger.info(f"  Run {run + 1}: {elapsed:.2f}s, {throughput:.1f} emb/s, cache: {cache_hit_rate:.1%}")
+                    cache_hit_rate = metrics.get("cache_hit_rate", 0)
+                    logger.info(
+                        f"  Run {run + 1}: {elapsed:.2f}s, {throughput:.1f} emb/s, cache: {cache_hit_rate:.1%}"
+                    )
 
             except Exception as e:
                 logger.error(f"Run {run} failed: {e}")
@@ -298,8 +311,12 @@ class BGEICLBenchmark:
         throughput = batch_size / avg_time
 
         # Average metrics across successful runs
-        avg_cache_hit_rate = statistics.mean([m.get('cache_hit_rate', 0) for m in metrics_list])
-        avg_current_batch_size = statistics.mean([m.get('current_batch_size', batch_size) for m in metrics_list])
+        avg_cache_hit_rate = statistics.mean(
+            [m.get("cache_hit_rate", 0) for m in metrics_list]
+        )
+        avg_current_batch_size = statistics.mean(
+            [m.get("current_batch_size", batch_size) for m in metrics_list]
+        )
 
         return BenchmarkResult(
             test_name=test_name,
@@ -316,7 +333,7 @@ class BGEICLBenchmark:
             current_batch_size=int(avg_current_batch_size),
             successful_runs=len(times),
             failed_runs=failed_runs,
-            timestamp=time.time()
+            timestamp=time.time(),
         )
 
     async def benchmark_language(self, language: str) -> list[BenchmarkResult]:
@@ -360,56 +377,64 @@ class BGEICLBenchmark:
             return {}
 
         analysis = {
-            'summary': {
-                'total_tests': len(self.results),
-                'languages_tested': len(set(r.language for r in self.results)),
-                'batch_sizes_tested': len(set(r.batch_size for r in self.results)),
-                'total_successful_runs': sum(r.successful_runs for r in self.results),
-                'total_failed_runs': sum(r.failed_runs for r in self.results)
+            "summary": {
+                "total_tests": len(self.results),
+                "languages_tested": len(set(r.language for r in self.results)),
+                "batch_sizes_tested": len(set(r.batch_size for r in self.results)),
+                "total_successful_runs": sum(r.successful_runs for r in self.results),
+                "total_failed_runs": sum(r.failed_runs for r in self.results),
             },
-            'performance': {
-                'best_throughput': max(r.throughput for r in self.results),
-                'worst_throughput': min(r.throughput for r in self.results),
-                'avg_throughput': statistics.mean([r.throughput for r in self.results]),
-                'best_latency': min(r.avg_response_time for r in self.results),
-                'worst_latency': max(r.avg_response_time for r in self.results),
-                'avg_latency': statistics.mean([r.avg_response_time for r in self.results])
+            "performance": {
+                "best_throughput": max(r.throughput for r in self.results),
+                "worst_throughput": min(r.throughput for r in self.results),
+                "avg_throughput": statistics.mean([r.throughput for r in self.results]),
+                "best_latency": min(r.avg_response_time for r in self.results),
+                "worst_latency": max(r.avg_response_time for r in self.results),
+                "avg_latency": statistics.mean(
+                    [r.avg_response_time for r in self.results]
+                ),
             },
-            'cache_performance': {
-                'avg_cache_hit_rate': statistics.mean([r.cache_hit_rate for r in self.results]),
-                'best_cache_hit_rate': max(r.cache_hit_rate for r in self.results),
-                'worst_cache_hit_rate': min(r.cache_hit_rate for r in self.results)
-            }
+            "cache_performance": {
+                "avg_cache_hit_rate": statistics.mean(
+                    [r.cache_hit_rate for r in self.results]
+                ),
+                "best_cache_hit_rate": max(r.cache_hit_rate for r in self.results),
+                "worst_cache_hit_rate": min(r.cache_hit_rate for r in self.results),
+            },
         }
 
         # Find optimal configurations
         best_throughput_result = max(self.results, key=lambda r: r.throughput)
         best_latency_result = min(self.results, key=lambda r: r.avg_response_time)
 
-        analysis['recommendations'] = {
-            'best_throughput_config': {
-                'language': best_throughput_result.language,
-                'batch_size': best_throughput_result.batch_size,
-                'throughput': best_throughput_result.throughput,
-                'latency': best_throughput_result.avg_response_time
+        analysis["recommendations"] = {
+            "best_throughput_config": {
+                "language": best_throughput_result.language,
+                "batch_size": best_throughput_result.batch_size,
+                "throughput": best_throughput_result.throughput,
+                "latency": best_throughput_result.avg_response_time,
             },
-            'best_latency_config': {
-                'language': best_latency_result.language,
-                'batch_size': best_latency_result.batch_size,
-                'throughput': best_latency_result.throughput,
-                'latency': best_latency_result.avg_response_time
-            }
+            "best_latency_config": {
+                "language": best_latency_result.language,
+                "batch_size": best_latency_result.batch_size,
+                "throughput": best_latency_result.throughput,
+                "latency": best_latency_result.avg_response_time,
+            },
         }
 
         # Language-specific analysis
-        analysis['by_language'] = {}
+        analysis["by_language"] = {}
         for language in set(r.language for r in self.results):
             lang_results = [r for r in self.results if r.language == language]
-            analysis['by_language'][language] = {
-                'best_throughput': max(r.throughput for r in lang_results),
-                'best_latency': min(r.avg_response_time for r in lang_results),
-                'optimal_batch_size': max(lang_results, key=lambda r: r.throughput).batch_size,
-                'avg_cache_hit_rate': statistics.mean([r.cache_hit_rate for r in lang_results])
+            analysis["by_language"][language] = {
+                "best_throughput": max(r.throughput for r in lang_results),
+                "best_latency": min(r.avg_response_time for r in lang_results),
+                "optimal_batch_size": max(
+                    lang_results, key=lambda r: r.throughput
+                ).batch_size,
+                "avg_cache_hit_rate": statistics.mean(
+                    [r.cache_hit_rate for r in lang_results]
+                ),
             }
 
         return analysis
@@ -421,35 +446,41 @@ class BGEICLBenchmark:
             filename = f"bge_icl_benchmark_{timestamp}"
 
         # Remove extension if provided
-        base_filename = filename.replace('.json', '').replace('.csv', '')
+        base_filename = filename.replace(".json", "").replace(".csv", "")
 
         saved_files = []
 
         # Save JSON format
-        if self.config.output_format in ['json', 'both']:
+        if self.config.output_format in ["json", "both"]:
             json_file = f"{base_filename}.json"
             data = {
-                'config': asdict(self.config),
-                'results': [asdict(r) for r in self.results],
-                'analysis': self.analyze_results(),
-                'timestamp': time.time(),
-                'benchmark_info': {
-                    'total_duration': sum(r.avg_response_time * r.successful_runs for r in self.results),
-                    'total_embeddings': sum(r.batch_size * r.successful_runs for r in self.results)
-                }
+                "config": asdict(self.config),
+                "results": [asdict(r) for r in self.results],
+                "analysis": self.analyze_results(),
+                "timestamp": time.time(),
+                "benchmark_info": {
+                    "total_duration": sum(
+                        r.avg_response_time * r.successful_runs for r in self.results
+                    ),
+                    "total_embeddings": sum(
+                        r.batch_size * r.successful_runs for r in self.results
+                    ),
+                },
             }
 
-            with open(json_file, 'w') as f:
+            with open(json_file, "w") as f:
                 json.dump(data, f, indent=2)
             saved_files.append(json_file)
 
         # Save CSV format
-        if self.config.output_format in ['csv', 'both']:
+        if self.config.output_format in ["csv", "both"]:
             csv_file = f"{base_filename}.csv"
 
-            with open(csv_file, 'w', newline='') as f:
+            with open(csv_file, "w", newline="") as f:
                 if self.results:
-                    writer = csv.DictWriter(f, fieldnames=asdict(self.results[0]).keys())
+                    writer = csv.DictWriter(
+                        f, fieldnames=asdict(self.results[0]).keys()
+                    )
                     writer.writeheader()
                     for result in self.results:
                         writer.writerow(asdict(result))
@@ -465,12 +496,12 @@ class BGEICLBenchmark:
 
         analysis = self.analyze_results()
 
-        print("\n" + "="*80)
+        print("\n" + "=" * 80)
         print("BGE-IN-ICL PERFORMANCE BENCHMARK RESULTS")
-        print("="*80)
+        print("=" * 80)
 
         # Summary statistics
-        summary = analysis['summary']
+        summary = analysis["summary"]
         print(f"Total Tests: {summary['total_tests']}")
         print(f"Languages: {summary['languages_tested']}")
         print(f"Batch Sizes: {summary['batch_sizes_tested']}")
@@ -478,7 +509,7 @@ class BGEICLBenchmark:
         print(f"Failed Runs: {summary['total_failed_runs']}")
 
         # Performance overview
-        perf = analysis['performance']
+        perf = analysis["performance"]
         print("\nPerformance Overview:")
         print(f"  Best Throughput: {perf['best_throughput']:.1f} embeddings/sec")
         print(f"  Average Throughput: {perf['avg_throughput']:.1f} embeddings/sec")
@@ -486,112 +517,98 @@ class BGEICLBenchmark:
         print(f"  Average Latency: {perf['avg_latency']:.3f} seconds")
 
         # Cache performance
-        cache = analysis['cache_performance']
+        cache = analysis["cache_performance"]
         print("\nCache Performance:")
         print(f"  Average Hit Rate: {cache['avg_cache_hit_rate']:.1%}")
         print(f"  Best Hit Rate: {cache['best_cache_hit_rate']:.1%}")
 
         # Recommendations
-        recommendations = analysis['recommendations']
+        recommendations = analysis["recommendations"]
         print("\nRecommendations:")
-        best_throughput = recommendations['best_throughput_config']
-        print(f"  For Maximum Throughput: {best_throughput['language']} with batch size {best_throughput['batch_size']} ({best_throughput['throughput']:.1f} emb/s)")
+        best_throughput = recommendations["best_throughput_config"]
+        print(
+            f"  For Maximum Throughput: {best_throughput['language']} with batch size {best_throughput['batch_size']} ({best_throughput['throughput']:.1f} emb/s)"
+        )
 
-        best_latency = recommendations['best_latency_config']
-        print(f"  For Minimum Latency: {best_latency['language']} with batch size {best_latency['batch_size']} ({best_latency['latency']:.3f}s)")
+        best_latency = recommendations["best_latency_config"]
+        print(
+            f"  For Minimum Latency: {best_latency['language']} with batch size {best_latency['batch_size']} ({best_latency['latency']:.3f}s)"
+        )
 
         # Language breakdown
         print("\nLanguage Performance:")
-        for language, lang_data in analysis['by_language'].items():
-            print(f"  {language:.<20} Best: {lang_data['best_throughput']:.1f} emb/s (batch {lang_data['optimal_batch_size']})")
+        for language, lang_data in analysis["by_language"].items():
+            print(
+                f"  {language:.<20} Best: {lang_data['best_throughput']:.1f} emb/s (batch {lang_data['optimal_batch_size']})"
+            )
 
 
 def create_parser() -> argparse.ArgumentParser:
     """Create command line argument parser."""
-    parser = argparse.ArgumentParser(description="BGE-IN-ICL Performance Benchmark Tool")
-
-    parser.add_argument(
-        "server_url",
-        help="BGE-IN-ICL server URL (e.g., http://localhost:8080)"
+    parser = argparse.ArgumentParser(
+        description="BGE-IN-ICL Performance Benchmark Tool"
     )
 
     parser.add_argument(
-        "--api-key",
-        help="API key for authentication"
+        "server_url", help="BGE-IN-ICL server URL (e.g., http://localhost:8080)"
     )
+
+    parser.add_argument("--api-key", help="API key for authentication")
 
     parser.add_argument(
         "--batch-sizes",
         nargs="+",
         type=int,
         default=[1, 5, 10, 25, 50, 100],
-        help="Batch sizes to test (default: 1 5 10 25 50 100)"
+        help="Batch sizes to test (default: 1 5 10 25 50 100)",
     )
 
     parser.add_argument(
         "--languages",
         nargs="+",
-        default=['auto', 'python', 'typescript', 'java', 'csharp'],
-        help="Languages to test (default: auto python typescript java csharp)"
+        default=["auto", "python", "typescript", "java", "csharp"],
+        help="Languages to test (default: auto python typescript java csharp)",
     )
 
     parser.add_argument(
-        "--runs",
-        type=int,
-        default=5,
-        help="Number of runs per test (default: 5)"
+        "--runs", type=int, default=5, help="Number of runs per test (default: 5)"
     )
 
     parser.add_argument(
-        "--warmup-runs",
-        type=int,
-        default=2,
-        help="Number of warmup runs (default: 2)"
+        "--warmup-runs", type=int, default=2, help="Number of warmup runs (default: 2)"
     )
 
     parser.add_argument(
         "--timeout",
         type=int,
         default=300,
-        help="Request timeout in seconds (default: 300)"
+        help="Request timeout in seconds (default: 300)",
     )
 
     parser.add_argument(
-        "--disable-icl",
-        action="store_true",
-        help="Disable in-context learning"
+        "--disable-icl", action="store_true", help="Disable in-context learning"
     )
 
     parser.add_argument(
         "--disable-adaptive-batching",
         action="store_true",
-        help="Disable adaptive batching"
+        help="Disable adaptive batching",
     )
 
     parser.add_argument(
-        "--cache-size",
-        type=int,
-        default=100,
-        help="Context cache size (default: 100)"
+        "--cache-size", type=int, default=100, help="Context cache size (default: 100)"
     )
 
     parser.add_argument(
         "--output-format",
-        choices=['json', 'csv', 'both'],
-        default='json',
-        help="Output format (default: json)"
+        choices=["json", "csv", "both"],
+        default="json",
+        help="Output format (default: json)",
     )
 
-    parser.add_argument(
-        "--output-file",
-        help="Output file name (without extension)"
-    )
+    parser.add_argument("--output-file", help="Output file name (without extension)")
 
-    parser.add_argument(
-        "--verbose",
-        action="store_true",
-        help="Verbose output"
-    )
+    parser.add_argument("--verbose", action="store_true", help="Verbose output")
 
     return parser
 
@@ -615,7 +632,7 @@ async def main():
         context_cache_size=args.cache_size,
         output_format=args.output_format,
         output_file=args.output_file,
-        verbose=args.verbose
+        verbose=args.verbose,
     )
 
     # Set logging level based on verbosity

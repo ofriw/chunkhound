@@ -15,6 +15,7 @@ try:
     from tree_sitter import Node as TSNode
     from tree_sitter import Parser as TSParser
     from tree_sitter_language_pack import get_language, get_parser
+
     KOTLIN_AVAILABLE = True
 except ImportError:
     KOTLIN_AVAILABLE = False
@@ -27,6 +28,7 @@ except ImportError:
 # Try direct import as fallback
 try:
     import tree_sitter_kotlin as ts_kotlin
+
     KOTLIN_DIRECT_AVAILABLE = True
 except ImportError:
     KOTLIN_DIRECT_AVAILABLE = False
@@ -65,12 +67,14 @@ class KotlinParser:
             include_comments=False,
             include_docstrings=True,
             max_depth=10,
-            use_cache=True
+            use_cache=True,
         )
 
         # Initialize parser - crash if dependencies unavailable
         if not KOTLIN_AVAILABLE and not KOTLIN_DIRECT_AVAILABLE:
-            raise ImportError("Kotlin tree-sitter dependencies not available - install tree-sitter-language-pack or tree-sitter-kotlin")
+            raise ImportError(
+                "Kotlin tree-sitter dependencies not available - install tree-sitter-language-pack or tree-sitter-kotlin"
+            )
 
         if not self._initialize():
             raise RuntimeError("Failed to initialize Kotlin parser")
@@ -102,8 +106,8 @@ class KotlinParser:
         # Fallback to language pack
         try:
             if KOTLIN_AVAILABLE and get_language and get_parser:
-                self._language = get_language('kotlin')
-                self._parser = get_parser('kotlin')
+                self._language = get_language("kotlin")
+                self._parser = get_parser("kotlin")
                 self._initialized = True
                 logger.debug("Kotlin parser initialized successfully (language pack)")
                 return True
@@ -130,7 +134,7 @@ class KotlinParser:
 
     def _get_node_text(self, node: TSNode, source: str) -> str:
         """Extract text content from a tree-sitter node."""
-        return source[node.start_byte:node.end_byte]
+        return source[node.start_byte : node.end_byte]
 
     def parse_file(self, file_path: Path, source: str | None = None) -> ParseResult:
         """Parse a Kotlin file and extract semantic chunks.
@@ -156,13 +160,13 @@ class KotlinParser:
                 parse_time=time.time() - start_time,
                 errors=errors,
                 warnings=warnings,
-                metadata={"file_path": str(file_path)}
+                metadata={"file_path": str(file_path)},
             )
 
         try:
             # Read source if not provided
             if source is None:
-                with open(file_path, encoding='utf-8') as f:
+                with open(file_path, encoding="utf-8") as f:
                     source = f.read()
 
             # Parse with tree-sitter
@@ -175,10 +179,10 @@ class KotlinParser:
                     parse_time=time.time() - start_time,
                     errors=errors,
                     warnings=warnings,
-                    metadata={"file_path": str(file_path)}
+                    metadata={"file_path": str(file_path)},
                 )
 
-            tree = self._parser.parse(bytes(source, 'utf8'))
+            tree = self._parser.parse(bytes(source, "utf8"))
 
             # Extract semantic units
             chunks = self._extract_chunks(tree.root_node, source, file_path)
@@ -197,7 +201,7 @@ class KotlinParser:
             parse_time=time.time() - start_time,
             errors=errors,
             warnings=warnings,
-            metadata={"file_path": str(file_path)}
+            metadata={"file_path": str(file_path)},
         )
 
     def _extract_chunks(
@@ -228,7 +232,9 @@ class KotlinParser:
 
             if ChunkType.DATA_CLASS in self._config.chunk_types:
                 chunks.extend(
-                    self._extract_data_classes(tree_node, source, file_path, package_name)
+                    self._extract_data_classes(
+                        tree_node, source, file_path, package_name
+                    )
                 )
 
             if ChunkType.OBJECT in self._config.chunk_types:
@@ -238,7 +244,9 @@ class KotlinParser:
 
             if ChunkType.COMPANION_OBJECT in self._config.chunk_types:
                 chunks.extend(
-                    self._extract_companion_objects(tree_node, source, file_path, package_name)
+                    self._extract_companion_objects(
+                        tree_node, source, file_path, package_name
+                    )
                 )
 
             if ChunkType.INTERFACE in self._config.chunk_types:
@@ -267,14 +275,10 @@ class KotlinParser:
 
             # Extract comments and docstrings
             if ChunkType.COMMENT in self._config.chunk_types:
-                chunks.extend(
-                    self._extract_comments(tree_node, source, file_path)
-                )
+                chunks.extend(self._extract_comments(tree_node, source, file_path))
 
             if ChunkType.DOCSTRING in self._config.chunk_types:
-                chunks.extend(
-                    self._extract_docstrings(tree_node, source, file_path)
-                )
+                chunks.extend(self._extract_docstrings(tree_node, source, file_path))
 
         except Exception as e:
             logger.error(f"Failed to extract Kotlin chunks: {e}")
@@ -340,7 +344,11 @@ class KotlinParser:
                 # Extract class name from the node children
                 class_name = "UnnamedClass"
                 for child in class_node.children:
-                    if child.type in ["simple_identifier", "type_identifier", "identifier"]:
+                    if child.type in [
+                        "simple_identifier",
+                        "type_identifier",
+                        "identifier",
+                    ]:
                         class_name = self._get_node_text(child, source)
                         break
 
@@ -349,8 +357,12 @@ class KotlinParser:
                     qualified_name = f"{package_name}.{class_name}"
 
                 chunk = self._create_chunk(
-                    class_node, source, file_path, ChunkType.CLASS,
-                    qualified_name, qualified_name
+                    class_node,
+                    source,
+                    file_path,
+                    ChunkType.CLASS,
+                    qualified_name,
+                    qualified_name,
                 )
 
                 chunks.append(chunk)
@@ -386,7 +398,10 @@ class KotlinParser:
             matches = query.matches(tree_node)
 
             for pattern_index, captures in matches:
-                if "data_class_def" not in captures or "data_class_name" not in captures:
+                if (
+                    "data_class_def" not in captures
+                    or "data_class_name" not in captures
+                ):
                     continue
 
                 data_class_node = captures["data_class_def"][0]
@@ -398,8 +413,12 @@ class KotlinParser:
                     qualified_name = f"{package_name}.{data_class_name}"
 
                 chunk = self._create_chunk(
-                    data_class_node, source, file_path, ChunkType.DATA_CLASS,
-                    qualified_name, qualified_name
+                    data_class_node,
+                    source,
+                    file_path,
+                    ChunkType.DATA_CLASS,
+                    qualified_name,
+                    qualified_name,
                 )
 
                 chunks.append(chunk)
@@ -444,8 +463,12 @@ class KotlinParser:
                     qualified_name = f"{package_name}.{object_name}"
 
                 chunk = self._create_chunk(
-                    object_node, source, file_path, ChunkType.OBJECT,
-                    qualified_name, qualified_name
+                    object_node,
+                    source,
+                    file_path,
+                    ChunkType.OBJECT,
+                    qualified_name,
+                    qualified_name,
                 )
 
                 chunks.append(chunk)
@@ -499,9 +522,13 @@ class KotlinParser:
                     qualified_name = f"{parent_class}.{companion_name}"
 
                 chunk = self._create_chunk(
-                    companion_node, source, file_path, ChunkType.COMPANION_OBJECT,
-                    qualified_name, companion_name,
-                    parent=parent_class if parent_class else None
+                    companion_node,
+                    source,
+                    file_path,
+                    ChunkType.COMPANION_OBJECT,
+                    qualified_name,
+                    companion_name,
+                    parent=parent_class if parent_class else None,
                 )
 
                 chunks.append(chunk)
@@ -545,7 +572,11 @@ class KotlinParser:
                 # Extract interface name
                 interface_name = "UnnamedInterface"
                 for child in interface_node.children:
-                    if child.type in ["simple_identifier", "type_identifier", "identifier"]:
+                    if child.type in [
+                        "simple_identifier",
+                        "type_identifier",
+                        "identifier",
+                    ]:
                         interface_name = self._get_node_text(child, source)
                         break
 
@@ -554,8 +585,12 @@ class KotlinParser:
                     qualified_name = f"{package_name}.{interface_name}"
 
                 chunk = self._create_chunk(
-                    interface_node, source, file_path, ChunkType.INTERFACE,
-                    qualified_name, qualified_name
+                    interface_node,
+                    source,
+                    file_path,
+                    ChunkType.INTERFACE,
+                    qualified_name,
+                    qualified_name,
                 )
 
                 chunks.append(chunk)
@@ -599,7 +634,11 @@ class KotlinParser:
                 # Extract enum name
                 enum_name = "UnnamedEnum"
                 for child in enum_node.children:
-                    if child.type in ["simple_identifier", "type_identifier", "identifier"]:
+                    if child.type in [
+                        "simple_identifier",
+                        "type_identifier",
+                        "identifier",
+                    ]:
                         enum_name = self._get_node_text(child, source)
                         break
 
@@ -608,8 +647,12 @@ class KotlinParser:
                     qualified_name = f"{package_name}.{enum_name}"
 
                 chunk = self._create_chunk(
-                    enum_node, source, file_path, ChunkType.ENUM,
-                    qualified_name, qualified_name
+                    enum_node,
+                    source,
+                    file_path,
+                    ChunkType.ENUM,
+                    qualified_name,
+                    qualified_name,
                 )
 
                 chunks.append(chunk)
@@ -670,9 +713,13 @@ class KotlinParser:
                 chunk_type = ChunkType.FUNCTION
 
                 chunk = self._create_chunk(
-                    function_node, source, file_path, chunk_type,
-                    qualified_name, qualified_name,
-                    parent=parent_class if parent_class else None
+                    function_node,
+                    source,
+                    file_path,
+                    chunk_type,
+                    qualified_name,
+                    qualified_name,
+                    parent=parent_class if parent_class else None,
                 )
 
                 chunks.append(chunk)
@@ -726,9 +773,13 @@ class KotlinParser:
                     qualified_name = property_name
 
                 chunk = self._create_chunk(
-                    property_node, source, file_path, ChunkType.FIELD,
-                    qualified_name, property_name,
-                    parent=parent_class if parent_class else None
+                    property_node,
+                    source,
+                    file_path,
+                    ChunkType.FIELD,
+                    qualified_name,
+                    property_name,
+                    parent=parent_class if parent_class else None,
                 )
 
                 chunks.append(chunk)
@@ -754,11 +805,17 @@ class KotlinParser:
         return None
 
     def _create_chunk(
-        self, node: TSNode, source: str, file_path: Path,
-        chunk_type: ChunkType, symbol: str, display_name: str, parent: str = None
+        self,
+        node: TSNode,
+        source: str,
+        file_path: Path,
+        chunk_type: ChunkType,
+        symbol: str,
+        display_name: str,
+        parent: str = None,
     ) -> dict[str, Any]:
         """Create a chunk dictionary from a tree-sitter node.
-        
+
         Args:
             node: Tree-sitter node
             source: Source code string
@@ -767,7 +824,7 @@ class KotlinParser:
             symbol: Symbol name
             display_name: Display name for the chunk
             parent: Optional parent class/object name
-            
+
         Returns:
             Chunk dictionary
         """
@@ -793,123 +850,149 @@ class KotlinParser:
 
         return chunk
 
-    def _extract_comments(self, tree_node: TSNode, source: str, file_path: Path) -> list[dict[str, Any]]:
+    def _extract_comments(
+        self, tree_node: TSNode, source: str, file_path: Path
+    ) -> list[dict[str, Any]]:
         """Extract Kotlin comments (// and /* */)."""
         # Kotlin tree-sitter may not support these comment node types
         try:
             comment_patterns = ["(line_comment) @comment"]
-            return self._extract_comments_generic(tree_node, source, file_path, comment_patterns)
+            return self._extract_comments_generic(
+                tree_node, source, file_path, comment_patterns
+            )
         except Exception:
             return []
 
-    def _extract_docstrings(self, tree_node: TSNode, source: str, file_path: Path) -> list[dict[str, Any]]:
+    def _extract_docstrings(
+        self, tree_node: TSNode, source: str, file_path: Path
+    ) -> list[dict[str, Any]]:
         """Extract Kotlin KDoc comments (/** */)."""
         chunks = []
-        
+
         if self._language is None:
             return chunks
-            
+
         try:
             # Kotlin tree-sitter may not support multiline_comment queries
             query = self._language.query("(multiline_comment) @comment")
             matches = query.matches(tree_node)
-            
+
             for match in matches:
                 pattern_index, captures = match
-                
+
                 for capture_name, nodes in captures.items():
                     for node in nodes:
                         comment_text = self._get_node_text(node, source)
-                        
+
                         # Check if it's a KDoc comment (starts with /**)
                         if comment_text.strip().startswith("/**"):
                             cleaned_text = self._clean_kdoc_text(comment_text)
                             symbol = f"kdoc:{node.start_point[0] + 1}"
-                            
+
                             chunk = self._create_chunk(
-                                node, source, file_path, ChunkType.DOCSTRING,
-                                symbol, f"KDoc at line {node.start_point[0] + 1}"
+                                node,
+                                source,
+                                file_path,
+                                ChunkType.DOCSTRING,
+                                symbol,
+                                f"KDoc at line {node.start_point[0] + 1}",
                             )
                             chunk["content"] = cleaned_text
-                            
+
                             chunks.append(chunk)
-                            
+
         except Exception:
             # Silently fail if queries not supported
             pass
-            
+
         return chunks
 
     def _clean_kdoc_text(self, text: str) -> str:
         """Clean KDoc text by removing /** */ markers and * prefixes."""
         cleaned = text.strip()
-        
+
         # Remove /** */ markers
         if cleaned.startswith("/**") and cleaned.endswith("*/"):
             cleaned = cleaned[3:-2]
-        
+
         # Remove leading * from each line
-        lines = cleaned.split('\n')
+        lines = cleaned.split("\n")
         cleaned_lines = []
         for line in lines:
             line = line.strip()
-            if line.startswith('*'):
+            if line.startswith("*"):
                 line = line[1:].lstrip()
             cleaned_lines.append(line)
-            
-        return '\n'.join(cleaned_lines).strip()
 
-    def _extract_comments_generic(self, tree_node: TSNode, source: str, file_path: Path, 
-                                 comment_patterns: list[str]) -> list[dict[str, Any]]:
+        return "\n".join(cleaned_lines).strip()
+
+    def _extract_comments_generic(
+        self,
+        tree_node: TSNode,
+        source: str,
+        file_path: Path,
+        comment_patterns: list[str],
+    ) -> list[dict[str, Any]]:
         """Extract comments using generic patterns."""
         chunks = []
-        
+
         if not comment_patterns or self._language is None:
             return chunks
-            
+
         try:
             for pattern in comment_patterns:
                 query = self._language.query(pattern)
                 matches = query.matches(tree_node)
-                
+
                 for match in matches:
                     pattern_index, captures = match
-                    
+
                     for capture_name, nodes in captures.items():
                         for node in nodes:
                             comment_text = self._get_node_text(node, source)
-                            
+
                             # Skip empty comments and KDoc comments (handled separately)
-                            if not comment_text.strip() or comment_text.strip().startswith("/**"):
+                            if (
+                                not comment_text.strip()
+                                or comment_text.strip().startswith("/**")
+                            ):
                                 continue
-                                
+
                             cleaned_text = self._clean_comment_text(comment_text)
                             symbol = f"comment:{node.start_point[0] + 1}"
-                            
+
                             chunk = self._create_chunk(
-                                node, source, file_path, ChunkType.COMMENT,
-                                symbol, f"Comment at line {node.start_point[0] + 1}"
+                                node,
+                                source,
+                                file_path,
+                                ChunkType.COMMENT,
+                                symbol,
+                                f"Comment at line {node.start_point[0] + 1}",
                             )
                             chunk["content"] = cleaned_text
-                            
+
                             chunks.append(chunk)
-                            
+
         except Exception:
             # Silently fail if queries not supported
             pass
-            
+
         return chunks
-    
+
     def _clean_comment_text(self, text: str) -> str:
         """Clean comment text by removing comment markers."""
         cleaned = text.strip()
-        
+
         # Remove common single-line comment markers
         if cleaned.startswith("//"):
             cleaned = cleaned[2:].strip()
-            
+
         # Remove common multi-line comment markers (but not KDoc)
-        if cleaned.startswith("/*") and cleaned.endswith("*/") and not cleaned.startswith("/**"):
+        if (
+            cleaned.startswith("/*")
+            and cleaned.endswith("*/")
+            and not cleaned.startswith("/**")
+        ):
             cleaned = cleaned[2:-2].strip()
-            
+
         return cleaned

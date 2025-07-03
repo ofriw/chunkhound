@@ -15,6 +15,7 @@ try:
     from tree_sitter import Node as TSNode
     from tree_sitter import Parser as TSParser
     from tree_sitter_language_pack import get_language, get_parser
+
     GO_AVAILABLE = True
 except ImportError:
     GO_AVAILABLE = False
@@ -27,6 +28,7 @@ except ImportError:
 # Try direct import as fallback
 try:
     import tree_sitter_go as ts_go
+
     GO_DIRECT_AVAILABLE = True
 except ImportError:
     GO_DIRECT_AVAILABLE = False
@@ -57,7 +59,7 @@ class GoParser:
                 ChunkType.TYPE,
                 ChunkType.VARIABLE,
                 ChunkType.COMMENT,
-                ChunkType.DOCSTRING
+                ChunkType.DOCSTRING,
             },
             max_chunk_size=8000,
             min_chunk_size=100,
@@ -65,12 +67,14 @@ class GoParser:
             include_comments=False,
             include_docstrings=True,
             max_depth=10,
-            use_cache=True
+            use_cache=True,
         )
 
         # Initialize parser - crash if dependencies unavailable
         if not GO_AVAILABLE and not GO_DIRECT_AVAILABLE:
-            raise ImportError("Go tree-sitter dependencies not available - install tree-sitter-language-pack or tree-sitter-go")
+            raise ImportError(
+                "Go tree-sitter dependencies not available - install tree-sitter-language-pack or tree-sitter-go"
+            )
 
         if not self._initialize():
             raise RuntimeError("Failed to initialize Go parser")
@@ -102,8 +106,8 @@ class GoParser:
         # Fallback to language pack
         try:
             if GO_AVAILABLE and get_language and get_parser:
-                self._language = get_language('go')
-                self._parser = get_parser('go')
+                self._language = get_language("go")
+                self._parser = get_parser("go")
                 self._initialized = True
                 logger.debug("Go parser initialized successfully (language pack)")
                 return True
@@ -152,13 +156,13 @@ class GoParser:
                 parse_time=time.time() - start_time,
                 errors=errors,
                 warnings=warnings,
-                metadata={"file_path": str(file_path)}
+                metadata={"file_path": str(file_path)},
             )
 
         try:
             # Read source if not provided
             if source is None:
-                with open(file_path, encoding='utf-8') as f:
+                with open(file_path, encoding="utf-8") as f:
                     source = f.read()
 
             # Parse with tree-sitter
@@ -171,32 +175,54 @@ class GoParser:
                     parse_time=time.time() - start_time,
                     errors=errors,
                     warnings=warnings,
-                    metadata={"file_path": str(file_path)}
+                    metadata={"file_path": str(file_path)},
                 )
 
-            tree = self._parser.parse(bytes(source, 'utf8'))
+            tree = self._parser.parse(bytes(source, "utf8"))
 
             # Extract package name for context
             package_name = self._extract_package(tree.root_node, source) if tree else ""
 
             # Extract semantic units
             if ChunkType.FUNCTION in self._config.chunk_types:
-                chunks.extend(self._extract_functions(tree.root_node, source, file_path, package_name))
+                chunks.extend(
+                    self._extract_functions(
+                        tree.root_node, source, file_path, package_name
+                    )
+                )
 
             if ChunkType.METHOD in self._config.chunk_types:
-                chunks.extend(self._extract_methods(tree.root_node, source, file_path, package_name))
+                chunks.extend(
+                    self._extract_methods(
+                        tree.root_node, source, file_path, package_name
+                    )
+                )
 
             if ChunkType.STRUCT in self._config.chunk_types:
-                chunks.extend(self._extract_structs(tree.root_node, source, file_path, package_name))
+                chunks.extend(
+                    self._extract_structs(
+                        tree.root_node, source, file_path, package_name
+                    )
+                )
 
             if ChunkType.INTERFACE in self._config.chunk_types:
-                chunks.extend(self._extract_interfaces(tree.root_node, source, file_path, package_name))
+                chunks.extend(
+                    self._extract_interfaces(
+                        tree.root_node, source, file_path, package_name
+                    )
+                )
 
             if ChunkType.TYPE in self._config.chunk_types:
-                chunks.extend(self._extract_types(tree.root_node, source, file_path, package_name))
+                chunks.extend(
+                    self._extract_types(tree.root_node, source, file_path, package_name)
+                )
 
             if ChunkType.VARIABLE in self._config.chunk_types:
-                chunks.extend(self._extract_variables(tree.root_node, source, file_path, package_name))
+                chunks.extend(
+                    self._extract_variables(
+                        tree.root_node, source, file_path, package_name
+                    )
+                )
 
             logger.debug(f"Extracted {len(chunks)} chunks from {file_path}")
 
@@ -215,13 +241,13 @@ class GoParser:
             warnings=warnings,
             metadata={
                 "file_path": str(file_path),
-                "package_name": package_name if 'package_name' in locals() else ""
-            }
+                "package_name": package_name if "package_name" in locals() else "",
+            },
         )
 
     def _get_node_text(self, node: TSNode, source: str) -> str:
         """Extract text content from a tree-sitter node."""
-        return source[node.start_byte:node.end_byte]
+        return source[node.start_byte : node.end_byte]
 
     def _extract_package(self, tree_node: TSNode, source: str) -> str:
         """Extract package name from Go file.
@@ -261,8 +287,9 @@ class GoParser:
             logger.error(f"Failed to extract Go package: {e}")
             return ""
 
-    def _extract_functions(self, tree_node: TSNode, source: str,
-                          file_path: Path, package_name: str) -> list[dict[str, Any]]:
+    def _extract_functions(
+        self, tree_node: TSNode, source: str, file_path: Path, package_name: str
+    ) -> list[dict[str, Any]]:
         """Extract Go function definitions from AST."""
         chunks = []
 
@@ -336,8 +363,9 @@ class GoParser:
 
         return chunks
 
-    def _extract_methods(self, tree_node: TSNode, source: str,
-                        file_path: Path, package_name: str) -> list[dict[str, Any]]:
+    def _extract_methods(
+        self, tree_node: TSNode, source: str, file_path: Path, package_name: str
+    ) -> list[dict[str, Any]]:
         """Extract Go method definitions (functions with receivers) from AST."""
         chunks = []
 
@@ -425,8 +453,9 @@ class GoParser:
 
         return chunks
 
-    def _extract_structs(self, tree_node: TSNode, source: str,
-                        file_path: Path, package_name: str) -> list[dict[str, Any]]:
+    def _extract_structs(
+        self, tree_node: TSNode, source: str, file_path: Path, package_name: str
+    ) -> list[dict[str, Any]]:
         """Extract Go struct definitions from AST."""
         chunks = []
 
@@ -486,8 +515,9 @@ class GoParser:
 
         return chunks
 
-    def _extract_interfaces(self, tree_node: TSNode, source: str,
-                           file_path: Path, package_name: str) -> list[dict[str, Any]]:
+    def _extract_interfaces(
+        self, tree_node: TSNode, source: str, file_path: Path, package_name: str
+    ) -> list[dict[str, Any]]:
         """Extract Go interface definitions from AST."""
         chunks = []
 
@@ -547,8 +577,9 @@ class GoParser:
 
         return chunks
 
-    def _extract_types(self, tree_node: TSNode, source: str,
-                      file_path: Path, package_name: str) -> list[dict[str, Any]]:
+    def _extract_types(
+        self, tree_node: TSNode, source: str, file_path: Path, package_name: str
+    ) -> list[dict[str, Any]]:
         """Extract Go type declarations (type aliases) from AST."""
         chunks = []
 
@@ -571,7 +602,11 @@ class GoParser:
             for match in matches:
                 pattern_index, captures = match
 
-                if "full_type_def" not in captures or "type_name" not in captures or "type_def" not in captures:
+                if (
+                    "full_type_def" not in captures
+                    or "type_name" not in captures
+                    or "type_def" not in captures
+                ):
                     continue
 
                 full_node = captures["full_type_def"][0]
@@ -615,8 +650,9 @@ class GoParser:
 
         return chunks
 
-    def _extract_variables(self, tree_node: TSNode, source: str,
-                          file_path: Path, package_name: str) -> list[dict[str, Any]]:
+    def _extract_variables(
+        self, tree_node: TSNode, source: str, file_path: Path, package_name: str
+    ) -> list[dict[str, Any]]:
         """Extract Go variable and constant declarations from AST."""
         chunks = []
 
@@ -717,7 +753,9 @@ class GoParser:
 
         return parameters
 
-    def _extract_function_return_type(self, func_node: TSNode, source: str) -> str | None:
+    def _extract_function_return_type(
+        self, func_node: TSNode, source: str
+    ) -> str | None:
         """Extract return type from a Go function."""
         try:
             if self._language is None:

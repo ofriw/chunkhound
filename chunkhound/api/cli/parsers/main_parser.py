@@ -54,7 +54,8 @@ def add_common_arguments(parser: argparse.ArgumentParser) -> None:
         parser: Parser to add arguments to
     """
     parser.add_argument(
-        "--verbose", "-v",
+        "--verbose",
+        "-v",
         action="store_true",
         help="Enable verbose logging",
     )
@@ -66,7 +67,9 @@ def add_common_arguments(parser: argparse.ArgumentParser) -> None:
     )
 
 
-def add_database_argument(parser: argparse.ArgumentParser, required: bool = False) -> None:
+def add_database_argument(
+    parser: argparse.ArgumentParser, required: bool = False
+) -> None:
     """Add database path argument to a parser.
 
     Args:

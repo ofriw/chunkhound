@@ -2,6 +2,4 @@
 
 from .connection_manager import DuckDBConnectionManager
 
-__all__ = [
-    "DuckDBConnectionManager"
-]
+__all__ = ["DuckDBConnectionManager"]

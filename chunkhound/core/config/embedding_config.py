@@ -37,62 +37,47 @@ class EmbeddingConfig(BaseSettings):
     """
 
     model_config = SettingsConfigDict(
-        env_prefix='CHUNKHOUND_EMBEDDING_',
-        env_nested_delimiter='__',
+        env_prefix="CHUNKHOUND_EMBEDDING_",
+        env_nested_delimiter="__",
         case_sensitive=False,
         validate_default=True,
-        extra='ignore',  # Ignore unknown fields for forward compatibility
+        extra="ignore",  # Ignore unknown fields for forward compatibility
     )
 
     # Provider Selection
-    provider: Literal['openai', 'openai-compatible', 'tei', 'bge-in-icl'] = Field(
-        default='openai',
-        description="Embedding provider to use"
+    provider: Literal["openai", "openai-compatible", "tei", "bge-in-icl"] = Field(
+        default="openai", description="Embedding provider to use"
     )
 
     # Common Configuration
     model: str | None = Field(
         default=None,
-        description="Embedding model name (uses provider default if not specified)"
+        description="Embedding model name (uses provider default if not specified)",
     )
 
     api_key: SecretStr | None = Field(
-        default=None,
-        description="API key for authentication (provider-specific)"
+        default=None, description="API key for authentication (provider-specific)"
     )
 
     base_url: str | None = Field(
-        default=None,
-        description="Base URL for the embedding API"
+        default=None, description="Base URL for the embedding API"
     )
 
     # Performance Configuration
     batch_size: int = Field(
-        default=50,
-        ge=1,
-        le=1000,
-        description="Batch size for embedding generation"
+        default=50, ge=1, le=1000, description="Batch size for embedding generation"
     )
 
     timeout: int = Field(
-        default=30,
-        ge=1,
-        le=300,
-        description="Request timeout in seconds"
+        default=30, ge=1, le=300, description="Request timeout in seconds"
     )
 
     max_retries: int = Field(
-        default=3,
-        ge=0,
-        le=10,
-        description="Maximum number of retry attempts"
+        default=3, ge=0, le=10, description="Maximum number of retry attempts"
     )
 
     max_concurrent_batches: int = Field(
-        default=3,
-        ge=1,
-        le=20,
-        description="Maximum concurrent embedding batches"
+        default=3, ge=1, le=20, description="Maximum concurrent embedding batches"
     )
 
     # Provider-Specific Configuration
@@ -100,105 +85,101 @@ class EmbeddingConfig(BaseSettings):
         default=None,
         ge=1,
         le=8192,
-        description="Embedding dimensions (for openai-compatible provider)"
+        description="Embedding dimensions (for openai-compatible provider)",
     )
 
     # BGE-IN-ICL Specific Configuration
     language: str = Field(
-        default="auto",
-        description="Programming language for BGE-IN-ICL context"
+        default="auto", description="Programming language for BGE-IN-ICL context"
     )
 
     enable_icl: bool = Field(
-        default=True,
-        description="Enable in-context learning features for BGE-IN-ICL"
+        default=True, description="Enable in-context learning features for BGE-IN-ICL"
     )
 
     adaptive_batching: bool = Field(
-        default=True,
-        description="Enable adaptive batch sizing for BGE-IN-ICL"
+        default=True, description="Enable adaptive batch sizing for BGE-IN-ICL"
     )
 
     min_batch_size: int = Field(
-        default=10,
-        ge=1,
-        le=100,
-        description="Minimum batch size for adaptive batching"
+        default=10, ge=1, le=100, description="Minimum batch size for adaptive batching"
     )
 
     max_batch_size: int = Field(
         default=100,
         ge=1,
         le=1000,
-        description="Maximum batch size for adaptive batching"
+        description="Maximum batch size for adaptive batching",
     )
 
     context_cache_size: int = Field(
         default=100,
         ge=1,
         le=1000,
-        description="Size of context cache for BGE-IN-ICL optimization"
+        description="Size of context cache for BGE-IN-ICL optimization",
     )
 
-    @field_validator('model')
+    @field_validator("model")
     def validate_model(cls, v: str | None, info) -> str | None:
         """Validate model name based on provider."""
         if v is None:
             return v
 
-        provider = info.data.get('provider', 'openai') if info.data else 'openai'
+        provider = info.data.get("provider", "openai") if info.data else "openai"
 
         # Provider-specific model validation
-        if provider == 'openai':
+        if provider == "openai":
             valid_models = [
-                'text-embedding-3-small',
-                'text-embedding-3-large',
-                'text-embedding-ada-002'
+                "text-embedding-3-small",
+                "text-embedding-3-large",
+                "text-embedding-ada-002",
             ]
             if v and v not in valid_models:
                 # Allow custom models but warn about common typos
                 common_typos = {
-                    'text-embedding-3-small': 'text-embedding-3-small',
-                    'text-embedding-small': 'text-embedding-3-small',
-                    'text-embedding-large': 'text-embedding-3-large',
+                    "text-embedding-3-small": "text-embedding-3-small",
+                    "text-embedding-small": "text-embedding-3-small",
+                    "text-embedding-large": "text-embedding-3-large",
                 }
                 if v in common_typos:
                     return common_typos[v]
 
         return v
 
-    @field_validator('base_url')
+    @field_validator("base_url")
     def validate_base_url(cls, v: str | None) -> str | None:
         """Validate and normalize base URL."""
         if v is None:
             return v
 
         # Remove trailing slash for consistency
-        v = v.rstrip('/')
+        v = v.rstrip("/")
 
         # Basic URL validation
-        if not (v.startswith('http://') or v.startswith('https://')):
-            raise ValueError('base_url must start with http:// or https://')
+        if not (v.startswith("http://") or v.startswith("https://")):
+            raise ValueError("base_url must start with http:// or https://")
 
         return v
 
-    @field_validator('batch_size')
+    @field_validator("batch_size")
     def validate_batch_size_for_provider(cls, v: int, info) -> int:
         """Validate batch size based on provider capabilities."""
-        provider = info.data.get('provider', 'openai') if info.data else 'openai'
+        provider = info.data.get("provider", "openai") if info.data else "openai"
 
         # Provider-specific batch size limits
         limits = {
-            'openai': (1, 2048),
-            'openai-compatible': (1, 1000),
-            'tei': (1, 512),
-            'bge-in-icl': (1, 256)
+            "openai": (1, 2048),
+            "openai-compatible": (1, 1000),
+            "tei": (1, 512),
+            "bge-in-icl": (1, 256),
         }
 
         min_size, max_size = limits.get(provider, (1, 1000))
 
         if v < min_size or v > max_size:
-            raise ValueError(f'batch_size for {provider} must be between {min_size} and {max_size}')
+            raise ValueError(
+                f"batch_size for {provider} must be between {min_size} and {max_size}"
+            )
 
         return v
 
@@ -210,35 +191,37 @@ class EmbeddingConfig(BaseSettings):
             Dictionary containing configuration parameters for the selected provider
         """
         base_config = {
-            'provider': self.provider,
-            'model': self.model,
-            'batch_size': self.batch_size,
-            'timeout': self.timeout,
-            'max_retries': self.max_retries,
+            "provider": self.provider,
+            "model": self.model,
+            "batch_size": self.batch_size,
+            "timeout": self.timeout,
+            "max_retries": self.max_retries,
         }
 
         # Add API key if available
         if self.api_key:
-            base_config['api_key'] = self.api_key.get_secret_value()
+            base_config["api_key"] = self.api_key.get_secret_value()
 
         # Add base URL if available
         if self.base_url:
-            base_config['base_url'] = self.base_url
+            base_config["base_url"] = self.base_url
 
         # Provider-specific configuration
-        if self.provider == 'openai-compatible':
+        if self.provider == "openai-compatible":
             if self.dimensions:
-                base_config['dimensions'] = self.dimensions
+                base_config["dimensions"] = self.dimensions
 
-        elif self.provider == 'bge-in-icl':
-            base_config.update({
-                'language': self.language,
-                'enable_icl': self.enable_icl,
-                'adaptive_batching': self.adaptive_batching,
-                'min_batch_size': self.min_batch_size,
-                'max_batch_size': self.max_batch_size,
-                'context_cache_size': self.context_cache_size,
-            })
+        elif self.provider == "bge-in-icl":
+            base_config.update(
+                {
+                    "language": self.language,
+                    "enable_icl": self.enable_icl,
+                    "adaptive_batching": self.adaptive_batching,
+                    "min_batch_size": self.min_batch_size,
+                    "max_batch_size": self.max_batch_size,
+                    "context_cache_size": self.context_cache_size,
+                }
+            )
 
         return base_config
 
@@ -250,13 +233,13 @@ class EmbeddingConfig(BaseSettings):
             Default model name for the provider
         """
         defaults = {
-            'openai': 'text-embedding-3-small',
-            'openai-compatible': 'text-embedding-ada-002',
-            'tei': 'sentence-transformers/all-MiniLM-L6-v2',
-            'bge-in-icl': 'bge-in-icl'
+            "openai": "text-embedding-3-small",
+            "openai-compatible": "text-embedding-ada-002",
+            "tei": "sentence-transformers/all-MiniLM-L6-v2",
+            "bge-in-icl": "bge-in-icl",
         }
 
-        return self.model or defaults.get(self.provider, 'text-embedding-3-small')
+        return self.model or defaults.get(self.provider, "text-embedding-3-small")
 
     def is_provider_configured(self) -> bool:
         """
@@ -266,19 +249,19 @@ class EmbeddingConfig(BaseSettings):
             True if the provider has all required configuration
         """
         # OpenAI requires API key
-        if self.provider == 'openai':
+        if self.provider == "openai":
             return self.api_key is not None
 
         # OpenAI-compatible requires base URL
-        elif self.provider == 'openai-compatible':
+        elif self.provider == "openai-compatible":
             return self.base_url is not None
 
         # TEI requires base URL
-        elif self.provider == 'tei':
+        elif self.provider == "tei":
             return self.base_url is not None
 
         # BGE-IN-ICL requires base URL
-        elif self.provider == 'bge-in-icl':
+        elif self.provider == "bge-in-icl":
             return self.base_url is not None
 
         return False
@@ -292,11 +275,14 @@ class EmbeddingConfig(BaseSettings):
         """
         missing = []
 
-        if self.provider == 'openai' and not self.api_key:
-            missing.append('api_key (CHUNKHOUND_EMBEDDING_API_KEY)')
+        if self.provider == "openai" and not self.api_key:
+            missing.append("api_key (CHUNKHOUND_EMBEDDING_API_KEY)")
 
-        elif self.provider in ['openai-compatible', 'tei', 'bge-in-icl'] and not self.base_url:
-            missing.append('base_url (CHUNKHOUND_EMBEDDING_BASE_URL)')
+        elif (
+            self.provider in ["openai-compatible", "tei", "bge-in-icl"]
+            and not self.base_url
+        ):
+            missing.append("base_url (CHUNKHOUND_EMBEDDING_BASE_URL)")
 
         return missing
 

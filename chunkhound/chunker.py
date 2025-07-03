@@ -18,7 +18,9 @@ class Chunker:
         self.min_chunk_lines = 3  # Minimum lines for a chunk to be considered
         self.max_chunk_lines = 500  # Maximum lines for a chunk
 
-    def chunk_file(self, file_path: Path, parsed_data: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def chunk_file(
+        self, file_path: Path, parsed_data: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
         """Convert parsed AST data into semantic chunks.
 
         Args:
@@ -47,7 +49,7 @@ class Chunker:
                 code=item.get("content", item.get("code", "")),
                 chunk_type=item.get("type", item.get("chunk_type", "unknown")),
                 file_path=file_path,
-                language_info=language_info
+                language_info=language_info,
             )
             chunks.append(chunk)
 
@@ -57,9 +59,16 @@ class Chunker:
         logger.debug(f"Created {len(filtered_chunks)} chunks from {file_path}")
         return filtered_chunks
 
-    def _create_chunk(self, symbol: str, start_line: int, end_line: int,
-                     code: str, chunk_type: str, file_path: Path,
-                     language_info: str | None = None) -> dict[str, Any]:
+    def _create_chunk(
+        self,
+        symbol: str,
+        start_line: int,
+        end_line: int,
+        code: str,
+        chunk_type: str,
+        file_path: Path,
+        language_info: str | None = None,
+    ) -> dict[str, Any]:
         """Create a standardized chunk object.
 
         Args:
@@ -113,27 +122,43 @@ class Chunker:
         for chunk in chunks:
             # Size filtering - different rules for markdown content
             chunk_type = chunk.get("chunk_type", "")
-            is_markdown = chunk_type in ["header_1", "header_2", "header_3", "header_4", "header_5", "header_6", "paragraph"]
+            is_markdown = chunk_type in [
+                "header_1",
+                "header_2",
+                "header_3",
+                "header_4",
+                "header_5",
+                "header_6",
+                "paragraph",
+            ]
 
             # For markdown, allow smaller chunks (headers can be 1 line)
             min_lines = 1 if is_markdown else self.min_chunk_lines
 
             if chunk["line_count"] < min_lines:
-                logger.debug(f"Skipping chunk {chunk['symbol']}: too small ({chunk['line_count']} lines)")
+                logger.debug(
+                    f"Skipping chunk {chunk['symbol']}: too small ({chunk['line_count']} lines)"
+                )
                 continue
 
             if chunk["line_count"] > self.max_chunk_lines:
-                logger.debug(f"Skipping chunk {chunk['symbol']}: too large ({chunk['line_count']} lines)")
+                logger.debug(
+                    f"Skipping chunk {chunk['symbol']}: too large ({chunk['line_count']} lines)"
+                )
                 continue
 
             # Skip empty or whitespace-only chunks
             if not chunk["code"].strip():
-                logger.debug(f"Skipping chunk {chunk['symbol']}: empty or whitespace only")
+                logger.debug(
+                    f"Skipping chunk {chunk['symbol']}: empty or whitespace only"
+                )
                 continue
 
             # Skip generated code patterns (basic heuristics)
             if self._is_generated_code(chunk["code"]):
-                logger.debug(f"Skipping chunk {chunk['symbol']}: appears to be generated")
+                logger.debug(
+                    f"Skipping chunk {chunk['symbol']}: appears to be generated"
+                )
                 continue
 
             filtered_chunks.append(chunk)
@@ -141,7 +166,9 @@ class Chunker:
         # Remove duplicates based on symbol and code content
         unique_chunks = self._remove_duplicates(filtered_chunks)
 
-        logger.debug(f"Filtered {len(chunks)} chunks to {len(unique_chunks)} unique chunks")
+        logger.debug(
+            f"Filtered {len(chunks)} chunks to {len(unique_chunks)} unique chunks"
+        )
         return unique_chunks
 
     def _get_relative_path(self, file_path: Path) -> str:
@@ -160,7 +187,7 @@ class Chunker:
         if not code:
             return ""
 
-        lines = code.split('\n')
+        lines = code.split("\n")
 
         # Remove trailing whitespace from each line
         cleaned_lines = [line.rstrip() for line in lines]
@@ -171,7 +198,7 @@ class Chunker:
         while cleaned_lines and not cleaned_lines[-1].strip():
             cleaned_lines.pop()
 
-        return '\n'.join(cleaned_lines)
+        return "\n".join(cleaned_lines)
 
     def _is_generated_code(self, code: str) -> bool:
         """Check if code appears to be generated using basic heuristics."""
@@ -215,10 +242,11 @@ class Chunker:
 @dataclass
 class ChunkDiff:
     """Represents the difference between old and new chunks for incremental updates."""
-    chunks_to_delete: list[int]      # Chunk IDs to remove from database
+
+    chunks_to_delete: list[int]  # Chunk IDs to remove from database
     chunks_to_insert: list[dict[str, Any]]  # New chunks to add to database
     chunks_to_update: list[dict[str, Any]]  # Modified chunks to update in database
-    unchanged_count: int             # Number of chunks preserved (for stats)
+    unchanged_count: int  # Number of chunks preserved (for stats)
 
 
 class IncrementalChunker:
@@ -228,11 +256,13 @@ class IncrementalChunker:
         """Initialize the incremental chunker."""
         self.base_chunker = Chunker()
 
-    def chunk_file_differential(self,
-                               file_path: Path,
-                               old_chunks: list[dict[str, Any]],
-                               changed_ranges: list[dict[str, Any]],
-                               new_parsed_data: list[dict[str, Any]]) -> ChunkDiff:
+    def chunk_file_differential(
+        self,
+        file_path: Path,
+        old_chunks: list[dict[str, Any]],
+        changed_ranges: list[dict[str, Any]],
+        new_parsed_data: list[dict[str, Any]],
+    ) -> ChunkDiff:
         """Generate minimal chunk changes by comparing old chunks with new parsed data.
 
         Args:
@@ -245,7 +275,9 @@ class IncrementalChunker:
             ChunkDiff containing minimal set of database operations needed
         """
         logger.debug(f"Computing differential chunks for {file_path}")
-        logger.debug(f"Old chunks: {len(old_chunks)}, Changed ranges: {len(changed_ranges)}")
+        logger.debug(
+            f"Old chunks: {len(old_chunks)}, Changed ranges: {len(changed_ranges)}"
+        )
 
         # If no changed ranges, nothing to update
         if not changed_ranges:
@@ -254,7 +286,7 @@ class IncrementalChunker:
                 chunks_to_delete=[],
                 chunks_to_insert=[],
                 chunks_to_update=[],
-                unchanged_count=len(old_chunks)
+                unchanged_count=len(old_chunks),
             )
 
         # Generate new chunks from the complete parsed data
@@ -263,18 +295,20 @@ class IncrementalChunker:
 
         # If we have a full file change or structural change, replace everything
         has_structural_change = any(
-            change.get('type') in ['full_change', 'structural_change']
+            change.get("type") in ["full_change", "structural_change"]
             for change in changed_ranges
         )
 
         if has_structural_change:
             logger.debug("Structural change detected, replacing all chunks")
-            old_chunk_ids = [chunk['id'] for chunk in old_chunks if chunk.get('id') is not None]
+            old_chunk_ids = [
+                chunk["id"] for chunk in old_chunks if chunk.get("id") is not None
+            ]
             return ChunkDiff(
                 chunks_to_delete=old_chunk_ids,
                 chunks_to_insert=new_chunks,
                 chunks_to_update=[],
-                unchanged_count=0
+                unchanged_count=0,
             )
 
         # Identify which old chunks are affected by the changes
@@ -282,7 +316,9 @@ class IncrementalChunker:
         logger.debug(f"Identified {len(affected_chunk_ids)} affected chunks")
 
         # Find new chunks that overlap with affected regions
-        affected_new_chunks = self.identify_new_chunks_in_ranges(new_chunks, changed_ranges)
+        affected_new_chunks = self.identify_new_chunks_in_ranges(
+            new_chunks, changed_ranges
+        )
         logger.debug(f"Found {len(affected_new_chunks)} new chunks in changed ranges")
 
         # Build the diff
@@ -294,12 +330,12 @@ class IncrementalChunker:
             chunks_to_delete=chunks_to_delete,
             chunks_to_insert=chunks_to_insert,
             chunks_to_update=[],  # For now, we delete+insert rather than update
-            unchanged_count=unchanged_count
+            unchanged_count=unchanged_count,
         )
 
-    def identify_affected_chunks(self,
-                                old_chunks: list[dict[str, Any]],
-                                changed_ranges: list[dict[str, Any]]) -> set[int]:
+    def identify_affected_chunks(
+        self, old_chunks: list[dict[str, Any]], changed_ranges: list[dict[str, Any]]
+    ) -> set[int]:
         """Find chunks that overlap with changed regions and need updating.
 
         Args:
@@ -312,36 +348,42 @@ class IncrementalChunker:
         affected_ids = set()
 
         for chunk in old_chunks:
-            chunk_id = chunk.get('id')
+            chunk_id = chunk.get("id")
             if not chunk_id:
                 continue
 
-            chunk_start = chunk.get('start_line', 0)
-            chunk_end = chunk.get('end_line', 0)
+            chunk_start = chunk.get("start_line", 0)
+            chunk_end = chunk.get("end_line", 0)
 
             # Check if chunk overlaps with any changed range
             for change in changed_ranges:
                 # Convert byte positions to approximate line positions
                 # This is a simplified approach - in production we'd want more precise mapping
-                change_start_byte = change.get('start_byte', 0)
-                change_end_byte = change.get('end_byte', float('inf'))
+                change_start_byte = change.get("start_byte", 0)
+                change_end_byte = change.get("end_byte", float("inf"))
 
                 # Simple heuristic: assume ~50 chars per line for byte-to-line conversion
                 # This is rough but works for detecting overlaps
                 change_start_line = max(1, change_start_byte // 50)
-                change_end_line = change_end_byte // 50 if change_end_byte != float('inf') else float('inf')
+                change_end_line = (
+                    change_end_byte // 50
+                    if change_end_byte != float("inf")
+                    else float("inf")
+                )
 
                 # Check for overlap: chunk intersects with changed range
-                if (chunk_start <= change_end_line and chunk_end >= change_start_line):
+                if chunk_start <= change_end_line and chunk_end >= change_start_line:
                     affected_ids.add(chunk_id)
-                    logger.debug(f"Chunk {chunk_id} ({chunk_start}-{chunk_end}) overlaps with change ({change_start_line}-{change_end_line})")
+                    logger.debug(
+                        f"Chunk {chunk_id} ({chunk_start}-{chunk_end}) overlaps with change ({change_start_line}-{change_end_line})"
+                    )
                     break
 
         return affected_ids
 
-    def identify_new_chunks_in_ranges(self,
-                                     new_chunks: list[dict[str, Any]],
-                                     changed_ranges: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def identify_new_chunks_in_ranges(
+        self, new_chunks: list[dict[str, Any]], changed_ranges: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
         """Find new chunks that fall within changed regions.
 
         Args:
@@ -354,22 +396,28 @@ class IncrementalChunker:
         chunks_in_ranges = []
 
         for chunk in new_chunks:
-            chunk_start = chunk.get('start_line', 0)
-            chunk_end = chunk.get('end_line', 0)
+            chunk_start = chunk.get("start_line", 0)
+            chunk_end = chunk.get("end_line", 0)
 
             # Check if chunk falls within any changed range
             for change in changed_ranges:
                 # Convert byte positions to approximate line positions
-                change_start_byte = change.get('start_byte', 0)
-                change_end_byte = change.get('end_byte', float('inf'))
+                change_start_byte = change.get("start_byte", 0)
+                change_end_byte = change.get("end_byte", float("inf"))
 
                 change_start_line = max(1, change_start_byte // 50)
-                change_end_line = change_end_byte // 50 if change_end_byte != float('inf') else float('inf')
+                change_end_line = (
+                    change_end_byte // 50
+                    if change_end_byte != float("inf")
+                    else float("inf")
+                )
 
                 # Check if chunk overlaps with changed range
-                if (chunk_start <= change_end_line and chunk_end >= change_start_line):
+                if chunk_start <= change_end_line and chunk_end >= change_start_line:
                     chunks_in_ranges.append(chunk)
-                    logger.debug(f"New chunk '{chunk.get('symbol', 'unknown')}' ({chunk_start}-{chunk_end}) falls in changed range")
+                    logger.debug(
+                        f"New chunk '{chunk.get('symbol', 'unknown')}' ({chunk_start}-{chunk_end}) falls in changed range"
+                    )
                     break
 
         return chunks_in_ranges

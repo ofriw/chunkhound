@@ -74,16 +74,20 @@ class Chunk:
 
         # Line number validation
         if self.start_line < 1:
-            raise ValidationError("start_line", self.start_line, "Start line must be positive")
+            raise ValidationError(
+                "start_line", self.start_line, "Start line must be positive"
+            )
 
         if self.end_line < 1:
-            raise ValidationError("end_line", self.end_line, "End line must be positive")
+            raise ValidationError(
+                "end_line", self.end_line, "End line must be positive"
+            )
 
         if self.start_line > self.end_line:
             raise ValidationError(
                 "line_range",
                 f"{self.start_line}-{self.end_line}",
-                "Start line cannot be greater than end line"
+                "Start line cannot be greater than end line",
             )
 
         # Code validation
@@ -92,17 +96,24 @@ class Chunk:
 
         # Byte offset validation (if provided)
         if self.start_byte is not None and self.start_byte < 0:
-            raise ValidationError("start_byte", self.start_byte, "Start byte cannot be negative")
+            raise ValidationError(
+                "start_byte", self.start_byte, "Start byte cannot be negative"
+            )
 
         if self.end_byte is not None and self.end_byte < 0:
-            raise ValidationError("end_byte", self.end_byte, "End byte cannot be negative")
+            raise ValidationError(
+                "end_byte", self.end_byte, "End byte cannot be negative"
+            )
 
-        if (self.start_byte is not None and self.end_byte is not None and
-            self.start_byte > self.end_byte):
+        if (
+            self.start_byte is not None
+            and self.end_byte is not None
+            and self.start_byte > self.end_byte
+        ):
             raise ValidationError(
                 "byte_range",
                 f"{self.start_byte}-{self.end_byte}",
-                "Start byte cannot be greater than end byte"
+                "Start byte cannot be greater than end byte",
             )
 
     @classmethod
@@ -129,7 +140,9 @@ class Chunk:
 
             start_line = data.get("start_line")
             if start_line is None:
-                raise ValidationError("start_line", start_line, "Start line is required")
+                raise ValidationError(
+                    "start_line", start_line, "Start line is required"
+                )
 
             end_line = data.get("end_line")
             if end_line is None:
@@ -202,7 +215,7 @@ class Chunk:
                 start_byte=start_byte,
                 end_byte=end_byte,
                 created_at=created_at,
-                updated_at=updated_at
+                updated_at=updated_at,
             )
 
         except (ValueError, TypeError) as e:
@@ -274,7 +287,7 @@ class Chunk:
             return f"{self.chunk_type.value}: {self.symbol}"
         else:
             # For documentation chunks, show truncated content
-            content_preview = self.code[:50].replace('\n', ' ').strip()
+            content_preview = self.code[:50].replace("\n", " ").strip()
             if len(self.code) > 50:
                 content_preview += "..."
             return f"{self.chunk_type.value}: {content_preview}"
@@ -339,8 +352,9 @@ class Chunk:
         Returns:
             True if chunks overlap in line ranges
         """
-        return not (self.end_line < other.start_line or other.end_line < self.start_line)
-
+        return not (
+            self.end_line < other.start_line or other.end_line < self.start_line
+        )
 
     def with_id(self, chunk_id: ChunkId) -> "Chunk":
         """Create a new Chunk instance with the specified ID.
@@ -365,7 +379,7 @@ class Chunk:
             start_byte=self.start_byte,
             end_byte=self.end_byte,
             created_at=self.created_at,
-            updated_at=self.updated_at
+            updated_at=self.updated_at,
         )
 
     def with_file_path(self, file_path: FilePath) -> "Chunk":
@@ -391,13 +405,17 @@ class Chunk:
             start_byte=self.start_byte,
             end_byte=self.end_byte,
             created_at=self.created_at,
-            updated_at=self.updated_at
+            updated_at=self.updated_at,
         )
 
     def __str__(self) -> str:
         """Return string representation of the chunk."""
-        location = f"{self.relative_path or 'unknown'}:{self.start_line}-{self.end_line}"
-        return f"Chunk(id={self.id}, {self.chunk_type.value}: {self.symbol} @ {location})"
+        location = (
+            f"{self.relative_path or 'unknown'}:{self.start_line}-{self.end_line}"
+        )
+        return (
+            f"Chunk(id={self.id}, {self.chunk_type.value}: {self.symbol} @ {location})"
+        )
 
     def __repr__(self) -> str:
         """Return detailed string representation of the chunk."""

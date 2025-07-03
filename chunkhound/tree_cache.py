@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from tree_sitter import Tree
+
     TreeSitterTree = Tree
 else:
     TreeSitterTree = Any
@@ -74,7 +75,9 @@ class TreeCache:
         self._evictions = 0
         self._invalidations = 0
 
-        logger.debug(f"TreeCache initialized: max_entries={max_entries}, max_memory_mb={max_memory_mb}")
+        logger.debug(
+            f"TreeCache initialized: max_entries={max_entries}, max_memory_mb={max_memory_mb}"
+        )
 
     def get(self, file_path: Path) -> Any | None:
         """Get cached syntax tree for file.
@@ -237,27 +240,33 @@ class TreeCache:
         """
         with self._lock:
             total_requests = self._hits + self._misses
-            hit_rate = (self._hits / total_requests * 100) if total_requests > 0 else 0.0
+            hit_rate = (
+                (self._hits / total_requests * 100) if total_requests > 0 else 0.0
+            )
 
             return {
-                'entries': len(self._cache),
-                'max_entries': self.max_entries,
-                'hits': self._hits,
-                'misses': self._misses,
-                'hit_rate_percent': round(hit_rate, 2),
-                'evictions': self._evictions,
-                'invalidations': self._invalidations,
-                'total_requests': total_requests,
-                'estimated_memory_mb': round(sum(entry.size for entry in self._cache.values()) / 1024 / 1024, 2),
-                'max_memory_mb': round(self.max_memory_bytes / 1024 / 1024, 2)
+                "entries": len(self._cache),
+                "max_entries": self.max_entries,
+                "hits": self._hits,
+                "misses": self._misses,
+                "hit_rate_percent": round(hit_rate, 2),
+                "evictions": self._evictions,
+                "invalidations": self._invalidations,
+                "total_requests": total_requests,
+                "estimated_memory_mb": round(
+                    sum(entry.size for entry in self._cache.values()) / 1024 / 1024, 2
+                ),
+                "max_memory_mb": round(self.max_memory_bytes / 1024 / 1024, 2),
             }
 
     def print_stats(self) -> None:
         """Print cache statistics to logger."""
         stats = self.get_stats()
-        logger.info(f"TreeCache Stats: {stats['entries']}/{stats['max_entries']} entries, "
-                   f"{stats['hit_rate_percent']}% hit rate, "
-                   f"{stats['estimated_memory_mb']}/{stats['max_memory_mb']} MB")
+        logger.info(
+            f"TreeCache Stats: {stats['entries']}/{stats['max_entries']} entries, "
+            f"{stats['hit_rate_percent']}% hit rate, "
+            f"{stats['estimated_memory_mb']}/{stats['max_memory_mb']} MB"
+        )
 
     def cleanup_stale_entries(self) -> int:
         """Remove all stale entries (files that have been modified or deleted).
@@ -298,13 +307,13 @@ class TreeCache:
 
             entry = self._cache[cache_key]
             return {
-                'file_path': str(entry.file_path),
-                'cached_mtime': entry.mtime,
-                'cached_size': entry.size,
-                'access_time': entry.access_time,
-                'hit_count': entry.hit_count,
-                'is_valid': entry.is_valid(),
-                'age_seconds': time.time() - entry.access_time
+                "file_path": str(entry.file_path),
+                "cached_mtime": entry.mtime,
+                "cached_size": entry.size,
+                "access_time": entry.access_time,
+                "hit_count": entry.hit_count,
+                "is_valid": entry.is_valid(),
+                "age_seconds": time.time() - entry.access_time,
             }
 
 
@@ -324,7 +333,9 @@ def get_default_cache() -> TreeCache:
     return _default_cache
 
 
-def configure_default_cache(max_entries: int = 1000, max_memory_mb: int = 500) -> TreeCache:
+def configure_default_cache(
+    max_entries: int = 1000, max_memory_mb: int = 500
+) -> TreeCache:
     """Configure the default global tree cache.
 
     Args:

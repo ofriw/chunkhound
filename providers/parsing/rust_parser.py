@@ -15,6 +15,7 @@ try:
     from tree_sitter import Node as TSNode
     from tree_sitter import Parser as TSParser
     from tree_sitter_language_pack import get_language, get_parser
+
     RUST_AVAILABLE = True
 except ImportError:
     RUST_AVAILABLE = False
@@ -27,6 +28,7 @@ except ImportError:
 # Try direct import as fallback
 try:
     import tree_sitter_rust as ts_rust
+
     RUST_DIRECT_AVAILABLE = True
 except ImportError:
     RUST_DIRECT_AVAILABLE = False
@@ -58,8 +60,8 @@ class RustParser:
                 ChunkType.INTERFACE,  # For trait implementations
                 ChunkType.NAMESPACE,  # For modules
                 ChunkType.MACRO,
-                ChunkType.VARIABLE,   # Constants and statics
-                ChunkType.TYPE,       # Type aliases
+                ChunkType.VARIABLE,  # Constants and statics
+                ChunkType.TYPE,  # Type aliases
                 ChunkType.COMMENT,
                 ChunkType.DOCSTRING,
             },
@@ -69,12 +71,14 @@ class RustParser:
             include_comments=False,
             include_docstrings=True,
             max_depth=10,
-            use_cache=True
+            use_cache=True,
         )
 
         # Initialize parser - crash if dependencies unavailable
         if not RUST_AVAILABLE and not RUST_DIRECT_AVAILABLE:
-            raise ImportError("Rust tree-sitter dependencies not available - install tree-sitter-language-pack or tree-sitter-rust")
+            raise ImportError(
+                "Rust tree-sitter dependencies not available - install tree-sitter-language-pack or tree-sitter-rust"
+            )
 
         if not self._initialize():
             raise RuntimeError("Failed to initialize Rust parser")
@@ -106,8 +110,8 @@ class RustParser:
         # Fallback to language pack
         try:
             if RUST_AVAILABLE and get_language and get_parser:
-                self._language = get_language('rust')
-                self._parser = get_parser('rust')
+                self._language = get_language("rust")
+                self._parser = get_parser("rust")
                 self._initialized = True
                 logger.debug("Rust parser initialized successfully (language pack)")
                 return True
@@ -156,13 +160,13 @@ class RustParser:
                 parse_time=time.time() - start_time,
                 errors=errors,
                 warnings=warnings,
-                metadata={"file_path": str(file_path)}
+                metadata={"file_path": str(file_path)},
             )
 
         try:
             # Read source if not provided
             if source is None:
-                with open(file_path, encoding='utf-8') as f:
+                with open(file_path, encoding="utf-8") as f:
                     source = f.read()
 
             # Parse with tree-sitter
@@ -175,51 +179,89 @@ class RustParser:
                     parse_time=time.time() - start_time,
                     errors=errors,
                     warnings=warnings,
-                    metadata={"file_path": str(file_path)}
+                    metadata={"file_path": str(file_path)},
                 )
 
-            tree = self._parser.parse(bytes(source, 'utf8'))
+            tree = self._parser.parse(bytes(source, "utf8"))
 
             # Extract module path for context
-            module_path = self._extract_module_path(tree.root_node, source, file_path) if tree else ""
+            module_path = (
+                self._extract_module_path(tree.root_node, source, file_path)
+                if tree
+                else ""
+            )
 
             # Extract semantic units
             if ChunkType.FUNCTION in self._config.chunk_types:
-                chunks.extend(self._extract_functions(tree.root_node, source, file_path, module_path))
+                chunks.extend(
+                    self._extract_functions(
+                        tree.root_node, source, file_path, module_path
+                    )
+                )
 
             if ChunkType.METHOD in self._config.chunk_types:
-                chunks.extend(self._extract_methods(tree.root_node, source, file_path, module_path))
+                chunks.extend(
+                    self._extract_methods(
+                        tree.root_node, source, file_path, module_path
+                    )
+                )
 
             if ChunkType.STRUCT in self._config.chunk_types:
-                chunks.extend(self._extract_structs(tree.root_node, source, file_path, module_path))
+                chunks.extend(
+                    self._extract_structs(
+                        tree.root_node, source, file_path, module_path
+                    )
+                )
 
             if ChunkType.ENUM in self._config.chunk_types:
-                chunks.extend(self._extract_enums(tree.root_node, source, file_path, module_path))
+                chunks.extend(
+                    self._extract_enums(tree.root_node, source, file_path, module_path)
+                )
 
             if ChunkType.TRAIT in self._config.chunk_types:
-                chunks.extend(self._extract_traits(tree.root_node, source, file_path, module_path))
+                chunks.extend(
+                    self._extract_traits(tree.root_node, source, file_path, module_path)
+                )
 
             if ChunkType.INTERFACE in self._config.chunk_types:
-                chunks.extend(self._extract_implementations(tree.root_node, source, file_path, module_path))
+                chunks.extend(
+                    self._extract_implementations(
+                        tree.root_node, source, file_path, module_path
+                    )
+                )
 
             if ChunkType.NAMESPACE in self._config.chunk_types:
-                chunks.extend(self._extract_modules(tree.root_node, source, file_path, module_path))
+                chunks.extend(
+                    self._extract_modules(
+                        tree.root_node, source, file_path, module_path
+                    )
+                )
 
             if ChunkType.MACRO in self._config.chunk_types:
-                chunks.extend(self._extract_macros(tree.root_node, source, file_path, module_path))
+                chunks.extend(
+                    self._extract_macros(tree.root_node, source, file_path, module_path)
+                )
 
             if ChunkType.VARIABLE in self._config.chunk_types:
-                chunks.extend(self._extract_variables(tree.root_node, source, file_path, module_path))
+                chunks.extend(
+                    self._extract_variables(
+                        tree.root_node, source, file_path, module_path
+                    )
+                )
 
             if ChunkType.TYPE in self._config.chunk_types:
-                chunks.extend(self._extract_types(tree.root_node, source, file_path, module_path))
+                chunks.extend(
+                    self._extract_types(tree.root_node, source, file_path, module_path)
+                )
 
             # Extract comments and docstrings
             if ChunkType.COMMENT in self._config.chunk_types:
                 chunks.extend(self._extract_comments(tree.root_node, source, file_path))
 
             if ChunkType.DOCSTRING in self._config.chunk_types:
-                chunks.extend(self._extract_docstrings(tree.root_node, source, file_path))
+                chunks.extend(
+                    self._extract_docstrings(tree.root_node, source, file_path)
+                )
 
             logger.debug(f"Extracted {len(chunks)} chunks from {file_path}")
 
@@ -238,15 +280,17 @@ class RustParser:
             warnings=warnings,
             metadata={
                 "file_path": str(file_path),
-                "module_path": module_path if 'module_path' in locals() else ""
-            }
+                "module_path": module_path if "module_path" in locals() else "",
+            },
         )
 
     def _get_node_text(self, node: TSNode, source: str) -> str:
         """Extract text content from a tree-sitter node."""
-        return source[node.start_byte:node.end_byte]
+        return source[node.start_byte : node.end_byte]
 
-    def _extract_module_path(self, tree_node: TSNode, source: str, file_path: Path) -> str:
+    def _extract_module_path(
+        self, tree_node: TSNode, source: str, file_path: Path
+    ) -> str:
         """Extract module path from Rust file context.
 
         Args:
@@ -261,8 +305,9 @@ class RustParser:
         # This could be enhanced to parse actual module declarations
         return file_path.stem
 
-    def _extract_functions(self, tree_node: TSNode, source: str,
-                          file_path: Path, module_path: str) -> list[dict[str, Any]]:
+    def _extract_functions(
+        self, tree_node: TSNode, source: str, file_path: Path, module_path: str
+    ) -> list[dict[str, Any]]:
         """Extract Rust function definitions from AST."""
         chunks = []
 
@@ -336,8 +381,9 @@ class RustParser:
 
         return chunks
 
-    def _extract_methods(self, tree_node: TSNode, source: str,
-                        file_path: Path, module_path: str) -> list[dict[str, Any]]:
+    def _extract_methods(
+        self, tree_node: TSNode, source: str, file_path: Path, module_path: str
+    ) -> list[dict[str, Any]]:
         """Extract Rust method definitions (impl block methods) from AST."""
         chunks = []
 
@@ -425,8 +471,9 @@ class RustParser:
 
         return chunks
 
-    def _extract_structs(self, tree_node: TSNode, source: str,
-                        file_path: Path, module_path: str) -> list[dict[str, Any]]:
+    def _extract_structs(
+        self, tree_node: TSNode, source: str, file_path: Path, module_path: str
+    ) -> list[dict[str, Any]]:
         """Extract Rust struct definitions from AST."""
         chunks = []
 
@@ -483,8 +530,9 @@ class RustParser:
 
         return chunks
 
-    def _extract_enums(self, tree_node: TSNode, source: str,
-                      file_path: Path, module_path: str) -> list[dict[str, Any]]:
+    def _extract_enums(
+        self, tree_node: TSNode, source: str, file_path: Path, module_path: str
+    ) -> list[dict[str, Any]]:
         """Extract Rust enum definitions from AST."""
         chunks = []
 
@@ -541,8 +589,9 @@ class RustParser:
 
         return chunks
 
-    def _extract_traits(self, tree_node: TSNode, source: str,
-                       file_path: Path, module_path: str) -> list[dict[str, Any]]:
+    def _extract_traits(
+        self, tree_node: TSNode, source: str, file_path: Path, module_path: str
+    ) -> list[dict[str, Any]]:
         """Extract Rust trait definitions from AST."""
         chunks = []
 
@@ -599,8 +648,9 @@ class RustParser:
 
         return chunks
 
-    def _extract_implementations(self, tree_node: TSNode, source: str,
-                               file_path: Path, module_path: str) -> list[dict[str, Any]]:
+    def _extract_implementations(
+        self, tree_node: TSNode, source: str, file_path: Path, module_path: str
+    ) -> list[dict[str, Any]]:
         """Extract Rust impl block definitions from AST."""
         chunks = []
 
@@ -672,8 +722,9 @@ class RustParser:
 
         return chunks
 
-    def _extract_modules(self, tree_node: TSNode, source: str,
-                        file_path: Path, module_path: str) -> list[dict[str, Any]]:
+    def _extract_modules(
+        self, tree_node: TSNode, source: str, file_path: Path, module_path: str
+    ) -> list[dict[str, Any]]:
         """Extract Rust module declarations from AST."""
         chunks = []
 
@@ -730,8 +781,9 @@ class RustParser:
 
         return chunks
 
-    def _extract_macros(self, tree_node: TSNode, source: str,
-                       file_path: Path, module_path: str) -> list[dict[str, Any]]:
+    def _extract_macros(
+        self, tree_node: TSNode, source: str, file_path: Path, module_path: str
+    ) -> list[dict[str, Any]]:
         """Extract Rust macro definitions from AST."""
         chunks = []
 
@@ -788,8 +840,9 @@ class RustParser:
 
         return chunks
 
-    def _extract_variables(self, tree_node: TSNode, source: str,
-                          file_path: Path, module_path: str) -> list[dict[str, Any]]:
+    def _extract_variables(
+        self, tree_node: TSNode, source: str, file_path: Path, module_path: str
+    ) -> list[dict[str, Any]]:
         """Extract Rust const and static declarations from AST."""
         chunks = []
 
@@ -860,8 +913,9 @@ class RustParser:
 
         return chunks
 
-    def _extract_types(self, tree_node: TSNode, source: str,
-                      file_path: Path, module_path: str) -> list[dict[str, Any]]:
+    def _extract_types(
+        self, tree_node: TSNode, source: str, file_path: Path, module_path: str
+    ) -> list[dict[str, Any]]:
         """Extract Rust type alias declarations from AST."""
         chunks = []
 
@@ -952,7 +1006,9 @@ class RustParser:
 
         return parameters
 
-    def _extract_function_return_type(self, func_node: TSNode, source: str) -> str | None:
+    def _extract_function_return_type(
+        self, func_node: TSNode, source: str
+    ) -> str | None:
         """Extract return type from a Rust function."""
         try:
             if self._language is None:
@@ -971,21 +1027,24 @@ class RustParser:
             logger.error(f"Failed to extract Rust function return type: {e}")
             return None
 
-    def _extract_comments(self, tree_node: TSNode, source: str, file_path: Path) -> list[dict[str, Any]]:
+    def _extract_comments(
+        self, tree_node: TSNode, source: str, file_path: Path
+    ) -> list[dict[str, Any]]:
         """Extract Rust comments (//)."""
-        comment_patterns = [
-            "(line_comment) @comment",
-            "(block_comment) @comment"
-        ]
-        return self._extract_comments_generic(tree_node, source, file_path, comment_patterns)
+        comment_patterns = ["(line_comment) @comment", "(block_comment) @comment"]
+        return self._extract_comments_generic(
+            tree_node, source, file_path, comment_patterns
+        )
 
-    def _extract_docstrings(self, tree_node: TSNode, source: str, file_path: Path) -> list[dict[str, Any]]:
+    def _extract_docstrings(
+        self, tree_node: TSNode, source: str, file_path: Path
+    ) -> list[dict[str, Any]]:
         """Extract Rust documentation comments (/// and /** */)."""
         chunks = []
-        
+
         if self._language is None:
             return chunks
-            
+
         try:
             # Extract documentation comments (/// and /** ... */)
             query = self._language.query("""
@@ -993,22 +1052,24 @@ class RustParser:
                 (block_comment) @doc_comment
             """)
             matches = query.matches(tree_node)
-            
+
             for match in matches:
                 pattern_index, captures = match
-                
+
                 for capture_name, nodes in captures.items():
                     for node in nodes:
                         comment_text = self._get_node_text(node, source)
-                        
+
                         # Check if it's a documentation comment (starts with /// or /** or //!)
-                        if (comment_text.strip().startswith("///") or 
-                            comment_text.strip().startswith("//!") or
-                            comment_text.strip().startswith("/*!") or
-                            comment_text.strip().startswith("/**")):
+                        if (
+                            comment_text.strip().startswith("///")
+                            or comment_text.strip().startswith("//!")
+                            or comment_text.strip().startswith("/*!")
+                            or comment_text.strip().startswith("/**")
+                        ):
                             cleaned_text = self._clean_rust_doc_text(comment_text)
                             symbol = f"doc:{node.start_point[0] + 1}"
-                            
+
                             chunk = self._create_chunk(
                                 node=node,
                                 source=source,
@@ -1016,78 +1077,87 @@ class RustParser:
                                 chunk_type=ChunkType.DOCSTRING,
                                 name=symbol,
                                 display_name=f"Documentation at line {node.start_point[0] + 1}",
-                                content=cleaned_text
+                                content=cleaned_text,
                             )
-                            
+
                             chunks.append(chunk)
-                            
+
         except Exception as e:
             logger.error(f"Failed to extract Rust docstrings: {e}")
-            
+
         return chunks
 
     def _clean_rust_doc_text(self, text: str) -> str:
         """Clean Rust documentation comment text by removing markers and prefixes."""
         cleaned = text.strip()
-        
+
         # Remove /** */ or /*! */ markers
-        if (cleaned.startswith("/**") or cleaned.startswith("/*!")) and cleaned.endswith("*/"):
+        if (
+            cleaned.startswith("/**") or cleaned.startswith("/*!")
+        ) and cleaned.endswith("*/"):
             cleaned = cleaned[3:-2]
         # Remove /// or //! markers
         elif cleaned.startswith("///") or cleaned.startswith("//!"):
-            lines = cleaned.split('\n')
+            lines = cleaned.split("\n")
             cleaned_lines = []
             for line in lines:
                 line = line.strip()
-                if line.startswith('///'):
+                if line.startswith("///"):
                     line = line[3:].lstrip()
-                elif line.startswith('//!'):
+                elif line.startswith("//!"):
                     line = line[3:].lstrip()
                 cleaned_lines.append(line)
-            return '\n'.join(cleaned_lines).strip()
-        
+            return "\n".join(cleaned_lines).strip()
+
         # Remove leading * from each line for block comments
-        lines = cleaned.split('\n')
+        lines = cleaned.split("\n")
         cleaned_lines = []
         for line in lines:
             line = line.strip()
-            if line.startswith('*'):
+            if line.startswith("*"):
                 line = line[1:].lstrip()
             cleaned_lines.append(line)
-            
-        return '\n'.join(cleaned_lines).strip()
 
-    def _extract_comments_generic(self, tree_node: TSNode, source: str, file_path: Path, 
-                                 comment_patterns: list[str]) -> list[dict[str, Any]]:
+        return "\n".join(cleaned_lines).strip()
+
+    def _extract_comments_generic(
+        self,
+        tree_node: TSNode,
+        source: str,
+        file_path: Path,
+        comment_patterns: list[str],
+    ) -> list[dict[str, Any]]:
         """Extract comments using generic patterns."""
         chunks = []
-        
+
         if not comment_patterns or self._language is None:
             return chunks
-            
+
         try:
             for pattern in comment_patterns:
                 query = self._language.query(pattern)
                 matches = query.matches(tree_node)
-                
+
                 for match in matches:
                     pattern_index, captures = match
-                    
+
                     for capture_name, nodes in captures.items():
                         for node in nodes:
                             comment_text = self._get_node_text(node, source)
-                            
+
                             # Skip empty comments and doc comments (handled separately)
-                            if (not comment_text.strip() or 
-                                comment_text.strip().startswith("///") or
-                                comment_text.strip().startswith("//!") or
-                                comment_text.strip().startswith("/*!") or
-                                comment_text.strip().startswith("/**")):
+                            if (
+                                not comment_text.strip()
+                                or comment_text.strip().startswith("///")
+                                or comment_text.strip().startswith("//!")
+                                or comment_text.strip().startswith("/*!")
+                                or comment_text.strip().startswith("/**")
+                            ):
                                 continue
-                                
+
                             cleaned_text = self._clean_comment_text(comment_text)
                             symbol = f"comment:{node.start_point[0] + 1}"
-                            
+
                             chunk = self._create_chunk(
                                 node=node,
                                 source=source,
@@ -1095,34 +1165,46 @@ class RustParser:
                                 chunk_type=ChunkType.COMMENT,
                                 name=symbol,
                                 display_name=f"Comment at line {node.start_point[0] + 1}",
-                                content=cleaned_text
+                                content=cleaned_text,
                             )
-                            
+
                             chunks.append(chunk)
-                            
+
         except Exception as e:
             logger.error(f"Failed to extract comments for Rust: {e}")
-            
+
         return chunks
-    
+
     def _clean_comment_text(self, text: str) -> str:
         """Clean comment text by removing comment markers."""
         cleaned = text.strip()
-        
+
         # Remove common single-line comment markers
         if cleaned.startswith("//"):
             cleaned = cleaned[2:].strip()
-            
+
         # Remove common multi-line comment markers (but not doc comments)
-        if (cleaned.startswith("/*") and cleaned.endswith("*/") and 
-            not cleaned.startswith("/**") and not cleaned.startswith("/*!")):
+        if (
+            cleaned.startswith("/*")
+            and cleaned.endswith("*/")
+            and not cleaned.startswith("/**")
+            and not cleaned.startswith("/*!")
+        ):
             cleaned = cleaned[2:-2].strip()
-            
+
         return cleaned
 
-    def _create_chunk(self, node: TSNode, source: str, file_path: Path,
-                     chunk_type: ChunkType, name: str, display_name: str | None = None,
-                     parent: str | None = None, **extra_fields) -> dict[str, Any]:
+    def _create_chunk(
+        self,
+        node: TSNode,
+        source: str,
+        file_path: Path,
+        chunk_type: ChunkType,
+        name: str,
+        display_name: str | None = None,
+        parent: str | None = None,
+        **extra_fields,
+    ) -> dict[str, Any]:
         """Create a standard chunk dictionary."""
         code = self._get_node_text(node, source)
 
@@ -1136,7 +1218,7 @@ class RustParser:
             "path": str(file_path),
             "name": name,
             "display_name": display_name or name,
-            "content": extra_fields.get('content', code),
+            "content": extra_fields.get("content", code),
             "start_byte": node.start_byte,
             "end_byte": node.end_byte,
         }
@@ -1146,7 +1228,7 @@ class RustParser:
 
         # Add extra fields
         for key, value in extra_fields.items():
-            if key != 'content':  # content already handled above
+            if key != "content":  # content already handled above
                 chunk[key] = value
 
         return chunk

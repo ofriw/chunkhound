@@ -7,15 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.1] - 2025-07-03
+
 ### Added
 - Centralized version management system for consistent versioning across all components
 
 ### Changed
 - Simplified version updates through automated scripts
 - Enhanced installation and development documentation
+- Code formatting improvements and linting cleanup
 
 ### Fixed
 - Version consistency across CLI, MCP server, and package initialization
+- Import statement in package `__init__.py` for better module exposure
 
 ## [2.1.0] - 2025-07-02
 
@@ -165,7 +169,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 For more information, visit: https://github.com/chunkhound/chunkhound
 
-[Unreleased]: https://github.com/chunkhound/chunkhound/compare/v2.1.0...HEAD
+[Unreleased]: https://github.com/chunkhound/chunkhound/compare/v2.1.1...HEAD
+[2.1.1]: https://github.com/chunkhound/chunkhound/compare/v2.1.0...v2.1.1
 [2.1.0]: https://github.com/chunkhound/chunkhound/compare/v2.0.0...v2.1.0
 [2.0.0]: https://github.com/chunkhound/chunkhound/compare/v1.2.3...v2.0.0
 [1.2.3]: https://github.com/chunkhound/chunkhound/compare/v1.2.2...v1.2.3

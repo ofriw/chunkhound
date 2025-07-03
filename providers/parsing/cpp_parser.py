@@ -15,6 +15,7 @@ try:
     from tree_sitter import Node as TSNode
     from tree_sitter import Parser as TSParser
     from tree_sitter_language_pack import get_language, get_parser
+
     CPP_AVAILABLE = True
 except ImportError:
     CPP_AVAILABLE = False
@@ -27,6 +28,7 @@ except ImportError:
 # Try direct import as fallback
 try:
     import tree_sitter_cpp as ts_cpp
+
     CPP_DIRECT_AVAILABLE = True
 except ImportError:
     CPP_DIRECT_AVAILABLE = False
@@ -66,12 +68,14 @@ class CppParser:
             include_comments=False,
             include_docstrings=True,
             max_depth=10,
-            use_cache=True
+            use_cache=True,
         )
 
         # Initialize parser - crash if dependencies unavailable
         if not CPP_AVAILABLE and not CPP_DIRECT_AVAILABLE:
-            raise ImportError("C++ tree-sitter dependencies not available - install tree-sitter-language-pack or tree-sitter-cpp")
+            raise ImportError(
+                "C++ tree-sitter dependencies not available - install tree-sitter-language-pack or tree-sitter-cpp"
+            )
 
         if not self._initialize():
             raise RuntimeError("Failed to initialize C++ parser")
@@ -103,8 +107,8 @@ class CppParser:
         # Fallback to language pack
         try:
             if CPP_AVAILABLE and get_language and get_parser:
-                self._language = get_language('cpp')
-                self._parser = get_parser('cpp')
+                self._language = get_language("cpp")
+                self._parser = get_parser("cpp")
                 self._initialized = True
                 logger.debug("C++ parser initialized successfully (language pack)")
                 return True
@@ -131,7 +135,7 @@ class CppParser:
 
     def _get_node_text(self, node: TSNode, source: str) -> str:
         """Extract text content from a tree-sitter node."""
-        return source[node.start_byte:node.end_byte]
+        return source[node.start_byte : node.end_byte]
 
     def parse_file(self, file_path: Path, source: str | None = None) -> ParseResult:
         """Parse a C++ file and extract semantic chunks.
@@ -157,13 +161,13 @@ class CppParser:
                 parse_time=time.time() - start_time,
                 errors=errors,
                 warnings=warnings,
-                metadata={"file_path": str(file_path)}
+                metadata={"file_path": str(file_path)},
             )
 
         try:
             # Read source if not provided
             if source is None:
-                with open(file_path, encoding='utf-8') as f:
+                with open(file_path, encoding="utf-8") as f:
                     source = f.read()
 
             # Parse with tree-sitter
@@ -176,10 +180,10 @@ class CppParser:
                     parse_time=time.time() - start_time,
                     errors=errors,
                     warnings=warnings,
-                    metadata={"file_path": str(file_path)}
+                    metadata={"file_path": str(file_path)},
                 )
 
-            tree = self._parser.parse(bytes(source, 'utf8'))
+            tree = self._parser.parse(bytes(source, "utf8"))
 
             # Extract semantic units
             chunks = self._extract_chunks(tree.root_node, source, file_path)
@@ -198,7 +202,7 @@ class CppParser:
             parse_time=time.time() - start_time,
             errors=errors,
             warnings=warnings,
-            metadata={"file_path": str(file_path)}
+            metadata={"file_path": str(file_path)},
         )
 
     def _extract_chunks(
@@ -222,50 +226,32 @@ class CppParser:
         try:
             # Extract different chunk types based on configuration
             if ChunkType.FUNCTION in self._config.chunk_types:
-                chunks.extend(
-                    self._extract_functions(tree_node, source, file_path)
-                )
+                chunks.extend(self._extract_functions(tree_node, source, file_path))
 
             if ChunkType.CLASS in self._config.chunk_types:
-                chunks.extend(
-                    self._extract_classes(tree_node, source, file_path)
-                )
+                chunks.extend(self._extract_classes(tree_node, source, file_path))
 
             if ChunkType.NAMESPACE in self._config.chunk_types:
-                chunks.extend(
-                    self._extract_namespaces(tree_node, source, file_path)
-                )
+                chunks.extend(self._extract_namespaces(tree_node, source, file_path))
 
             if ChunkType.ENUM in self._config.chunk_types:
-                chunks.extend(
-                    self._extract_enums(tree_node, source, file_path)
-                )
+                chunks.extend(self._extract_enums(tree_node, source, file_path))
 
             if ChunkType.VARIABLE in self._config.chunk_types:
-                chunks.extend(
-                    self._extract_variables(tree_node, source, file_path)
-                )
+                chunks.extend(self._extract_variables(tree_node, source, file_path))
 
             if ChunkType.TYPE in self._config.chunk_types:
-                chunks.extend(
-                    self._extract_types(tree_node, source, file_path)
-                )
+                chunks.extend(self._extract_types(tree_node, source, file_path))
 
             if ChunkType.MACRO in self._config.chunk_types:
-                chunks.extend(
-                    self._extract_macros(tree_node, source, file_path)
-                )
+                chunks.extend(self._extract_macros(tree_node, source, file_path))
 
             # Extract comments and docstrings
             if ChunkType.COMMENT in self._config.chunk_types:
-                chunks.extend(
-                    self._extract_comments(tree_node, source, file_path)
-                )
+                chunks.extend(self._extract_comments(tree_node, source, file_path))
 
             if ChunkType.DOCSTRING in self._config.chunk_types:
-                chunks.extend(
-                    self._extract_docstrings(tree_node, source, file_path)
-                )
+                chunks.extend(self._extract_docstrings(tree_node, source, file_path))
 
         except Exception as e:
             logger.error(f"Failed to extract C++ chunks: {e}")
@@ -291,7 +277,7 @@ class CppParser:
             file_path = Path("content.cpp")
 
         try:
-            tree = self._parser.parse(bytes(content, 'utf8'))
+            tree = self._parser.parse(bytes(content, "utf8"))
             return self._extract_chunks(tree.root_node, content, file_path)
         except Exception as e:
             logger.error(f"Error parsing C++ content: {e}")
@@ -320,18 +306,23 @@ class CppParser:
                 # Extract function name from the node text
                 function_text = self._get_node_text(function_node, source)
                 # Simple extraction - get the identifier from function signature
-                lines = function_text.split('\n')[0]  # First line
+                lines = function_text.split("\n")[0]  # First line
                 # Find the function name - look for pattern like "type name(" or "name("
                 import re
-                match = re.search(r'(\w+)\s*\(', lines)
+
+                match = re.search(r"(\w+)\s*\(", lines)
                 if match:
                     function_name = match.group(1)
                 else:
                     function_name = "unknown_function"
 
                 chunk = self._create_chunk(
-                    function_node, source, file_path, ChunkType.FUNCTION,
-                    function_name, function_name
+                    function_node,
+                    source,
+                    file_path,
+                    ChunkType.FUNCTION,
+                    function_name,
+                    function_name,
                 )
 
                 chunks.append(chunk)
@@ -394,7 +385,9 @@ class CppParser:
                 elif "struct_def" in captures and "struct_name" in captures:
                     class_node = captures["struct_def"][0]
                     struct_name_node = captures["struct_name"][0]
-                    class_name = f"struct {self._get_node_text(struct_name_node, source)}"
+                    class_name = (
+                        f"struct {self._get_node_text(struct_name_node, source)}"
+                    )
 
                 # Handle unions
                 elif "union_def" in captures and "union_name" in captures:
@@ -406,8 +399,12 @@ class CppParser:
                     continue
 
                 chunk = self._create_chunk(
-                    class_node, source, file_path, ChunkType.CLASS,
-                    class_name, class_name
+                    class_node,
+                    source,
+                    file_path,
+                    ChunkType.CLASS,
+                    class_name,
+                    class_name,
                 )
 
                 chunks.append(chunk)
@@ -441,7 +438,7 @@ class CppParser:
                 # Extract namespace name from the node text
                 namespace_text = self._get_node_text(namespace_node, source)
                 # Simple extraction - get the identifier after "namespace"
-                lines = namespace_text.split('\n')[0]  # First line
+                lines = namespace_text.split("\n")[0]  # First line
                 parts = lines.split()
                 if len(parts) >= 2 and parts[0] == "namespace":
                     namespace_name = f"namespace {parts[1]}"
@@ -449,8 +446,12 @@ class CppParser:
                     namespace_name = "namespace"
 
                 chunk = self._create_chunk(
-                    namespace_node, source, file_path, ChunkType.NAMESPACE,
-                    namespace_name, namespace_name
+                    namespace_node,
+                    source,
+                    file_path,
+                    ChunkType.NAMESPACE,
+                    namespace_name,
+                    namespace_name,
                 )
 
                 chunks.append(chunk)
@@ -488,8 +489,7 @@ class CppParser:
                 enum_name = f"enum {self._get_node_text(enum_name_node, source)}"
 
                 chunk = self._create_chunk(
-                    enum_node, source, file_path, ChunkType.ENUM,
-                    enum_name, enum_name
+                    enum_node, source, file_path, ChunkType.ENUM, enum_name, enum_name
                 )
 
                 chunks.append(chunk)
@@ -537,8 +537,7 @@ class CppParser:
                 var_name = self._get_node_text(var_name_node, source)
 
                 chunk = self._create_chunk(
-                    var_node, source, file_path, ChunkType.VARIABLE,
-                    var_name, var_name
+                    var_node, source, file_path, ChunkType.VARIABLE, var_name, var_name
                 )
 
                 chunks.append(chunk)
@@ -585,7 +584,9 @@ class CppParser:
                 if "typedef_def" in captures and "typedef_name" in captures:
                     type_node = captures["typedef_def"][0]
                     typedef_name_node = captures["typedef_name"][0]
-                    type_name = f"typedef {self._get_node_text(typedef_name_node, source)}"
+                    type_name = (
+                        f"typedef {self._get_node_text(typedef_name_node, source)}"
+                    )
 
                 # Handle using alias
                 elif "alias_def" in captures and "alias_name" in captures:
@@ -603,8 +604,7 @@ class CppParser:
                     continue
 
                 chunk = self._create_chunk(
-                    type_node, source, file_path, ChunkType.TYPE,
-                    type_name, type_name
+                    type_node, source, file_path, ChunkType.TYPE, type_name, type_name
                 )
 
                 chunks.append(chunk)
@@ -645,7 +645,9 @@ class CppParser:
                 if "macro_def" in captures and "macro_name" in captures:
                     macro_node = captures["macro_def"][0]
                     macro_name_node = captures["macro_name"][0]
-                    macro_name = f"#define {self._get_node_text(macro_name_node, source)}"
+                    macro_name = (
+                        f"#define {self._get_node_text(macro_name_node, source)}"
+                    )
 
                 # Handle function-like macros
                 elif "func_macro_def" in captures and "func_macro_name" in captures:
@@ -657,8 +659,12 @@ class CppParser:
                     continue
 
                 chunk = self._create_chunk(
-                    macro_node, source, file_path, ChunkType.MACRO,
-                    macro_name, macro_name
+                    macro_node,
+                    source,
+                    file_path,
+                    ChunkType.MACRO,
+                    macro_name,
+                    macro_name,
                 )
 
                 chunks.append(chunk)
@@ -669,11 +675,16 @@ class CppParser:
         return chunks
 
     def _create_chunk(
-        self, node: TSNode, source: str, file_path: Path,
-        chunk_type: ChunkType, symbol: str, display_name: str
+        self,
+        node: TSNode,
+        source: str,
+        file_path: Path,
+        chunk_type: ChunkType,
+        symbol: str,
+        display_name: str,
     ) -> dict[str, Any]:
         """Create a chunk dictionary from a tree-sitter node.
-        
+
         Args:
             node: Tree-sitter node
             source: Source code string
@@ -681,7 +692,7 @@ class CppParser:
             chunk_type: Type of chunk
             symbol: Symbol name
             display_name: Display name for the chunk
-            
+
         Returns:
             Chunk dictionary
         """
@@ -702,128 +713,151 @@ class CppParser:
             "end_byte": node.end_byte,
         }
 
-    def _extract_comments(self, tree_node: TSNode, source: str, file_path: Path) -> list[dict[str, Any]]:
+    def _extract_comments(
+        self, tree_node: TSNode, source: str, file_path: Path
+    ) -> list[dict[str, Any]]:
         """Extract C++ comments (// and /* */)."""
-        comment_patterns = [
-            "(comment) @comment"
-        ]
-        return self._extract_comments_generic(tree_node, source, file_path, comment_patterns)
+        comment_patterns = ["(comment) @comment"]
+        return self._extract_comments_generic(
+            tree_node, source, file_path, comment_patterns
+        )
 
-    def _extract_docstrings(self, tree_node: TSNode, source: str, file_path: Path) -> list[dict[str, Any]]:
+    def _extract_docstrings(
+        self, tree_node: TSNode, source: str, file_path: Path
+    ) -> list[dict[str, Any]]:
         """Extract C++ documentation comments (/** */ and ///)."""
         chunks = []
-        
+
         if self._language is None:
             return chunks
-            
+
         try:
             # Extract documentation comments (/** ... */ and ///)
             query = self._language.query("(comment) @comment")
             matches = query.matches(tree_node)
-            
+
             for match in matches:
                 pattern_index, captures = match
-                
+
                 for capture_name, nodes in captures.items():
                     for node in nodes:
                         comment_text = self._get_node_text(node, source)
-                        
+
                         # Check if it's a documentation comment (starts with /** or ///)
-                        if (comment_text.strip().startswith("/**") or 
-                            comment_text.strip().startswith("///")):
+                        if comment_text.strip().startswith(
+                            "/**"
+                        ) or comment_text.strip().startswith("///"):
                             cleaned_text = self._clean_doc_comment_text(comment_text)
                             symbol = f"doc:{node.start_point[0] + 1}"
-                            
+
                             chunk = self._create_chunk(
-                                node, source, file_path, ChunkType.DOCSTRING,
-                                symbol, f"Documentation at line {node.start_point[0] + 1}"
+                                node,
+                                source,
+                                file_path,
+                                ChunkType.DOCSTRING,
+                                symbol,
+                                f"Documentation at line {node.start_point[0] + 1}",
                             )
                             chunk["content"] = cleaned_text
-                            
+
                             chunks.append(chunk)
-                            
+
         except Exception as e:
             logger.error(f"Failed to extract C++ docstrings: {e}")
-            
+
         return chunks
 
     def _clean_doc_comment_text(self, text: str) -> str:
         """Clean documentation comment text by removing markers and prefixes."""
         cleaned = text.strip()
-        
+
         # Remove /** */ markers
         if cleaned.startswith("/**") and cleaned.endswith("*/"):
             cleaned = cleaned[3:-2]
         # Remove /// markers
         elif cleaned.startswith("///"):
             cleaned = cleaned[3:]
-        
+
         # Remove leading * or / from each line
-        lines = cleaned.split('\n')
+        lines = cleaned.split("\n")
         cleaned_lines = []
         for line in lines:
             line = line.strip()
-            if line.startswith('*'):
+            if line.startswith("*"):
                 line = line[1:].lstrip()
-            elif line.startswith('///'):
+            elif line.startswith("///"):
                 line = line[3:].lstrip()
             cleaned_lines.append(line)
-            
-        return '\n'.join(cleaned_lines).strip()
 
-    def _extract_comments_generic(self, tree_node: TSNode, source: str, file_path: Path, 
-                                 comment_patterns: list[str]) -> list[dict[str, Any]]:
+        return "\n".join(cleaned_lines).strip()
+
+    def _extract_comments_generic(
+        self,
+        tree_node: TSNode,
+        source: str,
+        file_path: Path,
+        comment_patterns: list[str],
+    ) -> list[dict[str, Any]]:
         """Extract comments using generic patterns."""
         chunks = []
-        
+
         if not comment_patterns or self._language is None:
             return chunks
-            
+
         try:
             for pattern in comment_patterns:
                 query = self._language.query(pattern)
                 matches = query.matches(tree_node)
-                
+
                 for match in matches:
                     pattern_index, captures = match
-                    
+
                     for capture_name, nodes in captures.items():
                         for node in nodes:
                             comment_text = self._get_node_text(node, source)
-                            
+
                             # Skip empty comments and doc comments (handled separately)
-                            if (not comment_text.strip() or 
-                                comment_text.strip().startswith("/**") or
-                                comment_text.strip().startswith("///")):
+                            if (
+                                not comment_text.strip()
+                                or comment_text.strip().startswith("/**")
+                                or comment_text.strip().startswith("///")
+                            ):
                                 continue
-                                
+
                             cleaned_text = self._clean_comment_text(comment_text)
                             symbol = f"comment:{node.start_point[0] + 1}"
-                            
+
                             chunk = self._create_chunk(
-                                node, source, file_path, ChunkType.COMMENT,
-                                symbol, f"Comment at line {node.start_point[0] + 1}"
+                                node,
+                                source,
+                                file_path,
+                                ChunkType.COMMENT,
+                                symbol,
+                                f"Comment at line {node.start_point[0] + 1}",
                             )
                             chunk["content"] = cleaned_text
-                            
+
                             chunks.append(chunk)
-                            
+
         except Exception as e:
             logger.error(f"Failed to extract comments for C++: {e}")
-            
+
         return chunks
-    
+
     def _clean_comment_text(self, text: str) -> str:
         """Clean comment text by removing comment markers."""
         cleaned = text.strip()
-        
+
         # Remove common single-line comment markers
         if cleaned.startswith("//"):
             cleaned = cleaned[2:].strip()
-            
+
         # Remove common multi-line comment markers (but not doc comments)
-        if (cleaned.startswith("/*") and cleaned.endswith("*/") and 
-            not cleaned.startswith("/**")):
+        if (
+            cleaned.startswith("/*")
+            and cleaned.endswith("*/")
+            and not cleaned.startswith("/**")
+        ):
             cleaned = cleaned[2:-2].strip()
-            
+
         return cleaned

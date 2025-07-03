@@ -20,7 +20,7 @@ class ChunkHoundError(Exception):
         self,
         message: str,
         context: dict[str, Any] | None = None,
-        cause: Exception | None = None
+        cause: Exception | None = None,
     ):
         """Initialize ChunkHound error.
 
@@ -55,11 +55,7 @@ class ValidationError(ChunkHoundError):
     """
 
     def __init__(
-        self,
-        field: str,
-        value: Any,
-        reason: str,
-        context: dict[str, Any] | None = None
+        self, field: str, value: Any, reason: str, context: dict[str, Any] | None = None
     ):
         """Initialize validation error.
 
@@ -88,7 +84,7 @@ class ModelError(ChunkHoundError):
         model_type: str,
         operation: str,
         reason: str,
-        context: dict[str, Any] | None = None
+        context: dict[str, Any] | None = None,
     ):
         """Initialize model error.
 
@@ -118,7 +114,7 @@ class EmbeddingError(ChunkHoundError):
         model: str | None = None,
         operation: str | None = None,
         reason: str | None = None,
-        context: dict[str, Any] | None = None
+        context: dict[str, Any] | None = None,
     ):
         """Initialize embedding error.
 
@@ -160,7 +156,7 @@ class ParsingError(ChunkHoundError):
         language: str | None = None,
         operation: str | None = None,
         reason: str | None = None,
-        context: dict[str, Any] | None = None
+        context: dict[str, Any] | None = None,
     ):
         """Initialize parsing error.
 
@@ -201,7 +197,7 @@ class DatabaseError(ChunkHoundError):
         operation: str | None = None,
         table: str | None = None,
         reason: str | None = None,
-        context: dict[str, Any] | None = None
+        context: dict[str, Any] | None = None,
     ):
         """Initialize database error.
 
@@ -238,7 +234,7 @@ class ConfigurationError(ChunkHoundError):
         config_key: str | None = None,
         config_value: Any | None = None,
         reason: str | None = None,
-        context: dict[str, Any] | None = None
+        context: dict[str, Any] | None = None,
     ):
         """Initialize configuration error.
 
@@ -251,7 +247,9 @@ class ConfigurationError(ChunkHoundError):
         if config_key:
             message = f"Configuration error for '{config_key}': {reason}"
         else:
-            message = f"Configuration error: {reason}" if reason else "Configuration error"
+            message = (
+                f"Configuration error: {reason}" if reason else "Configuration error"
+            )
 
         super().__init__(message, context)
         self.config_key = config_key
@@ -272,7 +270,7 @@ class ProviderError(ChunkHoundError):
         service: str | None = None,
         status_code: int | None = None,
         reason: str | None = None,
-        context: dict[str, Any] | None = None
+        context: dict[str, Any] | None = None,
     ):
         """Initialize provider error.
 

@@ -31,12 +31,10 @@ __all__ = [
     # Enums
     "ChunkType",
     "Language",
-
     # String types
     "ProviderName",
     "ModelName",
     "FilePath",
-
     # Numeric types
     "ChunkId",
     "FileId",
@@ -45,7 +43,6 @@ __all__ = [
     "Timestamp",
     "Distance",
     "Dimensions",
-
     # Complex types
     "EmbeddingVector",
 ]

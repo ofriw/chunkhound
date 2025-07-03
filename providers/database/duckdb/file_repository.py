@@ -16,7 +16,7 @@ class DuckDBFileRepository:
 
     def __init__(self, connection_manager: "DuckDBConnectionManager", provider=None):
         """Initialize file repository with connection manager.
-        
+
         Args:
             connection_manager: DuckDB connection manager instance
             provider: Optional provider instance for transaction-aware connections
@@ -53,27 +53,32 @@ class DuckDBFileRepository:
                 # File exists, update it
                 file_id = self._extract_file_id(existing)
                 if file_id is not None:
-                    self.update_file(file_id, size_bytes=file.size_bytes, mtime=file.mtime)
+                    self.update_file(
+                        file_id, size_bytes=file.size_bytes, mtime=file.mtime
+                    )
                     return file_id
 
             # No existing file, insert new one
             if self._provider:
                 # Delegate to provider for proper executor handling
-                return self._provider._execute_in_db_thread_sync('insert_file', file)
+                return self._provider._execute_in_db_thread_sync("insert_file", file)
             else:
                 # Fallback for tests
-                result = self.connection_manager.connection.execute("""
+                result = self.connection_manager.connection.execute(
+                    """
                     INSERT INTO files (path, name, extension, size, modified_time, language)
                     VALUES (?, ?, ?, ?, to_timestamp(?), ?)
                     RETURNING id
-                """, [
-                    str(file.path),
-                    file.name,
-                    file.extension,
-                    file.size_bytes,
-                    file.mtime,
-                    file.language.value if file.language else None
-                ]).fetchone()
+                """,
+                    [
+                        str(file.path),
+                        file.name,
+                        file.extension,
+                        file.size_bytes,
+                        file.mtime,
+                        file.language.value if file.language else None,
+                    ],
+                ).fetchone()
 
                 file_id = result[0] if result else 0
                 return file_id
@@ -88,20 +93,27 @@ class DuckDBFileRepository:
                     return existing["id"]
             raise
 
-    def get_file_by_path(self, path: str, as_model: bool = False) -> dict[str, Any] | File | None:
+    def get_file_by_path(
+        self, path: str, as_model: bool = False
+    ) -> dict[str, Any] | File | None:
         """Get file record by path."""
         if self.connection is None:
             raise RuntimeError("No database connection")
 
         try:
             if self._provider:
-                return self._provider._execute_in_db_thread_sync('get_file_by_path', path, as_model)
+                return self._provider._execute_in_db_thread_sync(
+                    "get_file_by_path", path, as_model
+                )
             else:
                 # Fallback for tests
-                result = self.connection_manager.connection.execute("""
+                result = self.connection_manager.connection.execute(
+                    """
                     SELECT id, path, name, extension, size, modified_time, language, created_at, updated_at
                     FROM files WHERE path = ?
-                """, [path]).fetchone()
+                """,
+                    [path],
+                ).fetchone()
 
             if not result:
                 return None
@@ -115,7 +127,7 @@ class DuckDBFileRepository:
                 "modified_time": result[5],
                 "language": result[6],
                 "created_at": result[7],
-                "updated_at": result[8]
+                "updated_at": result[8],
             }
 
             if as_model:
@@ -123,7 +135,7 @@ class DuckDBFileRepository:
                     path=result[1],
                     mtime=result[5],
                     size_bytes=result[4],
-                    language=Language(result[6]) if result[6] else Language.UNKNOWN
+                    language=Language(result[6]) if result[6] else Language.UNKNOWN,
                 )
 
             return file_dict
@@ -132,20 +144,27 @@ class DuckDBFileRepository:
             logger.error(f"Failed to get file by path {path}: {e}")
             return None
 
-    def get_file_by_id(self, file_id: int, as_model: bool = False) -> dict[str, Any] | File | None:
+    def get_file_by_id(
+        self, file_id: int, as_model: bool = False
+    ) -> dict[str, Any] | File | None:
         """Get file record by ID."""
         if self.connection is None:
             raise RuntimeError("No database connection")
 
         try:
             if self._provider:
-                return self._provider._execute_in_db_thread_sync('get_file_by_id_query', file_id, as_model)
+                return self._provider._execute_in_db_thread_sync(
+                    "get_file_by_id_query", file_id, as_model
+                )
             else:
                 # Fallback for tests
-                result = self.connection_manager.connection.execute("""
+                result = self.connection_manager.connection.execute(
+                    """
                     SELECT id, path, name, extension, size, modified_time, language, created_at, updated_at
                     FROM files WHERE id = ?
-                """, [file_id]).fetchone()
+                """,
+                    [file_id],
+                ).fetchone()
 
             if not result:
                 return None
@@ -159,7 +178,7 @@ class DuckDBFileRepository:
                 "modified_time": result[5],
                 "language": result[6],
                 "created_at": result[7],
-                "updated_at": result[8]
+                "updated_at": result[8],
             }
 
             if as_model:
@@ -167,7 +186,7 @@ class DuckDBFileRepository:
                     path=result[1],
                     mtime=result[5],
                     size_bytes=result[4],
-                    language=Language(result[6]) if result[6] else Language.UNKNOWN
+                    language=Language(result[6]) if result[6] else Language.UNKNOWN,
                 )
 
             return file_dict
@@ -176,7 +195,9 @@ class DuckDBFileRepository:
             logger.error(f"Failed to get file by ID {file_id}: {e}")
             return None
 
-    def update_file(self, file_id: int, size_bytes: int | None = None, mtime: float | None = None) -> None:
+    def update_file(
+        self, file_id: int, size_bytes: int | None = None, mtime: float | None = None
+    ) -> None:
         """Update file record with new values.
 
         Args:
@@ -212,7 +233,9 @@ class DuckDBFileRepository:
 
                 query = f"UPDATE files SET {', '.join(set_clauses)} WHERE id = ?"
                 if self._provider:
-                    self._provider._execute_in_db_thread_sync('update_file', file_id, size_bytes, mtime)
+                    self._provider._execute_in_db_thread_sync(
+                        "update_file", file_id, size_bytes, mtime
+                    )
                 else:
                     # Fallback for tests
                     self.connection_manager.connection.execute(query, values)
@@ -232,7 +255,9 @@ class DuckDBFileRepository:
             if not file_record:
                 return False
 
-            file_id = file_record["id"] if isinstance(file_record, dict) else file_record.id
+            file_id = (
+                file_record["id"] if isinstance(file_record, dict) else file_record.id
+            )
 
             # Delete in correct order due to foreign key constraints
             # 1. Delete embeddings first
@@ -246,18 +271,25 @@ class DuckDBFileRepository:
                     WHERE table_name LIKE 'embeddings_%'
                 """).fetchall()
                 embedding_tables = [table[0] for table in tables]
-                
+
             for table_name in embedding_tables:
-                self.connection_manager.connection.execute(f"""
+                self.connection_manager.connection.execute(
+                    f"""
                     DELETE FROM {table_name}
                     WHERE chunk_id IN (SELECT id FROM chunks WHERE file_id = ?)
-                """, [file_id])
+                """,
+                    [file_id],
+                )
 
             # 2. Delete chunks
-            self.connection_manager.connection.execute("DELETE FROM chunks WHERE file_id = ?", [file_id])
+            self.connection_manager.connection.execute(
+                "DELETE FROM chunks WHERE file_id = ?", [file_id]
+            )
 
             # 3. Delete file
-            self.connection_manager.connection.execute("DELETE FROM files WHERE id = ?", [file_id])
+            self.connection_manager.connection.execute(
+                "DELETE FROM files WHERE id = ?", [file_id]
+            )
 
             logger.debug(f"File {file_path} and all associated data deleted")
             return True
@@ -273,20 +305,26 @@ class DuckDBFileRepository:
 
         try:
             # Get file info
-            file_result = self.connection_manager.connection.execute("""
+            file_result = self.connection_manager.connection.execute(
+                """
                 SELECT path, name, extension, size, language
                 FROM files WHERE id = ?
-            """, [file_id]).fetchone()
+            """,
+                [file_id],
+            ).fetchone()
 
             if not file_result:
                 return {}
 
             # Get chunk count and types
-            chunk_results = self.connection_manager.connection.execute("""
+            chunk_results = self.connection_manager.connection.execute(
+                """
                 SELECT chunk_type, COUNT(*) as count
                 FROM chunks WHERE file_id = ?
                 GROUP BY chunk_type
-            """, [file_id]).fetchall()
+            """,
+                [file_id],
+            ).fetchall()
 
             chunk_types = {result[0]: result[1] for result in chunk_results}
             total_chunks = sum(chunk_types.values())
@@ -302,14 +340,17 @@ class DuckDBFileRepository:
                     WHERE table_name LIKE 'embeddings_%'
                 """).fetchall()
                 embedding_tables = [table[0] for table in tables]
-                
+
             for table_name in embedding_tables:
-                count = self.connection_manager.connection.execute(f"""
+                count = self.connection_manager.connection.execute(
+                    f"""
                     SELECT COUNT(*)
                     FROM {table_name} e
                     JOIN chunks c ON e.chunk_id = c.id
                     WHERE c.file_id = ?
-                """, [file_id]).fetchone()[0]
+                """,
+                    [file_id],
+                ).fetchone()[0]
                 embedding_count += count
 
             return {
@@ -321,7 +362,7 @@ class DuckDBFileRepository:
                 "language": file_result[4],
                 "chunks": total_chunks,
                 "chunk_types": chunk_types,
-                "embeddings": embedding_count
+                "embeddings": embedding_count,
             }
 
         except Exception as e:

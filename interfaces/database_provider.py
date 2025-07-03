@@ -41,11 +41,15 @@ class DatabaseProvider(Protocol):
         """Create database indexes for performance optimization."""
         ...
 
-    def create_vector_index(self, provider: str, model: str, dims: int, metric: str = "cosine") -> None:
+    def create_vector_index(
+        self, provider: str, model: str, dims: int, metric: str = "cosine"
+    ) -> None:
         """Create vector index for specific provider/model/dims combination."""
         ...
 
-    def drop_vector_index(self, provider: str, model: str, dims: int, metric: str = "cosine") -> str:
+    def drop_vector_index(
+        self, provider: str, model: str, dims: int, metric: str = "cosine"
+    ) -> str:
         """Drop vector index for specific provider/model/dims combination."""
         ...
 
@@ -54,11 +58,15 @@ class DatabaseProvider(Protocol):
         """Insert file record and return file ID."""
         ...
 
-    def get_file_by_path(self, path: str, as_model: bool = False) -> dict[str, Any] | File | None:
+    def get_file_by_path(
+        self, path: str, as_model: bool = False
+    ) -> dict[str, Any] | File | None:
         """Get file record by path."""
         ...
 
-    def get_file_by_id(self, file_id: int, as_model: bool = False) -> dict[str, Any] | File | None:
+    def get_file_by_id(
+        self, file_id: int, as_model: bool = False
+    ) -> dict[str, Any] | File | None:
         """Get file record by ID."""
         ...
 
@@ -79,11 +87,15 @@ class DatabaseProvider(Protocol):
         """Insert multiple chunks in batch and return chunk IDs."""
         ...
 
-    def get_chunk_by_id(self, chunk_id: int, as_model: bool = False) -> dict[str, Any] | Chunk | None:
+    def get_chunk_by_id(
+        self, chunk_id: int, as_model: bool = False
+    ) -> dict[str, Any] | Chunk | None:
         """Get chunk record by ID."""
         ...
 
-    def get_chunks_by_file_id(self, file_id: int, as_model: bool = False) -> list[dict[str, Any] | Chunk]:
+    def get_chunks_by_file_id(
+        self, file_id: int, as_model: bool = False
+    ) -> list[dict[str, Any] | Chunk]:
         """Get all chunks for a specific file."""
         ...
 
@@ -104,7 +116,12 @@ class DatabaseProvider(Protocol):
         """Insert embedding record and return embedding ID."""
         ...
 
-    def insert_embeddings_batch(self, embeddings_data: list[dict], batch_size: int | None = None, connection=None) -> int:
+    def insert_embeddings_batch(
+        self,
+        embeddings_data: list[dict],
+        batch_size: int | None = None,
+        connection=None,
+    ) -> int:
         """Insert multiple embedding vectors with optimization.
 
         Args:
@@ -114,11 +131,15 @@ class DatabaseProvider(Protocol):
         """
         ...
 
-    def get_embedding_by_chunk_id(self, chunk_id: int, provider: str, model: str) -> Embedding | None:
+    def get_embedding_by_chunk_id(
+        self, chunk_id: int, provider: str, model: str
+    ) -> Embedding | None:
         """Get embedding for specific chunk, provider, and model."""
         ...
 
-    def get_existing_embeddings(self, chunk_ids: list[int], provider: str, model: str) -> set[int]:
+    def get_existing_embeddings(
+        self, chunk_ids: list[int], provider: str, model: str
+    ) -> set[int]:
         """Get set of chunk IDs that already have embeddings for given provider/model."""
         ...
 
@@ -139,10 +160,10 @@ class DatabaseProvider(Protocol):
         page_size: int = 10,
         offset: int = 0,
         threshold: float | None = None,
-        path_filter: str | None = None
+        path_filter: str | None = None,
     ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         """Perform semantic vector search.
-        
+
         Args:
             query_embedding: Query embedding vector
             provider: Embedding provider name
@@ -151,29 +172,37 @@ class DatabaseProvider(Protocol):
             offset: Starting position for pagination
             threshold: Optional similarity threshold
             path_filter: Optional relative path to limit search scope (e.g., 'src/', 'tests/')
-        
+
         Returns:
             Tuple of (results, pagination_metadata)
         """
         ...
 
-    def search_regex(self, pattern: str, page_size: int = 10, offset: int = 0, path_filter: str | None = None) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    def search_regex(
+        self,
+        pattern: str,
+        page_size: int = 10,
+        offset: int = 0,
+        path_filter: str | None = None,
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         """Perform regex search on code content.
-        
+
         Args:
             pattern: Regular expression pattern to search for
             page_size: Number of results per page
             offset: Starting position for pagination
             path_filter: Optional relative path to limit search scope (e.g., 'src/', 'tests/')
-        
+
         Returns:
             Tuple of (results, pagination_metadata)
         """
         ...
 
-    def search_text(self, query: str, page_size: int = 10, offset: int = 0) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    def search_text(
+        self, query: str, page_size: int = 10, offset: int = 0
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         """Perform full-text search on code content.
-        
+
         Returns:
             Tuple of (results, pagination_metadata)
         """
@@ -193,7 +222,9 @@ class DatabaseProvider(Protocol):
         ...
 
     # Transaction and Bulk Operations
-    def execute_query(self, query: str, params: list[Any] | None = None) -> list[dict[str, Any]]:
+    def execute_query(
+        self, query: str, params: list[Any] | None = None
+    ) -> list[dict[str, Any]]:
         """Execute a SQL query and return results."""
         ...
 
@@ -210,7 +241,9 @@ class DatabaseProvider(Protocol):
         ...
 
     # File Processing Integration
-    async def process_file(self, file_path: Path, skip_embeddings: bool = False) -> dict[str, Any]:
+    async def process_file(
+        self, file_path: Path, skip_embeddings: bool = False
+    ) -> dict[str, Any]:
         """Process a file end-to-end: parse, chunk, and store in database."""
         ...
 
@@ -218,7 +251,7 @@ class DatabaseProvider(Protocol):
         self,
         directory: Path,
         patterns: list[str] | None = None,
-        exclude_patterns: list[str] | None = None
+        exclude_patterns: list[str] | None = None,
     ) -> dict[str, Any]:
         """Process all supported files in a directory."""
         ...
@@ -227,7 +260,7 @@ class DatabaseProvider(Protocol):
     def optimize_tables(self) -> None:
         """Optimize tables by compacting fragments and rebuilding indexes (provider-specific)."""
         ...
-        
+
     def health_check(self) -> dict[str, Any]:
         """Perform health check and return status information."""
         ...

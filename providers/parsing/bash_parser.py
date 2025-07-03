@@ -1,6 +1,5 @@
 """Bash language parser provider implementation for ChunkHound using tree-sitter."""
 
-import time
 from pathlib import Path
 from typing import Any
 
@@ -8,7 +7,7 @@ from loguru import logger
 
 from core.types import ChunkType
 from core.types import Language as CoreLanguage
-from interfaces.language_parser import ParseConfig, ParseResult
+from interfaces.language_parser import ParseConfig
 from providers.parsing.base_parser import TreeSitterParserBase
 
 try:
@@ -16,6 +15,7 @@ try:
     from tree_sitter import Node as TSNode
     from tree_sitter import Parser as TSParser
     from tree_sitter_language_pack import get_language, get_parser
+
     BASH_AVAILABLE = True
 except ImportError:
     BASH_AVAILABLE = False
@@ -28,6 +28,7 @@ except ImportError:
 # Try direct import as fallback
 try:
     import tree_sitter_bash as ts_bash
+
     BASH_DIRECT_AVAILABLE = True
 except ImportError:
     BASH_DIRECT_AVAILABLE = False
@@ -86,8 +87,8 @@ class BashParser(TreeSitterParserBase):
         # Fallback to language pack
         try:
             if BASH_AVAILABLE and get_language and get_parser:
-                self._language = get_language('bash')
-                self._parser = get_parser('bash')
+                self._language = get_language("bash")
+                self._parser = get_parser("bash")
                 self._initialized = True
                 logger.debug("Bash parser initialized successfully (language pack)")
                 return True
@@ -96,8 +97,6 @@ class BashParser(TreeSitterParserBase):
 
         logger.error("Bash parser initialization failed with both methods")
         return False
-
-
 
     def _extract_chunks(
         self, tree_node: TSNode, source: str, file_path: Path
@@ -121,22 +120,30 @@ class BashParser(TreeSitterParserBase):
         try:
             # Extract functions using direct queries
             if ChunkType.FUNCTION in self._config.chunk_types:
-                chunks.extend(self._extract_functions_direct(tree_node, source, file_path))
-            
+                chunks.extend(
+                    self._extract_functions_direct(tree_node, source, file_path)
+                )
+
             # Extract control structures using direct queries
             if ChunkType.BLOCK in self._config.chunk_types:
-                chunks.extend(self._extract_control_structures_direct(tree_node, source, file_path))
-            
+                chunks.extend(
+                    self._extract_control_structures_direct(
+                        tree_node, source, file_path
+                    )
+                )
+
             # Extract comments
             if ChunkType.COMMENT in self._config.chunk_types:
                 chunks.extend(self._extract_comments(tree_node, source, file_path))
-                
+
             return chunks
         except Exception as e:
             logger.error(f"Failed to extract Bash chunks: {e}")
             return self._extract_fallback_chunks(source, file_path)
 
-    def _extract_functions_direct(self, tree_node: TSNode, source: str, file_path: Path) -> list[dict[str, Any]]:
+    def _extract_functions_direct(
+        self, tree_node: TSNode, source: str, file_path: Path
+    ) -> list[dict[str, Any]]:
         """Extract Bash function definitions using direct queries."""
         chunks = []
 
@@ -158,7 +165,7 @@ class BashParser(TreeSitterParserBase):
                     continue
 
                 function_node = captures["function_def"][0]
-                
+
                 # Extract function name from the AST manually
                 function_name = "anonymous_function"
                 for child in function_node.children:
@@ -174,8 +181,12 @@ class BashParser(TreeSitterParserBase):
 
                 if self._should_include_chunk(function_text, ChunkType.FUNCTION):
                     chunk = self._create_chunk(
-                        function_node, source, file_path, ChunkType.FUNCTION,
-                        function_name, function_name
+                        function_node,
+                        source,
+                        file_path,
+                        ChunkType.FUNCTION,
+                        function_name,
+                        function_name,
                     )
                     chunks.append(chunk)
 
@@ -184,7 +195,9 @@ class BashParser(TreeSitterParserBase):
 
         return chunks
 
-    def _extract_control_structures_direct(self, tree_node: TSNode, source: str, file_path: Path) -> list[dict[str, Any]]:
+    def _extract_control_structures_direct(
+        self, tree_node: TSNode, source: str, file_path: Path
+    ) -> list[dict[str, Any]]:
         """Extract Bash control structures using direct queries."""
         chunks = []
 
@@ -212,13 +225,14 @@ class BashParser(TreeSitterParserBase):
                         chunk_text = self._get_node_text(node, source)
 
                         # Only include multi-line structures
-                        if end_line > start_line and self._should_include_chunk(chunk_text, ChunkType.BLOCK):
-                            structure_type = capture_name.replace('_stmt', '')
+                        if end_line > start_line and self._should_include_chunk(
+                            chunk_text, ChunkType.BLOCK
+                        ):
+                            structure_type = capture_name.replace("_stmt", "")
                             symbol = f"{structure_type}_{start_line}"
-                            
+
                             chunk = self._create_chunk(
-                                node, source, file_path, ChunkType.BLOCK,
-                                symbol, symbol
+                                node, source, file_path, ChunkType.BLOCK, symbol, symbol
                             )
                             chunks.append(chunk)
 
@@ -293,8 +307,12 @@ class BashParser(TreeSitterParserBase):
 
             if self._should_include_chunk(chunk_text, ChunkType.FUNCTION):
                 chunk = self._create_chunk(
-                    node, source, file_path, ChunkType.FUNCTION,
-                    function_name, function_name
+                    node,
+                    source,
+                    file_path,
+                    ChunkType.FUNCTION,
+                    function_name,
+                    function_name,
                 )
                 chunks.append(chunk)
 
@@ -325,9 +343,12 @@ class BashParser(TreeSitterParserBase):
 
             if self._should_include_chunk(chunk_text, ChunkType.BLOCK):
                 chunk = self._create_chunk(
-                    node, source, file_path, ChunkType.BLOCK,
+                    node,
+                    source,
+                    file_path,
+                    ChunkType.BLOCK,
                     f"{structure_type}_{start_line}",
-                    line_count=end_line - start_line + 1
+                    line_count=end_line - start_line + 1,
                 )
                 chunks.append(chunk)
 
@@ -357,9 +378,12 @@ class BashParser(TreeSitterParserBase):
 
             if self._should_include_chunk(chunk_text, ChunkType.BLOCK):
                 chunk = self._create_chunk(
-                    node, source, file_path, ChunkType.BLOCK,
+                    node,
+                    source,
+                    file_path,
+                    ChunkType.BLOCK,
                     f"command_{start_line}",
-                    line_count=end_line - start_line + 1
+                    line_count=end_line - start_line + 1,
                 )
                 chunks.append(chunk)
 
@@ -395,9 +419,12 @@ class BashParser(TreeSitterParserBase):
                         break
 
                 chunk = self._create_chunk(
-                    node, source, file_path, ChunkType.BLOCK,
+                    node,
+                    source,
+                    file_path,
+                    ChunkType.BLOCK,
                     f"var_{var_name}_{start_line}",
-                    line_count=end_line - start_line + 1
+                    line_count=end_line - start_line + 1,
                 )
                 chunks.append(chunk)
 
@@ -458,16 +485,17 @@ class BashParser(TreeSitterParserBase):
                         "content": line,
                         "display_name": f"function_{i + 1}",
                         "start_byte": 0,
-                        "end_byte": len(line.encode('utf-8')),
+                        "end_byte": len(line.encode("utf-8")),
                     }
                 )
 
         return chunks
 
-    def _extract_comments(self, tree_node: TSNode, source: str, file_path: Path) -> list[dict[str, Any]]:
+    def _extract_comments(
+        self, tree_node: TSNode, source: str, file_path: Path
+    ) -> list[dict[str, Any]]:
         """Extract Bash comments (#)."""
-        comment_patterns = [
-            "(comment) @comment"
-        ]
-        return self._extract_comments_generic(tree_node, source, file_path, comment_patterns)
-
+        comment_patterns = ["(comment) @comment"]
+        return self._extract_comments_generic(
+            tree_node, source, file_path, comment_patterns
+        )

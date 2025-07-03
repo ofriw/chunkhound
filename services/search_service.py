@@ -19,7 +19,7 @@ class SearchService(BaseService):
     def __init__(
         self,
         database_provider: DatabaseProvider,
-        embedding_provider: EmbeddingProvider | None = None
+        embedding_provider: EmbeddingProvider | None = None,
     ):
         """Initialize search service.
 
@@ -38,7 +38,7 @@ class SearchService(BaseService):
         threshold: float | None = None,
         provider: str | None = None,
         model: str | None = None,
-        path_filter: str | None = None
+        path_filter: str | None = None,
     ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         """Perform semantic search using vector similarity.
 
@@ -56,13 +56,17 @@ class SearchService(BaseService):
         """
         try:
             if not self._embedding_provider:
-                raise ValueError("Embedding provider not configured for semantic search")
+                raise ValueError(
+                    "Embedding provider not configured for semantic search"
+                )
 
             # Use provided provider/model or fall back to configured defaults
             search_provider = provider or self._embedding_provider.name
             search_model = model or self._embedding_provider.model
 
-            logger.debug(f"Performing semantic search for: '{query}' using {search_provider}/{search_model}")
+            logger.debug(
+                f"Performing semantic search for: '{query}' using {search_provider}/{search_model}"
+            )
 
             # Generate query embedding
             query_results = await self._embedding_provider.embed([query])
@@ -79,7 +83,7 @@ class SearchService(BaseService):
                 page_size=page_size,
                 offset=offset,
                 threshold=threshold,
-                path_filter=path_filter
+                path_filter=path_filter,
             )
 
             # Enhance results with additional metadata
@@ -88,14 +92,22 @@ class SearchService(BaseService):
                 enhanced_result = self._enhance_search_result(result)
                 enhanced_results.append(enhanced_result)
 
-            logger.info(f"Semantic search completed: {len(enhanced_results)} results found")
+            logger.info(
+                f"Semantic search completed: {len(enhanced_results)} results found"
+            )
             return enhanced_results, pagination
 
         except Exception as e:
             logger.error(f"Semantic search failed: {e}")
             raise
 
-    def search_regex(self, pattern: str, page_size: int = 10, offset: int = 0, path_filter: str | None = None) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    def search_regex(
+        self,
+        pattern: str,
+        page_size: int = 10,
+        offset: int = 0,
+        path_filter: str | None = None,
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         """Perform regex search on code content.
 
         Args:
@@ -111,7 +123,12 @@ class SearchService(BaseService):
             logger.debug(f"Performing regex search for pattern: '{pattern}'")
 
             # Perform regex search
-            results, pagination = self._db.search_regex(pattern=pattern, page_size=page_size, offset=offset, path_filter=path_filter)
+            results, pagination = self._db.search_regex(
+                pattern=pattern,
+                page_size=page_size,
+                offset=offset,
+                path_filter=path_filter,
+            )
 
             # Enhance results with additional metadata
             enhanced_results = []
@@ -119,7 +136,9 @@ class SearchService(BaseService):
                 enhanced_result = self._enhance_search_result(result)
                 enhanced_results.append(enhanced_result)
 
-            logger.info(f"Regex search completed: {len(enhanced_results)} results found")
+            logger.info(
+                f"Regex search completed: {len(enhanced_results)} results found"
+            )
             return enhanced_results, pagination
 
         except Exception as e:
@@ -133,7 +152,7 @@ class SearchService(BaseService):
         page_size: int = 10,
         offset: int = 0,
         semantic_weight: float = 0.7,
-        threshold: float | None = None
+        threshold: float | None = None,
     ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         """Perform hybrid search combining semantic and regex results.
 
@@ -149,7 +168,9 @@ class SearchService(BaseService):
             Tuple of (results, pagination_metadata)
         """
         try:
-            logger.debug(f"Performing hybrid search: query='{query}', pattern='{regex_pattern}'")
+            logger.debug(
+                f"Performing hybrid search: query='{query}', pattern='{regex_pattern}'"
+            )
 
             # Perform searches concurrently
             tasks = []
@@ -157,15 +178,24 @@ class SearchService(BaseService):
             # Semantic search
             if self._embedding_provider:
                 semantic_task = asyncio.create_task(
-                    self.search_semantic(query, page_size=page_size*2, offset=offset, threshold=threshold)
+                    self.search_semantic(
+                        query,
+                        page_size=page_size * 2,
+                        offset=offset,
+                        threshold=threshold,
+                    )
                 )
-                tasks.append(('semantic', semantic_task))
+                tasks.append(("semantic", semantic_task))
 
             # Regex search
             if regex_pattern:
+
                 async def get_regex_results():
-                    return self.search_regex(regex_pattern, page_size=page_size*2, offset=offset)
-                tasks.append(('regex', asyncio.create_task(get_regex_results())))
+                    return self.search_regex(
+                        regex_pattern, page_size=page_size * 2, offset=offset
+                    )
+
+                tasks.append(("regex", asyncio.create_task(get_regex_results())))
 
             # Wait for all searches to complete
             results_by_type = {}
@@ -177,10 +207,10 @@ class SearchService(BaseService):
 
             # Combine and rank results
             combined_results = self._combine_search_results(
-                semantic_results=results_by_type.get('semantic', []),
-                regex_results=results_by_type.get('regex', []),
+                semantic_results=results_by_type.get("semantic", []),
+                regex_results=results_by_type.get("regex", []),
                 semantic_weight=semantic_weight,
-                limit=page_size
+                limit=page_size,
             )
 
             # Create combined pagination metadata
@@ -188,11 +218,15 @@ class SearchService(BaseService):
                 "offset": offset,
                 "page_size": page_size,
                 "has_more": len(combined_results) == page_size,
-                "next_offset": offset + page_size if len(combined_results) == page_size else None,
-                "total": None  # Cannot estimate for hybrid search
+                "next_offset": offset + page_size
+                if len(combined_results) == page_size
+                else None,
+                "total": None,  # Cannot estimate for hybrid search
             }
 
-            logger.info(f"Hybrid search completed: {len(combined_results)} results found")
+            logger.info(
+                f"Hybrid search completed: {len(combined_results)} results found"
+            )
             return combined_results, combined_pagination
 
         except Exception as e:
@@ -200,9 +234,7 @@ class SearchService(BaseService):
             raise
 
     def get_chunk_context(
-        self,
-        chunk_id: ChunkId,
-        context_lines: int = 5
+        self, chunk_id: ChunkId, context_lines: int = 5
     ) -> dict[str, Any]:
         """Get additional context around a specific chunk.
 
@@ -244,18 +276,24 @@ class SearchService(BaseService):
             start_context = max(1, chunk["start_line"] - context_lines)
             end_context = chunk["end_line"] + context_lines
 
-            context_results = self._db.execute_query(context_query, [
-                chunk["file_id"],
-                start_context, end_context,
-                start_context, end_context,
-                start_context, end_context
-            ])
+            context_results = self._db.execute_query(
+                context_query,
+                [
+                    chunk["file_id"],
+                    start_context,
+                    end_context,
+                    start_context,
+                    end_context,
+                    start_context,
+                    end_context,
+                ],
+            )
 
             return {
                 "chunk": chunk,
                 "context": context_results,
                 "file_path": chunk["path"],
-                "language": chunk["language"]
+                "language": chunk["language"],
             }
 
         except Exception as e:
@@ -335,7 +373,7 @@ class SearchService(BaseService):
         semantic_results: list[dict[str, Any]],
         regex_results: list[dict[str, Any]],
         semantic_weight: float,
-        limit: int
+        limit: int,
     ) -> list[dict[str, Any]]:
         """Combine semantic and regex search results with weighted ranking.
 
@@ -358,13 +396,15 @@ class SearchService(BaseService):
                 # Score based on position and similarity
                 position_score = (len(semantic_results) - i) / len(semantic_results)
                 similarity_score = result.get("similarity", 0.5)
-                score = (position_score * 0.3 + similarity_score * 0.7) * semantic_weight
+                score = (
+                    position_score * 0.3 + similarity_score * 0.7
+                ) * semantic_weight
 
                 combined[chunk_id] = {
                     **result,
                     "search_type": "semantic",
                     "combined_score": score,
-                    "semantic_score": similarity_score
+                    "semantic_score": similarity_score,
                 }
 
         # Process regex results
@@ -385,14 +425,12 @@ class SearchService(BaseService):
                         **result,
                         "search_type": "regex",
                         "combined_score": score,
-                        "regex_score": position_score
+                        "regex_score": position_score,
                     }
 
         # Sort by combined score and return top results
         sorted_results = sorted(
-            combined.values(),
-            key=lambda x: x["combined_score"],
-            reverse=True
+            combined.values(), key=lambda x: x["combined_score"], reverse=True
         )
 
         return sorted_results[:limit]

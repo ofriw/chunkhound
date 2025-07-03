@@ -51,11 +51,15 @@ class File:
 
         # Size validation
         if self.size_bytes < 0:
-            raise ValidationError("size_bytes", self.size_bytes, "File size cannot be negative")
+            raise ValidationError(
+                "size_bytes", self.size_bytes, "File size cannot be negative"
+            )
 
         # mtime validation
         if self.mtime < 0:
-            raise ValidationError("mtime", self.mtime, "Modification time cannot be negative")
+            raise ValidationError(
+                "mtime", self.mtime, "Modification time cannot be negative"
+            )
 
     @classmethod
     def from_path(cls, file_path: Path) -> "File":
@@ -85,7 +89,7 @@ class File:
                 path=FilePath(str(file_path.absolute())),
                 mtime=Timestamp(stat.st_mtime),
                 language=Language.from_file_extension(file_path),
-                size_bytes=stat.st_size
+                size_bytes=stat.st_size,
             )
 
         except OSError as e:
@@ -149,7 +153,7 @@ class File:
                 language=language,
                 size_bytes=int(size_bytes),
                 created_at=created_at,
-                updated_at=updated_at
+                updated_at=updated_at,
             )
 
         except (ValueError, TypeError) as e:
@@ -211,7 +215,6 @@ class File:
             # File is outside current directory
             return self.path
 
-
     def is_supported_language(self) -> bool:
         """Check if the file's language is supported by ChunkHound.
 
@@ -236,7 +239,7 @@ class File:
             language=self.language,
             size_bytes=self.size_bytes,
             created_at=self.created_at,
-            updated_at=self.updated_at
+            updated_at=self.updated_at,
         )
 
     def with_updated_mtime(self, new_mtime: Timestamp) -> "File":
@@ -255,7 +258,7 @@ class File:
             language=self.language,
             size_bytes=self.size_bytes,
             created_at=self.created_at,
-            updated_at=datetime.utcnow()
+            updated_at=datetime.utcnow(),
         )
 
     def __str__(self) -> str:

@@ -15,6 +15,7 @@ try:
     from tree_sitter import Node as TSNode
     from tree_sitter import Parser as TSParser
     from tree_sitter_language_pack import get_language, get_parser
+
     JAVA_AVAILABLE = True
 except ImportError:
     JAVA_AVAILABLE = False
@@ -49,7 +50,7 @@ class JavaParser:
                 ChunkType.ENUM,
                 ChunkType.FIELD,
                 ChunkType.COMMENT,
-                ChunkType.DOCSTRING
+                ChunkType.DOCSTRING,
             },
             max_chunk_size=8000,
             min_chunk_size=100,
@@ -57,7 +58,7 @@ class JavaParser:
             include_comments=False,
             include_docstrings=True,
             max_depth=10,
-            use_cache=True
+            use_cache=True,
         )
 
         # Initialize if available
@@ -79,8 +80,8 @@ class JavaParser:
 
         try:
             if get_language and get_parser:
-                self._language = get_language('java')
-                self._parser = get_parser('java')
+                self._language = get_language("java")
+                self._parser = get_parser("java")
                 self._initialized = True
                 logger.debug("Java parser initialized successfully")
                 return True
@@ -130,13 +131,13 @@ class JavaParser:
                 parse_time=time.time() - start_time,
                 errors=errors,
                 warnings=warnings,
-                metadata={"file_path": str(file_path)}
+                metadata={"file_path": str(file_path)},
             )
 
         try:
             # Read source if not provided
             if source is None:
-                with open(file_path, encoding='utf-8') as f:
+                with open(file_path, encoding="utf-8") as f:
                     source = f.read()
 
             # Parse with tree-sitter
@@ -149,26 +150,43 @@ class JavaParser:
                     parse_time=time.time() - start_time,
                     errors=errors,
                     warnings=warnings,
-                    metadata={"file_path": str(file_path)}
+                    metadata={"file_path": str(file_path)},
                 )
 
-            tree = self._parser.parse(bytes(source, 'utf8'))
+            tree = self._parser.parse(bytes(source, "utf8"))
 
             # Extract package name for context
             package_name = self._extract_package(tree.root_node, source) if tree else ""
 
             # Extract semantic units
             if ChunkType.CLASS in self._config.chunk_types:
-                chunks.extend(self._extract_classes(tree.root_node, source, file_path, package_name))
+                chunks.extend(
+                    self._extract_classes(
+                        tree.root_node, source, file_path, package_name
+                    )
+                )
 
             if ChunkType.INTERFACE in self._config.chunk_types:
-                chunks.extend(self._extract_interfaces(tree.root_node, source, file_path, package_name))
+                chunks.extend(
+                    self._extract_interfaces(
+                        tree.root_node, source, file_path, package_name
+                    )
+                )
 
             if ChunkType.ENUM in self._config.chunk_types:
-                chunks.extend(self._extract_enums(tree.root_node, source, file_path, package_name))
+                chunks.extend(
+                    self._extract_enums(tree.root_node, source, file_path, package_name)
+                )
 
-            if ChunkType.METHOD in self._config.chunk_types or ChunkType.CONSTRUCTOR in self._config.chunk_types:
-                chunks.extend(self._extract_methods(tree.root_node, source, file_path, package_name))
+            if (
+                ChunkType.METHOD in self._config.chunk_types
+                or ChunkType.CONSTRUCTOR in self._config.chunk_types
+            ):
+                chunks.extend(
+                    self._extract_methods(
+                        tree.root_node, source, file_path, package_name
+                    )
+                )
 
             if ChunkType.COMMENT in self._config.chunk_types:
                 chunks.extend(self._extract_comments(tree.root_node, source, file_path))
@@ -193,13 +211,13 @@ class JavaParser:
             warnings=warnings,
             metadata={
                 "file_path": str(file_path),
-                "package_name": package_name if 'package_name' in locals() else ""
-            }
+                "package_name": package_name if "package_name" in locals() else "",
+            },
         )
 
     def _get_node_text(self, node: TSNode, source: str) -> str:
         """Extract text content from a tree-sitter node."""
-        return source[node.start_byte:node.end_byte]
+        return source[node.start_byte : node.end_byte]
 
     def _extract_package(self, tree_node: TSNode, source: str) -> str:
         """Extract package name from Java file.
@@ -242,8 +260,9 @@ class JavaParser:
             logger.error(f"Failed to extract Java package: {e}")
             return ""
 
-    def _extract_classes(self, tree_node: TSNode, source: str,
-                        file_path: Path, package_name: str) -> list[dict[str, Any]]:
+    def _extract_classes(
+        self, tree_node: TSNode, source: str, file_path: Path, package_name: str
+    ) -> list[dict[str, Any]]:
         """Extract Java class definitions from AST."""
         chunks = []
 
@@ -321,8 +340,9 @@ class JavaParser:
 
         return chunks
 
-    def _extract_interfaces(self, tree_node: TSNode, source: str,
-                           file_path: Path, package_name: str) -> list[dict[str, Any]]:
+    def _extract_interfaces(
+        self, tree_node: TSNode, source: str, file_path: Path, package_name: str
+    ) -> list[dict[str, Any]]:
         """Extract Java interface definitions from AST."""
         chunks = []
 
@@ -393,8 +413,9 @@ class JavaParser:
 
         return chunks
 
-    def _extract_enums(self, tree_node: TSNode, source: str,
-                      file_path: Path, package_name: str) -> list[dict[str, Any]]:
+    def _extract_enums(
+        self, tree_node: TSNode, source: str, file_path: Path, package_name: str
+    ) -> list[dict[str, Any]]:
         """Extract Java enum definitions from AST."""
         chunks = []
 
@@ -458,8 +479,9 @@ class JavaParser:
 
         return chunks
 
-    def _extract_methods(self, tree_node: TSNode, source: str,
-                        file_path: Path, package_name: str) -> list[dict[str, Any]]:
+    def _extract_methods(
+        self, tree_node: TSNode, source: str, file_path: Path, package_name: str
+    ) -> list[dict[str, Any]]:
         """Extract Java method definitions from AST."""
         method_chunks = []
 
@@ -546,9 +568,15 @@ class JavaParser:
                         continue
 
                     # Skip if we don't want this chunk type
-                    if is_constructor and ChunkType.CONSTRUCTOR not in self._config.chunk_types:
+                    if (
+                        is_constructor
+                        and ChunkType.CONSTRUCTOR not in self._config.chunk_types
+                    ):
                         continue
-                    if not is_constructor and ChunkType.METHOD not in self._config.chunk_types:
+                    if (
+                        not is_constructor
+                        and ChunkType.METHOD not in self._config.chunk_types
+                    ):
                         continue
 
                     # Get method parameters
@@ -558,7 +586,9 @@ class JavaParser:
                     # Get method return type (not applicable for constructors)
                     return_type = None
                     if not is_constructor:
-                        return_type = self._extract_method_return_type(method_node, source)
+                        return_type = self._extract_method_return_type(
+                            method_node, source
+                        )
 
                     # Get full method text
                     method_text = self._get_node_text(method_node, source)
@@ -573,10 +603,14 @@ class JavaParser:
                     # Check for generic type parameters
                     type_params = self._extract_type_parameters(method_node, source)
                     if type_params:
-                        display_name = f"{qualified_name}<{type_params}>({param_types_str})"
+                        display_name = (
+                            f"{qualified_name}<{type_params}>({param_types_str})"
+                        )
 
                     # Create chunk
-                    chunk_type_enum = ChunkType.CONSTRUCTOR if is_constructor else ChunkType.METHOD
+                    chunk_type_enum = (
+                        ChunkType.CONSTRUCTOR if is_constructor else ChunkType.METHOD
+                    )
                     chunk = {
                         "symbol": qualified_name,
                         "start_line": method_node.start_point[0] + 1,
@@ -607,9 +641,14 @@ class JavaParser:
 
         return method_chunks
 
-    def _extract_inner_classes(self, class_node: TSNode, source: str,
-                              file_path: Path, package_name: str,
-                              outer_class_name: str) -> list[dict[str, Any]]:
+    def _extract_inner_classes(
+        self,
+        class_node: TSNode,
+        source: str,
+        file_path: Path,
+        package_name: str,
+        outer_class_name: str,
+    ) -> list[dict[str, Any]]:
         """Extract inner classes from a Java class."""
         chunks = []
 
@@ -640,7 +679,10 @@ class JavaParser:
             for match in matches:
                 pattern_index, captures = match
 
-                if "inner_class_def" not in captures or "inner_class_name" not in captures:
+                if (
+                    "inner_class_def" not in captures
+                    or "inner_class_name" not in captures
+                ):
                     continue
 
                 inner_class_node = captures["inner_class_def"][0]
@@ -703,7 +745,10 @@ class JavaParser:
                     # Look for annotation children within modifiers
                     for j in range(child.child_count):
                         mod_child = child.child(j)
-                        if mod_child and mod_child.type in ["annotation", "marker_annotation"]:
+                        if mod_child and mod_child.type in [
+                            "annotation",
+                            "marker_annotation",
+                        ]:
                             annotation_text = self._get_node_text(mod_child, source)
                             annotations.append(annotation_text.strip())
 
@@ -767,7 +812,9 @@ class JavaParser:
 
         return parameters
 
-    def _extract_method_return_type(self, method_node: TSNode, source: str) -> str | None:
+    def _extract_method_return_type(
+        self, method_node: TSNode, source: str
+    ) -> str | None:
         """Extract return type from a Java method."""
         try:
             if self._language is None:
@@ -781,7 +828,9 @@ class JavaParser:
             logger.error(f"Failed to extract Java method return type: {e}")
             return None
 
-    def _extract_comments(self, tree_node: TSNode, source: str, file_path: Path) -> list[dict[str, Any]]:
+    def _extract_comments(
+        self, tree_node: TSNode, source: str, file_path: Path
+    ) -> list[dict[str, Any]]:
         """Extract Java comments from AST."""
         chunks = []
 
@@ -850,7 +899,9 @@ class JavaParser:
 
         return chunks
 
-    def _extract_javadoc(self, tree_node: TSNode, source: str, file_path: Path) -> list[dict[str, Any]]:
+    def _extract_javadoc(
+        self, tree_node: TSNode, source: str, file_path: Path
+    ) -> list[dict[str, Any]]:
         """Extract Javadoc comments from AST."""
         chunks = []
 

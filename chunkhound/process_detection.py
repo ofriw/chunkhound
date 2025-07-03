@@ -44,7 +44,9 @@ class ProcessDetector:
             self.coordination_dir.mkdir(parents=True, exist_ok=True)
             logger.debug(f"Coordination directory ready: {self.coordination_dir}")
         except OSError as e:
-            logger.error(f"Failed to create coordination directory {self.coordination_dir}: {e}")
+            logger.error(
+                f"Failed to create coordination directory {self.coordination_dir}: {e}"
+            )
             raise
 
     def detect_mcp_server_instances(self) -> list[ProcessInfo]:
@@ -56,11 +58,13 @@ class ProcessDetector:
         instances = []
         server_info = self.find_mcp_server()
         if server_info:
-            instances.append(ProcessInfo(
-                pid=server_info["pid"],
-                process=server_info["process"],
-                pid_file=server_info["pid_file"]
-            ))
+            instances.append(
+                ProcessInfo(
+                    pid=server_info["pid"],
+                    process=server_info["process"],
+                    pid_file=server_info["pid_file"],
+                )
+            )
         return instances
 
     def is_mcp_server_running(self) -> bool:
@@ -116,11 +120,7 @@ class ProcessDetector:
                 return None
 
             logger.debug(f"Validated MCP server: PID {pid}")
-            return {
-                "pid": pid,
-                "process": process,
-                "pid_file": pid_file
-            }
+            return {"pid": pid, "process": process, "pid_file": pid_file}
 
         except (ValueError, psutil.NoSuchProcess, FileNotFoundError) as e:
             logger.debug(f"Error reading/validating PID file {pid_file}: {e}")
@@ -169,14 +169,16 @@ class ProcessDetector:
 
             # Check for database path (handle both absolute and relative paths)
             has_db_path = (
-                str(self.db_path) in cmdline_str or
-                str(self.db_path.name) in cmdline_str
+                str(self.db_path) in cmdline_str
+                or str(self.db_path.name) in cmdline_str
             )
 
             result = is_chunkhound and is_mcp and has_db_path
 
-            logger.debug(f"Process validation for PID {process.pid}: "
-                        f"chunkhound={is_chunkhound}, mcp={is_mcp}, db_path={has_db_path}")
+            logger.debug(
+                f"Process validation for PID {process.pid}: "
+                f"chunkhound={is_chunkhound}, mcp={is_mcp}, db_path={has_db_path}"
+            )
 
             return result
 

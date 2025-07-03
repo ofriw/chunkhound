@@ -8,6 +8,7 @@ from typing import Any, Protocol
 @dataclass
 class EmbeddingConfig:
     """Configuration for embedding providers."""
+
     provider: str
     model: str
     dims: int
@@ -92,7 +93,9 @@ class EmbeddingProvider(Protocol):
         """
         ...
 
-    async def embed_batch(self, texts: list[str], batch_size: int | None = None) -> list[list[float]]:
+    async def embed_batch(
+        self, texts: list[str], batch_size: int | None = None
+    ) -> list[list[float]]:
         """Generate embeddings in batches for optimal performance.
 
         Args:

@@ -70,7 +70,7 @@ class Embedding:
             raise ValidationError(
                 "vector_length",
                 len(self.vector),
-                f"Vector length ({len(self.vector)}) must match dimensions ({self.dims})"
+                f"Vector length ({len(self.vector)}) must match dimensions ({self.dims})",
             )
 
         # Check for invalid values in vector
@@ -79,7 +79,7 @@ class Embedding:
                 raise ValidationError(
                     f"vector[{i}]",
                     value,
-                    f"Vector values must be numeric, got {type(value)}"
+                    f"Vector values must be numeric, got {type(value)}",
                 )
 
     @classmethod
@@ -131,7 +131,7 @@ class Embedding:
                 model=ModelName(model),
                 dims=Dimensions(int(dims)),
                 vector=vector,
-                created_at=created_at
+                created_at=created_at,
             )
 
         except (ValueError, TypeError) as e:
@@ -185,7 +185,7 @@ class Embedding:
             raise ModelError(
                 "Embedding",
                 "dot_product",
-                f"Dimension mismatch: {self.dims} vs {other.dims}"
+                f"Dimension mismatch: {self.dims} vs {other.dims}",
             )
 
         return sum(a * b for a, b in zip(self.vector, other.vector))
@@ -206,7 +206,7 @@ class Embedding:
             raise ModelError(
                 "Embedding",
                 "cosine_similarity",
-                f"Dimension mismatch: {self.dims} vs {other.dims}"
+                f"Dimension mismatch: {self.dims} vs {other.dims}",
             )
 
         # Compute dot product
@@ -238,11 +238,11 @@ class Embedding:
             raise ModelError(
                 "Embedding",
                 "euclidean_distance",
-                f"Dimension mismatch: {self.dims} vs {other.dims}"
+                f"Dimension mismatch: {self.dims} vs {other.dims}",
             )
 
         squared_diff = sum((a - b) ** 2 for a, b in zip(self.vector, other.vector))
-        return Distance(squared_diff ** 0.5)
+        return Distance(squared_diff**0.5)
 
     def magnitude(self) -> float:
         """Compute the magnitude (L2 norm) of the embedding vector."""
@@ -267,7 +267,7 @@ class Embedding:
             model=self.model,
             dims=self.dims,
             vector=normalized_vector,
-            created_at=self.created_at
+            created_at=self.created_at,
         )
 
     def is_compatible_with(self, other: "Embedding") -> bool:
@@ -280,9 +280,9 @@ class Embedding:
             True if embeddings can be compared
         """
         return (
-            self.provider == other.provider and
-            self.model == other.model and
-            self.dims == other.dims
+            self.provider == other.provider
+            and self.model == other.model
+            and self.dims == other.dims
         )
 
     def __str__(self) -> str:
@@ -326,7 +326,9 @@ class EmbeddingResult:
         """Validate embedding result attributes."""
         # Embeddings validation
         if not self.embeddings:
-            raise ValidationError("embeddings", self.embeddings, "Embeddings list cannot be empty")
+            raise ValidationError(
+                "embeddings", self.embeddings, "Embeddings list cannot be empty"
+            )
 
         # Provider validation
         if not self.provider or not self.provider.strip():
@@ -343,18 +345,22 @@ class EmbeddingResult:
         # Validate each embedding vector
         for i, embedding in enumerate(self.embeddings):
             if not embedding:
-                raise ValidationError(f"embeddings[{i}]", embedding, "Embedding vector cannot be empty")
+                raise ValidationError(
+                    f"embeddings[{i}]", embedding, "Embedding vector cannot be empty"
+                )
 
             if len(embedding) != self.dims:
                 raise ValidationError(
                     f"embeddings[{i}]",
                     len(embedding),
-                    f"Embedding vector length ({len(embedding)}) must match dimensions ({self.dims})"
+                    f"Embedding vector length ({len(embedding)}) must match dimensions ({self.dims})",
                 )
 
         # Token count validation
         if self.total_tokens is not None and self.total_tokens < 0:
-            raise ValidationError("total_tokens", self.total_tokens, "Token count cannot be negative")
+            raise ValidationError(
+                "total_tokens", self.total_tokens, "Token count cannot be negative"
+            )
 
     @property
     def count(self) -> int:
@@ -382,7 +388,7 @@ class EmbeddingResult:
             raise ValidationError(
                 "chunk_ids",
                 len(chunk_ids),
-                f"Chunk IDs count ({len(chunk_ids)}) must match embeddings count ({len(self.embeddings)})"
+                f"Chunk IDs count ({len(chunk_ids)}) must match embeddings count ({len(self.embeddings)})",
             )
 
         timestamp = datetime.utcnow()
@@ -394,7 +400,7 @@ class EmbeddingResult:
                 model=self.model,
                 dims=self.dims,
                 vector=vector,
-                created_at=timestamp
+                created_at=timestamp,
             )
             for chunk_id, vector in zip(chunk_ids, self.embeddings)
         ]

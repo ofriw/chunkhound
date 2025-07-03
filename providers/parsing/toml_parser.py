@@ -41,7 +41,11 @@ class TomlParser(TreeSitterParserBase):
         return ParseConfig(
             language=CoreLanguage.TOML,
             chunk_types={
-                ChunkType.TABLE, ChunkType.KEY_VALUE, ChunkType.ARRAY, ChunkType.BLOCK, ChunkType.COMMENT
+                ChunkType.TABLE,
+                ChunkType.KEY_VALUE,
+                ChunkType.ARRAY,
+                ChunkType.BLOCK,
+                ChunkType.COMMENT,
             },
             max_chunk_size=4000,
             min_chunk_size=50,
@@ -49,7 +53,7 @@ class TomlParser(TreeSitterParserBase):
             include_comments=True,
             include_docstrings=False,
             max_depth=10,
-            use_cache=True
+            use_cache=True,
         )
 
     def _extract_chunks(
@@ -87,7 +91,11 @@ class TomlParser(TreeSitterParserBase):
             # Extract comments
             if ChunkType.COMMENT in self._config.chunk_types:
                 comment_patterns = ["(comment) @comment"]
-                chunks.extend(self._extract_comments_generic(tree_node, source, file_path, comment_patterns))
+                chunks.extend(
+                    self._extract_comments_generic(
+                        tree_node, source, file_path, comment_patterns
+                    )
+                )
 
             # Sort chunks by start position
             chunks.sort(
@@ -120,7 +128,7 @@ class TomlParser(TreeSitterParserBase):
             file_path = Path("content.toml")
 
         try:
-            tree = self._parser.parse(bytes(content, 'utf8'))
+            tree = self._parser.parse(bytes(content, "utf8"))
             return self._extract_chunks(tree.root_node, content, file_path)
         except Exception as e:
             logger.error(f"Error parsing TOML content: {e}")
@@ -131,18 +139,18 @@ class TomlParser(TreeSitterParserBase):
     ) -> list[dict[str, Any]]:
         """Extract table definitions from TOML."""
         tables = []
-        source_lines = source.split('\n')
+        source_lines = source.split("\n")
 
         def extract_table_recursive(current_node: TSNode):
             # Handle array of tables [[table.name]]
-            if current_node.type == 'table_array_element':
+            if current_node.type == "table_array_element":
                 table_header = None
                 table_content_nodes = []
 
                 for child in current_node.children:
-                    if child.type == 'bare_key':
+                    if child.type == "bare_key":
                         table_header = self._get_node_text(child, source_lines)
-                    elif child.type == 'pair':
+                    elif child.type == "pair":
                         table_content_nodes.append(child)
 
                 if table_header:
@@ -151,30 +159,32 @@ class TomlParser(TreeSitterParserBase):
 
                     table_text = self._get_node_text(current_node, source_lines)
 
-                    tables.append({
-                        "symbol": table_header,
-                        "chunk_type": ChunkType.TABLE,
-                        "start_line": start_line,
-                        "end_line": end_line,
-                        "code": table_text,
-                        "file_path": str(file_path),
-                        "language": CoreLanguage.TOML.value,
-                        "metadata": {
-                            "table_name": table_header,
-                            "is_array_table": True,
-                            "key_count": len(table_content_nodes)
+                    tables.append(
+                        {
+                            "symbol": table_header,
+                            "chunk_type": ChunkType.TABLE,
+                            "start_line": start_line,
+                            "end_line": end_line,
+                            "code": table_text,
+                            "file_path": str(file_path),
+                            "language": CoreLanguage.TOML.value,
+                            "metadata": {
+                                "table_name": table_header,
+                                "is_array_table": True,
+                                "key_count": len(table_content_nodes),
+                            },
                         }
-                    })
+                    )
 
             # Handle regular tables [table.name] syntax
-            if current_node.type == 'table':
+            if current_node.type == "table":
                 table_header = None
                 table_content_nodes = []
 
                 for child in current_node.children:
-                    if child.type == 'dotted_key':
+                    if child.type == "dotted_key":
                         table_header = self._get_node_text(child, source_lines)
-                    elif child.type == 'pair':
+                    elif child.type == "pair":
                         table_content_nodes.append(child)
 
                 if table_header:
@@ -183,20 +193,22 @@ class TomlParser(TreeSitterParserBase):
 
                     table_text = self._get_node_text(current_node, source_lines)
 
-                    tables.append({
-                        "symbol": table_header,
-                        "chunk_type": ChunkType.TABLE,
-                        "start_line": start_line,
-                        "end_line": end_line,
-                        "code": table_text,
-                        "file_path": str(file_path),
-                        "language": CoreLanguage.TOML.value,
-                        "metadata": {
-                            "table_name": table_header,
-                            "is_array_table": False,
-                            "key_count": len(table_content_nodes)
+                    tables.append(
+                        {
+                            "symbol": table_header,
+                            "chunk_type": ChunkType.TABLE,
+                            "start_line": start_line,
+                            "end_line": end_line,
+                            "code": table_text,
+                            "file_path": str(file_path),
+                            "language": CoreLanguage.TOML.value,
+                            "metadata": {
+                                "table_name": table_header,
+                                "is_array_table": False,
+                                "key_count": len(table_content_nodes),
+                            },
                         }
-                    })
+                    )
 
             for child in current_node.children:
                 extract_table_recursive(child)
@@ -209,18 +221,23 @@ class TomlParser(TreeSitterParserBase):
     ) -> list[dict[str, Any]]:
         """Extract key-value pairs from TOML."""
         key_values = []
-        source_lines = source.split('\n')
+        source_lines = source.split("\n")
 
         def extract_kv_recursive(current_node: TSNode, context_path: str = ""):
-            if current_node.type == 'pair':
+            if current_node.type == "pair":
                 key_node = None
                 value_node = None
 
                 for child in current_node.children:
-                    if child.type in ['bare_key', 'quoted_key', 'dotted_key']:
+                    if child.type in ["bare_key", "quoted_key", "dotted_key"]:
                         key_node = child
                     elif child.type in [
-                        'string', 'integer', 'float', 'boolean', 'array', 'inline_table'
+                        "string",
+                        "integer",
+                        "float",
+                        "boolean",
+                        "array",
+                        "inline_table",
                     ]:
                         value_node = child
 
@@ -235,29 +252,33 @@ class TomlParser(TreeSitterParserBase):
 
                     kv_text = self._get_node_text(current_node, source_lines)
 
-                    key_values.append({
-                        "symbol": full_key,
-                        "chunk_type": ChunkType.KEY_VALUE,
-                        "start_line": start_line,
-                        "end_line": end_line,
-                        "code": kv_text,
-                        "file_path": str(file_path),
-                        "language": CoreLanguage.TOML.value,
-                        "metadata": {
-                            "key": key_name,
-                            "full_key": full_key,
-                            "value_type": value_node.type if value_node else "unknown",
-                            "context": context_path
+                    key_values.append(
+                        {
+                            "symbol": full_key,
+                            "chunk_type": ChunkType.KEY_VALUE,
+                            "start_line": start_line,
+                            "end_line": end_line,
+                            "code": kv_text,
+                            "file_path": str(file_path),
+                            "language": CoreLanguage.TOML.value,
+                            "metadata": {
+                                "key": key_name,
+                                "full_key": full_key,
+                                "value_type": value_node.type
+                                if value_node
+                                else "unknown",
+                                "context": context_path,
+                            },
                         }
-                    })
+                    )
 
             # Update context for nested structures
             new_context = context_path
-            if current_node.type == 'dotted_key':
+            if current_node.type == "dotted_key":
                 new_context = self._get_node_text(current_node, source_lines)
-            elif current_node.type == 'table' and current_node.children:
+            elif current_node.type == "table" and current_node.children:
                 for child in current_node.children:
-                    if child.type == 'dotted_key':
+                    if child.type == "dotted_key":
                         new_context = self._get_node_text(child, source_lines)
                         break
 
@@ -272,10 +293,10 @@ class TomlParser(TreeSitterParserBase):
     ) -> list[dict[str, Any]]:
         """Extract array definitions from TOML."""
         arrays = []
-        source_lines = source.split('\n')
+        source_lines = source.split("\n")
 
         def extract_array_recursive(current_node: TSNode):
-            if current_node.type == 'array':
+            if current_node.type == "array":
                 start_line = current_node.start_point[0] + 1
                 end_line = current_node.end_point[0] + 1
 
@@ -283,28 +304,33 @@ class TomlParser(TreeSitterParserBase):
 
                 # Try to find the key this array belongs to
                 parent_key = "array"
-                if current_node.parent and current_node.parent.type == 'pair':
+                if current_node.parent and current_node.parent.type == "pair":
                     for sibling in current_node.parent.children:
-                        if sibling.type in ['bare_key', 'quoted_key', 'dotted_key']:
+                        if sibling.type in ["bare_key", "quoted_key", "dotted_key"]:
                             parent_key = self._get_node_text(sibling, source_lines)
                             break
 
-                arrays.append({
-                    "symbol": parent_key,
-                    "chunk_type": ChunkType.ARRAY,
-                    "start_line": start_line,
-                    "end_line": end_line,
-                    "code": array_text,
-                    "file_path": str(file_path),
-                    "language": CoreLanguage.TOML.value,
-                    "metadata": {
-                        "array_key": parent_key,
-                        "element_count": len([
-                            child for child in current_node.children
-                            if child.type != ','
-                        ])
+                arrays.append(
+                    {
+                        "symbol": parent_key,
+                        "chunk_type": ChunkType.ARRAY,
+                        "start_line": start_line,
+                        "end_line": end_line,
+                        "code": array_text,
+                        "file_path": str(file_path),
+                        "language": CoreLanguage.TOML.value,
+                        "metadata": {
+                            "array_key": parent_key,
+                            "element_count": len(
+                                [
+                                    child
+                                    for child in current_node.children
+                                    if child.type != ","
+                                ]
+                            ),
+                        },
                     }
-                })
+                )
 
             for child in current_node.children:
                 extract_array_recursive(child)
@@ -317,11 +343,11 @@ class TomlParser(TreeSitterParserBase):
     ) -> list[dict[str, Any]]:
         """Extract generic configuration blocks from TOML."""
         blocks = []
-        source_lines = source.split('\n')
+        source_lines = source.split("\n")
 
         def extract_block_recursive(current_node: TSNode):
             # Consider inline tables as blocks
-            if current_node.type == 'inline_table':
+            if current_node.type == "inline_table":
                 start_line = current_node.start_point[0] + 1
                 end_line = current_node.end_point[0] + 1
 
@@ -329,25 +355,27 @@ class TomlParser(TreeSitterParserBase):
 
                 # Find parent key
                 parent_key = "inline_table"
-                if current_node.parent and current_node.parent.type == 'pair':
+                if current_node.parent and current_node.parent.type == "pair":
                     for sibling in current_node.parent.children:
-                        if sibling.type in ['bare_key', 'quoted_key', 'dotted_key']:
+                        if sibling.type in ["bare_key", "quoted_key", "dotted_key"]:
                             parent_key = self._get_node_text(sibling, source_lines)
                             break
 
-                blocks.append({
-                    "symbol": parent_key,
-                    "chunk_type": ChunkType.BLOCK,
-                    "start_line": start_line,
-                    "end_line": end_line,
-                    "code": block_text,
-                    "file_path": str(file_path),
-                    "language": CoreLanguage.TOML.value,
-                    "metadata": {
-                        "block_type": "inline_table",
-                        "parent_key": parent_key
+                blocks.append(
+                    {
+                        "symbol": parent_key,
+                        "chunk_type": ChunkType.BLOCK,
+                        "start_line": start_line,
+                        "end_line": end_line,
+                        "code": block_text,
+                        "file_path": str(file_path),
+                        "language": CoreLanguage.TOML.value,
+                        "metadata": {
+                            "block_type": "inline_table",
+                            "parent_key": parent_key,
+                        },
                     }
-                })
+                )
 
             for child in current_node.children:
                 extract_block_recursive(child)
@@ -368,5 +396,4 @@ class TomlParser(TreeSitterParserBase):
             lines.append(source_lines[row])
         lines.append(source_lines[end_row][:end_col])
 
-        return '\n'.join(lines)
-
+        return "\n".join(lines)

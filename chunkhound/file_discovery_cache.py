@@ -31,18 +31,13 @@ class FileDiscoveryCache:
         self._cache: OrderedDict[str, tuple[list[Path], float, float]] = OrderedDict()
 
         # Statistics for monitoring
-        self.stats = {
-            'hits': 0,
-            'misses': 0,
-            'evictions': 0,
-            'invalidations': 0
-        }
+        self.stats = {"hits": 0, "misses": 0, "evictions": 0, "invalidations": 0}
 
     def get_files(
         self,
         directory: Path,
         patterns: list[str],
-        exclude_patterns: list[str] | None = None
+        exclude_patterns: list[str] | None = None,
     ) -> list[Path]:
         """Get files matching patterns with caching.
 
@@ -60,12 +55,12 @@ class FileDiscoveryCache:
         # Check cache first
         cached_result = self._get_from_cache(cache_key, directory)
         if cached_result is not None:
-            self.stats['hits'] += 1
+            self.stats["hits"] += 1
             logger.debug(f"Cache hit for {directory} with {len(patterns)} patterns")
             return cached_result
 
         # Cache miss - perform file discovery
-        self.stats['misses'] += 1
+        self.stats["misses"] += 1
         logger.debug(f"Cache miss for {directory} with {len(patterns)} patterns")
 
         # Discover files
@@ -94,7 +89,7 @@ class FileDiscoveryCache:
 
         for key in keys_to_remove:
             del self._cache[key]
-            self.stats['invalidations'] += 1
+            self.stats["invalidations"] += 1
 
         logger.debug(f"Invalidated {len(keys_to_remove)} cache entries for {directory}")
         return len(keys_to_remove)
@@ -103,7 +98,7 @@ class FileDiscoveryCache:
         """Clear all cache entries."""
         count = len(self._cache)
         self._cache.clear()
-        self.stats['evictions'] += count
+        self.stats["evictions"] += count
         logger.debug(f"Cleared {count} cache entries")
 
     def get_stats(self) -> dict[str, int]:
@@ -112,20 +107,19 @@ class FileDiscoveryCache:
         Returns:
             Dictionary with cache hit/miss statistics
         """
-        total_requests = self.stats['hits'] + self.stats['misses']
-        hit_rate = (self.stats['hits'] / total_requests * 100) if total_requests > 0 else 0
+        total_requests = self.stats["hits"] + self.stats["misses"]
+        hit_rate = (
+            (self.stats["hits"] / total_requests * 100) if total_requests > 0 else 0
+        )
 
         return {
             **self.stats,
-            'cache_size': len(self._cache),
-            'hit_rate_percent': int(round(hit_rate, 2))
+            "cache_size": len(self._cache),
+            "hit_rate_percent": int(round(hit_rate, 2)),
         }
 
     def _make_cache_key(
-        self,
-        directory: Path,
-        patterns: list[str],
-        exclude_patterns: list[str] | None
+        self, directory: Path, patterns: list[str], exclude_patterns: list[str] | None
     ) -> str:
         """Create a cache key from directory and patterns.
 
@@ -160,7 +154,7 @@ class FileDiscoveryCache:
         # Check TTL expiration
         if current_time - timestamp > self.ttl_seconds:
             del self._cache[cache_key]
-            self.stats['evictions'] += 1
+            self.stats["evictions"] += 1
             logger.debug(f"Cache entry expired for key: {cache_key}")
             return None
 
@@ -169,20 +163,24 @@ class FileDiscoveryCache:
             current_mtime = directory.stat().st_mtime
             if current_mtime > cached_mtime:
                 del self._cache[cache_key]
-                self.stats['invalidations'] += 1
-                logger.debug(f"Cache entry invalidated (directory modified): {cache_key}")
+                self.stats["invalidations"] += 1
+                logger.debug(
+                    f"Cache entry invalidated (directory modified): {cache_key}"
+                )
                 return None
         except OSError:
             # Directory might not exist anymore
             del self._cache[cache_key]
-            self.stats['invalidations'] += 1
+            self.stats["invalidations"] += 1
             return None
 
         # Move to end (LRU)
         self._cache.move_to_end(cache_key)
         return files
 
-    def _store_in_cache(self, cache_key: str, files: list[Path], directory: Path) -> None:
+    def _store_in_cache(
+        self, cache_key: str, files: list[Path], directory: Path
+    ) -> None:
         """Store files in cache.
 
         Args:
@@ -200,17 +198,14 @@ class FileDiscoveryCache:
         while len(self._cache) >= self.max_entries:
             oldest_key = next(iter(self._cache))
             del self._cache[oldest_key]
-            self.stats['evictions'] += 1
+            self.stats["evictions"] += 1
 
         # Store entry
         self._cache[cache_key] = (files, time.time(), directory_mtime)
         logger.debug(f"Cached {len(files)} files for key: {cache_key}")
 
     def _discover_files(
-        self,
-        directory: Path,
-        patterns: list[str],
-        exclude_patterns: list[str] | None
+        self, directory: Path, patterns: list[str], exclude_patterns: list[str] | None
     ) -> list[Path]:
         """Perform actual file discovery.
 
@@ -245,7 +240,9 @@ class FileDiscoveryCache:
                     rel_path = file_path.relative_to(directory)
                     excluded = False
                     for exclude_pattern in exclude_patterns:
-                        if fnmatch(str(rel_path), exclude_pattern) or fnmatch(str(file_path), exclude_pattern):
+                        if fnmatch(str(rel_path), exclude_pattern) or fnmatch(
+                            str(file_path), exclude_pattern
+                        ):
                             excluded = True
                             break
                     if not excluded:

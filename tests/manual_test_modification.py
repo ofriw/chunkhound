@@ -28,10 +28,12 @@ TEST_FILE = TEST_DIR / "test_file.py"
 CHUNKHOUND_CMD = "uv run chunkhound"
 UNIQUE_ID = str(uuid.uuid4())[:8]  # Use a unique ID for this test run
 
+
 # REALTIME_TEST_MARKER: Added to test real-time indexing
 def realtime_test_function():
     """Test function for real-time indexing verification."""
     return "realtime_test_marker_12345"
+
 
 # POST_FIX_MODIFICATION_MARKER: Added after import fixes
 def post_fix_modification_test():
@@ -99,7 +101,7 @@ def search_content(marker, wait_time=0):
         time.sleep(wait_time)
 
     print(f"\n=== Searching for marker: {marker} ===")
-    cmd = f"{CHUNKHOUND_CMD} search-regex \"{marker}\""
+    cmd = f'{CHUNKHOUND_CMD} search-regex "{marker}"'
     success = run_command(cmd)
     return success
 
@@ -112,9 +114,11 @@ def modify_file():
     current_content = TEST_FILE.read_text() if TEST_FILE.exists() else ""
 
     # Append new content
-    modified_content = current_content + f"""
+    modified_content = (
+        current_content
+        + f"""
 # MARKER: {UNIQUE_ID}_MODIFIED
-# Added at: {time.strftime('%Y-%m-%d %H:%M:%S')}
+# Added at: {time.strftime("%Y-%m-%d %H:%M:%S")}
 
 def modified_function():
     \"\"\"This function should be detected after file modification.\"\"\"
@@ -126,6 +130,7 @@ class ModifiedClass:
     def new_method(self):
         return "{UNIQUE_ID}_MODIFIED_METHOD"
 """
+    )
 
     # Write modified content
     TEST_FILE.write_text(modified_content)
@@ -144,7 +149,7 @@ def replace_file():
     # Create completely new content
     new_content = f"""# Test file for ChunkHound file modification detection
 # MARKER: {UNIQUE_ID}_REPLACED
-# Created at: {time.strftime('%Y-%m-%d %H:%M:%S')}
+# Created at: {time.strftime("%Y-%m-%d %H:%M:%S")}
 
 def replaced_function():
     \"\"\"This function should be detected after file replacement.\"\"\"
@@ -229,29 +234,29 @@ def interactive_menu():
 
         choice = input("\nEnter your choice (1-12): ")
 
-        if choice == '1':
+        if choice == "1":
             setup()
-        elif choice == '2':
+        elif choice == "2":
             index_directory()
-        elif choice == '3':
+        elif choice == "3":
             search_content(f"{UNIQUE_ID}_INITIAL", wait_time=1)
-        elif choice == '4':
+        elif choice == "4":
             modify_file()
-        elif choice == '5':
+        elif choice == "5":
             replace_file()
-        elif choice == '6':
+        elif choice == "6":
             search_content(f"{UNIQUE_ID}_MODIFIED", wait_time=5)
-        elif choice == '7':
+        elif choice == "7":
             search_content(f"{UNIQUE_ID}_REPLACED", wait_time=5)
-        elif choice == '8':
+        elif choice == "8":
             get_stats()
-        elif choice == '9':
+        elif choice == "9":
             check_modified_time()
-        elif choice == '10':
+        elif choice == "10":
             get_mcp_status()
-        elif choice == '11':
+        elif choice == "11":
             debug_file()
-        elif choice == '12':
+        elif choice == "12":
             print("Exiting...")
             break
         else:
@@ -287,7 +292,7 @@ def main():
         print(f"Error: {e}")
     finally:
         choice = input("\nClean up test files? (y/n): ")
-        if choice.lower() == 'y':
+        if choice.lower() == "y":
             cleanup()
         else:
             print(f"Test files remain at: {TEST_DIR}")

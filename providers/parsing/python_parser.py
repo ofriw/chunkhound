@@ -12,6 +12,7 @@ from providers.parsing.base_parser import TreeSitterParserBase
 
 try:
     from tree_sitter import Node as TSNode
+
     PYTHON_AVAILABLE = True
 except ImportError:
     PYTHON_AVAILABLE = False
@@ -39,7 +40,7 @@ class PythonParser(TreeSitterParserBase):
                 ChunkType.METHOD,
                 ChunkType.BLOCK,
                 ChunkType.COMMENT,
-                ChunkType.DOCSTRING
+                ChunkType.DOCSTRING,
             },
             max_chunk_size=8000,
             min_chunk_size=100,
@@ -47,10 +48,12 @@ class PythonParser(TreeSitterParserBase):
             include_comments=False,
             include_docstrings=True,
             max_depth=10,
-            use_cache=True
+            use_cache=True,
         )
 
-    def _extract_chunks(self, tree_node: TSNode, source: str, file_path: Path) -> list[dict[str, Any]]:
+    def _extract_chunks(
+        self, tree_node: TSNode, source: str, file_path: Path
+    ) -> list[dict[str, Any]]:
         """Extract semantic chunks from Python AST.
 
         Args:
@@ -70,11 +73,11 @@ class PythonParser(TreeSitterParserBase):
         # Extract classes
         if ChunkType.CLASS in self._config.chunk_types:
             chunks.extend(self._extract_classes(tree_node, source, file_path))
-        
+
         # Extract docstrings
         if ChunkType.DOCSTRING in self._config.chunk_types:
             chunks.extend(self._extract_docstrings(tree_node, source, file_path))
-            
+
         # Extract comments
         if ChunkType.COMMENT in self._config.chunk_types:
             chunks.extend(self._extract_comments(tree_node, source, file_path))
@@ -86,7 +89,9 @@ class PythonParser(TreeSitterParserBase):
 
         return chunks
 
-    def _extract_functions(self, tree_node: TSNode, source: str, file_path: Path) -> list[dict[str, Any]]:
+    def _extract_functions(
+        self, tree_node: TSNode, source: str, file_path: Path
+    ) -> list[dict[str, Any]]:
         """Extract Python function definitions from AST."""
         chunks = []
 
@@ -125,9 +130,13 @@ class PythonParser(TreeSitterParserBase):
                 display_name = f"{function_name}({param_str})"
 
                 chunk = self._create_chunk(
-                    function_node, source, file_path,
-                    ChunkType.FUNCTION, function_name, display_name,
-                    parameters=parameters
+                    function_node,
+                    source,
+                    file_path,
+                    ChunkType.FUNCTION,
+                    function_name,
+                    display_name,
+                    parameters=parameters,
                 )
 
                 chunks.append(chunk)
@@ -137,7 +146,9 @@ class PythonParser(TreeSitterParserBase):
 
         return chunks
 
-    def _extract_classes(self, tree_node: TSNode, source: str, file_path: Path) -> list[dict[str, Any]]:
+    def _extract_classes(
+        self, tree_node: TSNode, source: str, file_path: Path
+    ) -> list[dict[str, Any]]:
         """Extract Python class definitions from AST."""
         chunks = []
 
@@ -170,15 +181,16 @@ class PythonParser(TreeSitterParserBase):
                 class_text = self._get_node_text(class_node, source)
 
                 chunk = self._create_chunk(
-                    class_node, source, file_path,
-                    ChunkType.CLASS, class_name
+                    class_node, source, file_path, ChunkType.CLASS, class_name
                 )
 
                 chunks.append(chunk)
 
                 # Extract methods from class
                 if ChunkType.METHOD in self._config.chunk_types:
-                    method_chunks = self._extract_class_methods(class_node, source, file_path, class_name)
+                    method_chunks = self._extract_class_methods(
+                        class_node, source, file_path, class_name
+                    )
                     chunks.extend(method_chunks)
 
         except Exception as e:
@@ -186,8 +198,9 @@ class PythonParser(TreeSitterParserBase):
 
         return chunks
 
-    def _extract_class_methods(self, class_node: TSNode, source: str,
-                              file_path: Path, class_name: str) -> list[dict[str, Any]]:
+    def _extract_class_methods(
+        self, class_node: TSNode, source: str, file_path: Path, class_name: str
+    ) -> list[dict[str, Any]]:
         """Extract methods from a Python class."""
         chunks = []
 
@@ -239,9 +252,14 @@ class PythonParser(TreeSitterParserBase):
                 display_name = f"{qualified_name}({param_str})"
 
                 chunk = self._create_chunk(
-                    method_node, source, file_path,
-                    ChunkType.METHOD, qualified_name, display_name,
-                    parent=class_name, parameters=parameters
+                    method_node,
+                    source,
+                    file_path,
+                    ChunkType.METHOD,
+                    qualified_name,
+                    display_name,
+                    parent=class_name,
+                    parameters=parameters,
                 )
 
                 chunks.append(chunk)
@@ -251,7 +269,9 @@ class PythonParser(TreeSitterParserBase):
 
         return chunks
 
-    def _extract_function_parameters(self, function_node: TSNode, source: str) -> list[str]:
+    def _extract_function_parameters(
+        self, function_node: TSNode, source: str
+    ) -> list[str]:
         """Extract parameter names from a Python function."""
         parameters = []
 
@@ -275,7 +295,12 @@ class PythonParser(TreeSitterParserBase):
                 child = params_node.child(i)
                 if child and child.type == "identifier":
                     param_name = self._get_node_text(child, source).strip()
-                    if param_name and param_name != "," and param_name != "(" and param_name != ")":
+                    if (
+                        param_name
+                        and param_name != ","
+                        and param_name != "("
+                        and param_name != ")"
+                    ):
                         parameters.append(param_name)
                 elif child and child.type == "default_parameter":
                     # Handle default parameters
@@ -290,7 +315,9 @@ class PythonParser(TreeSitterParserBase):
 
         return parameters
 
-    def _create_fallback_block_chunk(self, source: str, file_path: Path) -> dict[str, Any]:
+    def _create_fallback_block_chunk(
+        self, source: str, file_path: Path
+    ) -> dict[str, Any]:
         """Create a fallback BLOCK chunk for files with no structured content.
 
         Args:
@@ -323,109 +350,126 @@ class PythonParser(TreeSitterParserBase):
             "display_name": display_name,
             "content": source,
             "start_byte": 0,
-            "end_byte": len(source.encode('utf-8')),
+            "end_byte": len(source.encode("utf-8")),
         }
 
         return chunk
-    
-    def _extract_docstrings(self, tree_node: TSNode, source: str, file_path: Path) -> list[dict[str, Any]]:
+
+    def _extract_docstrings(
+        self, tree_node: TSNode, source: str, file_path: Path
+    ) -> list[dict[str, Any]]:
         """Extract Python docstrings from AST."""
         chunks = []
-        
+
         try:
             if self._language is None:
                 return chunks
-                
+
             # Query for all string nodes that are docstrings
             query = self._language.query("""
                 (module . (expression_statement (string) @module_docstring))
                 (function_definition body: (block . (expression_statement (string) @function_docstring)))
                 (class_definition body: (block . (expression_statement (string) @class_docstring)))
             """)
-            
+
             matches = query.matches(tree_node)
-            
+
             for match in matches:
                 pattern_index, captures = match
-                
+
                 # Process each capture type
                 for capture_name, nodes in captures.items():
                     for node in nodes:
                         docstring_text = self._get_node_text(node, source)
-                        
+
                         # Skip empty docstrings
                         if not docstring_text.strip():
                             continue
-                        
+
                         # Remove quotes and clean up
                         cleaned_text = docstring_text.strip()
-                        if cleaned_text.startswith('"""') or cleaned_text.startswith("'''"):
+                        if cleaned_text.startswith('"""') or cleaned_text.startswith(
+                            "'''"
+                        ):
                             cleaned_text = cleaned_text[3:-3].strip()
-                        elif cleaned_text.startswith('"') or cleaned_text.startswith("'"):
+                        elif cleaned_text.startswith('"') or cleaned_text.startswith(
+                            "'"
+                        ):
                             cleaned_text = cleaned_text[1:-1].strip()
-                        
+
                         # Determine context based on capture name
                         context = "module"
                         if "function" in capture_name:
                             context = "function"
                         elif "class" in capture_name:
                             context = "class"
-                            
+
                         symbol = f"docstring:{context}:{node.start_point[0] + 1}"
-                        
+
                         chunk = self._create_chunk(
-                            node, source, file_path,
-                            ChunkType.DOCSTRING, symbol, f"{context.capitalize()} docstring",
-                            content=cleaned_text, context=context
+                            node,
+                            source,
+                            file_path,
+                            ChunkType.DOCSTRING,
+                            symbol,
+                            f"{context.capitalize()} docstring",
+                            content=cleaned_text,
+                            context=context,
                         )
-                        
+
                         chunks.append(chunk)
-                        
+
         except Exception as e:
             logger.error(f"Failed to extract Python docstrings: {e}")
-            
+
         return chunks
-    
-    def _extract_comments(self, tree_node: TSNode, source: str, file_path: Path) -> list[dict[str, Any]]:
+
+    def _extract_comments(
+        self, tree_node: TSNode, source: str, file_path: Path
+    ) -> list[dict[str, Any]]:
         """Extract Python comments from AST."""
         chunks = []
-        
+
         try:
             if self._language is None:
                 return chunks
-                
+
             # Query for comment nodes
             query = self._language.query("""
                 (comment) @comment
             """)
-            
+
             matches = query.matches(tree_node)
-            
+
             for match in matches:
                 pattern_index, captures = match
-                
+
                 if "comment" not in captures:
                     continue
-                    
+
                 for comment_node in captures["comment"]:
                     comment_text = self._get_node_text(comment_node, source)
-                    
+
                     # Clean up comment text
                     cleaned_text = comment_text.strip()
                     if cleaned_text.startswith("#"):
                         cleaned_text = cleaned_text[1:].strip()
-                        
+
                     symbol = f"comment:{comment_node.start_point[0] + 1}"
-                    
+
                     chunk = self._create_chunk(
-                        comment_node, source, file_path,
-                        ChunkType.COMMENT, symbol, f"Comment at line {comment_node.start_point[0] + 1}",
-                        content=cleaned_text
+                        comment_node,
+                        source,
+                        file_path,
+                        ChunkType.COMMENT,
+                        symbol,
+                        f"Comment at line {comment_node.start_point[0] + 1}",
+                        content=cleaned_text,
                     )
-                    
+
                     chunks.append(chunk)
-                    
+
         except Exception as e:
             logger.error(f"Failed to extract Python comments: {e}")
-            
+
         return chunks

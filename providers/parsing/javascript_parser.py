@@ -12,6 +12,7 @@ from providers.parsing.base_parser import TreeSitterParserBase
 
 try:
     from tree_sitter import Node as TSNode
+
     JAVASCRIPT_AVAILABLE = True
 except ImportError:
     JAVASCRIPT_AVAILABLE = False
@@ -38,7 +39,7 @@ class JavaScriptParser(TreeSitterParserBase):
                 ChunkType.CLASS,
                 ChunkType.METHOD,
                 ChunkType.COMMENT,
-                ChunkType.DOCSTRING
+                ChunkType.DOCSTRING,
             },
             max_chunk_size=8000,
             min_chunk_size=100,
@@ -46,10 +47,12 @@ class JavaScriptParser(TreeSitterParserBase):
             include_comments=False,
             include_docstrings=True,
             max_depth=10,
-            use_cache=True
+            use_cache=True,
         )
 
-    def _extract_chunks(self, tree_node: TSNode, source: str, file_path: Path) -> list[dict[str, Any]]:
+    def _extract_chunks(
+        self, tree_node: TSNode, source: str, file_path: Path
+    ) -> list[dict[str, Any]]:
         """Extract semantic chunks from JavaScript AST.
 
         Args:
@@ -77,23 +80,29 @@ class JavaScriptParser(TreeSitterParserBase):
         # Extract comments
         if ChunkType.COMMENT in self._config.chunk_types:
             comment_patterns = ["(comment) @comment"]
-            chunks.extend(self._extract_comments_generic(tree_node, source, file_path, comment_patterns))
+            chunks.extend(
+                self._extract_comments_generic(
+                    tree_node, source, file_path, comment_patterns
+                )
+            )
 
         # Extract JSDoc comments as docstrings
         if ChunkType.DOCSTRING in self._config.chunk_types:
-            docstring_patterns = [
-                ("(comment) @jsdoc", "jsdoc")
-            ]
+            docstring_patterns = [("(comment) @jsdoc", "jsdoc")]
             # Filter for JSDoc-style comments only
             jsdoc_chunks = []
-            for chunk in self._extract_docstrings_generic(tree_node, source, file_path, docstring_patterns):
+            for chunk in self._extract_docstrings_generic(
+                tree_node, source, file_path, docstring_patterns
+            ):
                 if chunk["code"].strip().startswith("/**"):
                     jsdoc_chunks.append(chunk)
             chunks.extend(jsdoc_chunks)
 
         return chunks
 
-    def _extract_functions(self, tree_node: TSNode, source: str, file_path: Path) -> list[dict[str, Any]]:
+    def _extract_functions(
+        self, tree_node: TSNode, source: str, file_path: Path
+    ) -> list[dict[str, Any]]:
         """Extract JavaScript function declarations from AST."""
         chunks = []
 
@@ -148,9 +157,13 @@ class JavaScriptParser(TreeSitterParserBase):
                 display_name = f"{function_name}({param_str})"
 
                 chunk = self._create_chunk(
-                    function_node, source, file_path,
-                    ChunkType.FUNCTION, function_name, display_name,
-                    parameters=parameters
+                    function_node,
+                    source,
+                    file_path,
+                    ChunkType.FUNCTION,
+                    function_name,
+                    display_name,
+                    parameters=parameters,
                 )
 
                 chunks.append(chunk)
@@ -160,7 +173,9 @@ class JavaScriptParser(TreeSitterParserBase):
 
         return chunks
 
-    def _extract_classes(self, tree_node: TSNode, source: str, file_path: Path) -> list[dict[str, Any]]:
+    def _extract_classes(
+        self, tree_node: TSNode, source: str, file_path: Path
+    ) -> list[dict[str, Any]]:
         """Extract JavaScript class declarations from AST."""
         chunks = []
 
@@ -186,17 +201,17 @@ class JavaScriptParser(TreeSitterParserBase):
                 class_name_node = captures["class_name"][0]
                 class_name = self._get_node_text(class_name_node, source)
 
-
                 chunk = self._create_chunk(
-                    class_node, source, file_path,
-                    ChunkType.CLASS, class_name
+                    class_node, source, file_path, ChunkType.CLASS, class_name
                 )
 
                 chunks.append(chunk)
 
                 # Extract methods from class
                 if ChunkType.METHOD in self._config.chunk_types:
-                    method_chunks = self._extract_class_methods(class_node, source, file_path, class_name)
+                    method_chunks = self._extract_class_methods(
+                        class_node, source, file_path, class_name
+                    )
                     chunks.extend(method_chunks)
 
         except Exception as e:
@@ -204,7 +219,9 @@ class JavaScriptParser(TreeSitterParserBase):
 
         return chunks
 
-    def _extract_components(self, tree_node: TSNode, source: str, file_path: Path) -> list[dict[str, Any]]:
+    def _extract_components(
+        self, tree_node: TSNode, source: str, file_path: Path
+    ) -> list[dict[str, Any]]:
         """Extract React component declarations from JavaScript/JSX."""
         chunks = []
 
@@ -259,9 +276,13 @@ class JavaScriptParser(TreeSitterParserBase):
                 display_name = f"{component_name}({param_str})"
 
                 chunk = self._create_chunk(
-                    component_node, source, file_path,
-                    ChunkType.FUNCTION, component_name, display_name,
-                    parameters=parameters
+                    component_node,
+                    source,
+                    file_path,
+                    ChunkType.FUNCTION,
+                    component_name,
+                    display_name,
+                    parameters=parameters,
                 )
 
                 chunks.append(chunk)
@@ -271,8 +292,9 @@ class JavaScriptParser(TreeSitterParserBase):
 
         return chunks
 
-    def _extract_class_methods(self, class_node: TSNode, source: str,
-                              file_path: Path, class_name: str) -> list[dict[str, Any]]:
+    def _extract_class_methods(
+        self, class_node: TSNode, source: str, file_path: Path, class_name: str
+    ) -> list[dict[str, Any]]:
         """Extract methods from a JavaScript class."""
         chunks = []
 
@@ -325,9 +347,14 @@ class JavaScriptParser(TreeSitterParserBase):
                 display_name = f"{qualified_name}({param_str})"
 
                 chunk = self._create_chunk(
-                    method_node, source, file_path,
-                    ChunkType.METHOD, qualified_name, display_name,
-                    parent=class_name, parameters=parameters
+                    method_node,
+                    source,
+                    file_path,
+                    ChunkType.METHOD,
+                    qualified_name,
+                    display_name,
+                    parent=class_name,
+                    parameters=parameters,
                 )
 
                 chunks.append(chunk)
@@ -337,7 +364,9 @@ class JavaScriptParser(TreeSitterParserBase):
 
         return chunks
 
-    def _extract_function_parameters(self, function_node: TSNode, source: str) -> list[str]:
+    def _extract_function_parameters(
+        self, function_node: TSNode, source: str
+    ) -> list[str]:
         """Extract parameter names from a JavaScript function."""
         parameters = []
 
@@ -361,7 +390,12 @@ class JavaScriptParser(TreeSitterParserBase):
                 child = params_node.child(i)
                 if child and child.type == "identifier":
                     param_name = self._get_node_text(child, source).strip()
-                    if param_name and param_name != "," and param_name != "(" and param_name != ")":
+                    if (
+                        param_name
+                        and param_name != ","
+                        and param_name != "("
+                        and param_name != ")"
+                    ):
                         parameters.append(param_name)
                 elif child and child.type == "assignment_pattern":
                     # Handle default parameters

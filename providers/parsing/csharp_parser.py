@@ -15,6 +15,7 @@ try:
     from tree_sitter import Node as TSNode
     from tree_sitter import Parser as TSParser
     from tree_sitter_language_pack import get_language, get_parser
+
     CSHARP_AVAILABLE = True
 except ImportError:
     CSHARP_AVAILABLE = False
@@ -51,7 +52,7 @@ class CSharpParser:
                 ChunkType.PROPERTY,
                 ChunkType.FIELD,
                 ChunkType.COMMENT,
-                ChunkType.DOCSTRING
+                ChunkType.DOCSTRING,
             },
             max_chunk_size=8000,
             min_chunk_size=100,
@@ -59,7 +60,7 @@ class CSharpParser:
             include_comments=False,
             include_docstrings=True,
             max_depth=10,
-            use_cache=True
+            use_cache=True,
         )
 
         # Initialize if available
@@ -81,8 +82,8 @@ class CSharpParser:
 
         try:
             if get_language and get_parser:
-                self._language = get_language('csharp')
-                self._parser = get_parser('csharp')
+                self._language = get_language("csharp")
+                self._parser = get_parser("csharp")
                 self._initialized = True
                 logger.debug("C# parser initialized successfully")
                 return True
@@ -132,13 +133,13 @@ class CSharpParser:
                 parse_time=time.time() - start_time,
                 errors=errors,
                 warnings=warnings,
-                metadata={"file_path": str(file_path)}
+                metadata={"file_path": str(file_path)},
             )
 
         try:
             # Read source if not provided
             if source is None:
-                with open(file_path, encoding='utf-8') as f:
+                with open(file_path, encoding="utf-8") as f:
                     source = f.read()
 
             # Parse with tree-sitter
@@ -151,10 +152,10 @@ class CSharpParser:
                     parse_time=time.time() - start_time,
                     errors=errors,
                     warnings=warnings,
-                    metadata={"file_path": str(file_path)}
+                    metadata={"file_path": str(file_path)},
                 )
 
-            tree = self._parser.parse(bytes(source, 'utf8'))
+            tree = self._parser.parse(bytes(source, "utf8"))
 
             # Extract namespace context
             namespace_nodes = self._extract_namespace_nodes(tree.root_node, source)
@@ -163,47 +164,91 @@ class CSharpParser:
                 # Process each namespace separately
                 for namespace_node, namespace_name in namespace_nodes:
                     if ChunkType.CLASS in self._config.chunk_types:
-                        chunks.extend(self._extract_classes(namespace_node, source, file_path, namespace_name))
+                        chunks.extend(
+                            self._extract_classes(
+                                namespace_node, source, file_path, namespace_name
+                            )
+                        )
 
                     if ChunkType.INTERFACE in self._config.chunk_types:
-                        chunks.extend(self._extract_interfaces(namespace_node, source, file_path, namespace_name))
+                        chunks.extend(
+                            self._extract_interfaces(
+                                namespace_node, source, file_path, namespace_name
+                            )
+                        )
 
                     if ChunkType.STRUCT in self._config.chunk_types:
-                        chunks.extend(self._extract_structs(namespace_node, source, file_path, namespace_name))
+                        chunks.extend(
+                            self._extract_structs(
+                                namespace_node, source, file_path, namespace_name
+                            )
+                        )
 
                     if ChunkType.ENUM in self._config.chunk_types:
-                        chunks.extend(self._extract_enums(namespace_node, source, file_path, namespace_name))
+                        chunks.extend(
+                            self._extract_enums(
+                                namespace_node, source, file_path, namespace_name
+                            )
+                        )
 
-                    if ChunkType.METHOD in self._config.chunk_types or ChunkType.CONSTRUCTOR in self._config.chunk_types:
-                        chunks.extend(self._extract_methods(namespace_node, source, file_path, namespace_name))
+                    if (
+                        ChunkType.METHOD in self._config.chunk_types
+                        or ChunkType.CONSTRUCTOR in self._config.chunk_types
+                    ):
+                        chunks.extend(
+                            self._extract_methods(
+                                namespace_node, source, file_path, namespace_name
+                            )
+                        )
 
                     if ChunkType.COMMENT in self._config.chunk_types:
-                        chunks.extend(self._extract_comments(namespace_node, source, file_path))
+                        chunks.extend(
+                            self._extract_comments(namespace_node, source, file_path)
+                        )
 
                     if ChunkType.DOCSTRING in self._config.chunk_types:
-                        chunks.extend(self._extract_xml_docs(namespace_node, source, file_path))
+                        chunks.extend(
+                            self._extract_xml_docs(namespace_node, source, file_path)
+                        )
             else:
                 # No namespace declarations - process entire file with empty namespace
                 if ChunkType.CLASS in self._config.chunk_types:
-                    chunks.extend(self._extract_classes(tree.root_node, source, file_path, ""))
+                    chunks.extend(
+                        self._extract_classes(tree.root_node, source, file_path, "")
+                    )
 
                 if ChunkType.INTERFACE in self._config.chunk_types:
-                    chunks.extend(self._extract_interfaces(tree.root_node, source, file_path, ""))
+                    chunks.extend(
+                        self._extract_interfaces(tree.root_node, source, file_path, "")
+                    )
 
                 if ChunkType.STRUCT in self._config.chunk_types:
-                    chunks.extend(self._extract_structs(tree.root_node, source, file_path, ""))
+                    chunks.extend(
+                        self._extract_structs(tree.root_node, source, file_path, "")
+                    )
 
                 if ChunkType.ENUM in self._config.chunk_types:
-                    chunks.extend(self._extract_enums(tree.root_node, source, file_path, ""))
+                    chunks.extend(
+                        self._extract_enums(tree.root_node, source, file_path, "")
+                    )
 
-                if ChunkType.METHOD in self._config.chunk_types or ChunkType.CONSTRUCTOR in self._config.chunk_types:
-                    chunks.extend(self._extract_methods(tree.root_node, source, file_path, ""))
+                if (
+                    ChunkType.METHOD in self._config.chunk_types
+                    or ChunkType.CONSTRUCTOR in self._config.chunk_types
+                ):
+                    chunks.extend(
+                        self._extract_methods(tree.root_node, source, file_path, "")
+                    )
 
                 if ChunkType.COMMENT in self._config.chunk_types:
-                    chunks.extend(self._extract_comments(tree.root_node, source, file_path))
+                    chunks.extend(
+                        self._extract_comments(tree.root_node, source, file_path)
+                    )
 
                 if ChunkType.DOCSTRING in self._config.chunk_types:
-                    chunks.extend(self._extract_xml_docs(tree.root_node, source, file_path))
+                    chunks.extend(
+                        self._extract_xml_docs(tree.root_node, source, file_path)
+                    )
 
             logger.debug(f"Extracted {len(chunks)} chunks from {file_path}")
 
@@ -222,15 +267,17 @@ class CSharpParser:
             warnings=warnings,
             metadata={
                 "file_path": str(file_path),
-                "namespace_count": len(namespace_nodes) if namespace_nodes else 0
-            }
+                "namespace_count": len(namespace_nodes) if namespace_nodes else 0,
+            },
         )
 
     def _get_node_text(self, node: TSNode, source: str) -> str:
         """Extract text content from a tree-sitter node."""
-        return source[node.start_byte:node.end_byte]
+        return source[node.start_byte : node.end_byte]
 
-    def _extract_namespace_nodes(self, tree_node: TSNode, source: str) -> list[tuple[TSNode, str]]:
+    def _extract_namespace_nodes(
+        self, tree_node: TSNode, source: str
+    ) -> list[tuple[TSNode, str]]:
         """Extract all namespace nodes and their names from C# file."""
         namespace_nodes = []
 
@@ -267,8 +314,9 @@ class CSharpParser:
 
         return namespace_nodes
 
-    def _extract_classes(self, tree_node: TSNode, source: str,
-                        file_path: Path, namespace_name: str) -> list[dict[str, Any]]:
+    def _extract_classes(
+        self, tree_node: TSNode, source: str, file_path: Path, namespace_name: str
+    ) -> list[dict[str, Any]]:
         """Extract C# class definitions from AST."""
         chunks = []
 
@@ -338,8 +386,9 @@ class CSharpParser:
 
         return chunks
 
-    def _extract_interfaces(self, tree_node: TSNode, source: str,
-                           file_path: Path, namespace_name: str) -> list[dict[str, Any]]:
+    def _extract_interfaces(
+        self, tree_node: TSNode, source: str, file_path: Path, namespace_name: str
+    ) -> list[dict[str, Any]]:
         """Extract C# interface definitions from AST."""
         chunks = []
 
@@ -403,8 +452,9 @@ class CSharpParser:
 
         return chunks
 
-    def _extract_structs(self, tree_node: TSNode, source: str,
-                        file_path: Path, namespace_name: str) -> list[dict[str, Any]]:
+    def _extract_structs(
+        self, tree_node: TSNode, source: str, file_path: Path, namespace_name: str
+    ) -> list[dict[str, Any]]:
         """Extract C# struct definitions from AST."""
         chunks = []
 
@@ -468,8 +518,9 @@ class CSharpParser:
 
         return chunks
 
-    def _extract_enums(self, tree_node: TSNode, source: str,
-                      file_path: Path, namespace_name: str) -> list[dict[str, Any]]:
+    def _extract_enums(
+        self, tree_node: TSNode, source: str, file_path: Path, namespace_name: str
+    ) -> list[dict[str, Any]]:
         """Extract C# enum definitions from AST."""
         chunks = []
 
@@ -526,8 +577,9 @@ class CSharpParser:
 
         return chunks
 
-    def _extract_methods(self, tree_node: TSNode, source: str,
-                        file_path: Path, namespace_name: str) -> list[dict[str, Any]]:
+    def _extract_methods(
+        self, tree_node: TSNode, source: str, file_path: Path, namespace_name: str
+    ) -> list[dict[str, Any]]:
         """Extract C# method definitions from AST."""
         method_chunks = []
 
@@ -615,9 +667,15 @@ class CSharpParser:
                         continue
 
                     # Skip if we don't want this chunk type
-                    if is_constructor and ChunkType.CONSTRUCTOR not in self._config.chunk_types:
+                    if (
+                        is_constructor
+                        and ChunkType.CONSTRUCTOR not in self._config.chunk_types
+                    ):
                         continue
-                    if not is_constructor and ChunkType.METHOD not in self._config.chunk_types:
+                    if (
+                        not is_constructor
+                        and ChunkType.METHOD not in self._config.chunk_types
+                    ):
                         continue
 
                     # Get method parameters
@@ -627,7 +685,9 @@ class CSharpParser:
                     # Get method return type (not applicable for constructors)
                     return_type = None
                     if not is_constructor:
-                        return_type = self._extract_method_return_type(method_node, source)
+                        return_type = self._extract_method_return_type(
+                            method_node, source
+                        )
 
                     # Get full method text
                     method_text = self._get_node_text(method_node, source)
@@ -639,10 +699,14 @@ class CSharpParser:
                     # Check for generic type parameters
                     type_params = self._extract_type_parameters(method_node, source)
                     if type_params:
-                        display_name = f"{qualified_name}{type_params}({param_types_str})"
+                        display_name = (
+                            f"{qualified_name}{type_params}({param_types_str})"
+                        )
 
                     # Create chunk
-                    chunk_type_enum = ChunkType.CONSTRUCTOR if is_constructor else ChunkType.METHOD
+                    chunk_type_enum = (
+                        ChunkType.CONSTRUCTOR if is_constructor else ChunkType.METHOD
+                    )
                     chunk = {
                         "symbol": qualified_name,
                         "start_line": method_node.start_point[0] + 1,
@@ -670,8 +734,13 @@ class CSharpParser:
 
         return method_chunks
 
-    def _extract_nested_classes(self, parent_node: TSNode, source: str,
-                               file_path: Path, parent_qualified_name: str) -> list[dict[str, Any]]:
+    def _extract_nested_classes(
+        self,
+        parent_node: TSNode,
+        source: str,
+        file_path: Path,
+        parent_qualified_name: str,
+    ) -> list[dict[str, Any]]:
         """Extract nested C# class definitions from within a parent class."""
         chunks = []
 
@@ -702,7 +771,10 @@ class CSharpParser:
             for match in matches:
                 pattern_index, captures = match
 
-                if "nested_class_def" not in captures or "nested_class_name" not in captures:
+                if (
+                    "nested_class_def" not in captures
+                    or "nested_class_name" not in captures
+                ):
                     continue
 
                 nested_class_node = captures["nested_class_def"][0]
@@ -791,7 +863,9 @@ class CSharpParser:
 
         return parameters
 
-    def _extract_method_return_type(self, method_node: TSNode, source: str) -> str | None:
+    def _extract_method_return_type(
+        self, method_node: TSNode, source: str
+    ) -> str | None:
         """Extract return type from a C# method."""
         try:
             if self._language is None:
@@ -806,7 +880,9 @@ class CSharpParser:
             logger.error(f"Failed to extract C# method return type: {e}")
             return None
 
-    def _extract_comments(self, tree_node: TSNode, source: str, file_path: Path) -> list[dict[str, Any]]:
+    def _extract_comments(
+        self, tree_node: TSNode, source: str, file_path: Path
+    ) -> list[dict[str, Any]]:
         """Extract C# comments from AST."""
         chunks = []
 
@@ -869,7 +945,9 @@ class CSharpParser:
 
         return chunks
 
-    def _extract_xml_docs(self, tree_node: TSNode, source: str, file_path: Path) -> list[dict[str, Any]]:
+    def _extract_xml_docs(
+        self, tree_node: TSNode, source: str, file_path: Path
+    ) -> list[dict[str, Any]]:
         """Extract C# XML documentation comments from AST."""
         chunks = []
 

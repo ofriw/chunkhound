@@ -23,6 +23,7 @@ from typing import Any, Protocol
 # Set up logger
 logger = logging.getLogger(__name__)
 
+
 # Debug logging function for MCP-safe debugging
 def debug_log(event_type, **data):
     """Log debug events to file (MCP-safe)."""
@@ -37,7 +38,7 @@ def debug_log(event_type, **data):
                 "timestamp_iso": datetime.now().isoformat(),
                 "event": event_type,
                 "process_id": os.getpid(),
-                "data": data
+                "data": data,
             }
 
             with open(debug_file, "a") as f:
@@ -46,13 +47,15 @@ def debug_log(event_type, **data):
     except:
         pass  # Silent fail for MCP safety
 
+
 # Import Language enum for centralized extension management
 from core.types.common import Language
 
 # Use centralized extension list from Language enum
 SUPPORTED_EXTENSIONS = Language.get_all_extensions()
 # Add special case filenames that are checked separately
-SUPPORTED_FILENAMES = {'Makefile', 'makefile', 'GNUmakefile', 'gnumakefile'}
+SUPPORTED_FILENAMES = {"Makefile", "makefile", "GNUmakefile", "gnumakefile"}
+
 
 # Protocol for event handlers
 class EventHandlerProtocol(Protocol):
@@ -61,10 +64,12 @@ class EventHandlerProtocol(Protocol):
     def on_moved(self, event: Any) -> None: ...
     def on_deleted(self, event: Any) -> None: ...
 
+
 # Handle conditional imports for watchdog
 try:
     from watchdog.events import FileSystemEventHandler  # type: ignore
     from watchdog.observers import Observer
+
     WATCHDOG_AVAILABLE = True
 except ImportError:
     WATCHDOG_AVAILABLE = False
@@ -87,6 +92,7 @@ except ImportError:
         def on_deleted(self, event):
             pass
 
+
 # Disable logging for this module to prevent MCP interference
 logging.getLogger(__name__).setLevel(logging.CRITICAL + 1)
 
@@ -94,6 +100,7 @@ logging.getLogger(__name__).setLevel(logging.CRITICAL + 1)
 @dataclass
 class FileChangeEvent:
     """Represents a file change event to be processed."""
+
     path: Path
     event_type: str  # 'created', 'modified', 'moved', 'deleted'
     timestamp: float
@@ -105,7 +112,10 @@ class ChunkHoundEventHandler(FileSystemEventHandler):
 
     def __init__(self, include_patterns: set[str] | None = None):
         super().__init__()
-        debug_log("handler_init", include_patterns=list(include_patterns) if include_patterns else None)
+        debug_log(
+            "handler_init",
+            include_patterns=list(include_patterns) if include_patterns else None,
+        )
         # Thread-safe event buffer - simple deque with lock
         self._events = collections.deque(maxlen=1000)
         self._lock = threading.Lock()
@@ -123,8 +133,6 @@ class ChunkHoundEventHandler(FileSystemEventHandler):
         # For deleted files, we can't check is_file() since they no longer exist
         # Check if it's a supported file using centralized logic
         return Language.is_supported_file(file_path)
-
-
 
     def _buffer_event(self, path: Path, event_type: str, old_path: Path | None = None):
         """Buffer a file change event if it passes filters."""
@@ -144,19 +152,26 @@ class ChunkHoundEventHandler(FileSystemEventHandler):
 
         # For deletion events, always check extension pattern
         # For other events, also verify file exists
-        if event_type != 'deleted' and not path.is_file():
+        if event_type != "deleted" and not path.is_file():
             if os.environ.get("CHUNKHOUND_DEBUG"):
                 print("❌ FILE DOES NOT EXIST", file=sys.stderr)
                 print("==========================", file=sys.stderr)
             return
 
         should_process = self._should_process_file(path)
-        debug_log("should_process_check", path=str(path), should_process=should_process, file_suffix=path.suffix)
+        debug_log(
+            "should_process_check",
+            path=str(path),
+            should_process=should_process,
+            file_suffix=path.suffix,
+        )
 
         if os.environ.get("CHUNKHOUND_DEBUG"):
             print(f"Should Process File: {should_process}", file=sys.stderr)
         if not should_process:
-            debug_log("buffer_event_rejected", path=str(path), reason="should_not_process")
+            debug_log(
+                "buffer_event_rejected", path=str(path), reason="should_not_process"
+            )
             if os.environ.get("CHUNKHOUND_DEBUG"):
                 print("❌ FILE SHOULD NOT BE PROCESSED", file=sys.stderr)
                 print("==========================", file=sys.stderr)
@@ -168,16 +183,23 @@ class ChunkHoundEventHandler(FileSystemEventHandler):
             path=path,
             event_type=event_type,
             timestamp=event_timestamp,
-            old_path=old_path
+            old_path=old_path,
         )
 
         # Add event to thread-safe buffer
         with self._lock:
             self._events.append(event)
             buffer_size = len(self._events)
-        
-        logger.debug(f"TIMING: Event buffered at {event_timestamp:.6f} - {event_type} {path}")
-        debug_log("event_buffered_success", path=str(path), watchdog_event_type=event_type, buffer_size=buffer_size)
+
+        logger.debug(
+            f"TIMING: Event buffered at {event_timestamp:.6f} - {event_type} {path}"
+        )
+        debug_log(
+            "event_buffered_success",
+            path=str(path),
+            watchdog_event_type=event_type,
+            buffer_size=buffer_size,
+        )
 
         if os.environ.get("CHUNKHOUND_DEBUG"):
             print("✅ EVENT SUCCESSFULLY BUFFERED", file=sys.stderr)
@@ -186,51 +208,71 @@ class ChunkHoundEventHandler(FileSystemEventHandler):
 
     def on_any_event(self, event):
         """Log all events for debugging - this should be called for EVERY event."""
-        debug_log("on_any_event_called",
-                 watchdog_event_type=event.event_type,
-                 path=str(event.src_path),
-                 is_directory=event.is_directory,
-                 has_dest_path=hasattr(event, 'dest_path'))
+        debug_log(
+            "on_any_event_called",
+            watchdog_event_type=event.event_type,
+            path=str(event.src_path),
+            is_directory=event.is_directory,
+            has_dest_path=hasattr(event, "dest_path"),
+        )
 
     def on_modified(self, event):
         """Handle file modification events."""
         import os
         import sys
-        
+
         # ALWAYS log watchdog events to stderr when debug is enabled
         if os.environ.get("CHUNKHOUND_DEBUG"):
-            print(f"🔍 WATCHDOG on_modified: {event.src_path} (is_dir: {event.is_directory})", file=sys.stderr)
-        
-        debug_log("on_modified_called",
-                 path=str(event.src_path),
-                 is_directory=event.is_directory,
-                 watchdog_event_type=getattr(event, 'event_type', 'unknown'))
+            print(
+                f"🔍 WATCHDOG on_modified: {event.src_path} (is_dir: {event.is_directory})",
+                file=sys.stderr,
+            )
+
+        debug_log(
+            "on_modified_called",
+            path=str(event.src_path),
+            is_directory=event.is_directory,
+            watchdog_event_type=getattr(event, "event_type", "unknown"),
+        )
 
         if not event.is_directory:
             path_str = str(event.src_path)
-            logger.debug(f"TIMING: File modified detected at {time.time():.6f} - {event.src_path}")
-            debug_log("on_modified_calling_queue", path=path_str, watchdog_event_type="modified")
-            self._buffer_event(Path(event.src_path), 'modified')
+            logger.debug(
+                f"TIMING: File modified detected at {time.time():.6f} - {event.src_path}"
+            )
+            debug_log(
+                "on_modified_calling_queue",
+                path=path_str,
+                watchdog_event_type="modified",
+            )
+            self._buffer_event(Path(event.src_path), "modified")
 
     def on_created(self, event):
         """Handle file creation events."""
         import os
         import sys
-        
+
         # ALWAYS log watchdog events to stderr when debug is enabled
         if os.environ.get("CHUNKHOUND_DEBUG"):
-            print(f"🔍 WATCHDOG on_created: {event.src_path} (is_dir: {event.is_directory})", file=sys.stderr)
-        
-        debug_log("on_created_called",
-                 path=str(event.src_path),
-                 is_directory=event.is_directory,
-                 watchdog_event_type=getattr(event, 'event_type', 'unknown'))
+            print(
+                f"🔍 WATCHDOG on_created: {event.src_path} (is_dir: {event.is_directory})",
+                file=sys.stderr,
+            )
+
+        debug_log(
+            "on_created_called",
+            path=str(event.src_path),
+            is_directory=event.is_directory,
+            watchdog_event_type=getattr(event, "event_type", "unknown"),
+        )
 
         if not event.is_directory:
             path_str = str(event.src_path)
-            debug_log("on_created_processing",
-                     path=path_str,
-                     file_exists=Path(path_str).exists())
+            debug_log(
+                "on_created_processing",
+                path=path_str,
+                file_exists=Path(path_str).exists(),
+            )
 
             # Diagnostic logging for file creation debugging
             if os.environ.get("CHUNKHOUND_DEBUG"):
@@ -239,8 +281,10 @@ class ChunkHoundEventHandler(FileSystemEventHandler):
                 print(f"Timestamp: {time.time():.6f}", file=sys.stderr)
                 print(f"Is Directory: {event.is_directory}", file=sys.stderr)
                 print("====================================", file=sys.stderr)
-            debug_log("on_created_calling_queue", path=path_str, watchdog_event_type="created")
-            self._buffer_event(Path(event.src_path), 'created')
+            debug_log(
+                "on_created_calling_queue", path=path_str, watchdog_event_type="created"
+            )
+            self._buffer_event(Path(event.src_path), "created")
 
     def on_moved(self, event):
         """Handle file move/rename events."""
@@ -250,19 +294,29 @@ class ChunkHoundEventHandler(FileSystemEventHandler):
 
             # Buffer deletion of old path
             if self._should_process_file(old_path):
-                self._buffer_event(old_path, 'deleted')
+                self._buffer_event(old_path, "deleted")
 
             # Buffer creation of new path
-            self._buffer_event(new_path, 'moved', old_path)
+            self._buffer_event(new_path, "moved", old_path)
 
     def on_deleted(self, event):
         """Handle file deletion events."""
-        debug_log("on_deleted_called", path=str(event.src_path), is_directory=event.is_directory)
+        debug_log(
+            "on_deleted_called",
+            path=str(event.src_path),
+            is_directory=event.is_directory,
+        )
 
         if not event.is_directory:
-            logger.debug(f"TIMING: File deleted detected at {time.time():.6f} - {event.src_path}")
-            debug_log("on_deleted_calling_queue", path=str(event.src_path), watchdog_event_type="deleted")
-            self._buffer_event(Path(event.src_path), 'deleted')
+            logger.debug(
+                f"TIMING: File deleted detected at {time.time():.6f} - {event.src_path}"
+            )
+            debug_log(
+                "on_deleted_calling_queue",
+                path=str(event.src_path),
+                watchdog_event_type="deleted",
+            )
+            self._buffer_event(Path(event.src_path), "deleted")
 
 
 class FileWatcher:
@@ -273,9 +327,9 @@ class FileWatcher:
     Completely decoupled from database operations.
     """
 
-    def __init__(self,
-                 watch_paths: list[Path],
-                 include_patterns: set[str] | None = None):
+    def __init__(
+        self, watch_paths: list[Path], include_patterns: set[str] | None = None
+    ):
         """
         Initialize the file watcher.
 
@@ -302,9 +356,16 @@ class FileWatcher:
         if not WATCHDOG_AVAILABLE:
             # Improved error reporting for missing watchdog
             import sys
+
             if "CHUNKHOUND_DEBUG" in os.environ:
-                print("⚠️  WATCHDOG UNAVAILABLE: File modification detection disabled", file=sys.stderr)
-                print("   This means file changes will NOT be detected in real-time", file=sys.stderr)
+                print(
+                    "⚠️  WATCHDOG UNAVAILABLE: File modification detection disabled",
+                    file=sys.stderr,
+                )
+                print(
+                    "   This means file changes will NOT be detected in real-time",
+                    file=sys.stderr,
+                )
                 print("   Install watchdog: pip install watchdog", file=sys.stderr)
             return False
 
@@ -319,52 +380,82 @@ class FileWatcher:
                 for watch_path in self.watch_paths:
                     if watch_path.exists() and watch_path.is_dir():
                         if self.observer is not None:
-                            debug_log("scheduling_watch",
-                                     path=str(watch_path),
-                                     recursive=True,
-                                     handler_methods=[m for m in dir(self.event_handler) if m.startswith('on_')])
-                            
+                            debug_log(
+                                "scheduling_watch",
+                                path=str(watch_path),
+                                recursive=True,
+                                handler_methods=[
+                                    m
+                                    for m in dir(self.event_handler)
+                                    if m.startswith("on_")
+                                ],
+                            )
+
                             if "CHUNKHOUND_DEBUG" in os.environ:
                                 import sys
-                                print(f"🔍 WATCHDOG: Scheduling watch for {watch_path}", file=sys.stderr)
-                            
+
+                                print(
+                                    f"🔍 WATCHDOG: Scheduling watch for {watch_path}",
+                                    file=sys.stderr,
+                                )
+
                             self.observer.schedule(
-                                self.event_handler,
-                                str(watch_path),
-                                recursive=True
+                                self.event_handler, str(watch_path), recursive=True
                             )
                             debug_log("watch_scheduled", path=str(watch_path))
                         else:
                             if "CHUNKHOUND_DEBUG" in os.environ:
                                 import sys
-                                print(f"❌ WATCHDOG: Observer is None, cannot schedule {watch_path}", file=sys.stderr)
+
+                                print(
+                                    f"❌ WATCHDOG: Observer is None, cannot schedule {watch_path}",
+                                    file=sys.stderr,
+                                )
                     else:
                         if "CHUNKHOUND_DEBUG" in os.environ:
                             import sys
-                            print(f"❌ WATCHDOG: Path does not exist or is not directory: {watch_path}", file=sys.stderr)
+
+                            print(
+                                f"❌ WATCHDOG: Path does not exist or is not directory: {watch_path}",
+                                file=sys.stderr,
+                            )
 
                 if self.observer is not None:
-                    debug_log("observer_starting",
-                             watch_paths=[str(p) for p in self.watch_paths],
-                             handler_type=type(self.event_handler).__name__)
-                    
+                    debug_log(
+                        "observer_starting",
+                        watch_paths=[str(p) for p in self.watch_paths],
+                        handler_type=type(self.event_handler).__name__,
+                    )
+
                     if "CHUNKHOUND_DEBUG" in os.environ:
                         import sys
-                        print(f"🔍 WATCHDOG: Starting observer for {len(self.watch_paths)} paths", file=sys.stderr)
-                    
+
+                        print(
+                            f"🔍 WATCHDOG: Starting observer for {len(self.watch_paths)} paths",
+                            file=sys.stderr,
+                        )
+
                     self.observer.start()
                     self.is_watching = True
-                    
+
                     if "CHUNKHOUND_DEBUG" in os.environ:
                         import sys
-                        print(f"✅ WATCHDOG: Observer started successfully (alive: {self.observer.is_alive()})", file=sys.stderr)
-                    
+
+                        print(
+                            f"✅ WATCHDOG: Observer started successfully (alive: {self.observer.is_alive()})",
+                            file=sys.stderr,
+                        )
+
                     debug_log("observer_started", is_alive=self.observer.is_alive())
                     return True
                 else:
                     if "CHUNKHOUND_DEBUG" in os.environ:
                         import sys
-                        print("❌ WATCHDOG: Observer is None after creation", file=sys.stderr)
+
+                        print(
+                            "❌ WATCHDOG: Observer is None after creation",
+                            file=sys.stderr,
+                        )
 
             return False
 
@@ -372,8 +463,12 @@ class FileWatcher:
             # Log the error to help debug watchdog issues
             if "CHUNKHOUND_DEBUG" in os.environ:
                 import sys
-                print(f"❌ WATCHDOG: Failed to start file watching: {e}", file=sys.stderr)
+
+                print(
+                    f"❌ WATCHDOG: Failed to start file watching: {e}", file=sys.stderr
+                )
                 import traceback
+
                 traceback.print_exc(file=sys.stderr)
             # Still fail gracefully - MCP server continues without filesystem watching
             return False
@@ -381,7 +476,7 @@ class FileWatcher:
     def stop(self):
         """Stop filesystem watching and cleanup resources."""
         self.is_watching = False
-        
+
         if self.observer:
             try:
                 self.observer.stop()
@@ -400,7 +495,7 @@ async def scan_for_offline_changes(
     watch_paths: list[Path],
     last_scan_time: float,
     include_patterns: set[str] | None = None,
-    timeout: float = 5.0
+    timeout: float = 5.0,
 ) -> list[FileChangeEvent]:
     """
     Scan for files that changed while the server was offline.
@@ -434,7 +529,7 @@ async def scan_for_offline_changes(
 
         try:
             # Walk through all files in the directory
-            for file_path in watch_path.rglob('*'):
+            for file_path in watch_path.rglob("*"):
                 # Check timeout to prevent excessive MCP startup delays
                 if time.time() - scan_start_time > timeout:
                     break
@@ -446,11 +541,11 @@ async def scan_for_offline_changes(
                     # Check if file was modified after last scan
                     mtime = file_path.stat().st_mtime
                     if mtime > last_scan_time:
-                        offline_changes.append(FileChangeEvent(
-                            path=file_path,
-                            event_type='modified',
-                            timestamp=mtime
-                        ))
+                        offline_changes.append(
+                            FileChangeEvent(
+                                path=file_path, event_type="modified", timestamp=mtime
+                            )
+                        )
 
                     # Yield control to event loop every 50 files to prevent blocking
                     processed_count += 1
@@ -478,20 +573,27 @@ def get_watch_paths_from_env() -> list[Path]:
     # Import project detection
     try:
         from .utils.project_detection import get_project_watch_paths
+
         return get_project_watch_paths()
     except ImportError:
         pass
-    
-    paths_env = os.environ.get('CHUNKHOUND_WATCH_PATHS', '')
+
+    paths_env = os.environ.get("CHUNKHOUND_WATCH_PATHS", "")
 
     if paths_env:
         if "CHUNKHOUND_DEBUG" in os.environ:
             import sys
-            print(f"🔍 WATCHDOG: Using CHUNKHOUND_WATCH_PATHS environment variable: {paths_env}", file=sys.stderr)
-        
-        logging.info(f"FileWatcher: Using CHUNKHOUND_WATCH_PATHS environment variable: {paths_env}")
+
+            print(
+                f"🔍 WATCHDOG: Using CHUNKHOUND_WATCH_PATHS environment variable: {paths_env}",
+                file=sys.stderr,
+            )
+
+        logging.info(
+            f"FileWatcher: Using CHUNKHOUND_WATCH_PATHS environment variable: {paths_env}"
+        )
         # Parse comma-separated paths
-        path_strings = [p.strip() for p in paths_env.split(',') if p.strip()]
+        path_strings = [p.strip() for p in paths_env.split(",") if p.strip()]
         paths = []
 
         for path_str in path_strings:
@@ -501,18 +603,31 @@ def get_watch_paths_from_env() -> list[Path]:
                     paths.append(path)
                     if "CHUNKHOUND_DEBUG" in os.environ:
                         import sys
+
                         print(f"✅ WATCHDOG: Added watch path: {path}", file=sys.stderr)
                     logging.info(f"FileWatcher: Added watch path: {path}")
                 else:
                     if "CHUNKHOUND_DEBUG" in os.environ:
                         import sys
-                        print(f"❌ WATCHDOG: Skipping invalid watch path: {path_str}", file=sys.stderr)
-                    logging.warning(f"FileWatcher: Skipping invalid watch path: {path_str}")
+
+                        print(
+                            f"❌ WATCHDOG: Skipping invalid watch path: {path_str}",
+                            file=sys.stderr,
+                        )
+                    logging.warning(
+                        f"FileWatcher: Skipping invalid watch path: {path_str}"
+                    )
             except Exception as e:
                 if "CHUNKHOUND_DEBUG" in os.environ:
                     import sys
-                    print(f"❌ WATCHDOG: Failed to resolve watch path '{path_str}': {e}", file=sys.stderr)
-                logging.warning(f"FileWatcher: Failed to resolve watch path '{path_str}': {e}")
+
+                    print(
+                        f"❌ WATCHDOG: Failed to resolve watch path '{path_str}': {e}",
+                        file=sys.stderr,
+                    )
+                logging.warning(
+                    f"FileWatcher: Failed to resolve watch path '{path_str}': {e}"
+                )
                 continue
 
         if paths:
@@ -520,23 +635,39 @@ def get_watch_paths_from_env() -> list[Path]:
         else:
             if "CHUNKHOUND_DEBUG" in os.environ:
                 import sys
-                print("❌ WATCHDOG: No valid paths from CHUNKHOUND_WATCH_PATHS, falling back to current directory", file=sys.stderr)
-            logging.warning("FileWatcher: No valid paths from CHUNKHOUND_WATCH_PATHS, falling back to current directory")
+
+                print(
+                    "❌ WATCHDOG: No valid paths from CHUNKHOUND_WATCH_PATHS, falling back to current directory",
+                    file=sys.stderr,
+                )
+            logging.warning(
+                "FileWatcher: No valid paths from CHUNKHOUND_WATCH_PATHS, falling back to current directory"
+            )
             return [Path.cwd()]
 
     # Default to current working directory
     current_dir = Path.cwd()
     if "CHUNKHOUND_DEBUG" in os.environ:
         import sys
-        print(f"🔍 WATCHDOG: No CHUNKHOUND_WATCH_PATHS set, defaulting to current directory: {current_dir}", file=sys.stderr)
-    logging.info(f"FileWatcher: No CHUNKHOUND_WATCH_PATHS set, defaulting to current directory: {current_dir}")
+
+        print(
+            f"🔍 WATCHDOG: No CHUNKHOUND_WATCH_PATHS set, defaulting to current directory: {current_dir}",
+            file=sys.stderr,
+        )
+    logging.info(
+        f"FileWatcher: No CHUNKHOUND_WATCH_PATHS set, defaulting to current directory: {current_dir}"
+    )
     return [current_dir]
 
 
 def is_filesystem_watching_enabled() -> bool:
     """Check if filesystem watching is enabled via environment."""
-    return os.environ.get('CHUNKHOUND_WATCH_ENABLED', '1').lower() in ('1', 'true', 'yes', 'on')
-
+    return os.environ.get("CHUNKHOUND_WATCH_ENABLED", "1").lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
 
 
 class FileWatcherManager:
@@ -553,9 +684,11 @@ class FileWatcherManager:
         self.watch_paths: list[Path] = []
         self.polling_task: asyncio.Task | None = None
 
-    async def initialize(self,
-                        process_callback: Callable[[Path, str], Awaitable[None]],
-                        watch_paths: list[Path] | None = None) -> bool:
+    async def initialize(
+        self,
+        process_callback: Callable[[Path, str], Awaitable[None]],
+        watch_paths: list[Path] | None = None,
+    ) -> bool:
         """
         Initialize filesystem watching with offline catch-up.
 
@@ -571,13 +704,17 @@ class FileWatcherManager:
 
         self.watch_paths = watch_paths or get_watch_paths_from_env()
         if not self.watch_paths:
-            logging.error("FileWatcherManager: No watch paths configured - filesystem monitoring disabled")
+            logging.error(
+                "FileWatcherManager: No watch paths configured - filesystem monitoring disabled"
+            )
             return False
 
         # Log the watch paths being monitored
-        logging.info(f"FileWatcherManager: Initializing filesystem monitoring for {len(self.watch_paths)} paths:")
+        logging.info(
+            f"FileWatcherManager: Initializing filesystem monitoring for {len(self.watch_paths)} paths:"
+        )
         for i, path in enumerate(self.watch_paths):
-            logging.info(f"  [{i+1}] {path}")
+            logging.info(f"  [{i + 1}] {path}")
 
         # Initialize without diagnostics in MCP mode
         pass
@@ -587,21 +724,27 @@ class FileWatcherManager:
             offline_changes = await scan_for_offline_changes(
                 self.watch_paths,
                 self.last_scan_time - 300,  # 5 minutes buffer
-                timeout=3.0  # 3 second timeout to prevent IDE timeouts
+                timeout=3.0,  # 3 second timeout to prevent IDE timeouts
             )
-            
+
             # Start filesystem watcher
             if WATCHDOG_AVAILABLE:
                 self.watcher = FileWatcher(self.watch_paths)
                 success = self.watcher.start()
                 if not success:
-                    logging.warning("FileWatcherManager: Failed to start filesystem watcher")
+                    logging.warning(
+                        "FileWatcherManager: Failed to start filesystem watcher"
+                    )
                     self.watcher = None  # Ensure watcher is None if start failed
             else:
                 # Log warning when watchdog is unavailable
                 import sys
+
                 if "CHUNKHOUND_DEBUG" in os.environ:
-                    print("⚠️  FileWatcherManager: watchdog library not available", file=sys.stderr)
+                    print(
+                        "⚠️  FileWatcherManager: watchdog library not available",
+                        file=sys.stderr,
+                    )
                     print("   File modification detection is DISABLED", file=sys.stderr)
                     print("   Only initial file scanning will work", file=sys.stderr)
                 self.watcher = None  # Ensure watcher is None if watchdog unavailable
@@ -611,7 +754,9 @@ class FileWatcherManager:
                 try:
                     await process_callback(change.path, change.event_type)
                 except Exception as e:
-                    logging.error(f"FileWatcherManager: Failed to process offline change {change}: {e}")
+                    logging.error(
+                        f"FileWatcherManager: Failed to process offline change {change}: {e}"
+                    )
 
             # Start simple polling task
             self.polling_task = asyncio.create_task(
@@ -621,12 +766,15 @@ class FileWatcherManager:
             return True
 
         except Exception as e:
-            logging.error(f"FileWatcherManager: Failed to initialize filesystem monitoring: {e}")
+            logging.error(
+                f"FileWatcherManager: Failed to initialize filesystem monitoring: {e}"
+            )
             await self.cleanup()
             return False
 
-    async def _polling_loop(self,
-                           process_callback: Callable[[Path, str], Awaitable[None]]):
+    async def _polling_loop(
+        self, process_callback: Callable[[Path, str], Awaitable[None]]
+    ):
         """Simple polling loop to process file change events."""
         logger.info("🔄 Polling loop started")
         loop_count = 0
@@ -644,10 +792,10 @@ class FileWatcherManager:
                             except Exception as e:
                                 logger.error(f"❌ Failed to process event {event}: {e}")
                         logger.info("✅ Event processing batch completed")
-                
+
                 # Poll every 200ms - simple and responsive
                 await asyncio.sleep(0.2)
-                
+
                 loop_count += 1
                 if loop_count % 150 == 0:  # Log every 30 seconds (150 * 0.2s)
                     logger.info("🔄 Polling loop active")
@@ -676,5 +824,9 @@ class FileWatcherManager:
 
     def is_active(self) -> bool:
         """Check if filesystem watching is currently active."""
-        return bool(self.watcher and self.watcher.is_available() and
-                   self.polling_task and not self.polling_task.done())
+        return bool(
+            self.watcher
+            and self.watcher.is_available()
+            and self.polling_task
+            and not self.polling_task.done()
+        )

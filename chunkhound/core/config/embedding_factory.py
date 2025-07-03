@@ -58,13 +58,15 @@ class EmbeddingProviderFactory:
         provider_config = config.get_provider_config()
 
         # Create provider based on type
-        if config.provider == 'openai':
+        if config.provider == "openai":
             return EmbeddingProviderFactory._create_openai_provider(provider_config)
-        elif config.provider == 'openai-compatible':
-            return EmbeddingProviderFactory._create_openai_compatible_provider(provider_config)
-        elif config.provider == 'tei':
+        elif config.provider == "openai-compatible":
+            return EmbeddingProviderFactory._create_openai_compatible_provider(
+                provider_config
+            )
+        elif config.provider == "tei":
             return EmbeddingProviderFactory._create_tei_provider(provider_config)
-        elif config.provider == 'bge-in-icl':
+        elif config.provider == "bge-in-icl":
             return EmbeddingProviderFactory._create_bge_in_icl_provider(provider_config)
         else:
             raise ValueError(f"Unsupported provider: {config.provider}")
@@ -84,9 +86,9 @@ class EmbeddingProviderFactory:
                 )
 
         # Extract OpenAI-specific parameters
-        api_key = config.get('api_key')
-        base_url = config.get('base_url')
-        model = config.get('model') or 'text-embedding-3-small'
+        api_key = config.get("api_key")
+        base_url = config.get("base_url")
+        model = config.get("model") or "text-embedding-3-small"
 
         logger.debug(
             f"Creating OpenAI provider: model={model}, "
@@ -103,7 +105,9 @@ class EmbeddingProviderFactory:
             raise ValueError(f"Failed to create OpenAI provider: {e}") from e
 
     @staticmethod
-    def _create_openai_compatible_provider(config: dict[str, Any]) -> "OpenAICompatibleProvider":
+    def _create_openai_compatible_provider(
+        config: dict[str, Any],
+    ) -> "OpenAICompatibleProvider":
         """Create OpenAI-compatible embedding provider."""
         try:
             from chunkhound.embeddings import create_openai_compatible_provider
@@ -117,15 +121,15 @@ class EmbeddingProviderFactory:
                 )
 
         # Extract parameters
-        base_url = config['base_url']  # Required
-        model = config.get('model') or 'text-embedding-ada-002'
-        api_key = config.get('api_key')
-        dimensions = config.get('dimensions')
+        base_url = config["base_url"]  # Required
+        model = config.get("model") or "text-embedding-ada-002"
+        api_key = config.get("api_key")
+        dimensions = config.get("dimensions")
 
         # Build kwargs for provider
         kwargs = {}
         if dimensions:
-            kwargs['dims'] = dimensions
+            kwargs["dims"] = dimensions
 
         logger.debug(
             f"Creating OpenAI-compatible provider: model={model}, "
@@ -139,7 +143,7 @@ class EmbeddingProviderFactory:
                 model=model,
                 api_key=api_key,
                 provider_name="openai-compatible",
-                **kwargs
+                **kwargs,
             )
         except Exception as e:
             raise ValueError(f"Failed to create OpenAI-compatible provider: {e}") from e
@@ -159,12 +163,10 @@ class EmbeddingProviderFactory:
                 )
 
         # Extract parameters
-        base_url = config['base_url']  # Required
-        model = config.get('model')  # Auto-detected if None
+        base_url = config["base_url"]  # Required
+        model = config.get("model")  # Auto-detected if None
 
-        logger.debug(
-            f"Creating TEI provider: model={model}, base_url={base_url}"
-        )
+        logger.debug(f"Creating TEI provider: model={model}, base_url={base_url}")
 
         try:
             return create_tei_provider(
@@ -189,15 +191,15 @@ class EmbeddingProviderFactory:
                 )
 
         # Extract parameters
-        base_url = config['base_url']  # Required
-        model = config.get('model', 'bge-in-icl')
-        api_key = config.get('api_key')
-        language = config.get('language', 'auto')
-        enable_icl = config.get('enable_icl', True)
-        adaptive_batching = config.get('adaptive_batching', True)
-        min_batch_size = config.get('min_batch_size', 10)
-        max_batch_size = config.get('max_batch_size', 100)
-        context_cache_size = config.get('context_cache_size', 100)
+        base_url = config["base_url"]  # Required
+        model = config.get("model", "bge-in-icl")
+        api_key = config.get("api_key")
+        language = config.get("language", "auto")
+        enable_icl = config.get("enable_icl", True)
+        adaptive_batching = config.get("adaptive_batching", True)
+        min_batch_size = config.get("min_batch_size", 10)
+        max_batch_size = config.get("max_batch_size", 100)
+        context_cache_size = config.get("context_cache_size", 100)
 
         logger.debug(
             f"Creating BGE-IN-ICL provider: model={model}, base_url={base_url}, "
@@ -228,7 +230,7 @@ class EmbeddingProviderFactory:
         Returns:
             List of supported provider names
         """
-        return ['openai', 'openai-compatible', 'tei', 'bge-in-icl']
+        return ["openai", "openai-compatible", "tei", "bge-in-icl"]
 
     @staticmethod
     def validate_provider_dependencies(provider: str) -> tuple[bool, str | None]:
@@ -246,13 +248,13 @@ class EmbeddingProviderFactory:
 
         # Try to import the required create function
         try:
-            if provider == 'openai':
+            if provider == "openai":
                 from chunkhound.embeddings import create_openai_provider
-            elif provider == 'openai-compatible':
+            elif provider == "openai-compatible":
                 from chunkhound.embeddings import create_openai_compatible_provider
-            elif provider == 'tei':
+            elif provider == "tei":
                 from chunkhound.embeddings import create_tei_provider
-            elif provider == 'bge-in-icl':
+            elif provider == "bge-in-icl":
                 from chunkhound.embeddings import create_bge_in_icl_provider
 
             return True, None
@@ -266,7 +268,7 @@ class EmbeddingProviderFactory:
         model: str | None = None,
         api_key: str | None = None,
         base_url: str | None = None,
-        **kwargs
+        **kwargs,
     ) -> "EmbeddingProvider":
         """
         Create provider from legacy CLI-style arguments.
@@ -289,15 +291,15 @@ class EmbeddingProviderFactory:
         """
         # Create configuration from arguments
         config_dict = {
-            'provider': provider,
+            "provider": provider,
         }
 
         if model:
-            config_dict['model'] = model
+            config_dict["model"] = model
         if api_key:
-            config_dict['api_key'] = api_key
+            config_dict["api_key"] = api_key
         if base_url:
-            config_dict['base_url'] = base_url
+            config_dict["base_url"] = base_url
 
         # Add any additional kwargs
         config_dict.update(kwargs)
@@ -329,51 +331,65 @@ class EmbeddingProviderFactory:
             raise ValueError(f"Unsupported provider: {provider}")
 
         info = {
-            'name': provider,
-            'dependencies_available': False,
-            'error_message': None,
+            "name": provider,
+            "dependencies_available": False,
+            "error_message": None,
         }
 
         # Check dependencies
-        available, error = EmbeddingProviderFactory.validate_provider_dependencies(provider)
-        info['dependencies_available'] = available
+        available, error = EmbeddingProviderFactory.validate_provider_dependencies(
+            provider
+        )
+        info["dependencies_available"] = available
         if error:
-            info['error_message'] = error
+            info["error_message"] = error
 
         # Provider-specific information
-        if provider == 'openai':
-            info.update({
-                'description': 'OpenAI text embedding API',
-                'requires': ['api_key'],
-                'optional': ['base_url', 'model'],
-                'default_model': 'text-embedding-3-small',
-                'supported_models': [
-                    'text-embedding-3-small',
-                    'text-embedding-3-large',
-                    'text-embedding-ada-002'
-                ],
-            })
-        elif provider == 'openai-compatible':
-            info.update({
-                'description': 'OpenAI-compatible embedding servers (Ollama, LocalAI, etc.)',
-                'requires': ['base_url'],
-                'optional': ['api_key', 'model', 'dimensions'],
-                'default_model': 'text-embedding-ada-002',
-            })
-        elif provider == 'tei':
-            info.update({
-                'description': 'Text Embeddings Inference (Hugging Face TEI)',
-                'requires': ['base_url'],
-                'optional': ['model'],
-                'default_model': 'auto-detected',
-            })
-        elif provider == 'bge-in-icl':
-            info.update({
-                'description': 'BGE-IN-ICL with advanced in-context learning',
-                'requires': ['base_url'],
-                'optional': ['api_key', 'model', 'language', 'enable_icl'],
-                'default_model': 'bge-in-icl',
-                'features': ['in-context learning', 'adaptive batching', 'context caching'],
-            })
+        if provider == "openai":
+            info.update(
+                {
+                    "description": "OpenAI text embedding API",
+                    "requires": ["api_key"],
+                    "optional": ["base_url", "model"],
+                    "default_model": "text-embedding-3-small",
+                    "supported_models": [
+                        "text-embedding-3-small",
+                        "text-embedding-3-large",
+                        "text-embedding-ada-002",
+                    ],
+                }
+            )
+        elif provider == "openai-compatible":
+            info.update(
+                {
+                    "description": "OpenAI-compatible embedding servers (Ollama, LocalAI, etc.)",
+                    "requires": ["base_url"],
+                    "optional": ["api_key", "model", "dimensions"],
+                    "default_model": "text-embedding-ada-002",
+                }
+            )
+        elif provider == "tei":
+            info.update(
+                {
+                    "description": "Text Embeddings Inference (Hugging Face TEI)",
+                    "requires": ["base_url"],
+                    "optional": ["model"],
+                    "default_model": "auto-detected",
+                }
+            )
+        elif provider == "bge-in-icl":
+            info.update(
+                {
+                    "description": "BGE-IN-ICL with advanced in-context learning",
+                    "requires": ["base_url"],
+                    "optional": ["api_key", "model", "language", "enable_icl"],
+                    "default_model": "bge-in-icl",
+                    "features": [
+                        "in-context learning",
+                        "adaptive batching",
+                        "context caching",
+                    ],
+                }
+            )
 
         return info

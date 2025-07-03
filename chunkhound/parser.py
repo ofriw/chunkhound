@@ -12,10 +12,12 @@ from .tree_cache import TreeCache, get_default_cache
 
 def is_tree_sitter_node(obj: Any) -> bool:
     """Check if object is a valid TreeSitterNode with required attributes."""
-    return (obj is not None and
-            hasattr(obj, 'start_byte') and
-            hasattr(obj, 'end_byte') and
-            hasattr(obj, 'id'))
+    return (
+        obj is not None
+        and hasattr(obj, "start_byte")
+        and hasattr(obj, "end_byte")
+        and hasattr(obj, "id")
+    )
 
 
 class CodeParser:
@@ -37,13 +39,18 @@ class CodeParser:
         """Set up the parser registry."""
         try:
             from registry import get_registry
+
             self._registry = get_registry()
             logger.debug("Parser registry initialized successfully")
         except ImportError as e:
             logger.error(f"Registry not available: {e}")
-            raise RuntimeError("Registry system is required for parser operation") from e
+            raise RuntimeError(
+                "Registry system is required for parser operation"
+            ) from e
 
-    def parse_file(self, file_path: Path, source: str | None = None) -> list[dict[str, Any]]:
+    def parse_file(
+        self, file_path: Path, source: str | None = None
+    ) -> list[dict[str, Any]]:
         """Parse a file and extract semantic chunks using the registry system.
 
         Args:
@@ -67,14 +74,15 @@ class CodeParser:
         parser = self._registry.get_language_parser(language)
 
         if not parser:
-            raise RuntimeError(f"No parser plugin available for language {language}. "
-                             f"File: {file_path}")
+            raise RuntimeError(
+                f"No parser plugin available for language {language}. File: {file_path}"
+            )
 
         # Use the parser interface
         try:
             result = parser.parse_file(file_path, source)
             # Convert ParseResult to list of chunks
-            if hasattr(result, 'chunks'):
+            if hasattr(result, "chunks"):
                 return result.chunks
             elif isinstance(result, list):
                 return result
@@ -90,7 +98,7 @@ class CodeParser:
         if source_code is None:
             # Read file content if not provided
             try:
-                with open(file_path, encoding='utf-8') as f:
+                with open(file_path, encoding="utf-8") as f:
                     source_code = f.read()
             except Exception as e:
                 logger.error(f"Failed to read file {file_path}: {e}")
@@ -115,21 +123,22 @@ class CodeParser:
         """Parse source code directly using tree-sitter without cache."""
         try:
             from tree_sitter_language_pack import get_parser
+
             language = Language.from_file_extension(file_path)
 
             # Simple direct parsing without cache
             if language == Language.PYTHON:
-                parser = get_parser('python')
+                parser = get_parser("python")
             elif language == Language.JAVA:
-                parser = get_parser('java')
+                parser = get_parser("java")
             elif language == Language.MARKDOWN:
-                parser = get_parser('markdown')
+                parser = get_parser("markdown")
             else:
                 logger.warning(f"No direct parser available for {language}")
                 return None
 
             if parser:
-                return parser.parse(source_code.encode('utf-8'))
+                return parser.parse(source_code.encode("utf-8"))
             else:
                 return None
         except Exception as e:
@@ -138,6 +147,6 @@ class CodeParser:
 
     def _get_node_text(self, node: Any, source_code: str) -> str:
         """Extract text content from a tree-sitter node."""
-        if node and hasattr(node, 'start_byte') and hasattr(node, 'end_byte'):
-            return source_code[node.start_byte:node.end_byte]
+        if node and hasattr(node, "start_byte") and hasattr(node, "end_byte"):
+            return source_code[node.start_byte : node.end_byte]
         return ""

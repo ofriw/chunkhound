@@ -14,6 +14,7 @@ try:
     import tree_sitter_groovy
     from tree_sitter import Language, Parser
     from tree_sitter import Node as TSNode
+
     TREE_SITTER_AVAILABLE = True
 except ImportError:
     TREE_SITTER_AVAILABLE = False
@@ -73,7 +74,7 @@ class GroovyParser(TreeSitterParserBase):
                 ChunkType.TRAIT,
                 ChunkType.SCRIPT,
                 ChunkType.COMMENT,
-                ChunkType.DOCSTRING
+                ChunkType.DOCSTRING,
             },
             max_chunk_size=8000,
             min_chunk_size=100,
@@ -81,7 +82,7 @@ class GroovyParser(TreeSitterParserBase):
             include_comments=False,
             include_docstrings=True,
             max_depth=10,
-            use_cache=True
+            use_cache=True,
         )
 
     def _extract_chunks(
@@ -148,16 +149,20 @@ class GroovyParser(TreeSitterParserBase):
             # Extract comments
             if ChunkType.COMMENT in self._config.chunk_types:
                 comment_patterns = ["(comment) @comment"]
-                chunks.extend(self._extract_comments_generic(tree_node, source, file_path, comment_patterns))
+                chunks.extend(
+                    self._extract_comments_generic(
+                        tree_node, source, file_path, comment_patterns
+                    )
+                )
 
             # Extract Groovydoc comments as docstrings
             if ChunkType.DOCSTRING in self._config.chunk_types:
-                docstring_patterns = [
-                    ("(comment) @groovydoc", "groovydoc")
-                ]
+                docstring_patterns = [("(comment) @groovydoc", "groovydoc")]
                 # Filter for Groovydoc-style comments only
                 groovydoc_chunks = []
-                for chunk in self._extract_docstrings_generic(tree_node, source, file_path, docstring_patterns):
+                for chunk in self._extract_docstrings_generic(
+                    tree_node, source, file_path, docstring_patterns
+                ):
                     if chunk["code"].strip().startswith("/**"):
                         groovydoc_chunks.append(chunk)
                 chunks.extend(groovydoc_chunks)
@@ -242,8 +247,12 @@ class GroovyParser(TreeSitterParserBase):
 
                 # Create chunk using base class method
                 chunk = self._create_chunk(
-                    class_node, source, file_path, ChunkType.CLASS,
-                    qualified_name, qualified_name
+                    class_node,
+                    source,
+                    file_path,
+                    ChunkType.CLASS,
+                    qualified_name,
+                    qualified_name,
                 )
 
                 chunks.append(chunk)
@@ -253,8 +262,9 @@ class GroovyParser(TreeSitterParserBase):
 
         return chunks
 
-    def _extract_interfaces(self, tree_node: TSNode, source: str,
-                           file_path: Path, package_name: str) -> list[dict[str, Any]]:
+    def _extract_interfaces(
+        self, tree_node: TSNode, source: str, file_path: Path, package_name: str
+    ) -> list[dict[str, Any]]:
         """Extract Groovy interface definitions from AST."""
         chunks = []
 
@@ -284,8 +294,12 @@ class GroovyParser(TreeSitterParserBase):
                     qualified_name = f"{package_name}.{interface_name}"
 
                 chunk = self._create_chunk(
-                    interface_node, source, file_path, ChunkType.INTERFACE,
-                    qualified_name, qualified_name
+                    interface_node,
+                    source,
+                    file_path,
+                    ChunkType.INTERFACE,
+                    qualified_name,
+                    qualified_name,
                 )
 
                 chunks.append(chunk)
@@ -295,8 +309,9 @@ class GroovyParser(TreeSitterParserBase):
 
         return chunks
 
-    def _extract_traits(self, tree_node: TSNode, source: str,
-                       file_path: Path, package_name: str) -> list[dict[str, Any]]:
+    def _extract_traits(
+        self, tree_node: TSNode, source: str, file_path: Path, package_name: str
+    ) -> list[dict[str, Any]]:
         """Extract Groovy trait definitions from AST."""
         chunks = []
 
@@ -339,8 +354,12 @@ class GroovyParser(TreeSitterParserBase):
                     qualified_name = f"{package_name}.{trait_name}"
 
                 chunk = self._create_chunk(
-                    trait_node, source, file_path, ChunkType.TRAIT,
-                    qualified_name, qualified_name
+                    trait_node,
+                    source,
+                    file_path,
+                    ChunkType.TRAIT,
+                    qualified_name,
+                    qualified_name,
                 )
 
                 chunks.append(chunk)
@@ -350,8 +369,9 @@ class GroovyParser(TreeSitterParserBase):
 
         return chunks
 
-    def _extract_enums(self, tree_node: TSNode, source: str,
-                      file_path: Path, package_name: str) -> list[dict[str, Any]]:
+    def _extract_enums(
+        self, tree_node: TSNode, source: str, file_path: Path, package_name: str
+    ) -> list[dict[str, Any]]:
         """Extract Groovy enum definitions from AST."""
         chunks = []
 
@@ -381,8 +401,12 @@ class GroovyParser(TreeSitterParserBase):
                     qualified_name = f"{package_name}.{enum_name}"
 
                 chunk = self._create_chunk(
-                    enum_node, source, file_path, ChunkType.ENUM,
-                    qualified_name, qualified_name
+                    enum_node,
+                    source,
+                    file_path,
+                    ChunkType.ENUM,
+                    qualified_name,
+                    qualified_name,
                 )
 
                 chunks.append(chunk)
@@ -392,8 +416,9 @@ class GroovyParser(TreeSitterParserBase):
 
         return chunks
 
-    def _extract_methods(self, tree_node: TSNode, source: str,
-                        file_path: Path, package_name: str) -> list[dict[str, Any]]:
+    def _extract_methods(
+        self, tree_node: TSNode, source: str, file_path: Path, package_name: str
+    ) -> list[dict[str, Any]]:
         """Extract Groovy method definitions from AST."""
         chunks = []
 
@@ -464,9 +489,13 @@ class GroovyParser(TreeSitterParserBase):
                 )
 
                 chunk = self._create_chunk(
-                    method_node, source, file_path, chunk_type,
-                    qualified_name, qualified_name,
-                    parent=parent_class if parent_class else None
+                    method_node,
+                    source,
+                    file_path,
+                    chunk_type,
+                    qualified_name,
+                    qualified_name,
+                    parent=parent_class if parent_class else None,
                 )
 
                 chunks.append(chunk)
@@ -476,8 +505,9 @@ class GroovyParser(TreeSitterParserBase):
 
         return chunks
 
-    def _extract_closures(self, tree_node: TSNode, source: str,
-                         file_path: Path, package_name: str) -> list[dict[str, Any]]:
+    def _extract_closures(
+        self, tree_node: TSNode, source: str, file_path: Path, package_name: str
+    ) -> list[dict[str, Any]]:
         """Extract Groovy closure expressions from AST."""
         chunks = []
 
@@ -513,9 +543,13 @@ class GroovyParser(TreeSitterParserBase):
                     qualified_name = closure_name
 
                 chunk = self._create_chunk(
-                    closure_node, source, file_path, ChunkType.CLOSURE,
-                    qualified_name, closure_name,
-                    parent=parent_context if parent_context else None
+                    closure_node,
+                    source,
+                    file_path,
+                    ChunkType.CLOSURE,
+                    qualified_name,
+                    closure_name,
+                    parent=parent_context if parent_context else None,
                 )
 
                 chunks.append(chunk)
@@ -525,8 +559,9 @@ class GroovyParser(TreeSitterParserBase):
 
         return chunks
 
-    def _extract_script_level_code(self, tree_node: TSNode, source: str,
-                                  file_path: Path) -> list[dict[str, Any]]:
+    def _extract_script_level_code(
+        self, tree_node: TSNode, source: str, file_path: Path
+    ) -> list[dict[str, Any]]:
         """Extract script-level code from Groovy files."""
         chunks = []
 
@@ -618,4 +653,3 @@ class GroovyParser(TreeSitterParserBase):
             current = current.parent
 
         return None
-

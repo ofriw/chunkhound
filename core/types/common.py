@@ -11,20 +11,20 @@ from typing import NewType
 
 # String-based type aliases for better semantic clarity
 ProviderName = NewType("ProviderName", str)  # e.g., "openai", "bge"
-ModelName = NewType("ModelName", str)       # e.g., "text-embedding-3-small"
-FilePath = NewType("FilePath", str)         # File path as string
+ModelName = NewType("ModelName", str)  # e.g., "text-embedding-3-small"
+FilePath = NewType("FilePath", str)  # File path as string
 
 # Numeric type aliases
-ChunkId = NewType("ChunkId", int)          # Database chunk ID
-FileId = NewType("FileId", int)            # Database file ID
-LineNumber = NewType("LineNumber", int)     # 1-based line numbers
-ByteOffset = NewType("ByteOffset", int)     # Byte positions in files
-Timestamp = NewType("Timestamp", float)     # Unix timestamp
-Distance = NewType("Distance", float)       # Vector distance/similarity score
-Dimensions = NewType("Dimensions", int)     # Embedding vector dimensions
+ChunkId = NewType("ChunkId", int)  # Database chunk ID
+FileId = NewType("FileId", int)  # Database file ID
+LineNumber = NewType("LineNumber", int)  # 1-based line numbers
+ByteOffset = NewType("ByteOffset", int)  # Byte positions in files
+Timestamp = NewType("Timestamp", float)  # Unix timestamp
+Distance = NewType("Distance", float)  # Vector distance/similarity score
+Dimensions = NewType("Dimensions", int)  # Embedding vector dimensions
 
 # Complex types
-EmbeddingVector = list[float]              # Vector embedding representation
+EmbeddingVector = list[float]  # Vector embedding representation
 
 
 class ChunkType(Enum):
@@ -88,20 +88,40 @@ class ChunkType(Enum):
     def is_code(self) -> bool:
         """Return True if this chunk type represents code structure."""
         return self in {
-            self.FUNCTION, self.METHOD, self.CLASS, self.INTERFACE,
-            self.STRUCT, self.ENUM, self.NAMESPACE, self.CONSTRUCTOR,
-            self.PROPERTY, self.FIELD, self.TYPE_ALIAS, self.CLOSURE,
-            self.TRAIT, self.SCRIPT, self.BLOCK, self.VARIABLE, self.TYPE, self.MACRO
+            self.FUNCTION,
+            self.METHOD,
+            self.CLASS,
+            self.INTERFACE,
+            self.STRUCT,
+            self.ENUM,
+            self.NAMESPACE,
+            self.CONSTRUCTOR,
+            self.PROPERTY,
+            self.FIELD,
+            self.TYPE_ALIAS,
+            self.CLOSURE,
+            self.TRAIT,
+            self.SCRIPT,
+            self.BLOCK,
+            self.VARIABLE,
+            self.TYPE,
+            self.MACRO,
         }
 
     @property
     def is_documentation(self) -> bool:
         """Return True if this chunk type represents documentation."""
         return self in {
-            self.COMMENT, self.DOCSTRING,
-            self.HEADER_1, self.HEADER_2, self.HEADER_3,
-            self.HEADER_4, self.HEADER_5, self.HEADER_6,
-            self.PARAGRAPH, self.CODE_BLOCK
+            self.COMMENT,
+            self.DOCSTRING,
+            self.HEADER_1,
+            self.HEADER_2,
+            self.HEADER_3,
+            self.HEADER_4,
+            self.HEADER_5,
+            self.HEADER_6,
+            self.PARAGRAPH,
+            self.CODE_BLOCK,
         }
 
 
@@ -147,8 +167,8 @@ class Language(Enum):
         # Check filename-based detection first (for Makefiles)
         basename = file_path.name.lower()
         filename_map = {
-            'makefile': cls.MAKEFILE,
-            'gnumakefile': cls.MAKEFILE,
+            "makefile": cls.MAKEFILE,
+            "gnumakefile": cls.MAKEFILE,
         }
 
         if basename in filename_map:
@@ -157,41 +177,41 @@ class Language(Enum):
         # Check extension-based detection
         extension = file_path.suffix.lower()
         extension_map = {
-            '.py': cls.PYTHON,
-            '.java': cls.JAVA,
-            '.cs': cls.CSHARP,
-            '.ts': cls.TYPESCRIPT,
-            '.js': cls.JAVASCRIPT,
-            '.tsx': cls.TSX,
-            '.jsx': cls.JSX,
-            '.groovy': cls.GROOVY,
-            '.gvy': cls.GROOVY,
-            '.gy': cls.GROOVY,
-            '.kt': cls.KOTLIN,
-            '.kts': cls.KOTLIN,
-            '.go': cls.GO,
-            '.sh': cls.BASH,
-            '.bash': cls.BASH,
-            '.zsh': cls.BASH,
-            '.mk': cls.MAKEFILE,
-            '.make': cls.MAKEFILE,
-            '.md': cls.MARKDOWN,
-            '.markdown': cls.MARKDOWN,
-            '.json': cls.JSON,
-            '.yaml': cls.YAML,
-            '.yml': cls.YAML,
-            '.toml': cls.TOML,
-            '.txt': cls.TEXT,
-            '.c': cls.C,
-            '.h': cls.C,
-            '.cpp': cls.CPP,
-            '.cxx': cls.CPP,
-            '.cc': cls.CPP,
-            '.hpp': cls.CPP,
-            '.hxx': cls.CPP,
-            '.h++': cls.CPP,
-            '.rs': cls.RUST,
-            '.m': cls.MATLAB,
+            ".py": cls.PYTHON,
+            ".java": cls.JAVA,
+            ".cs": cls.CSHARP,
+            ".ts": cls.TYPESCRIPT,
+            ".js": cls.JAVASCRIPT,
+            ".tsx": cls.TSX,
+            ".jsx": cls.JSX,
+            ".groovy": cls.GROOVY,
+            ".gvy": cls.GROOVY,
+            ".gy": cls.GROOVY,
+            ".kt": cls.KOTLIN,
+            ".kts": cls.KOTLIN,
+            ".go": cls.GO,
+            ".sh": cls.BASH,
+            ".bash": cls.BASH,
+            ".zsh": cls.BASH,
+            ".mk": cls.MAKEFILE,
+            ".make": cls.MAKEFILE,
+            ".md": cls.MARKDOWN,
+            ".markdown": cls.MARKDOWN,
+            ".json": cls.JSON,
+            ".yaml": cls.YAML,
+            ".yml": cls.YAML,
+            ".toml": cls.TOML,
+            ".txt": cls.TEXT,
+            ".c": cls.C,
+            ".h": cls.C,
+            ".cpp": cls.CPP,
+            ".cxx": cls.CPP,
+            ".cc": cls.CPP,
+            ".hpp": cls.CPP,
+            ".hxx": cls.CPP,
+            ".h++": cls.CPP,
+            ".rs": cls.RUST,
+            ".m": cls.MATLAB,
         }
 
         return extension_map.get(extension, cls.UNKNOWN)
@@ -208,23 +228,44 @@ class Language(Enum):
     def is_programming_language(self) -> bool:
         """Return True if this is a programming language (not documentation)."""
         return self in {
-            self.PYTHON, self.JAVA, self.CSHARP, self.TYPESCRIPT,
-            self.JAVASCRIPT, self.TSX, self.JSX, self.GROOVY, self.KOTLIN, self.GO, self.RUST, self.BASH, self.MAKEFILE, self.C, self.CPP, self.MATLAB
+            self.PYTHON,
+            self.JAVA,
+            self.CSHARP,
+            self.TYPESCRIPT,
+            self.JAVASCRIPT,
+            self.TSX,
+            self.JSX,
+            self.GROOVY,
+            self.KOTLIN,
+            self.GO,
+            self.RUST,
+            self.BASH,
+            self.MAKEFILE,
+            self.C,
+            self.CPP,
+            self.MATLAB,
         }
 
     @property
     def supports_classes(self) -> bool:
         """Return True if this language supports class definitions."""
         return self in {
-            self.PYTHON, self.JAVA, self.CSHARP, self.TYPESCRIPT, self.TSX, self.GROOVY, self.KOTLIN, self.GO, self.CPP, self.MATLAB
+            self.PYTHON,
+            self.JAVA,
+            self.CSHARP,
+            self.TYPESCRIPT,
+            self.TSX,
+            self.GROOVY,
+            self.KOTLIN,
+            self.GO,
+            self.CPP,
+            self.MATLAB,
         }
 
     @property
     def supports_interfaces(self) -> bool:
         """Return True if this language supports interface definitions."""
-        return self in {
-            self.JAVA, self.CSHARP, self.TYPESCRIPT, self.TSX
-        }
+        return self in {self.JAVA, self.CSHARP, self.TYPESCRIPT, self.TSX}
 
     @classmethod
     def get_all_extensions(cls) -> set[str]:
@@ -233,12 +274,41 @@ class Language(Enum):
 
         # Extension-based mappings
         extension_map = {
-            '.py', '.java', '.cs', '.ts', '.js', '.tsx', '.jsx',
-            '.groovy', '.gvy', '.gy', '.kt', '.kts', '.go',
-            '.sh', '.bash', '.zsh', '.mk', '.make',
-            '.md', '.markdown', '.json', '.yaml', '.yml',
-            '.toml', '.txt', '.c', '.h', '.cpp', '.cxx',
-            '.cc', '.hpp', '.hxx', '.h++', '.rs', '.m'
+            ".py",
+            ".java",
+            ".cs",
+            ".ts",
+            ".js",
+            ".tsx",
+            ".jsx",
+            ".groovy",
+            ".gvy",
+            ".gy",
+            ".kt",
+            ".kts",
+            ".go",
+            ".sh",
+            ".bash",
+            ".zsh",
+            ".mk",
+            ".make",
+            ".md",
+            ".markdown",
+            ".json",
+            ".yaml",
+            ".yml",
+            ".toml",
+            ".txt",
+            ".c",
+            ".h",
+            ".cpp",
+            ".cxx",
+            ".cc",
+            ".hpp",
+            ".hxx",
+            ".h++",
+            ".rs",
+            ".m",
         }
 
         extensions.update(extension_map)
@@ -254,12 +324,9 @@ class Language(Enum):
             patterns.append(f"**/*{ext}")
 
         # Add filename-based patterns (for Makefiles)
-        patterns.extend([
-            "**/Makefile",
-            "**/makefile",
-            "**/GNUmakefile",
-            "**/gnumakefile"
-        ])
+        patterns.extend(
+            ["**/Makefile", "**/makefile", "**/GNUmakefile", "**/gnumakefile"]
+        )
 
         return patterns
 

@@ -6,7 +6,9 @@ from pathlib import Path
 from loguru import logger
 
 
-def validate_path(path: Path, must_exist: bool = True, must_be_dir: bool = True) -> bool:
+def validate_path(
+    path: Path, must_exist: bool = True, must_be_dir: bool = True
+) -> bool:
     """Validate a file system path.
 
     Args:
@@ -28,8 +30,9 @@ def validate_path(path: Path, must_exist: bool = True, must_be_dir: bool = True)
     return True
 
 
-def validate_provider_args(provider: str, api_key: str | None, base_url: str | None,
-                          model: str | None) -> bool:
+def validate_provider_args(
+    provider: str, api_key: str | None, base_url: str | None, model: str | None
+) -> bool:
     """Validate embedding provider arguments.
 
     Args:
@@ -45,8 +48,11 @@ def validate_provider_args(provider: str, api_key: str | None, base_url: str | N
         if not api_key:
             # Check environment variable
             import os
+
             if not os.getenv("OPENAI_API_KEY"):
-                logger.error("OpenAI API key required. Set OPENAI_API_KEY or use --api-key")
+                logger.error(
+                    "OpenAI API key required. Set OPENAI_API_KEY or use --api-key"
+                )
                 return False
 
     elif provider == "openai-compatible":
@@ -74,8 +80,9 @@ def validate_provider_args(provider: str, api_key: str | None, base_url: str | N
     return True
 
 
-def validate_config_args(server_type: str, base_url: str | None, model: str | None,
-                        api_key: str | None) -> bool:
+def validate_config_args(
+    server_type: str, base_url: str | None, model: str | None, api_key: str | None
+) -> bool:
     """Validate configuration server arguments.
 
     Args:
@@ -103,7 +110,9 @@ def validate_config_args(server_type: str, base_url: str | None, model: str | No
     return True
 
 
-def validate_file_patterns(include_patterns: list[str], exclude_patterns: list[str]) -> bool:
+def validate_file_patterns(
+    include_patterns: list[str], exclude_patterns: list[str]
+) -> bool:
     """Validate file inclusion and exclusion patterns.
 
     Args:
@@ -125,7 +134,9 @@ def validate_file_patterns(include_patterns: list[str], exclude_patterns: list[s
     return True
 
 
-def validate_numeric_args(debounce_ms: int | None = None, batch_size: int | None = None) -> bool:
+def validate_numeric_args(
+    debounce_ms: int | None = None, batch_size: int | None = None
+) -> bool:
     """Validate numeric arguments.
 
     Args:
@@ -170,7 +181,9 @@ def validate_server_name(name: str, existing_servers: list[str]) -> bool:
 
     # Check for valid characters
     if not name.replace("-", "").replace("_", "").replace(".", "").isalnum():
-        logger.error("Server name can only contain letters, numbers, hyphens, underscores, and dots")
+        logger.error(
+            "Server name can only contain letters, numbers, hyphens, underscores, and dots"
+        )
         return False
 
     if name in existing_servers:

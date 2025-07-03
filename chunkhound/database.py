@@ -15,7 +15,9 @@ This maintains backward compatibility while using the new modular architecture.
 
 import threading
 from pathlib import Path
-from typing import Any
+
+# Service imports for type hints only
+from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
@@ -24,8 +26,6 @@ from chunkhound.core.config.unified_config import DatabaseConfig
 # Core imports
 from core.types.common import Language
 
-# Service imports for type hints only
-from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from services.embedding_service import EmbeddingService
     from services.indexing_coordinator import IndexingCoordinator
@@ -62,7 +62,7 @@ class Database:
         indexing_coordinator: "IndexingCoordinator | None" = None,
         search_service: "SearchService | None" = None,
         embedding_service: "EmbeddingService | None" = None,
-        provider: Any | None = None
+        provider: Any | None = None,
     ):
         """Initialize database connection and service layer.
 
@@ -82,18 +82,21 @@ class Database:
         self._connection_lock = threading.RLock()
 
         # Use injected dependencies if provided (preferred path)
-        if (indexing_coordinator and search_service and embedding_service and provider):
+        if indexing_coordinator and search_service and embedding_service and provider:
             self._indexing_coordinator = indexing_coordinator
             self._search_service = search_service
             self._embedding_service = embedding_service
             self._provider = provider
         else:
             # Legacy path: Auto-configure (deprecated, use create_database_with_dependencies)
-            logger.warning("Using legacy Database initialization - consider using create_database_with_dependencies()")
-            
+            logger.warning(
+                "Using legacy Database initialization - consider using create_database_with_dependencies()"
+            )
+
             # Auto-detect configuration if not provided
             if config is None:
                 from chunkhound.core.config.unified_config import ChunkHoundConfig
+
                 try:
                     unified_config = ChunkHoundConfig.load_hierarchical()
                     config = unified_config.database
@@ -111,7 +114,10 @@ class Database:
                 self._embedding_service = create_embedding_service()
             except ValueError:
                 # Initialize service layer via registry using factory
-                from chunkhound.providers.database_factory import DatabaseProviderFactory
+                from chunkhound.providers.database_factory import (
+                    DatabaseProviderFactory,
+                )
+
                 self._provider = DatabaseProviderFactory.create_provider(
                     config, embedding_manager
                 )
@@ -182,7 +188,7 @@ class Database:
         self,
         directory: Path,
         patterns: list[str] | None = None,
-        exclude_patterns: list[str] | None = None
+        exclude_patterns: list[str] | None = None,
     ) -> dict[str, Any]:
         """Process all supported files in a directory.
 
@@ -208,7 +214,7 @@ class Database:
         page_size: int = 10,
         offset: int = 0,
         threshold: float | None = None,
-        path_filter: str | None = None
+        path_filter: str | None = None,
     ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         """Perform semantic similarity search.
 
@@ -221,7 +227,7 @@ class Database:
             page_size=page_size,
             offset=offset,
             threshold=threshold,
-            path_filter=path_filter
+            path_filter=path_filter,
         )
 
     def search_regex(
@@ -229,17 +235,14 @@ class Database:
         pattern: str,
         page_size: int = 10,
         offset: int = 0,
-        path_filter: str | None = None
+        path_filter: str | None = None,
     ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         """Search code chunks using regex pattern.
 
         Delegates to provider for actual search.
         """
         return self._provider.search_regex(
-            pattern=pattern,
-            page_size=page_size,
-            offset=offset,
-            path_filter=path_filter
+            pattern=pattern, page_size=page_size, offset=offset, path_filter=path_filter
         )
 
     # =============================================================================
@@ -255,8 +258,13 @@ class Database:
         result = self._provider.get_file_by_path(file_path, as_model=False)
         return result if isinstance(result, dict) else None
 
-    def insert_file(self, file_or_path: str | dict, mtime: float | None = None,
-                   language: str | None = None, size_bytes: int | None = None) -> int:
+    def insert_file(
+        self,
+        file_or_path: str | dict,
+        mtime: float | None = None,
+        language: str | None = None,
+        size_bytes: int | None = None,
+    ) -> int:
         """Insert a new file record."""
         # Import here to avoid circular dependency
         from core.models import File
@@ -267,7 +275,7 @@ class Database:
                 path=FilePath(file_or_path),
                 mtime=Timestamp(mtime or 0.0),
                 language=Language.from_string(language or "unknown"),
-                size_bytes=size_bytes or 0
+                size_bytes=size_bytes or 0,
             )
         else:
             # Legacy dict format
@@ -275,15 +283,21 @@ class Database:
                 path=FilePath(file_or_path["path"]),
                 mtime=Timestamp(file_or_path["mtime"]),
                 language=Language.from_string(file_or_path["language"]),
-                size_bytes=file_or_path["size_bytes"]
+                size_bytes=file_or_path["size_bytes"],
             )
         return self._provider.insert_file(file_model)
 
-    def insert_chunk(self, chunk_or_file_id: int | dict, symbol: str | None = None,
-                    start_line: int | None = None, end_line: int | None = None,
-                    code: str | None = None, chunk_type: str | None = None,
-                    language_info: str | None = None,
-                    parent_header: str | None = None) -> int:
+    def insert_chunk(
+        self,
+        chunk_or_file_id: int | dict,
+        symbol: str | None = None,
+        start_line: int | None = None,
+        end_line: int | None = None,
+        code: str | None = None,
+        chunk_type: str | None = None,
+        language_info: str | None = None,
+        parent_header: str | None = None,
+    ) -> int:
         """Insert a new chunk record."""
         # Import here to avoid circular dependency
         from core.models import Chunk
@@ -298,7 +312,7 @@ class Database:
                 code=code or "",
                 chunk_type=ChunkType.from_string(chunk_type or "unknown"),
                 language=Language.from_string(language_info or "unknown"),
-                parent_header=parent_header
+                parent_header=parent_header,
             )
         else:
             # Legacy dict format
@@ -311,13 +325,14 @@ class Database:
                 code=chunk["code"],
                 chunk_type=ChunkType.from_string(chunk["chunk_type"]),
                 language=Language.from_string(chunk.get("language_info", "unknown")),
-                parent_header=chunk.get("parent_header")
+                parent_header=chunk.get("parent_header"),
             )
         return self._provider.insert_chunk(chunk_model)
 
     def delete_file_chunks(self, file_id: int) -> None:
         """Delete all chunks for a file."""
         from core.types import FileId
+
         self._provider.delete_file_chunks(FileId(file_id))
 
     def update_file(self, file_id: int, size_bytes: int, mtime: float) -> None:
@@ -407,7 +422,6 @@ class Database:
     def db_path(self) -> Path | str:
         """Get database path."""
         return self._db_path
-
 
     def get_file_discovery_cache_stats(self) -> dict[str, Any]:
         """Get file discovery cache statistics."""

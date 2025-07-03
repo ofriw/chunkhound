@@ -16,9 +16,11 @@ def mcp_command(args: argparse.Namespace) -> None:
     import sys
 
     # Use the standalone MCP launcher that sets environment before any imports
-    mcp_launcher_path = Path(__file__).parent.parent.parent.parent.parent / "mcp_launcher.py"
+    mcp_launcher_path = (
+        Path(__file__).parent.parent.parent.parent.parent / "mcp_launcher.py"
+    )
     cmd = [sys.executable, str(mcp_launcher_path)]
-    
+
     # Only pass --db argument if explicitly provided, otherwise let unified config handle it
     if args.db is not None:
         cmd.extend(["--db", str(args.db)])
@@ -35,7 +37,7 @@ def mcp_command(args: argparse.Namespace) -> None:
         stdin=sys.stdin,
         stdout=sys.stdout,
         stderr=sys.stderr,  # Allow stderr for MCP SDK internal error handling
-        env=env  # Pass environment variables to subprocess
+        env=env,  # Pass environment variables to subprocess
     )
 
     # Exit with the same code as the subprocess
@@ -52,11 +54,11 @@ def add_mcp_subparser(subparsers: Any) -> argparse.ArgumentParser:
         The configured MCP subparser
     """
     from chunkhound.api.cli.parsers.main_parser import add_database_argument
-    
+
     mcp_parser = subparsers.add_parser(
         "mcp",
         help="Run Model Context Protocol server",
-        description="Start the MCP server for integration with MCP-compatible clients"
+        description="Start the MCP server for integration with MCP-compatible clients",
     )
 
     # Use shared database argument function to respect unified config

@@ -24,7 +24,7 @@ class PeriodicIndexManager:
         base_directory: Path,
         interval: int = 300,  # 5 minutes default
         batch_size: int = 10,
-        enabled: bool = True
+        enabled: bool = True,
     ):
         """Initialize periodic index manager.
 
@@ -42,7 +42,7 @@ class PeriodicIndexManager:
         self._interval = interval
         self._batch_size = batch_size
         self._enabled = enabled
-        
+
         # State tracking
         self._scanning_task: asyncio.Task | None = None
         self._shutdown_event = asyncio.Event()
@@ -51,14 +51,14 @@ class PeriodicIndexManager:
         self._last_scan_time = 0
         self._scan_start_counter = 0  # Count scan start attempts
         self._current_scan_start_time = 0  # Track when current scan started
-        
+
         # Statistics
         self._stats = {
-            'scans_completed': 0,
-            'files_processed': 0,
-            'files_updated': 0,
-            'files_skipped': 0,
-            'last_scan_duration': 0
+            "scans_completed": 0,
+            "files_processed": 0,
+            "files_updated": 0,
+            "files_skipped": 0,
+            "last_scan_duration": 0,
         }
 
     @classmethod
@@ -66,8 +66,8 @@ class PeriodicIndexManager:
         cls,
         indexing_coordinator,
         task_coordinator: TaskCoordinator,
-        base_directory: Path
-    ) -> 'PeriodicIndexManager':
+        base_directory: Path,
+    ) -> "PeriodicIndexManager":
         """Create periodic index manager from environment variables.
 
         Environment Variables:
@@ -83,9 +83,11 @@ class PeriodicIndexManager:
         Returns:
             Configured PeriodicIndexManager instance
         """
-        interval = int(os.getenv('CHUNKHOUND_PERIODIC_INDEX_INTERVAL', '300'))
-        batch_size = int(os.getenv('CHUNKHOUND_PERIODIC_BATCH_SIZE', '10'))
-        enabled = os.getenv('CHUNKHOUND_PERIODIC_INDEX_ENABLED', 'true').lower() == 'true'
+        interval = int(os.getenv("CHUNKHOUND_PERIODIC_INDEX_INTERVAL", "300"))
+        batch_size = int(os.getenv("CHUNKHOUND_PERIODIC_BATCH_SIZE", "10"))
+        enabled = (
+            os.getenv("CHUNKHOUND_PERIODIC_INDEX_ENABLED", "true").lower() == "true"
+        )
 
         return cls(
             indexing_coordinator=indexing_coordinator,
@@ -93,7 +95,7 @@ class PeriodicIndexManager:
             base_directory=base_directory,
             interval=interval,
             batch_size=batch_size,
-            enabled=enabled
+            enabled=enabled,
         )
 
     async def start(self) -> None:
@@ -103,13 +105,16 @@ class PeriodicIndexManager:
 
         self._running = True
         self._shutdown_event.clear()
-        
+
         # Start immediate background scan to catch changes since last offline index
         self._scanning_task = asyncio.create_task(self._periodic_scan_loop())
-        
+
         # Debug output only in debug mode to avoid disrupting JSON-RPC
         if "CHUNKHOUND_DEBUG" in os.environ:
-            print(f"PeriodicIndexManager started - interval: {self._interval}s, batch_size: {self._batch_size}", file=sys.stderr)
+            print(
+                f"PeriodicIndexManager started - interval: {self._interval}s, batch_size: {self._batch_size}",
+                file=sys.stderr,
+            )
 
     async def stop(self, timeout: float = 30.0) -> None:
         """Stop periodic indexing tasks.
@@ -130,7 +135,10 @@ class PeriodicIndexManager:
                 await asyncio.wait_for(self._scanning_task, timeout=timeout)
             except asyncio.TimeoutError:
                 if "CHUNKHOUND_DEBUG" in os.environ:
-                    print("PeriodicIndexManager scan task did not stop gracefully, cancelling", file=sys.stderr)
+                    print(
+                        "PeriodicIndexManager scan task did not stop gracefully, cancelling",
+                        file=sys.stderr,
+                    )
                 self._scanning_task.cancel()
                 try:
                     await self._scanning_task
@@ -144,12 +152,12 @@ class PeriodicIndexManager:
         """Get statistics about periodic indexing."""
         return {
             **self._stats,
-            'enabled': self._enabled,
-            'running': self._running,
-            'interval': self._interval,
-            'batch_size': self._batch_size,
-            'scan_position': self._scan_position,
-            'last_scan_time': self._last_scan_time
+            "enabled": self._enabled,
+            "running": self._running,
+            "interval": self._interval,
+            "batch_size": self._batch_size,
+            "scan_position": self._scan_position,
+            "last_scan_time": self._last_scan_time,
         }
 
     async def _cancel_running_scan_safely(self) -> None:
@@ -158,7 +166,7 @@ class PeriodicIndexManager:
         # Only cancels background scan tasks, not other tasks in the queue
         if "CHUNKHOUND_DEBUG" in os.environ:
             print("Attempting to cancel long-running background scan", file=sys.stderr)
-        
+
         # The TaskCoordinator handles individual task cancellation gracefully
         # We don't need to manually cancel since the scan will naturally complete
         # and the counter reset will prevent new overlapping scans
@@ -178,8 +186,7 @@ class PeriodicIndexManager:
                 # Wait for interval or shutdown signal
                 try:
                     await asyncio.wait_for(
-                        self._shutdown_event.wait(),
-                        timeout=self._interval
+                        self._shutdown_event.wait(), timeout=self._interval
                     )
                     # Shutdown signal received
                     break
@@ -190,31 +197,41 @@ class PeriodicIndexManager:
                 if self._running:
                     # Check if we should skip this scan cycle due to long-running previous scan
                     current_time = time.time()
-                    scan_duration = current_time - self._current_scan_start_time if self._current_scan_start_time > 0 else 0
+                    scan_duration = (
+                        current_time - self._current_scan_start_time
+                        if self._current_scan_start_time > 0
+                        else 0
+                    )
                     max_scan_duration = self._interval * 2  # 2 cycles
-                    
-                    if self._scan_start_counter > 0 and scan_duration < max_scan_duration:
+
+                    if (
+                        self._scan_start_counter > 0
+                        and scan_duration < max_scan_duration
+                    ):
                         # Previous scan still running and within acceptable time - skip this cycle
                         if "CHUNKHOUND_DEBUG" in os.environ:
                             print(
                                 f"Skipping scan cycle - previous scan still running ({scan_duration:.1f}s, "
                                 f"counter: {self._scan_start_counter})",
-                                file=sys.stderr
+                                file=sys.stderr,
                             )
                         continue
-                    elif self._scan_start_counter > 0 and scan_duration >= max_scan_duration:
+                    elif (
+                        self._scan_start_counter > 0
+                        and scan_duration >= max_scan_duration
+                    ):
                         # Previous scan running too long - reset and restart
                         if "CHUNKHOUND_DEBUG" in os.environ:
                             print(
                                 f"Background scan running too long ({scan_duration:.1f}s > {max_scan_duration}s), "
                                 f"resetting counters (was attempt #{self._scan_start_counter})",
-                                file=sys.stderr
+                                file=sys.stderr,
                             )
-                        
+
                         # Reset counters - the long-running scan will eventually complete and see the reset
                         self._scan_start_counter = 0
                         self._current_scan_start_time = 0
-                    
+
                     # Only start new scan if no scan is currently running
                     if self._scan_start_counter == 0:
                         await self._queue_background_scan("periodic")
@@ -237,7 +254,10 @@ class PeriodicIndexManager:
         try:
             if not self._task_coordinator:
                 if "CHUNKHOUND_DEBUG" in os.environ:
-                    print("No task coordinator available for background scan", file=sys.stderr)
+                    print(
+                        "No task coordinator available for background scan",
+                        file=sys.stderr,
+                    )
                 return
 
             # Increment scan start counter to track overlapping scans
@@ -246,13 +266,14 @@ class PeriodicIndexManager:
 
             # Queue background scan task with lowest priority
             await self._task_coordinator.queue_task_nowait(
-                TaskPriority.BACKGROUND,
-                self._execute_background_scan,
-                scan_type
+                TaskPriority.BACKGROUND, self._execute_background_scan, scan_type
             )
-            
+
             if "CHUNKHOUND_DEBUG" in os.environ:
-                print(f"Queued {scan_type} background scan (attempt #{self._scan_start_counter})", file=sys.stderr)
+                print(
+                    f"Queued {scan_type} background scan (attempt #{self._scan_start_counter})",
+                    file=sys.stderr,
+                )
 
         except Exception as e:
             if "CHUNKHOUND_DEBUG" in os.environ:
@@ -273,14 +294,19 @@ class PeriodicIndexManager:
 
         try:
             # Discover all files in base directory
-            # Get patterns and exclude patterns from unified config 
+            # Get patterns and exclude patterns from unified config
             from chunkhound.core.config.unified_config import ChunkHoundConfig
-            config = ChunkHoundConfig.load_hierarchical(project_dir=self._base_directory)
-            exclude_patterns = config.indexing.get_effective_exclude_patterns(self._base_directory)
+
+            config = ChunkHoundConfig.load_hierarchical(
+                project_dir=self._base_directory
+            )
+            exclude_patterns = config.indexing.get_effective_exclude_patterns(
+                self._base_directory
+            )
             files = self._indexing_coordinator._discover_files(
-                self._base_directory, 
+                self._base_directory,
                 patterns=config.indexing.include_patterns,  # Use config layer patterns
-                exclude_patterns=exclude_patterns
+                exclude_patterns=exclude_patterns,
             )
 
             if not files:
@@ -291,12 +317,13 @@ class PeriodicIndexManager:
             # Clean up orphaned files (same as chunkhound index)
             if scan_type == "startup":
                 cleaned_files = self._indexing_coordinator._cleanup_orphaned_files(
-                    self._base_directory, 
-                    files, 
-                    exclude_patterns
+                    self._base_directory, files, exclude_patterns
                 )
                 if cleaned_files > 0 and "CHUNKHOUND_DEBUG" in os.environ:
-                    print(f"Cleaned up {cleaned_files} orphaned files during startup scan", file=sys.stderr)
+                    print(
+                        f"Cleaned up {cleaned_files} orphaned files during startup scan",
+                        file=sys.stderr,
+                    )
 
             # Reset scan position for startup scans, continue from position for periodic
             if scan_type == "startup":
@@ -305,20 +332,20 @@ class PeriodicIndexManager:
             # Process files in small batches starting from scan position
             batch_count = 0
             files_in_this_scan = 0
-            
+
             while self._scan_position < len(files) and self._running:
                 # Get next batch of files
                 batch_end = min(self._scan_position + self._batch_size, len(files))
-                batch_files = files[self._scan_position:batch_end]
-                
+                batch_files = files[self._scan_position : batch_end]
+
                 # Process batch
                 await self._process_file_batch(batch_files)
-                
+
                 # Update position and stats
                 self._scan_position = batch_end
                 batch_count += 1
                 files_in_this_scan += len(batch_files)
-                
+
                 # Yield control between batches to allow higher priority tasks
                 await asyncio.sleep(0.1)  # 100ms yield
 
@@ -328,10 +355,10 @@ class PeriodicIndexManager:
 
             # Update statistics and reset scan tracking
             scan_duration = time.time() - scan_start_time
-            self._stats['scans_completed'] += 1
-            self._stats['last_scan_duration'] = scan_duration
+            self._stats["scans_completed"] += 1
+            self._stats["last_scan_duration"] = scan_duration
             self._last_scan_time = scan_start_time
-            
+
             # Reset scan tracking counters on successful completion
             self._scan_start_counter = 0
             self._current_scan_start_time = 0
@@ -341,26 +368,38 @@ class PeriodicIndexManager:
                     f"Completed {scan_type} background scan: "
                     f"{files_in_this_scan} files in {batch_count} batches, "
                     f"duration: {scan_duration:.2f}s",
-                    file=sys.stderr
+                    file=sys.stderr,
                 )
-            
+
             # Force checkpoint after background scan to minimize WAL size
             try:
                 # Get database provider from registry
                 from .registry import get_registry
+
                 database_provider = get_registry().get_provider("database")
-                if database_provider and hasattr(database_provider, '_maybe_checkpoint'):
+                if database_provider and hasattr(
+                    database_provider, "_maybe_checkpoint"
+                ):
                     database_provider._maybe_checkpoint(force=True)
                     if "CHUNKHOUND_DEBUG" in os.environ:
-                        print(f"Checkpoint completed after {scan_type} background scan", file=sys.stderr)
+                        print(
+                            f"Checkpoint completed after {scan_type} background scan",
+                            file=sys.stderr,
+                        )
             except Exception as checkpoint_error:
                 if "CHUNKHOUND_DEBUG" in os.environ:
-                    print(f"Checkpoint after background scan failed: {checkpoint_error}", file=sys.stderr)
+                    print(
+                        f"Checkpoint after background scan failed: {checkpoint_error}",
+                        file=sys.stderr,
+                    )
 
         except asyncio.CancelledError:
             # Handle graceful cancellation - don't log as error
             if "CHUNKHOUND_DEBUG" in os.environ:
-                print(f"Background scan was cancelled (scan_type: {scan_type})", file=sys.stderr)
+                print(
+                    f"Background scan was cancelled (scan_type: {scan_type})",
+                    file=sys.stderr,
+                )
             # Reset counters on cancellation
             self._scan_start_counter = 0
             self._current_scan_start_time = 0
@@ -386,18 +425,21 @@ class PeriodicIndexManager:
                 # Use existing process_file method for consistent processing
                 result = await self._indexing_coordinator.process_file(
                     file_path,
-                    skip_embeddings=True  # Skip embeddings for background processing
+                    skip_embeddings=True,  # Skip embeddings for background processing
                 )
 
                 # Update statistics
-                self._stats['files_processed'] += 1
-                
+                self._stats["files_processed"] += 1
+
                 if result["status"] == "success":
-                    self._stats['files_updated'] += 1
+                    self._stats["files_updated"] += 1
                 elif result["status"] == "up_to_date":
-                    self._stats['files_skipped'] += 1
+                    self._stats["files_skipped"] += 1
 
             except Exception as e:
                 if "CHUNKHOUND_DEBUG" in os.environ:
-                    print(f"Error processing file {file_path} in background: {e}", file=sys.stderr)
+                    print(
+                        f"Error processing file {file_path} in background: {e}",
+                        file=sys.stderr,
+                    )
                 # Continue with next file despite errors

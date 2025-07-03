@@ -28,7 +28,7 @@ class BaseFileConfigSettingsSource(PydanticBaseSettingsSource, ABC):
     def __init__(
         self,
         settings_cls: type[BaseSettings],
-        config_file: str | Path | list[str | Path]
+        config_file: str | Path | list[str | Path],
     ):
         """
         Initialize file-based configuration source.
@@ -62,13 +62,19 @@ class BaseFileConfigSettingsSource(PydanticBaseSettingsSource, ABC):
                     # Log warning but continue with other files
                     # Skip stderr output in MCP mode to avoid JSON-RPC interference
                     if not os.environ.get("CHUNKHOUND_MCP_MODE"):
-                        print(f"Warning: Failed to load config file {config_file}: {e}", file=sys.stderr)
+                        print(
+                            f"Warning: Failed to load config file {config_file}: {e}",
+                            file=sys.stderr,
+                        )
             else:
                 # Only warn if it's the first/only config file
                 if len(self.config_files) == 1:
                     # Skip stderr output in MCP mode to avoid JSON-RPC interference
                     if not os.environ.get("CHUNKHOUND_MCP_MODE"):
-                        print(f"Warning: Config file {config_file} not found", file=sys.stderr)
+                        print(
+                            f"Warning: Config file {config_file} not found",
+                            file=sys.stderr,
+                        )
 
         return merged_data
 
@@ -93,7 +99,7 @@ class BaseFileConfigSettingsSource(PydanticBaseSettingsSource, ABC):
             return self._data[field_name], field_name, True
         else:
             # Check for nested field access (e.g., database.host)
-            field_parts = field_name.split('.')
+            field_parts = field_name.split(".")
             current_data = self._data
 
             try:
@@ -110,7 +116,7 @@ class BaseFileConfigSettingsSource(PydanticBaseSettingsSource, ABC):
         return self._data
 
     def __repr__(self) -> str:
-        return f'{self.__class__.__name__}(config_files={[str(f) for f in self.config_files]})'
+        return f"{self.__class__.__name__}(config_files={[str(f) for f in self.config_files]})"
 
 
 class YamlConfigSettingsSource(BaseFileConfigSettingsSource):
@@ -126,7 +132,7 @@ class YamlConfigSettingsSource(BaseFileConfigSettingsSource):
                 "Install with: pip install pyyaml"
             )
 
-        with open(path, encoding='utf-8') as f:
+        with open(path, encoding="utf-8") as f:
             data = yaml.safe_load(f)
             return data if isinstance(data, dict) else {}
 
@@ -147,7 +153,7 @@ class TomlConfigSettingsSource(BaseFileConfigSettingsSource):
                     "Install with: pip install tomli"
                 )
 
-        with open(path, 'rb') as f:
+        with open(path, "rb") as f:
             return tomllib.load(f)
 
 
@@ -156,7 +162,7 @@ class JsonConfigSettingsSource(BaseFileConfigSettingsSource):
 
     def load_file(self, path: Path) -> dict[str, Any]:
         """Load JSON configuration file."""
-        with open(path, encoding='utf-8') as f:
+        with open(path, encoding="utf-8") as f:
             return json.load(f)
 
 
@@ -207,13 +213,13 @@ class FilteredCliSettingsSource(PydanticBaseSettingsSource):
             arg = self.cli_args[i]
 
             # Check if this is a flag argument
-            if arg.startswith('--'):
+            if arg.startswith("--"):
                 # Remove -- prefix
                 arg_name = arg[2:]
 
                 # Remove prefix if present
                 if self.cli_prefix and arg_name.startswith(self.cli_prefix):
-                    arg_name = arg_name[len(self.cli_prefix):]
+                    arg_name = arg_name[len(self.cli_prefix) :]
 
                 # Check if argument should be included/excluded
                 if not self._should_include_field(arg_name):
@@ -221,12 +227,14 @@ class FilteredCliSettingsSource(PydanticBaseSettingsSource):
                     continue
 
                 # Handle --key=value format
-                if '=' in arg_name:
-                    key, value = arg_name.split('=', 1)
+                if "=" in arg_name:
+                    key, value = arg_name.split("=", 1)
                     parsed[key] = self._parse_value(value)
                     i += 1
                 # Handle --key value format
-                elif i + 1 < len(self.cli_args) and not self.cli_args[i + 1].startswith('--'):
+                elif i + 1 < len(self.cli_args) and not self.cli_args[i + 1].startswith(
+                    "--"
+                ):
                     key = arg_name
                     value = self.cli_args[i + 1]
                     parsed[key] = self._parse_value(value)
@@ -259,15 +267,15 @@ class FilteredCliSettingsSource(PydanticBaseSettingsSource):
     def _parse_value(self, value: str) -> Any:
         """Parse a string value to appropriate Python type."""
         # Handle boolean values
-        if value.lower() in ('true', 'yes', '1', 'on'):
+        if value.lower() in ("true", "yes", "1", "on"):
             return True
-        elif value.lower() in ('false', 'no', '0', 'off'):
+        elif value.lower() in ("false", "no", "0", "off"):
             return False
 
         # Handle numeric values
         try:
             # Try integer first
-            if '.' not in value:
+            if "." not in value:
                 return int(value)
             else:
                 return float(value)
@@ -275,7 +283,7 @@ class FilteredCliSettingsSource(PydanticBaseSettingsSource):
             pass
 
         # Handle JSON values
-        if value.startswith(('{', '[', '"')):
+        if value.startswith(("{", "[", '"')):
             try:
                 return json.loads(value)
             except json.JSONDecodeError:
@@ -313,7 +321,7 @@ class FilteredCliSettingsSource(PydanticBaseSettingsSource):
             return self._parsed_args[field_name], field_name, True
         else:
             # Check for nested field access (e.g., database.host)
-            field_parts = field_name.split('.')
+            field_parts = field_name.split(".")
             current_data = self._parsed_args
 
             try:
@@ -331,10 +339,10 @@ class FilteredCliSettingsSource(PydanticBaseSettingsSource):
 
     def __repr__(self) -> str:
         return (
-            f'FilteredCliSettingsSource('
-            f'prefix={self.cli_prefix}, '
-            f'includes={self.cli_includes}, '
-            f'excludes={self.cli_excludes})'
+            f"FilteredCliSettingsSource("
+            f"prefix={self.cli_prefix}, "
+            f"includes={self.cli_includes}, "
+            f"excludes={self.cli_excludes})"
         )
 
 
@@ -379,16 +387,19 @@ def create_config_sources(
         for config_file in config_files:
             config_path = Path(config_file)
 
-            if config_path.suffix.lower() in ('.yaml', '.yml'):
+            if config_path.suffix.lower() in (".yaml", ".yml"):
                 sources.append(YamlConfigSettingsSource(settings_cls, config_path))
-            elif config_path.suffix.lower() == '.toml':
+            elif config_path.suffix.lower() == ".toml":
                 sources.append(TomlConfigSettingsSource(settings_cls, config_path))
-            elif config_path.suffix.lower() == '.json':
+            elif config_path.suffix.lower() == ".json":
                 sources.append(JsonConfigSettingsSource(settings_cls, config_path))
             else:
                 # Skip stderr output in MCP mode to avoid JSON-RPC interference
                 if not os.environ.get("CHUNKHOUND_MCP_MODE"):
-                    print(f"Warning: Unknown config file format: {config_path}", file=sys.stderr)
+                    print(
+                        f"Warning: Unknown config file format: {config_path}",
+                        file=sys.stderr,
+                    )
 
     return sources
 
@@ -410,22 +421,22 @@ def find_config_files(
     if base_dirs is None:
         base_dirs = [
             Path.cwd(),
-            Path.home() / '.config' / 'chunkhound',
-            Path.home() / '.chunkhound',
+            Path.home() / ".config" / "chunkhound",
+            Path.home() / ".chunkhound",
         ]
     else:
         base_dirs = [Path(d) for d in base_dirs]
 
     if config_names is None:
         config_names = [
-            'chunkhound.yaml',
-            'chunkhound.yml',
-            'chunkhound.toml',
-            'chunkhound.json',
-            '.chunkhound.yaml',
-            '.chunkhound.yml',
-            '.chunkhound.toml',
-            '.chunkhound.json',
+            "chunkhound.yaml",
+            "chunkhound.yml",
+            "chunkhound.toml",
+            "chunkhound.json",
+            ".chunkhound.yaml",
+            ".chunkhound.yml",
+            ".chunkhound.toml",
+            ".chunkhound.json",
         ]
 
     found_files = []

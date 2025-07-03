@@ -12,7 +12,9 @@ from .main_parser import (
 )
 
 
-def validate_batch_sizes(embedding_batch_size: int, db_batch_size: int, provider: str) -> tuple[bool, str]:
+def validate_batch_sizes(
+    embedding_batch_size: int, db_batch_size: int, provider: str
+) -> tuple[bool, str]:
     """Validate batch size arguments against provider limits and system constraints.
 
     Args:
@@ -25,10 +27,10 @@ def validate_batch_sizes(embedding_batch_size: int, db_batch_size: int, provider
     """
     # Provider-specific embedding batch limits
     embedding_limits: dict[str, tuple[int, int]] = {
-        'openai': (1, 2048),
-        'openai-compatible': (1, 1000),
-        'tei': (1, 512),
-        'bge-in-icl': (1, 256)
+        "openai": (1, 2048),
+        "openai-compatible": (1, 1000),
+        "tei": (1, 512),
+        "bge-in-icl": (1, 256),
     }
 
     # Database batch limits (DuckDB optimized for large batches)
@@ -38,16 +40,25 @@ def validate_batch_sizes(embedding_batch_size: int, db_batch_size: int, provider
     if provider in embedding_limits:
         min_emb, max_emb = embedding_limits[provider]
         if not (min_emb <= embedding_batch_size <= max_emb):
-            return False, f"Embedding batch size {embedding_batch_size} invalid for provider '{provider}'. Must be between {min_emb} and {max_emb}."
+            return (
+                False,
+                f"Embedding batch size {embedding_batch_size} invalid for provider '{provider}'. Must be between {min_emb} and {max_emb}.",
+            )
     else:
         # Default limits for unknown providers
         if not (1 <= embedding_batch_size <= 1000):
-            return False, f"Embedding batch size {embedding_batch_size} invalid. Must be between 1 and 1000."
+            return (
+                False,
+                f"Embedding batch size {embedding_batch_size} invalid. Must be between 1 and 1000.",
+            )
 
     # Validate database batch size
     min_db, max_db = db_limits
     if not (min_db <= db_batch_size <= max_db):
-        return False, f"Database batch size {db_batch_size} invalid. Must be between {min_db} and {max_db}."
+        return (
+            False,
+            f"Database batch size {db_batch_size} invalid. Must be between {min_db} and {max_db}.",
+        )
 
     return True, ""
 
@@ -69,7 +80,7 @@ def process_batch_arguments(args: argparse.Namespace) -> None:
             f"WARNING: --batch-size is deprecated. Use --embedding-batch-size instead.\n"
             f"         Using --embedding-batch-size {args.batch_size} based on your --batch-size {args.batch_size}\n"
             f"         Consider also setting --db-batch-size for optimal performance",
-            file=sys.stderr
+            file=sys.stderr,
         )
         # Only override if embedding_batch_size is still default
         if args.embedding_batch_size == 100:  # Default value
@@ -79,7 +90,7 @@ def process_batch_arguments(args: argparse.Namespace) -> None:
     is_valid, error_msg = validate_batch_sizes(
         args.embedding_batch_size,
         args.db_batch_size,
-        getattr(args, 'provider', 'openai')
+        getattr(args, "provider", "openai"),
     )
 
     if not is_valid:
@@ -99,7 +110,7 @@ def add_run_subparser(subparsers: Any) -> argparse.ArgumentParser:
     run_parser = subparsers.add_parser(
         "index",
         help="Index directory and optionally watch for changes",
-        description="Scan and index a directory for code search, generating embeddings for semantic search. Optionally watch for file changes and update the index automatically."
+        description="Scan and index a directory for code search, generating embeddings for semantic search. Optionally watch for file changes and update the index automatically.",
     )
 
     # Optional positional argument with default to current directory

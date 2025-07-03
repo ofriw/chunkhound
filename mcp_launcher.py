@@ -18,16 +18,13 @@ def parse_arguments():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(description="ChunkHound MCP Server")
     parser.add_argument(
-        "--db",
-        type=str,
-        help="Path to DuckDB database file",
-        default="chunkhound.db"
+        "--db", type=str, help="Path to DuckDB database file", default="chunkhound.db"
     )
     parser.add_argument(
         "--watch-path",
         type=str,
         help="Directory to watch for file changes (overrides auto-detection)",
-        default=None
+        default=None,
     )
     return parser.parse_args()
 
@@ -45,7 +42,14 @@ def find_project_root(start_path: Path = None) -> Path:
         start_path = Path.cwd()
 
     # Project indicators that suggest a project root
-    project_indicators = [".git", "pyproject.toml", "package.json", "Cargo.toml", "go.mod", ".chunkhound"]
+    project_indicators = [
+        ".git",
+        "pyproject.toml",
+        "package.json",
+        "Cargo.toml",
+        "go.mod",
+        ".chunkhound",
+    ]
 
     current = start_path.resolve()
 
@@ -72,7 +76,10 @@ def setup_watch_paths(args) -> None:
             os.environ["CHUNKHOUND_WATCH_PATHS"] = str(watch_path)
         else:
             # Log warning but don't fail - fall back to auto-detection
-            print(f"Warning: Specified watch path does not exist: {watch_path}", file=sys.stderr)
+            print(
+                f"Warning: Specified watch path does not exist: {watch_path}",
+                file=sys.stderr,
+            )
             os.environ["CHUNKHOUND_WATCH_PATHS"] = str(find_project_root())
     else:
         # Auto-detect project root
@@ -100,6 +107,7 @@ def main():
     # Import and run the MCP entry point
     try:
         from chunkhound.mcp_entry import main_sync
+
         main_sync()
     except ImportError:
         sys.exit(1)

@@ -5,9 +5,4 @@ from .embedding_service import EmbeddingService
 from .indexing_coordinator import IndexingCoordinator
 from .search_service import SearchService
 
-__all__ = [
-    'BaseService',
-    'IndexingCoordinator',
-    'SearchService',
-    'EmbeddingService'
-]
+__all__ = ["BaseService", "IndexingCoordinator", "SearchService", "EmbeddingService"]

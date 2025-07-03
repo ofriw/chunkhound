@@ -7,7 +7,7 @@ from typing import Protocol, TypeVar
 
 logger = logging.getLogger(__name__)
 
-T = TypeVar('T')
+T = TypeVar("T")
 
 
 async def handle_token_limit_error(
@@ -16,7 +16,7 @@ async def handle_token_limit_error(
     token_limit: int,
     embed_function: Callable[[list[str]], Awaitable[list[list[float]]]],
     chunk_text_function: Callable[[str, int], list[str]],
-    single_text_fallback: bool = True
+    single_text_fallback: bool = True,
 ) -> list[list[float]]:
     """Generic handler for token limit exceeded errors.
 
@@ -36,7 +36,9 @@ async def handle_token_limit_error(
     """
     if len(texts) > 1:
         # Calculate optimal number of splits based on token estimates
-        num_splits = max(2, (total_tokens + token_limit - 1) // token_limit)  # Ceiling division
+        num_splits = max(
+            2, (total_tokens + token_limit - 1) // token_limit
+        )  # Ceiling division
 
         logger.debug(
             f"Token limit exceeded for batch of {len(texts)} texts "
@@ -151,7 +153,7 @@ class TokenLimitHandler(Protocol):
 def with_token_limit_handling(
     error_check_func: Callable[[Exception], bool],
     safety_margin: int = 100,
-    single_text_fallback: bool = True
+    single_text_fallback: bool = True,
 ):
     """Decorator to add token limit error handling to embedding methods.
 
@@ -163,9 +165,12 @@ def with_token_limit_handling(
     Returns:
         Decorator function
     """
+
     def decorator(embed_func: Callable[..., Awaitable[list[list[float]]]]):
         @wraps(embed_func)
-        async def wrapper(self: TokenLimitHandler, texts: list[str], *args, **kwargs) -> list[list[float]]:
+        async def wrapper(
+            self: TokenLimitHandler, texts: list[str], *args, **kwargs
+        ) -> list[list[float]]:
             try:
                 return await embed_func(self, texts, *args, **kwargs)
             except Exception as e:
@@ -177,13 +182,17 @@ def with_token_limit_handling(
                         texts=texts,
                         total_tokens=total_tokens,
                         token_limit=token_limit,
-                        embed_function=lambda batch: embed_func(self, batch, *args, **kwargs),
+                        embed_function=lambda batch: embed_func(
+                            self, batch, *args, **kwargs
+                        ),
                         chunk_text_function=self.chunk_text_by_tokens,
-                        single_text_fallback=single_text_fallback
+                        single_text_fallback=single_text_fallback,
                     )
                 else:
                     raise
+
         return wrapper
+
     return decorator
 
 
@@ -191,9 +200,14 @@ def openai_token_limit_check(error: Exception) -> bool:
     """Check if error indicates OpenAI token limit exceeded."""
     try:
         import openai
-        if hasattr(openai, 'BadRequestError') and isinstance(error, openai.BadRequestError):
+
+        if hasattr(openai, "BadRequestError") and isinstance(
+            error, openai.BadRequestError
+        ):
             error_message = str(error)
-            return "maximum context length" in error_message and "tokens" in error_message
+            return (
+                "maximum context length" in error_message and "tokens" in error_message
+            )
     except ImportError:
         pass
     return False
@@ -209,12 +223,22 @@ def anthropic_token_limit_check(error: Exception) -> bool:
 def generic_token_limit_check(error: Exception) -> bool:
     """Generic token limit error checker for unknown providers."""
     error_message = str(error).lower()
-    return any(phrase in error_message for phrase in [
-        "token limit", "context length", "maximum tokens", "too many tokens"
-    ])
+    return any(
+        phrase in error_message
+        for phrase in [
+            "token limit",
+            "context length",
+            "maximum tokens",
+            "too many tokens",
+        ]
+    )
 
 
 # Convenience decorators for specific providers
 with_openai_token_handling = lambda: with_token_limit_handling(openai_token_limit_check)
-with_anthropic_token_handling = lambda: with_token_limit_handling(anthropic_token_limit_check)
-with_generic_token_handling = lambda: with_token_limit_handling(generic_token_limit_check)
+with_anthropic_token_handling = lambda: with_token_limit_handling(
+    anthropic_token_limit_check
+)
+with_generic_token_handling = lambda: with_token_limit_handling(
+    generic_token_limit_check
+)
