@@ -317,12 +317,26 @@ class ChunkHoundConfig(BaseSettings):
         # 3. Apply runtime overrides
         config_data.update(override_values)
 
-        # 4. Create instance with environment variable support
+        # 4. Create instance with controlled environment variable loading
+        # First, create default instance to get environment variable values
+        env_instance = cls()
+        
+        # Apply config file and override values on top of environment defaults
+        # This ensures config files override environment variables, not the reverse
+        final_config_data = {}
+        
+        # Start with environment-loaded values
+        final_config_data.update(env_instance.model_dump(exclude_none=True))
+        
+        # Override with config file data (this is the fix - config file wins over env)
+        final_config_data.update(config_data)
+        
         # Handle embedding config specially to ensure proper EmbeddingConfig instantiation
-        if "embedding" in config_data and isinstance(config_data["embedding"], dict):
-            config_data["embedding"] = EmbeddingConfig(**config_data["embedding"])
+        if "embedding" in final_config_data and isinstance(final_config_data["embedding"], dict):
+            final_config_data["embedding"] = EmbeddingConfig(**final_config_data["embedding"])
 
-        return cls(**config_data)
+        # Create final instance without automatic environment processing to prevent double processing
+        return cls.model_validate(final_config_data)
 
     @field_validator("embedding")
     def validate_embedding_config(cls, v: EmbeddingConfig) -> EmbeddingConfig:
