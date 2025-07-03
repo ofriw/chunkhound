@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.4] - 2025-07-03
+
+### Fixed
+- CLI argument defaults no longer override config file values
+- Updated dependencies via uv.lock
+
 ## [2.1.3] - 2025-07-03
 
 ### Changed
@@ -184,7 +190,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 For more information, visit: https://github.com/chunkhound/chunkhound
 
-[Unreleased]: https://github.com/chunkhound/chunkhound/compare/v2.1.3...HEAD
+[Unreleased]: https://github.com/chunkhound/chunkhound/compare/v2.1.4...HEAD
+[2.1.4]: https://github.com/chunkhound/chunkhound/compare/v2.1.3...v2.1.4
 [2.1.3]: https://github.com/chunkhound/chunkhound/compare/v2.1.2...v2.1.3
 [2.1.2]: https://github.com/chunkhound/chunkhound/compare/v2.1.1...v2.1.2
 [2.1.1]: https://github.com/chunkhound/chunkhound/compare/v2.1.0...v2.1.1
