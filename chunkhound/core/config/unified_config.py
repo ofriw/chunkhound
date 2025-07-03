@@ -395,10 +395,6 @@ class ChunkHoundConfig(BaseSettings):
         file_path.parent.mkdir(parents=True, exist_ok=True)
         config_dict = self.to_dict()
 
-        # Remove sensitive data from saved config
-        if "embedding" in config_dict and "api_key" in config_dict["embedding"]:
-            del config_dict["embedding"]["api_key"]
-
         with open(file_path, "w") as f:
             json.dump(config_dict, f, indent=2)
 
