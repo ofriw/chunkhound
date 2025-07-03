@@ -223,9 +223,9 @@ class ChunkHoundConfig(BaseSettings):
 
     Configuration Sources (in order of precedence):
     1. Runtime parameters (highest priority)
-    2. Environment variables (CHUNKHOUND_*)
-    3. Project config file (.chunkhound.json)
-    4. User config file (~/.chunkhound/config.json)
+    2. Project config file (.chunkhound.json)
+    3. User config file (~/.chunkhound/config.json)
+    4. Environment variables (CHUNKHOUND_*)
     5. Default values (lowest priority)
 
     Environment Variable Examples:

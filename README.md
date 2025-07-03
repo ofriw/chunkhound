@@ -198,9 +198,9 @@ ChunkHound supports project-level configuration through a `.chunkhound.json` fil
 
 **Configuration Hierarchy** (highest to lowest priority):
 1. Command-line arguments
-2. Environment variables
-3. Project config file (`.chunkhound.json` in current directory)
-4. User config file (`~/.chunkhound/config.json`)
+2. Project config file (`.chunkhound.json` in current directory)
+3. User config file (`~/.chunkhound/config.json`)
+4. Environment variables
 5. Default values
 
 **Example `.chunkhound.json`**:
@@ -281,7 +281,7 @@ BGE-IN-ICL:
 
 **Security Note**: 
 - API keys in config files are convenient for local development
-- Environment variables (`CHUNKHOUND_EMBEDDING__API_KEY`) always override config files
+- Config files override environment variables (for project-specific settings)
 - Add `.chunkhound.json` to `.gitignore` to prevent committing API keys:
 
 ```gitignore
