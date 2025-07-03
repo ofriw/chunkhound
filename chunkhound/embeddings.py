@@ -326,7 +326,7 @@ class OpenAIEmbeddingProvider:
                 if batch_idx + 1 < len(token_aware_batches):
                     await asyncio.sleep(0.1)
 
-            logger.info(
+            logger.debug(
                 f"Generated {len(all_embeddings)} embeddings using {self.model} "
                 f"({len(all_embeddings)}/{len(texts)} texts processed)"
             )
@@ -436,7 +436,7 @@ class OpenAICompatibleProvider:
     async def _detect_capabilities(self, sample_embedding: list[float]) -> None:
         """Auto-detect model capabilities from a sample embedding."""
         self._dims = len(sample_embedding)
-        logger.info(
+        logger.debug(
             f"Auto-detected embedding dimensions: {self._dims} for model {self._model}"
         )
 
@@ -450,7 +450,7 @@ class OpenAICompatibleProvider:
                     first_model = model_info["data"][0]
                     if "id" in first_model:
                         self._model = first_model["id"]
-                        logger.info(f"Auto-detected model name: {self._model}")
+                        logger.debug(f"Auto-detected model name: {self._model}")
                 elif "model" in model_info:
                     # Direct model field
                     self._model = model_info["model"]
@@ -532,7 +532,7 @@ class OpenAICompatibleProvider:
                         if i + self.batch_size < len(texts):
                             await asyncio.sleep(0.1)
 
-            logger.info(
+            logger.debug(
                 f"Generated {len(all_embeddings)} embeddings using {self.model}"
             )
             return all_embeddings
@@ -1330,7 +1330,7 @@ class BGEInICLProvider:
                         # Auto-detect dimensions from first embedding
                         if self._dims is None and batch_embeddings:
                             self._dims = len(batch_embeddings[0])
-                            logger.info(
+                            logger.debug(
                                 f"Auto-detected BGE-IN-ICL embedding dimensions: {self._dims}"
                             )
 
@@ -1360,7 +1360,7 @@ class BGEInICLProvider:
             texts_per_second = len(texts) / max(total_time, 0.001)
             cache_hit_rate = self._metrics.cache_hit_rate
 
-            logger.info(
+            logger.debug(
                 f"Generated {len(all_embeddings)} BGE-IN-ICL embeddings using {self._model} "
                 f"(ICL: {self._enable_icl}, {texts_per_second:.1f} texts/s, "
                 f"cache_hit_rate: {cache_hit_rate:.3f}, batches: {batch_count})"

@@ -3,6 +3,8 @@
 ## What ChunkHound Is
 ChunkHound is a semantic and regex search tool for codebases that provides MCP (Model Context Protocol) integration for AI assistants. It indexes code files using tree-sitter parsing, stores chunks in a local database, and enables both exact pattern matching and semantic search through AI embeddings.
 
+**THIS PROJECT IS BEING BUILT WITH AN AI AGENT DIRECTED BY A HUMAN. OPTIMIZE THE CODEBASE AND STYLING FOR LLM EDITING. NO DIRECT HUMAN EDITING IS EXPECTED**
+
 ## Key Technologies
 - Python 3.10+ with tree-sitter for parsing
   - Using `uv` package and project manager
