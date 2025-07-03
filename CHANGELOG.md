@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Centralized version management system for consistent versioning across all components
+
+### Changed
+- Simplified version updates through automated scripts
+- Enhanced installation and development documentation
+
+### Fixed
+- Version consistency across CLI, MCP server, and package initialization
+
 ## [2.1.0] - 2025-07-02
 
 ### Fixed
