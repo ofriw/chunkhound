@@ -67,7 +67,7 @@ async def run_command(args: argparse.Namespace) -> None:
 
     # Validate arguments - update args.db to use config value for validation
     args.db = db_path
-    if not _validate_run_arguments(args, formatter):
+    if not _validate_run_arguments(args, formatter, unified_config):
         sys.exit(1)
 
     # Initialize CLI coordinator for database access coordination
@@ -128,13 +128,14 @@ async def run_command(args: argparse.Namespace) -> None:
 
 
 def _validate_run_arguments(
-    args: argparse.Namespace, formatter: OutputFormatter
+    args: argparse.Namespace, formatter: OutputFormatter, unified_config: Any = None
 ) -> bool:
     """Validate run command arguments.
 
     Args:
         args: Parsed arguments
         formatter: Output formatter
+        unified_config: Unified configuration (optional)
 
     Returns:
         True if valid, False otherwise
@@ -149,9 +150,19 @@ def _validate_run_arguments(
 
     # Validate provider arguments
     if not args.no_embeddings:
-        if not validate_provider_args(
-            args.provider, args.api_key, args.base_url, args.model
-        ):
+        # Use unified config values if available, fall back to CLI args
+        if unified_config:
+            provider = unified_config.embedding.provider
+            api_key = unified_config.embedding.api_key.get_secret_value() if unified_config.embedding.api_key else None
+            base_url = unified_config.embedding.base_url
+            model = unified_config.embedding.model
+        else:
+            provider = args.provider
+            api_key = args.api_key
+            base_url = args.base_url
+            model = args.model
+            
+        if not validate_provider_args(provider, api_key, base_url, model):
             return False
 
     # Validate file patterns

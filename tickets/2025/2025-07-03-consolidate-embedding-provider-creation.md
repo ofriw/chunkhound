@@ -103,3 +103,29 @@ Eliminate duplicate embedding provider creation logic. Make all paths use `Embed
 - `chunkhound/api/cli/commands/run.py`: Replaced direct provider creation with factory calls in `_setup_embedding_manager()`
 
 **Status**: Ready for testing. The consolidation is complete and should resolve the `openai-compatible` provider failures when using `.chunkhound.json` config.
+
+## 2025-07-03 - Root Cause Found
+**Issue**: CLI validation occurs before config loading, causing false validation failures.
+
+**Root Cause**: `chunkhound/api/cli/utils/validation.py:validate_provider_args()` checks CLI args (None values) instead of loaded config values.
+
+**Reproduction**: `test_ubuntu_config_bug_v2.py` - validates with None args fails for openai-compatible despite correct config.
+
+**Fix Required**: Move validation after config loading OR modify validation to check merged config values.
+
+## 2025-07-03 - FIXED
+**Root Cause**: CLI argument parser set `default="openai"` for `--provider`, causing config file values to be overridden.
+
+**Two Issues Fixed**:
+1. **Argument Parser**: `chunkhound/api/cli/parsers/main_parser.py:96` - Changed `default="openai"` to `default=None` so config file can take precedence
+2. **Index Command Validation**: `chunkhound/api/cli/main.py:124-142` - Modified to use unified config values instead of raw CLI args  
+3. **Run Command Validation**: `chunkhound/api/cli/commands/run.py:130-166` - Modified to use unified config values instead of raw CLI args
+
+**Testing**: Manual verification shows CLI now starts successfully with `.chunkhound.json` openai-compatible provider configuration.
+
+**Files Modified**:
+- `chunkhound/api/cli/parsers/main_parser.py`: Removed default provider to allow config precedence
+- `chunkhound/api/cli/main.py`: Updated validation to use config values, added import for validate_provider_args
+- `chunkhound/api/cli/commands/run.py`: Updated validation to use config values
+
+**Status**: COMPLETED. Ubuntu CLI startup bug with `.chunkhound.json` openai-compatible provider is resolved.

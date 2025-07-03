@@ -71,6 +71,7 @@ from .utils.validation import (
     ensure_database_directory,
     exit_on_validation_error,
     validate_path,
+    validate_provider_args,
 )
 
 
@@ -120,22 +121,18 @@ def validate_args(args: argparse.Namespace) -> None:
         if not ensure_database_directory(db_path):
             exit_on_validation_error("Cannot access database directory")
 
-        # Validate provider-specific arguments for index command
+        # Validate provider-specific arguments for index command using unified config
         if not args.no_embeddings:
-            if args.provider in ["tei", "bge-in-icl"] and not args.base_url:
-                exit_on_validation_error(
-                    f"--base-url required for {args.provider} provider"
-                )
-
-            if args.provider == "openai-compatible" and not args.model:
-                exit_on_validation_error(
-                    f"--model required for {args.provider} provider"
-                )
-
-            if args.provider == "openai-compatible" and not args.base_url:
-                exit_on_validation_error(
-                    f"--base-url required for {args.provider} provider"
-                )
+            # Use unified config values instead of CLI args
+            provider = unified_config.embedding.provider
+            api_key = unified_config.embedding.api_key.get_secret_value() if unified_config.embedding.api_key else None
+            base_url = unified_config.embedding.base_url
+            model = unified_config.embedding.model
+            
+            
+            # Use the standard validation function with config values
+            if not validate_provider_args(provider, api_key, base_url, model):
+                exit_on_validation_error("Provider validation failed")
 
     elif args.command == "mcp":
         # Get correct database path from unified config if not explicitly provided

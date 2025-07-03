@@ -225,6 +225,8 @@ cli_wrapper_debug.py
 debug_cli_startup.py
 *_debug.py
 *_minimal.py
+debug_*.py
+tmp_test/
 
 # Backup files
 *.backup.*

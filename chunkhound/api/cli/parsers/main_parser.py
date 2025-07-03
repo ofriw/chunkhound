@@ -93,9 +93,9 @@ def add_embedding_arguments(parser: argparse.ArgumentParser) -> None:
     """
     parser.add_argument(
         "--provider",
-        default="openai",
+        default=None,
         choices=["openai", "openai-compatible", "tei", "bge-in-icl"],
-        help="Embedding provider to use (default: openai)",
+        help="Embedding provider to use (default: from config file or openai)",
     )
 
     parser.add_argument(
