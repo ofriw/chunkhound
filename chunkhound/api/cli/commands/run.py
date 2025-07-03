@@ -9,7 +9,7 @@ from typing import Any
 
 from loguru import logger
 
-from chunkhound import __version__
+from chunkhound.version import __version__
 from chunkhound.embeddings import (
     EmbeddingManager,
     create_openai_compatible_provider,

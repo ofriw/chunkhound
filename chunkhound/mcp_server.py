@@ -21,6 +21,8 @@ from mcp.server import Server
 from mcp.server.lowlevel import NotificationOptions
 from mcp.server.models import InitializationOptions
 
+from chunkhound.version import __version__
+
 # Disable all logging for MCP server to prevent interference with JSON-RPC
 logging.disable(logging.CRITICAL)
 for logger_name in ['', 'mcp', 'server', 'fastmcp']:
@@ -857,7 +859,7 @@ async def call_tool(
         async def _execute_health_check():
             health_status = {
                 "status": "healthy",
-                "version": "1.1.0",
+                "version": __version__,
                 "database_connected": _database is not None,
                 "embedding_providers": _embedding_manager.list_providers() if _embedding_manager else [],
                 "task_coordinator_running": _task_coordinator.get_stats()['is_running'] if _task_coordinator else False
@@ -1059,7 +1061,7 @@ async def handle_mcp_with_validation():
                             write_stream,
                             InitializationOptions(
                                 server_name="ChunkHound Code Search",
-                                server_version="1.1.0",
+                                server_version=__version__,
                                 capabilities=server.get_capabilities(
                                     notification_options=NotificationOptions(),
                                     experimental_capabilities={},

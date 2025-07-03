@@ -1,6 +1,7 @@
 """ChunkHound - Local-first semantic code search with vector and regex capabilities."""
 
-__version__ = "2.0.0"
+from .version import __version__
+
 __author__ = "Ofri Wolfus"
 __description__ = "Local-first semantic code search with vector and regex capabilities"
 
