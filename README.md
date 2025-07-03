@@ -320,6 +320,7 @@ ChunkHound supports project-level configuration through a `.chunkhound.json` fil
 {
   "embedding": {
     "provider": "openai",
+    "api_key": "sk-your-openai-key-here",
     "model": "text-embedding-3-small",
     "batch_size": 50,
     "timeout": 30,
@@ -354,12 +355,58 @@ ChunkHound supports project-level configuration through a `.chunkhound.json` fil
 }
 ```
 
+**Provider-Specific Examples**:
+
+OpenAI-compatible (Ollama, LocalAI):
+```json
+{
+  "embedding": {
+    "provider": "openai-compatible",
+    "base_url": "http://localhost:11434",
+    "model": "nomic-embed-text",
+    "api_key": "optional-api-key"
+  }
+}
+```
+
+Text Embeddings Inference (TEI):
+```json
+{
+  "embedding": {
+    "provider": "tei",
+    "base_url": "http://localhost:8080"
+  }
+}
+```
+
+BGE-IN-ICL:
+```json
+{
+  "embedding": {
+    "provider": "bge-in-icl",
+    "base_url": "http://localhost:8080",
+    "language": "python",
+    "enable_icl": true
+  }
+}
+```
+
+**Security Note**: 
+- API keys in config files are convenient for local development
+- Environment variables (`CHUNKHOUND_EMBEDDING__API_KEY`) always override config files
+- Add `.chunkhound.json` to `.gitignore` to prevent committing API keys:
+
+```gitignore
+# ChunkHound config with API keys
+.chunkhound.json
+```
+
 **Configuration Options**:
 
 - **`embedding`**: Embedding provider settings
   - `provider`: Choose from `openai`, `openai-compatible`, `tei`, `bge-in-icl`
   - `model`: Model name (uses provider default if not specified)
-  - `api_key`: API key for authentication (omit from file, use env vars for security)
+  - `api_key`: API key for authentication (can be stored in config file)
   - `base_url`: Base URL for API (for local/custom providers)
   - `batch_size`: Number of texts to embed at once (1-1000)
   - `timeout`: Request timeout in seconds
