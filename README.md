@@ -15,13 +15,14 @@ The easiest way to install and configure ChunkHound is to use your AI assistant.
 - Detect what IDE and agent versions are you running in.
 - Read https://raw.githubusercontent.com/ofriw/chunkhound/refs/heads/main/README.md
 - Install ChunkHound using uv and configure it for the current IDE and agent
+  - Upgrade chunkhound if already installed
 - Edit the current IDE / agent's config files to configure chunkhound as an MCP server. See instructions in the README
-- Upgrade chunkhound if already installed
 
 Start by asking the user:
-1. What embeddings provider would they like to use? Suggest from the list of supported providers.
-2. Based on the user's response, ask for the relevant configuration parameters
-3. Proceed with the configuration based on the user's input
+1. What embeddings provider would they like to use? Suggest from the list of supported providers. Clearly articulate defaults.
+2. Based on the user's response, ask for the relevant configuration parameters. Use defaults if user hasn't decided.
+3. Ask clarifying questions if unsure.
+4. Proceed with the configuration based on the user's input.
 ```
 
 Your AI assistant will automatically detect your environment, install ChunkHound, and configure it for your specific IDE and embedding provider preferences.
