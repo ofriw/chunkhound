@@ -22,7 +22,8 @@ Start by asking the user:
 1. What embeddings provider would they like to use? Suggest from the list of supported providers. Clearly articulate defaults.
 2. Based on the user's response, ask for the relevant configuration parameters. Use defaults if user hasn't decided.
 3. Ask clarifying questions if unsure.
-4. Proceed with the configuration based on the user's input.
+
+Proceed with the configuration based on the user's input.
 ```
 
 Your AI assistant will automatically detect your environment, install ChunkHound, and configure it for your specific IDE and embedding provider preferences.
