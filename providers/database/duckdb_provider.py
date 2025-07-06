@@ -1,105 +1,40 @@
 """DuckDB provider implementation for ChunkHound - concrete database provider using DuckDB."""
 
-import asyncio
-import contextvars
-import importlib
 import os
-import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
 # Import existing components that will be used by the provider
-from chunkhound.chunker import Chunker, IncrementalChunker
 from chunkhound.embeddings import EmbeddingManager
-from chunkhound.file_discovery_cache import FileDiscoveryCache
 from core.models import Chunk, Embedding, File
 from core.types import ChunkType, Language
 from providers.database.duckdb.chunk_repository import DuckDBChunkRepository
 from providers.database.duckdb.connection_manager import DuckDBConnectionManager
 from providers.database.duckdb.embedding_repository import DuckDBEmbeddingRepository
 from providers.database.duckdb.file_repository import DuckDBFileRepository
-
-# Avoid circular import - use lazy imports for registry functions
+from providers.database.serial_database_provider import SerialDatabaseProvider
+from providers.database.serial_executor import (
+    _executor_local,
+    track_operation,
+)
 
 # Type hinting only
 if TYPE_CHECKING:
-    from services.embedding_service import EmbeddingService
-    from services.indexing_coordinator import IndexingCoordinator
-    from services.search_service import SearchService
-
-# Task-local transaction state to ensure proper isolation in async contexts
-_transaction_context = contextvars.ContextVar("transaction_active", default=False)
-
-# Thread-local storage for executor thread state
-_executor_local = threading.local()
+    from chunkhound.core.config.unified_config import DatabaseConfig
 
 
-def _get_thread_local_connection(provider: "DuckDBProvider") -> Any:
-    """Get thread-local DuckDB connection for executor thread.
-
-    This function should ONLY be called from within the executor thread.
-    It reuses the connection from the connection manager.
-    """
-    if not hasattr(_executor_local, "connection"):
-        # Use the connection from connection manager (already validated for WAL)
-        _executor_local.connection = provider._connection_manager.connection
-        if _executor_local.connection is None:
-            raise RuntimeError("Connection manager has no active connection")
-        logger.debug(
-            f"Using connection manager's connection in executor thread {threading.get_ident()}"
-        )
-    return _executor_local.connection
 
 
-def _get_thread_local_state() -> dict[str, Any]:
-    """Get thread-local state for executor thread.
-
-    This function should ONLY be called from within the executor thread.
-    """
-    if not hasattr(_executor_local, "state"):
-        _executor_local.state = {
-            "transaction_active": False,
-            "operations_since_checkpoint": 0,
-            "last_checkpoint_time": time.time(),
-            "deferred_checkpoint": False,
-            "checkpoint_threshold": 100,  # Checkpoint every N operations
-        }
-    return _executor_local.state
-
-
-def _track_operation(state: dict[str, Any]) -> None:
-    """Track a database operation for checkpoint management.
-
-    This function should ONLY be called from within the executor thread.
-    """
-    state["operations_since_checkpoint"] += 1
-
-    # Check if we should perform automatic checkpoint
-    if not state.get("transaction_active", False):
-        current_time = time.time()
-        time_since_checkpoint = current_time - state.get(
-            "last_checkpoint_time", current_time
-        )
-
-        if (
-            state["operations_since_checkpoint"] >= state["checkpoint_threshold"]
-            or time_since_checkpoint >= 300
-        ):  # 5 minutes
-            # This will be handled by the executor method that calls this
-            pass
-
-
-class DuckDBProvider:
+class DuckDBProvider(SerialDatabaseProvider):
     """DuckDB implementation of DatabaseProvider protocol."""
 
     def __init__(
         self,
         db_path: Path | str,
-        embedding_manager: EmbeddingManager | None = None,
+        embedding_manager: "EmbeddingManager | None" = None,
         config: "DatabaseConfig | None" = None,
     ):
         """Initialize DuckDB provider.
@@ -109,19 +44,10 @@ class DuckDBProvider:
             embedding_manager: Optional embedding manager for vector generation
             config: Database configuration for provider-specific settings
         """
-        self._services_initialized = False
-        self.embedding_manager = embedding_manager
-        self.config = config
+        # Initialize base class
+        super().__init__(db_path, embedding_manager, config)
+
         self.provider_type = "duckdb"  # Identify this as DuckDB provider
-
-        # Store database path for executor operations
-        self._db_path = db_path
-
-        # Create single-threaded executor for all database operations
-        # This ensures complete serialization and prevents concurrent access issues
-        self._db_executor = ThreadPoolExecutor(
-            max_workers=1, thread_name_prefix="duckdb"
-        )
 
         # Initialize connection manager (will be simplified later)
         self._connection_manager = DuckDBConnectionManager(db_path, config)
@@ -138,68 +64,28 @@ class DuckDBProvider:
         )
         self._embedding_repository.set_provider_instance(self)
 
-        # Service layer components and legacy chunker instances
-        self._indexing_coordinator: IndexingCoordinator | None = None
-        self._search_service: SearchService | None = None
-        self._embedding_service: EmbeddingService | None = None
-        self._chunker: Chunker | None = None
-        self._incremental_chunker: IncrementalChunker | None = None
-
-        # File discovery cache for performance optimization
-        self._file_discovery_cache = FileDiscoveryCache()
-
-    async def _execute_in_db_thread(self, operation_name: str, *args, **kwargs) -> Any:
-        """Execute named operation in DB thread with complete isolation.
-
-        All database operations MUST go through this method to ensure serialization.
-        The connection and all state management happens exclusively in the executor thread.
-
-        Args:
-            operation_name: Name of the executor method to call (e.g., 'search_semantic')
-            *args: Positional arguments for the operation
-            **kwargs: Keyword arguments for the operation
-
+    def _create_connection(self) -> Any:
+        """Create and return a DuckDB connection.
+        
+        This method is called from within the executor thread to create
+        a thread-local connection.
+        
         Returns:
-            The result of the operation, fully materialized
+            DuckDB connection object
         """
-        loop = asyncio.get_event_loop()
+        # Use the connection from connection manager (already validated for WAL)
+        if self._connection_manager.connection is None:
+            self._connection_manager.connect()
+        return self._connection_manager.connection
 
-        def executor_operation():
-            # Get thread-local connection (created on first access)
-            conn = _get_thread_local_connection(self)
-
-            # Get thread-local state
-            state = _get_thread_local_state()
-
-            # Execute operation - look for method named _executor_{operation_name}
-            op_func = getattr(self, f"_executor_{operation_name}")
-            return op_func(conn, state, *args, **kwargs)
-
-        # Capture context for async compatibility
-        ctx = contextvars.copy_context()
-
-        # Run in executor with context
-        return await loop.run_in_executor(
-            self._db_executor, ctx.run, executor_operation
-        )
-
-    def _execute_in_db_thread_sync(self, operation_name: str, *args, **kwargs) -> Any:
-        """Synchronous version of _execute_in_db_thread for non-async methods."""
-
-        def executor_operation():
-            # Get thread-local connection (created on first access)
-            conn = _get_thread_local_connection(self)
-
-            # Get thread-local state
-            state = _get_thread_local_state()
-
-            # Execute operation
-            op_func = getattr(self, f"_executor_{operation_name}")
-            return op_func(conn, state, *args, **kwargs)
-
-        # Run in executor synchronously
-        future = self._db_executor.submit(executor_operation)
-        return future.result()
+    def _get_schema_sql(self) -> list[str] | None:
+        """Get SQL statements for creating the DuckDB schema.
+        
+        Returns:
+            List of SQL statements
+        """
+        # DuckDB uses its own schema creation logic in _executor_create_schema
+        return None
 
     @property
     def connection(self) -> Any | None:
@@ -230,13 +116,8 @@ class DuckDBProvider:
             # Initialize connection manager FIRST - this handles WAL validation
             self._connection_manager.connect()
 
-            # Execute connection in DB thread to ensure proper initialization
-            self._execute_in_db_thread_sync("connect")
-
-            # Initialize shared parser and chunker instances for performance
-            self._initialize_shared_instances()
-
-            logger.info("DuckDB provider initialization complete")
+            # Call parent connect which handles executor initialization
+            super().connect()
 
         except Exception as e:
             logger.error(f"DuckDB connection failed: {e}")
@@ -267,11 +148,9 @@ class DuckDBProvider:
     def disconnect(self, skip_checkpoint: bool = False) -> None:
         """Close database connection with optional checkpointing - delegate to connection manager."""
         try:
-            # Perform final operations in DB thread
-            self._execute_in_db_thread_sync("disconnect", skip_checkpoint)
+            # Call parent disconnect
+            super().disconnect(skip_checkpoint)
         finally:
-            # Shutdown executor
-            self._db_executor.shutdown(wait=True)
             # Disconnect connection manager for backward compatibility
             self._connection_manager.disconnect(
                 skip_checkpoint=True
@@ -427,49 +306,6 @@ class DuckDBProvider:
                 if not os.environ.get("CHUNKHOUND_MCP_MODE"):
                     logger.warning(f"Checkpoint failed: {e}")
 
-    def _initialize_shared_instances(self):
-        """Initialize service layer components and legacy compatibility objects."""
-        logger.debug("Initializing service layer components")
-
-        try:
-            # Initialize chunkers for legacy compatibility
-            self._chunker = Chunker()
-            self._incremental_chunker = IncrementalChunker()
-
-            # Lazy import from registry to avoid circular dependency
-            registry_module = importlib.import_module("registry")
-            get_registry = getattr(registry_module, "get_registry")
-            create_indexing_coordinator = getattr(
-                registry_module, "create_indexing_coordinator"
-            )
-            create_search_service = getattr(registry_module, "create_search_service")
-            create_embedding_service = getattr(
-                registry_module, "create_embedding_service"
-            )
-
-            # Get registry and register self as database provider
-            registry = get_registry()
-            registry.register_provider("database", lambda: self, singleton=True)
-
-            # Initialize service layer components from registry
-            if (
-                not hasattr(self, "_indexing_coordinator")
-                or self._indexing_coordinator is None
-            ):
-                self._indexing_coordinator = create_indexing_coordinator()
-            if not hasattr(self, "_search_service") or self._search_service is None:
-                self._search_service = create_search_service()
-            if (
-                not hasattr(self, "_embedding_service")
-                or self._embedding_service is None
-            ):
-                self._embedding_service = create_embedding_service()
-
-            logger.debug("Service layer components initialized successfully")
-
-        except Exception as e:
-            logger.error(f"Failed to initialize service layer components: {e}")
-            # Don't raise the exception, just log it - allows test initialization to continue
 
     def create_schema(self) -> None:
         """Create database schema for files, chunks, and embeddings - delegate to connection manager."""
@@ -1036,7 +872,7 @@ class DuckDBProvider:
                 return file_id
 
             # Track operation for checkpoint management
-            _track_operation(state)
+            track_operation(state)
 
             # No existing file, insert new one
             result = conn.execute(
@@ -1144,7 +980,7 @@ class DuckDBProvider:
     ) -> None:
         """Executor method for update_file - runs in DB thread."""
         # Track operation for checkpoint management
-        _track_operation(state)
+        track_operation(state)
 
         # Build update query dynamically
         updates = []
@@ -1166,7 +1002,45 @@ class DuckDBProvider:
 
     def delete_file_completely(self, file_path: str) -> bool:
         """Delete a file and all its chunks/embeddings completely - delegate to file repository."""
-        return self._file_repository.delete_file_completely(file_path)
+        return self._execute_in_db_thread_sync("delete_file_completely", file_path)
+
+    def _executor_delete_file_completely(
+        self, conn: Any, state: dict[str, Any], file_path: str
+    ) -> bool:
+        """Executor method for delete_file_completely - runs in DB thread."""
+        # Track operation for checkpoint management
+        track_operation(state)
+        
+        # Get file ID first
+        result = conn.execute(
+            "SELECT id FROM files WHERE path = ?", [file_path]
+        ).fetchone()
+        
+        if not result:
+            return False
+            
+        file_id = result[0]
+        
+        # Delete in correct order due to foreign key constraints
+        # 1. Delete embeddings first from all embedding tables
+        embedding_tables = self._get_all_embedding_tables()
+        for table_name in embedding_tables:
+            conn.execute(
+                f"""
+                DELETE FROM {table_name}
+                WHERE chunk_id IN (SELECT id FROM chunks WHERE file_id = ?)
+                """,
+                [file_id],
+            )
+        
+        # 2. Delete chunks
+        conn.execute("DELETE FROM chunks WHERE file_id = ?", [file_id])
+        
+        # 3. Delete file
+        conn.execute("DELETE FROM files WHERE id = ?", [file_id])
+        
+        logger.debug(f"File {file_path} and all associated data deleted")
+        return True
 
     def insert_chunk(self, chunk: Chunk) -> int:
         """Insert chunk record and return chunk ID - delegate to chunk repository."""
@@ -1184,7 +1058,7 @@ class DuckDBProvider:
             return []
 
         # Track operation for checkpoint management
-        _track_operation(state)
+        track_operation(state)
 
         # Prepare data for bulk insert
         chunk_data = []
@@ -1317,7 +1191,7 @@ class DuckDBProvider:
     ) -> None:
         """Executor method for delete_file_chunks - runs in DB thread."""
         # Track operation for checkpoint management
-        _track_operation(state)
+        track_operation(state)
 
         conn.execute("DELETE FROM chunks WHERE file_id = ?", [file_id])
 
@@ -1326,7 +1200,7 @@ class DuckDBProvider:
     ) -> None:
         """Executor method for delete_chunk - runs in DB thread."""
         # Track operation
-        _track_operation(state)
+        track_operation(state)
 
         # Delete embeddings first to avoid foreign key constraint
         # Get all embedding tables
@@ -1355,7 +1229,7 @@ class DuckDBProvider:
     ) -> int:
         """Executor method for insert_chunk - runs in DB thread."""
         # Track operation for checkpoint management
-        _track_operation(state)
+        track_operation(state)
 
         result = conn.execute(
             """
@@ -1411,7 +1285,7 @@ class DuckDBProvider:
     ) -> None:
         """Executor method for update_chunk query - runs in DB thread."""
         # Track operation for checkpoint management
-        _track_operation(state)
+        track_operation(state)
         conn.execute(query, values)
 
     def _executor_get_all_chunks_with_metadata_query(
@@ -1485,7 +1359,7 @@ class DuckDBProvider:
             return 0
 
         # Track operation for checkpoint management
-        _track_operation(state)
+        track_operation(state)
 
         # Group embeddings by dimension
         embeddings_by_dims = {}
@@ -2135,12 +2009,6 @@ class DuckDBProvider:
             logger.error(f"Failed to execute query: {e}")
             raise
 
-    def begin_transaction(self) -> None:
-        """Begin a database transaction."""
-        # Set task-local transaction state
-        _transaction_context.set(True)
-        # Execute in DB thread
-        self._execute_in_db_thread_sync("begin_transaction")
 
     def _executor_begin_transaction(self, conn: Any, state: dict[str, Any]) -> None:
         """Executor method for begin_transaction - runs in DB thread."""
@@ -2148,13 +2016,6 @@ class DuckDBProvider:
         state["transaction_active"] = True
         conn.execute("BEGIN TRANSACTION")
 
-    def commit_transaction(self, force_checkpoint: bool = False) -> None:
-        """Commit the current transaction with optional checkpoint."""
-        try:
-            self._execute_in_db_thread_sync("commit_transaction", force_checkpoint)
-        finally:
-            # Clear task-local transaction state
-            _transaction_context.set(False)
 
     def _executor_commit_transaction(
         self, conn: Any, state: dict[str, Any], force_checkpoint: bool
@@ -2182,13 +2043,6 @@ class DuckDBProvider:
             # Re-raise to be handled by caller
             raise
 
-    def rollback_transaction(self) -> None:
-        """Rollback the current transaction."""
-        try:
-            self._execute_in_db_thread_sync("rollback_transaction")
-        finally:
-            # Clear task-local transaction state
-            _transaction_context.set(False)
 
     def _executor_rollback_transaction(self, conn: Any, state: dict[str, Any]) -> None:
         """Executor method for rollback_transaction - runs in DB thread."""
@@ -2197,159 +2051,6 @@ class DuckDBProvider:
         state["transaction_active"] = False
         state["deferred_checkpoint"] = False
 
-    async def process_file(
-        self, file_path: Path, skip_embeddings: bool = False
-    ) -> dict[str, Any]:
-        """Process a file end-to-end: parse, chunk, and store in database.
-
-        Delegates to IndexingCoordinator for actual processing.
-        """
-        try:
-            logger.info(f"Processing file: {file_path}")
-
-            # Check if file exists and is readable
-            if not file_path.exists() or not file_path.is_file():
-                raise ValueError(f"File not found or not readable: {file_path}")
-
-            # Get file metadata
-            stat = file_path.stat()
-
-            # Check if file needs to be reprocessed - delegate this logic to IndexingCoordinator
-            # The code below remains for reference but is no longer used
-            logger.debug(
-                f"Delegating file processing to IndexingCoordinator: {file_path}"
-            )
-
-            # Use IndexingCoordinator to process the file
-            if not self._indexing_coordinator:
-                raise RuntimeError("IndexingCoordinator not initialized")
-
-            # Delegate to IndexingCoordinator for parsing and chunking
-            # This will handle the complete file processing through the service layer
-            if self._indexing_coordinator is None:
-                return {
-                    "status": "error",
-                    "error": "Indexing coordinator not available",
-                }
-            return await self._indexing_coordinator.process_file(
-                file_path, skip_embeddings=skip_embeddings
-            )
-
-            # Note: Embedding generation is now handled by the IndexingCoordinator
-            # This code is kept for backward compatibility with legacy tests
-            # Note: All embedding and chunk processing is now handled by the IndexingCoordinator
-            # This provider now acts purely as a delegation layer to the service architecture
-
-            # Delegate file processing to IndexingCoordinator and return its result directly
-            return await self._indexing_coordinator.process_file(
-                file_path, skip_embeddings=skip_embeddings
-            )
-
-        except Exception as e:
-            logger.error(f"Failed to process file {file_path}: {e}")
-            return {"status": "error", "error": str(e), "chunks": 0}
-
-    async def process_directory(
-        self,
-        directory: Path,
-        patterns: list[str] | None = None,
-        exclude_patterns: list[str] | None = None,
-    ) -> dict[str, Any]:
-        """Process all supported files in a directory."""
-        try:
-            if patterns is None:
-                patterns = [
-                    "**/*.py",
-                    "**/*.java",
-                    "**/*.cs",
-                    "**/*.ts",
-                    "**/*.js",
-                    "**/*.tsx",
-                    "**/*.jsx",
-                    "**/*.md",
-                    "**/*.markdown",
-                ]
-
-            files_processed = 0
-            total_chunks = 0
-            total_embeddings = 0
-            errors = []
-
-            # Find files matching patterns
-            all_files = []
-            for pattern in patterns:
-                files = list(directory.glob(pattern))
-                all_files.extend(files)
-
-            # Remove duplicates and filter out excluded patterns
-            unique_files = list(set(all_files))
-            if exclude_patterns:
-                filtered_files = []
-                for file_path in unique_files:
-                    exclude = False
-                    for exclude_pattern in exclude_patterns:
-                        if file_path.match(exclude_pattern):
-                            exclude = True
-                            break
-                    if not exclude:
-                        filtered_files.append(file_path)
-                unique_files = filtered_files
-
-            logger.info(f"Processing {len(unique_files)} files in {directory}")
-
-            # Process each file
-            for file_path in unique_files:
-                try:
-                    # Ensure service layer is initialized
-                    if not self._indexing_coordinator:
-                        self._initialize_shared_instances()
-
-                    if not self._indexing_coordinator:
-                        errors.append(f"{file_path}: IndexingCoordinator not available")
-                        continue
-
-                    # Delegate to IndexingCoordinator for file processing
-                    result = await self._indexing_coordinator.process_file(
-                        file_path, skip_embeddings=False
-                    )
-
-                    if result["status"] == "success":
-                        files_processed += 1
-                        total_chunks += result.get("chunks", 0)
-                        total_embeddings += result.get("embeddings", 0)
-                    elif result["status"] == "error":
-                        errors.append(
-                            f"{file_path}: {result.get('error', 'Unknown error')}"
-                        )
-                    # Skip files with status "up_to_date", "skipped", etc.
-
-                except Exception as e:
-                    error_msg = f"{file_path}: {str(e)}"
-                    errors.append(error_msg)
-                    logger.error(f"Error processing {file_path}: {e}")
-
-            result = {
-                "status": "success",
-                "files_processed": files_processed,
-                "total_files": len(unique_files),
-                "total_chunks": total_chunks,
-                "total_embeddings": total_embeddings,
-            }
-
-            if errors:
-                result["errors"] = errors
-                result["error_count"] = len(errors)
-
-            logger.info(
-                f"Directory processing complete: {files_processed}/{len(unique_files)} files, "
-                f"{total_chunks} chunks, {total_embeddings} embeddings"
-            )
-
-            return result
-
-        except Exception as e:
-            logger.error(f"Failed to process directory {directory}: {e}")
-            return {"status": "error", "error": str(e), "files_processed": 0}
 
     def optimize_tables(self) -> None:
         """Optimize tables by compacting fragments and rebuilding indexes (provider-specific)."""
