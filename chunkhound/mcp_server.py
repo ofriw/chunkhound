@@ -627,7 +627,7 @@ async def process_file_change(file_path: Path, event_type: str):
         try:
             if event_type == "deleted":
                 # Remove file from database with cleanup tracking
-                _database.delete_file_completely(str(file_path))
+                await _database.delete_file_completely_async(str(file_path))
             else:
                 # Process file (created, modified, moved)
                 if file_path.exists() and file_path.is_file():
