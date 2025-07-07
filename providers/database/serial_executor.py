@@ -1,6 +1,7 @@
 """Thread-safe serial executor for database operations requiring single-threaded execution."""
 
 import asyncio
+import concurrent.futures
 import contextvars
 import threading
 import time
@@ -114,9 +115,13 @@ class SerialDatabaseExecutor:
             op_func = getattr(provider, f"_executor_{operation_name}")
             return op_func(conn, state, *args, **kwargs)
 
-        # Run in executor synchronously
+        # Run in executor synchronously with timeout
         future = self._db_executor.submit(executor_operation)
-        return future.result()
+        try:
+            return future.result(timeout=30.0)  # 30 second timeout
+        except concurrent.futures.TimeoutError:
+            logger.error(f"Database operation '{operation_name}' timed out after 30 seconds")
+            raise TimeoutError(f"Operation '{operation_name}' timed out")
 
     async def execute_async(self, provider: Any, operation_name: str, *args, **kwargs) -> Any:
         """Execute named operation asynchronously in DB thread.
