@@ -363,7 +363,7 @@ class ProviderRegistry:
         if provider_type == "duckdb":
             self.register_provider("database", DuckDBProvider, singleton=True)
         elif provider_type == "lancedb":
-            from chunkhound.providers.database.lancedb_provider import LanceDBProvider
+            from providers.database.lancedb_provider import LanceDBProvider
 
             self.register_provider("database", LanceDBProvider, singleton=True)
         else:
