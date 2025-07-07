@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Database freezing during concurrent file operations through proper async/sync boundary handling
+- Thread safety issues in DuckDB provider with synchronized WAL cleanup and operation timeouts
+- LanceDB duplicate file entries through atomic merge operations and path normalization
+- File deletion operations now properly handle async contexts without blocking the event loop
+
+### Changed
+- Aligned LanceDB provider with serial executor pattern for consistency with DuckDB
+- Improved path normalization to handle symlinks and different path representations
+- Enhanced database operation reliability with proper thread isolation
+
 ## [2.1.4] - 2025-07-03
 
 ### Fixed
