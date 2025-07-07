@@ -10,17 +10,14 @@ import pyarrow as pa
 from loguru import logger
 
 # Import existing components that will be used by the provider
-from chunkhound.chunker import Chunker, IncrementalChunker
 from chunkhound.embeddings import EmbeddingManager
-from chunkhound.file_discovery_cache import FileDiscoveryCache
 from core.models import Chunk, Embedding, File
 from core.types import ChunkType, Language
+from providers.database.serial_database_provider import SerialDatabaseProvider
 
 # Type hinting only
 if TYPE_CHECKING:
-    from services.embedding_service import EmbeddingService
-    from services.indexing_coordinator import IndexingCoordinator
-    from services.search_service import SearchService
+    from chunkhound.core.config.unified_config import DatabaseConfig
 
 
 # PyArrow schemas - avoiding LanceModel to prevent enum issues
@@ -30,7 +27,6 @@ def get_files_schema() -> pa.Schema:
         [
             ("id", pa.int64()),
             ("path", pa.string()),
-            ("relative_path", pa.string()),
             ("size", pa.int64()),
             ("modified_time", pa.float64()),
             ("indexed_time", pa.float64()),
@@ -72,8 +68,8 @@ def get_chunks_schema(embedding_dims: int | None = None) -> pa.Schema:
     )
 
 
-class LanceDBProvider:
-    """LanceDB implementation of DatabaseProvider protocol."""
+class LanceDBProvider(SerialDatabaseProvider):
+    """LanceDB implementation using serial executor pattern."""
 
     def __init__(
         self,
@@ -89,139 +85,135 @@ class LanceDBProvider:
             config: Database configuration for provider-specific settings
         """
         # Ensure we always use absolute paths to avoid LanceDB internal path resolution issues
-        self._db_path = (
+        absolute_db_path = (
             Path(db_path).parent / f"{Path(db_path).stem}.lancedb"
         ).absolute()
-        self.embedding_manager = embedding_manager
-        self.config = config
+
+        # Initialize base class
+        super().__init__(absolute_db_path, embedding_manager, config)
+
         self.index_type = config.lancedb_index_type if config else None
-        self.connection: Any | None = None
-        self._services_initialized = False
-
-        # Service layer components and legacy chunker instances
-        self._indexing_coordinator: IndexingCoordinator | None = None
-        self._search_service: SearchService | None = None
-        self._embedding_service: EmbeddingService | None = None
-        self._chunker: Chunker | None = None
-        self._incremental_chunker: IncrementalChunker | None = None
-
-        # File discovery cache for performance optimization
-        self._file_cache: FileDiscoveryCache | None = None
+        self.connection: Any | None = None  # For backward compatibility only - do not use directly
 
         # Table references
         self._files_table = None
         self._chunks_table = None
 
-    @property
-    def db_path(self) -> Path | str:
-        """Database connection path or identifier."""
-        return self._db_path
+    def _create_connection(self) -> Any:
+        """Create and return a LanceDB connection.
 
-    @property
-    def is_connected(self) -> bool:
-        """Check if database connection is active."""
-        return self.connection is not None
+        This method is called from within the executor thread to create
+        a thread-local connection.
 
-    def connect(self) -> None:
-        """Establish database connection and initialize schema."""
+        Returns:
+            LanceDB connection object
+        """
+        import lancedb
+
+        abs_db_path = self._db_path
+
+        # Save CWD (thread-safe in executor)
+        original_cwd = os.getcwd()
         try:
-            import lancedb
-        except ImportError:
-            raise ImportError(
-                "lancedb package not installed. Install with: pip install lancedb"
-            )
-
-        if self.connection is None:
-            # Use absolute path for connection to ensure consistent file references
-            abs_db_path = (
-                self._db_path.absolute()
-                if isinstance(self._db_path, Path)
-                else Path(self._db_path).absolute()
-            )
-
-            # CRITICAL: Save current working directory and ensure we're in a consistent location
-            # This prevents LanceDB from storing relative paths that break when CWD changes
-            self._original_cwd = os.getcwd()
-
-            # Change to the database's parent directory for consistent relative path resolution
             os.chdir(abs_db_path.parent)
+            conn = lancedb.connect(abs_db_path.name)
+            return conn
+        finally:
+            os.chdir(original_cwd)
 
-            # Connect using just the database directory name (relative to parent)
-            self.connection = lancedb.connect(abs_db_path.name)
+    def _get_schema_sql(self) -> list[str] | None:
+        """LanceDB doesn't use SQL - return None."""
+        return None
 
-            # Restore original working directory immediately after connection
-            os.chdir(self._original_cwd)
+    def _executor_connect(self, conn: Any, state: dict[str, Any]) -> None:
+        """Executor method for connect - runs in DB thread.
 
-            self.create_schema()
-            self.create_indexes()
-            self._services_initialized = False
-            logger.info(f"Connected to LanceDB at {abs_db_path}")
+        Note: The connection is already created by _create_connection,
+        so this method ensures schema and indexes are created.
+        """
+        try:
+            # Store connection reference for backward compatibility
+            self.connection = conn
 
-    def disconnect(self) -> None:
-        """Close database connection and cleanup resources."""
-        if self.connection is not None:
+            # Create schema and indexes in executor thread
+            self._executor_create_schema(conn, state)
+            self._executor_create_indexes(conn, state)
+
+            logger.info(f"Connected to LanceDB at {self._db_path}")
+        except Exception as e:
+            logger.error(f"Error in LanceDB connect: {e}")
+            raise
+
+    def _executor_disconnect(
+        self, conn: Any, state: dict[str, Any], skip_checkpoint: bool
+    ) -> None:
+        """Executor method for disconnect - runs in DB thread."""
+        try:
+            # Clear connection and table references
             self.connection = None
             self._files_table = None
             self._chunks_table = None
+
+            # Connection will be closed by base class
             logger.info("Disconnected from LanceDB")
+        except Exception as e:
+            logger.error(f"Error in LanceDB disconnect: {e}")
+            raise
 
     def create_schema(self) -> None:
         """Create database schema for files, chunks, and embeddings."""
-        if not self.connection:
-            self.connect()
+        return self._execute_in_db_thread_sync("create_schema")
 
+    def _executor_create_schema(self, conn: Any, state: dict[str, Any]) -> None:
+        """Executor method for create_schema - runs in DB thread."""
         # Create files table if it doesn't exist
         try:
-            self._files_table = self.connection.open_table("files")
+            self._files_table = conn.open_table("files")
         except Exception:
             # Table doesn't exist, create it
             # Create table using PyArrow schema
-            self._files_table = self.connection.create_table(
-                "files", schema=get_files_schema()
-            )
+            self._files_table = conn.create_table("files", schema=get_files_schema())
             logger.info("Created files table")
 
         # Create chunks table if it doesn't exist
         try:
-            self._chunks_table = self.connection.open_table("chunks")
+            self._chunks_table = conn.open_table("chunks")
         except Exception:
             # Table doesn't exist, create it
             # Create table using PyArrow schema
-            self._chunks_table = self.connection.create_table(
+            self._chunks_table = conn.create_table(
                 "chunks", schema=get_chunks_schema(1536)
             )
             logger.info("Created chunks table")
 
     def create_indexes(self) -> None:
         """Create database indexes for performance optimization."""
+        return self._execute_in_db_thread_sync("create_indexes")
+
+    def _executor_create_indexes(self, conn: Any, state: dict[str, Any]) -> None:
+        """Executor method for create_indexes - runs in DB thread."""
         # Skip scalar index creation for now - LanceDB handles this internally
         # and premature index creation can cause file not found errors
         pass
-
-        # TODO: Re-enable selective index creation after tables have data
-        # # Create scalar index on id column for efficient merge operations
-        # if self._chunks_table:
-        #     try:
-        #         # Create scalar index on id column for fast lookups during merge
-        #         # Use create_scalar_index for non-vector columns in LanceDB
-        #         self._chunks_table.create_scalar_index("id")
-        #         logger.info("Created scalar index on chunks.id for efficient merge operations")
-        #     except Exception as e:
-        #         logger.warning(f"Failed to create scalar index on chunks.id: {e}")
-        #
-        # if self._files_table:
-        #     try:
-        #         # Create scalar index on path column for fast file lookups
-        #         # Use create_scalar_index for non-vector columns in LanceDB
-        #         self._files_table.create_scalar_index("path")
-        #         logger.info("Created scalar index on files.path for efficient file lookups")
-        #     except Exception as e:
-        #         logger.warning(f"Failed to create scalar index on files.path: {e}")
 
     def create_vector_index(
         self, provider: str, model: str, dims: int, metric: str = "cosine"
     ) -> None:
         """Create vector index for specific provider/model/dims combination."""
+        return self._execute_in_db_thread_sync(
+            "create_vector_index", provider, model, dims, metric
+        )
+
+    def _executor_create_vector_index(
+        self,
+        conn: Any,
+        state: dict[str, Any],
+        provider: str,
+        model: str,
+        dims: int,
+        metric: str = "cosine",
+    ) -> None:
+        """Executor method for create_vector_index - runs in DB thread."""
         if not self._chunks_table:
             return
 
@@ -239,7 +231,9 @@ class LanceDBProvider:
                 pass
 
             # Verify sufficient data exists for IVF PQ training
-            total_embeddings = len(self.get_existing_embeddings([], provider, model))
+            total_embeddings = len(
+                self._executor_get_existing_embeddings(conn, state, [], provider, model)
+            )
             if total_embeddings < 1000:
                 logger.debug(
                     f"Skipping index creation for {provider}/{model}: insufficient data ({total_embeddings} < 1000)"
@@ -274,13 +268,23 @@ class LanceDBProvider:
     # File Operations
     def insert_file(self, file: File) -> int:
         """Insert file record and return file ID."""
-        if not self._files_table:
-            self.create_schema()
+        return self._execute_in_db_thread_sync("insert_file", file)
 
+    def _executor_insert_file(
+        self, conn: Any, state: dict[str, Any], file: File
+    ) -> int:
+        """Executor method for insert_file - runs in DB thread."""
+        if not self._files_table:
+            self._executor_create_schema(conn, state)
+
+        # Normalize path to canonical absolute path to prevent duplicates from different representations
+        # Use resolve() to handle symlinks (e.g., /var -> /private/var on macOS)
+        normalized_path = str(Path(file.path).resolve())
+
+        # Prepare file data
         file_data = {
             "id": file.id or int(time.time() * 1000000),
-            "path": file.path,
-            "relative_path": file.relative_path,
+            "path": normalized_path,
             "size": file.size_bytes,
             "modified_time": file.mtime,
             "indexed_time": time.time(),
@@ -293,21 +297,43 @@ class LanceDBProvider:
             "line_count": 0,
         }
 
-        # Use PyArrow Table directly to avoid LanceDB DataFrame schema alignment bug
-        file_data_list = [file_data]
-        file_table = pa.Table.from_pylist(file_data_list, schema=get_files_schema())
-        self._files_table.add(file_table, mode="append")
-        return file_data["id"]
+        # Use merge_insert for atomic upsert based on path
+        # This eliminates the TOCTOU race condition by making the
+        # check-and-insert/update operation atomic at the database level
+        self._files_table.merge_insert("path") \
+            .when_matched_update_all() \
+            .when_not_matched_insert_all() \
+            .execute([file_data])
+
+        # Get the file ID (either newly inserted or existing)
+        # We need to query back because merge_insert doesn't return the ID
+        result = self._files_table.search().where(f"path = '{normalized_path}'").to_list()
+        if result:
+            return result[0]["id"]
+        else:
+            # This should not happen, but handle gracefully
+            logger.error(f"Failed to retrieve file ID after merge_insert for path: {normalized_path}")
+            return file_data["id"]
 
     def get_file_by_path(
         self, path: str, as_model: bool = False
     ) -> dict[str, Any] | File | None:
         """Get file record by path."""
+        return self._execute_in_db_thread_sync("get_file_by_path", path, as_model)
+
+    def _executor_get_file_by_path(
+        self, conn: Any, state: dict[str, Any], path: str, as_model: bool = False
+    ) -> dict[str, Any] | File | None:
+        """Executor method for get_file_by_path - runs in DB thread."""
         if not self._files_table:
             return None
 
         try:
-            results = self._files_table.search().where(f"path = '{path}'").to_list()
+            # Normalize path to canonical absolute path for consistent lookups
+            # Use resolve() to handle symlinks (e.g., /var -> /private/var on macOS)
+            normalized_path = str(Path(path).resolve())
+            
+            results = self._files_table.search().where(f"path = '{normalized_path}'").to_list()
             if not results:
                 return None
 
@@ -316,13 +342,9 @@ class LanceDBProvider:
                 return File(
                     id=result["id"],
                     path=result["path"],
-                    relative_path=result["relative_path"],
-                    size=result["size"],
-                    modified_time=result["modified_time"],
-                    indexed_time=result["indexed_time"],
+                    size_bytes=result["size"],
+                    mtime=result["modified_time"],
                     language=Language(result["language"]),
-                    encoding=result["encoding"],
-                    line_count=result["line_count"],
                 )
             return result
         except Exception as e:
@@ -333,6 +355,12 @@ class LanceDBProvider:
         self, file_id: int, as_model: bool = False
     ) -> dict[str, Any] | File | None:
         """Get file record by ID."""
+        return self._execute_in_db_thread_sync("get_file_by_id", file_id, as_model)
+
+    def _executor_get_file_by_id(
+        self, conn: Any, state: dict[str, Any], file_id: int, as_model: bool = False
+    ) -> dict[str, Any] | File | None:
+        """Executor method for get_file_by_id - runs in DB thread."""
         if not self._files_table:
             return None
 
@@ -346,13 +374,9 @@ class LanceDBProvider:
                 return File(
                     id=result["id"],
                     path=result["path"],
-                    relative_path=result["relative_path"],
-                    size=result["size"],
-                    modified_time=result["modified_time"],
-                    indexed_time=result["indexed_time"],
+                    size_bytes=result["size"],
+                    mtime=result["modified_time"],
                     language=Language(result["language"]),
-                    encoding=result["encoding"],
-                    line_count=result["line_count"],
                 )
             return result
         except Exception as e:
@@ -361,13 +385,53 @@ class LanceDBProvider:
 
     def update_file(self, file_id: int, **kwargs) -> None:
         """Update file record with new values."""
-        # LanceDB doesn't support in-place updates, need to implement via delete/insert
-        pass
+        return self._execute_in_db_thread_sync("update_file", file_id, **kwargs)
+    
+    def _executor_update_file(
+        self,
+        conn: Any,
+        state: dict[str, Any],
+        file_id: int,
+        size_bytes: int | None = None,
+        mtime: float | None = None,
+        **kwargs
+    ) -> None:
+        """Executor method for update_file - runs in DB thread."""
+        if not self._files_table:
+            return
+        
+        try:
+            # Get existing file record
+            existing_file = self._executor_get_file_by_id(conn, state, file_id, False)
+            if not existing_file:
+                return
+            
+            # Update the relevant fields
+            updated_file = dict(existing_file)
+            if size_bytes is not None:
+                updated_file["size"] = size_bytes
+            if mtime is not None:
+                updated_file["modified_time"] = mtime
+            updated_file["indexed_time"] = time.time()
+            
+            # LanceDB doesn't support in-place updates, so we use merge_insert
+            # This updates the record by matching on the 'id' field
+            self._files_table.merge_insert("id").when_matched_update_all().execute([updated_file])
+            
+        except Exception as e:
+            logger.error(f"Error updating file {file_id}: {e}")
 
     def delete_file_completely(self, file_path: str) -> bool:
         """Delete a file and all its chunks/embeddings completely."""
+        return self._execute_in_db_thread_sync("delete_file_completely", file_path)
+
+    def _executor_delete_file_completely(
+        self, conn: Any, state: dict[str, Any], file_path: str
+    ) -> bool:
+        """Executor method for delete_file_completely - runs in DB thread."""
         try:
-            file_record = self.get_file_by_path(file_path)
+            # Get file record in the executor thread
+            file_record = self._executor_get_file_by_path(conn, state, file_path, False)
             if not file_record:
                 return False
 
@@ -389,8 +453,14 @@ class LanceDBProvider:
     # Chunk Operations
     def insert_chunk(self, chunk: Chunk) -> int:
         """Insert chunk record and return chunk ID."""
+        return self._execute_in_db_thread_sync("insert_chunk", chunk)
+
+    def _executor_insert_chunk(
+        self, conn: Any, state: dict[str, Any], chunk: Chunk
+    ) -> int:
+        """Executor method for insert_chunk - runs in DB thread."""
         if not self._chunks_table:
-            self.create_schema()
+            self._executor_create_schema(conn, state)
 
         chunk_data = {
             "id": chunk.id or int(time.time() * 1000000),
@@ -424,11 +494,17 @@ class LanceDBProvider:
 
     def insert_chunks_batch(self, chunks: list[Chunk]) -> list[int]:
         """Insert multiple chunks in batch using optimized DataFrame operations."""
+        return self._execute_in_db_thread_sync("insert_chunks_batch", chunks)
+
+    def _executor_insert_chunks_batch(
+        self, conn: Any, state: dict[str, Any], chunks: list[Chunk]
+    ) -> list[int]:
+        """Executor method for insert_chunks_batch - runs in DB thread."""
         if not chunks:
             return []
 
         if not self._chunks_table:
-            self.create_schema()
+            self._executor_create_schema(conn, state)
 
         # Process in optimal batch sizes (LanceDB best practice: 1000+ items)
         batch_size = 1000
@@ -483,6 +559,12 @@ class LanceDBProvider:
         self, chunk_id: int, as_model: bool = False
     ) -> dict[str, Any] | Chunk | None:
         """Get chunk record by ID."""
+        return self._execute_in_db_thread_sync("get_chunk_by_id", chunk_id, as_model)
+
+    def _executor_get_chunk_by_id(
+        self, conn: Any, state: dict[str, Any], chunk_id: int, as_model: bool = False
+    ) -> dict[str, Any] | Chunk | None:
+        """Executor method for get_chunk_by_id - runs in DB thread."""
         if not self._chunks_table:
             return None
 
@@ -512,6 +594,14 @@ class LanceDBProvider:
         self, file_id: int, as_model: bool = False
     ) -> list[dict[str, Any] | Chunk]:
         """Get all chunks for a specific file."""
+        return self._execute_in_db_thread_sync(
+            "get_chunks_by_file_id", file_id, as_model
+        )
+
+    def _executor_get_chunks_by_file_id(
+        self, conn: Any, state: dict[str, Any], file_id: int, as_model: bool = False
+    ) -> list[dict[str, Any] | Chunk]:
+        """Executor method for get_chunks_by_file_id - runs in DB thread."""
         if not self._chunks_table:
             return []
 
@@ -541,6 +631,12 @@ class LanceDBProvider:
 
     def delete_file_chunks(self, file_id: int) -> None:
         """Delete all chunks for a file."""
+        return self._execute_in_db_thread_sync("delete_file_chunks", file_id)
+
+    def _executor_delete_file_chunks(
+        self, conn: Any, state: dict[str, Any], file_id: int
+    ) -> None:
+        """Executor method for delete_file_chunks - runs in DB thread."""
         if self._chunks_table:
             try:
                 self._chunks_table.delete(f"file_id = {file_id}")
@@ -549,6 +645,12 @@ class LanceDBProvider:
 
     def delete_chunk(self, chunk_id: int) -> None:
         """Delete a single chunk by ID."""
+        return self._execute_in_db_thread_sync("delete_chunk", chunk_id)
+
+    def _executor_delete_chunk(
+        self, conn: Any, state: dict[str, Any], chunk_id: int
+    ) -> None:
+        """Executor method for delete_chunk - runs in DB thread."""
         if self._chunks_table:
             try:
                 self._chunks_table.delete(f"id = {chunk_id}")
@@ -564,16 +666,8 @@ class LanceDBProvider:
     def insert_embedding(self, embedding: Embedding) -> int:
         """Insert embedding record and return embedding ID."""
         # In LanceDB, embeddings are stored directly in the chunks table
-        if not self._chunks_table:
-            return 0
-
-        try:
-            # Update the existing chunk with embedding data
-            # Note: This would require a more sophisticated update mechanism in LanceDB
-            return embedding.id or 0
-        except Exception as e:
-            logger.error(f"Error inserting embedding: {e}")
-            return 0
+        # This is a no-op since we use insert_embeddings_batch for efficiency
+        return embedding.id or 0
 
     def insert_embeddings_batch(
         self,
@@ -582,6 +676,18 @@ class LanceDBProvider:
         connection=None,
     ) -> int:
         """Insert multiple embedding vectors efficiently using merge_insert."""
+        return self._execute_in_db_thread_sync(
+            "insert_embeddings_batch", embeddings_data, batch_size
+        )
+
+    def _executor_insert_embeddings_batch(
+        self,
+        conn: Any,
+        state: dict[str, Any],
+        embeddings_data: list[dict],
+        batch_size: int | None = None,
+    ) -> int:
+        """Executor method for insert_embeddings_batch - runs in DB thread."""
         if not embeddings_data or not self._chunks_table:
             return 0
 
@@ -635,13 +741,11 @@ class LanceDBProvider:
                 logger.info(f"Backing up {len(existing_data_df)} existing chunks...")
 
                 # Drop the old table
-                self.connection.drop_table("chunks")
+                conn.drop_table("chunks")
 
                 # Create new table with proper schema
                 new_schema = get_chunks_schema(embedding_dims)
-                self._chunks_table = self.connection.create_table(
-                    "chunks", schema=new_schema
-                )
+                self._chunks_table = conn.create_table("chunks", schema=new_schema)
                 logger.info("Created new chunks table with fixed-size embedding schema")
 
                 # Re-insert existing data (without embeddings - they'll be added below)
@@ -741,7 +845,9 @@ class LanceDBProvider:
                 try:
                     # Check if we need to create an index
                     # LanceDB will handle this efficiently if index already exists
-                    self.create_vector_index(provider, model, embedding_dims)
+                    self._executor_create_vector_index(
+                        conn, state, provider, model, embedding_dims
+                    )
                 except Exception as e:
                     # This is expected if the table was created with variable-size list schema
                     # The index will work once the table is recreated with fixed-size schema
@@ -782,6 +888,19 @@ class LanceDBProvider:
         self, chunk_ids: list[int], provider: str, model: str
     ) -> set[int]:
         """Get set of chunk IDs that already have embeddings for given provider/model."""
+        return self._execute_in_db_thread_sync(
+            "get_existing_embeddings", chunk_ids, provider, model
+        )
+
+    def _executor_get_existing_embeddings(
+        self,
+        conn: Any,
+        state: dict[str, Any],
+        chunk_ids: list[int],
+        provider: str,
+        model: str,
+    ) -> set[int]:
+        """Executor method for get_existing_embeddings - runs in DB thread."""
         if not self._chunks_table:
             return set()
 
@@ -848,6 +967,12 @@ class LanceDBProvider:
 
     def get_all_chunks_with_metadata(self) -> list[dict[str, Any]]:
         """Get all chunks with their metadata including file paths (provider-agnostic)."""
+        return self._execute_in_db_thread_sync("get_all_chunks_with_metadata")
+
+    def _executor_get_all_chunks_with_metadata(
+        self, conn: Any, state: dict[str, Any]
+    ) -> list[dict[str, Any]]:
+        """Executor method for get_all_chunks_with_metadata - runs in DB thread."""
         if not self._chunks_table or not self._files_table:
             return []
 
@@ -909,9 +1034,11 @@ class LanceDBProvider:
             logger.error(f"Error getting chunks with metadata: {e}")
             return []
 
-    # Search Operations
-    def search_semantic(
+    # Search Operations (delegate to base class which uses executor)
+    def _executor_search_semantic(
         self,
+        conn: Any,
+        state: dict[str, Any],
         query_embedding: list[float],
         provider: str,
         model: str,
@@ -920,9 +1047,7 @@ class LanceDBProvider:
         threshold: float | None = None,
         path_filter: str | None = None,
     ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-        """Perform semantic vector search."""
-        if not self.connection:
-            self.connect()
+        """Executor method for search_semantic - runs in DB thread."""
         if self._chunks_table is None:
             raise RuntimeError("Chunks table not initialized")
 
@@ -998,6 +1123,36 @@ class LanceDBProvider:
             # Apply offset manually since LanceDB doesn't have native offset
             paginated_results = results[offset : offset + page_size]
 
+            # Format results to match DuckDB output and exclude raw embeddings
+            formatted_results = []
+            for result in paginated_results:
+                # Get file path from files table
+                file_path = ""
+                if self._files_table and "file_id" in result:
+                    try:
+                        file_results = self._files_table.search().where(f"id = {result['file_id']}").to_list()
+                        if file_results:
+                            file_path = file_results[0].get("path", "")
+                    except Exception:
+                        pass
+                
+                # Convert _distance to similarity (1 - distance for cosine)
+                similarity = 1.0 - result.get("_distance", 0.0) if "_distance" in result else 1.0
+                
+                # Format the result to match DuckDB's output
+                formatted_result = {
+                    "chunk_id": result["id"],
+                    "symbol": result.get("name", ""),
+                    "content": result.get("content", ""),
+                    "chunk_type": result.get("chunk_type", ""),
+                    "start_line": result.get("start_line", 0),
+                    "end_line": result.get("end_line", 0),
+                    "file_path": file_path,
+                    "language": result.get("language", ""),
+                    "similarity": similarity
+                }
+                formatted_results.append(formatted_result)
+
             pagination = {
                 "offset": offset,
                 "page_size": len(paginated_results),
@@ -1005,7 +1160,7 @@ class LanceDBProvider:
                 "total": len(results),
             }
 
-            return paginated_results, pagination
+            return formatted_results, pagination
 
         except Exception as e:
             logger.error(
@@ -1022,6 +1177,20 @@ class LanceDBProvider:
         path_filter: str | None = None,
     ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         """Perform fuzzy text search using LanceDB's text capabilities."""
+        return self._execute_in_db_thread_sync(
+            "search_fuzzy", query, page_size, offset, path_filter
+        )
+
+    def _executor_search_fuzzy(
+        self,
+        conn: Any,
+        state: dict[str, Any],
+        query: str,
+        page_size: int = 10,
+        offset: int = 0,
+        path_filter: str | None = None,
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+        """Executor method for search_fuzzy - runs in DB thread."""
         if not self._chunks_table:
             return [], {"offset": offset, "page_size": 0, "has_more": False, "total": 0}
 
@@ -1037,6 +1206,32 @@ class LanceDBProvider:
             # Apply offset manually
             paginated_results = results[offset : offset + page_size]
 
+            # Format results to match DuckDB output and exclude raw embeddings
+            formatted_results = []
+            for result in paginated_results:
+                # Get file path from files table
+                file_path = ""
+                if self._files_table and "file_id" in result:
+                    try:
+                        file_results = self._files_table.search().where(f"id = {result['file_id']}").to_list()
+                        if file_results:
+                            file_path = file_results[0].get("path", "")
+                    except Exception:
+                        pass
+                
+                # Format the result to match DuckDB's output (no similarity for fuzzy search)
+                formatted_result = {
+                    "chunk_id": result["id"],
+                    "symbol": result.get("name", ""),
+                    "content": result.get("content", ""),
+                    "chunk_type": result.get("chunk_type", ""),
+                    "start_line": result.get("start_line", 0),
+                    "end_line": result.get("end_line", 0),
+                    "file_path": file_path,
+                    "language": result.get("language", "")
+                }
+                formatted_results.append(formatted_result)
+
             pagination = {
                 "offset": offset,
                 "page_size": len(paginated_results),
@@ -1044,21 +1239,30 @@ class LanceDBProvider:
                 "total": len(results),
             }
 
-            return paginated_results, pagination
+            return formatted_results, pagination
 
         except Exception as e:
             logger.error(f"Error in fuzzy search: {e}")
             return [], {"offset": offset, "page_size": 0, "has_more": False, "total": 0}
 
-    def search_text(
-        self, query: str, page_size: int = 10, offset: int = 0
+    def _executor_search_text(
+        self,
+        conn: Any,
+        state: dict[str, Any],
+        query: str,
+        page_size: int = 10,
+        offset: int = 0,
     ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-        """Perform full-text search on code content."""
-        return self.search_fuzzy(query, page_size, offset)
+        """Executor method for search_text - runs in DB thread."""
+        return self._executor_search_fuzzy(conn, state, query, page_size, offset, None)
 
     # Statistics and Monitoring
     def get_stats(self) -> dict[str, int]:
         """Get database statistics (file count, chunk count, etc.)."""
+        return self._execute_in_db_thread_sync("get_stats")
+
+    def _executor_get_stats(self, conn: Any, state: dict[str, Any]) -> dict[str, int]:
+        """Executor method for get_stats - runs in DB thread."""
         stats = {"files": 0, "chunks": 0, "embeddings": 0, "size_mb": 0}
 
         try:
@@ -1109,7 +1313,13 @@ class LanceDBProvider:
 
     def get_file_stats(self, file_id: int) -> dict[str, Any]:
         """Get statistics for a specific file."""
-        chunks = self.get_chunks_by_file_id(file_id)
+        return self._execute_in_db_thread_sync("get_file_stats", file_id)
+
+    def _executor_get_file_stats(
+        self, conn: Any, state: dict[str, Any], file_id: int
+    ) -> dict[str, Any]:
+        """Executor method for get_file_stats - runs in DB thread."""
+        chunks = self._executor_get_chunks_by_file_id(conn, state, file_id, False)
         return {
             "file_id": file_id,
             "chunk_count": len(chunks),
@@ -1124,6 +1334,12 @@ class LanceDBProvider:
 
     def get_provider_stats(self, provider: str, model: str) -> dict[str, Any]:
         """Get statistics for a specific embedding provider/model."""
+        return self._execute_in_db_thread_sync("get_provider_stats", provider, model)
+
+    def _executor_get_provider_stats(
+        self, conn: Any, state: dict[str, Any], provider: str, model: str
+    ) -> dict[str, Any]:
+        """Executor method for get_provider_stats - runs in DB thread."""
         if not self._chunks_table:
             return {"provider": provider, "model": model, "embedding_count": 0}
 
@@ -1153,36 +1369,11 @@ class LanceDBProvider:
         # LanceDB doesn't support arbitrary SQL, only its query API
         return []
 
-    def begin_transaction(self) -> None:
-        """Begin a database transaction."""
-        # LanceDB handles transactions automatically
-        pass
-
-    def commit_transaction(self) -> None:
-        """Commit the current transaction."""
-        # LanceDB handles transactions automatically
-        pass
-
-    def rollback_transaction(self) -> None:
-        """Rollback the current transaction."""
-        # LanceDB handles transactions automatically
-        pass
-
-    # File Processing Integration
-    async def process_file(
-        self, file_path: Path, skip_embeddings: bool = False
-    ) -> dict[str, Any]:
-        """Process a file end-to-end: parse, chunk, and store in database."""
-        # Delegate to service layer (same as DuckDB implementation)
-        if not self._services_initialized:
-            self._initialize_services()
-
-        return await self._indexing_coordinator.process_file(file_path, skip_embeddings)
-
+    # File Processing Integration (inherited from base class)
     async def process_file_incremental(self, file_path: Path) -> dict[str, Any]:
         """Process a file with incremental parsing and differential chunking."""
         if not self._services_initialized:
-            self._initialize_services()
+            self._initialize_shared_instances()
 
         # Call process_file with embeddings enabled for real-time indexing
         # This ensures embeddings are generated immediately for modified files
@@ -1190,23 +1381,13 @@ class LanceDBProvider:
             file_path, skip_embeddings=False
         )
 
-    async def process_directory(
-        self,
-        directory: Path,
-        patterns: list[str] | None = None,
-        exclude_patterns: list[str] | None = None,
-    ) -> dict[str, Any]:
-        """Process all supported files in a directory."""
-        if not self._services_initialized:
-            self._initialize_services()
-
-        return await self._indexing_coordinator.process_directory(
-            directory, patterns, exclude_patterns
-        )
-
     # Health and Diagnostics
     def optimize_tables(self) -> None:
         """Optimize tables by compacting fragments and rebuilding indexes."""
+        return self._execute_in_db_thread_sync("optimize_tables")
+
+    def _executor_optimize_tables(self, conn: Any, state: dict[str, Any]) -> None:
+        """Executor method for optimize_tables - runs in DB thread."""
         try:
             if self._chunks_table:
                 logger.info("Optimizing chunks table - compacting fragments...")
@@ -1223,6 +1404,12 @@ class LanceDBProvider:
 
     def health_check(self) -> dict[str, Any]:
         """Perform health check and return status information."""
+        return self._execute_in_db_thread_sync("health_check")
+
+    def _executor_health_check(
+        self, conn: Any, state: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Executor method for health_check - runs in DB thread."""
         health_status = {
             "status": "healthy" if self.is_connected else "disconnected",
             "provider": "lancedb",
@@ -1256,30 +1443,3 @@ class LanceDBProvider:
             "connected": self.is_connected,
             "index_type": self.index_type,
         }
-
-    def _initialize_services(self) -> None:
-        """Initialize service layer components (same as DuckDB implementation)."""
-        if self._services_initialized:
-            return
-
-        try:
-            from registry import (
-                create_embedding_service,
-                create_indexing_coordinator,
-                create_search_service,
-            )
-
-            self._indexing_coordinator = create_indexing_coordinator()
-            self._search_service = create_search_service()
-            self._embedding_service = create_embedding_service()
-
-            self._chunker = Chunker()
-            self._incremental_chunker = IncrementalChunker()
-            self._file_cache = FileDiscoveryCache()
-
-            self._services_initialized = True
-            logger.debug("LanceDB provider services initialized")
-
-        except Exception as e:
-            logger.error(f"Failed to initialize LanceDB provider services: {e}")
-            raise
