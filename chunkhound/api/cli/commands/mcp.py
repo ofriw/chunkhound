@@ -25,12 +25,8 @@ def mcp_command(args: argparse.Namespace) -> None:
     if args.db is not None:
         cmd.extend(["--db", str(args.db)])
 
-    # Inherit current environment and ensure critical variables are passed through
+    # Inherit current environment - the centralized config will handle API keys
     env = os.environ.copy()
-
-    # Explicitly ensure OpenAI API key is available if set in current environment
-    if "OPENAI_API_KEY" in os.environ:
-        env["OPENAI_API_KEY"] = os.environ["OPENAI_API_KEY"]
 
     process = subprocess.run(
         cmd,

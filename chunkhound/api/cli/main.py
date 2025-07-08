@@ -34,20 +34,14 @@ if is_mcp_command():
     # Import only what's needed for MCP
     from pathlib import Path
 
-    # Parse MCP arguments minimally
-    db_path = Path(".chunkhound.db")
+    # Parse MCP arguments minimally for database path only
+    # The centralized config will handle all other settings
     if "--db" in sys.argv:
         db_index = sys.argv.index("--db")
         if db_index + 1 < len(sys.argv):
             db_path = Path(sys.argv[db_index + 1])
-
-    # Set database path environment variable
-    os.environ["CHUNKHOUND_DB_PATH"] = str(db_path)
-
-    # Propagate OpenAI API key if available for semantic search
-    openai_api_key = os.environ.get("OPENAI_API_KEY")
-    if openai_api_key:
-        os.environ["OPENAI_API_KEY"] = openai_api_key
+            # Only set if explicitly provided
+            os.environ["CHUNKHOUND_DB_PATH"] = str(db_path)
 
     # Launch MCP server directly via import (fixes PyInstaller sys.executable recursion bug)
     try:
@@ -111,7 +105,15 @@ def validate_args(args: argparse.Namespace) -> None:
         from .utils.config_helpers import args_to_config
 
         project_dir = Path(args.path) if hasattr(args, "path") else Path.cwd()
-        unified_config = args_to_config(args, project_dir)
+        
+        # Check for local .chunkhound.json and load it if it exists
+        local_config_path = project_dir / ".chunkhound.json"
+        if local_config_path.exists():
+            # Load config with local override (using the same logic as run_command)
+            from .commands.run import _load_config_with_local_override
+            unified_config = _load_config_with_local_override(args, project_dir, local_config_path)
+        else:
+            unified_config = args_to_config(args, project_dir)
         db_path = (
             Path(unified_config.database.path)
             if unified_config.database.path
@@ -201,7 +203,7 @@ async def async_main() -> None:
         sys.exit(0)
     except Exception as e:
         logger.error(f"Command failed: {e}")
-        logger.debug("Full error details:", exc_info=True)
+        logger.exception("Full error details:")
         sys.exit(1)
 
 
