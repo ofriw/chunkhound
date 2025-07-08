@@ -30,7 +30,6 @@ from ..utils.validation import (
     validate_path,
     validate_provider_args,
 )
-from chunkhound.core.config.config import Config
 
 
 async def run_command(args: argparse.Namespace) -> None:
@@ -42,16 +41,14 @@ async def run_command(args: argparse.Namespace) -> None:
     # Initialize output formatter
     formatter = OutputFormatter(verbose=args.verbose)
 
-    # Load unified configuration first
+    # Load unified configuration
     project_dir = Path(args.path) if hasattr(args, "path") else Path.cwd()
     unified_config = args_to_config(args, project_dir)
     
-    # Check for .chunkhound.json in the indexed directory
+    # Check if local config was found (for logging purposes)
     local_config_path = project_dir / ".chunkhound.json"
     if local_config_path.exists():
         formatter.info(f"Found local config: {local_config_path}")
-        # Reload config with the local config file
-        unified_config = _load_config_with_local_override(args, project_dir, local_config_path)
 
     # Use database path from unified config
     db_path = Path(unified_config.database.path)
@@ -510,78 +507,6 @@ async def _start_watch_mode(
         formatter.error(f"❌ File watching failed: {e}")
 
 
-def _load_config_with_local_override(
-    args: argparse.Namespace, project_dir: Path, local_config_path: Path
-) -> Any:
-    """Load configuration with local .chunkhound.json override.
-    
-    Precedence order:
-    1. CLI arguments (highest)
-    2. Local .chunkhound.json in indexed directory
-    3. --config file (if provided)
-    4. Environment variables
-    5. Defaults (lowest)
-    
-    Args:
-        args: Parsed command-line arguments
-        project_dir: Project directory being indexed
-        local_config_path: Path to local .chunkhound.json file
-        
-    Returns:
-        Updated ChunkHoundConfig instance
-    """
-    # Create a modified args object that includes the local config path
-    # The Config class will handle loading it with proper precedence
-    
-    # If user provided --config, we need to handle both files
-    original_config_file = getattr(args, "config", None)
-    
-    if original_config_file:
-        # User provided a config file, so we need to merge both
-        # Create a temporary merged config file
-        import json
-        import tempfile
-        
-        # Load both config files
-        config_data = {}
-        
-        # Load --config file first (lower precedence)
-        if Path(original_config_file).exists():
-            with open(original_config_file) as f:
-                config_data = json.load(f)
-        
-        # Load local .chunkhound.json (higher precedence)
-        with open(local_config_path) as f:
-            local_config = json.load(f)
-            
-        # Deep merge local config into config_data
-        for key, value in local_config.items():
-            if key in config_data and isinstance(config_data[key], dict) and isinstance(value, dict):
-                # Merge nested dicts
-                config_data[key] = {**config_data[key], **value}
-            else:
-                config_data[key] = value
-        
-        # Create a temporary file with merged config
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as tmp:
-            json.dump(config_data, tmp, indent=2)
-            merged_config_path = Path(tmp.name)
-        
-        # Use the merged config file
-        config = Config.from_cli_args(args, config_file=merged_config_path)
-        
-        # Clean up temp file
-        merged_config_path.unlink()
-    else:
-        # No --config provided, just use the local config
-        config = Config.from_cli_args(args, config_file=local_config_path)
-    
-    # Create ChunkHoundConfig wrapper
-    from chunkhound.core.config.unified_config import ChunkHoundConfig
-    chunk_config = ChunkHoundConfig()
-    chunk_config._config = config
-    
-    return chunk_config
 
 
 __all__ = ["run_command"]

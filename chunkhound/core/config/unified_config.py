@@ -11,7 +11,7 @@ This wrapper maintains the existing API while delegating to the new system.
 import json
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -73,9 +73,9 @@ class ChunkHoundConfig(BaseSettings):
         super().__init__()
     
     @property
-    def embedding(self) -> EmbeddingConfig:
+    def embedding(self) -> Optional[EmbeddingConfig]:
         """Get embedding configuration."""
-        return self._config.embedding if self._config else EmbeddingConfig()
+        return self._config.embedding if self._config else None
     
     @property
     def mcp(self) -> MCPConfig:

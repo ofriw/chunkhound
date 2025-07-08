@@ -28,9 +28,18 @@ def args_to_config(
     """
     # Get config file path from args
     config_file = getattr(args, "config", None)
+    if config_file:
+        config_file = Path(config_file)
+    
+    # Determine target directory (for .chunkhound.json detection)
+    target_dir = None
+    if hasattr(args, "path"):
+        target_dir = Path(args.path)
+    elif project_dir:
+        target_dir = project_dir
     
     # Use the new Config class
-    config = Config.from_cli_args(args, config_file=config_file)
+    config = Config.from_cli_args(args, config_file=config_file, target_dir=target_dir)
     
     # Create ChunkHoundConfig wrapper instance
     chunk_config = ChunkHoundConfig()

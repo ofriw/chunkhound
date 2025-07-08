@@ -198,11 +198,11 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
                 file=sys.stderr,
             )
 
-        # Load centralized configuration with auto-detection (same as CLI)
+        # Load centralized configuration with target directory
         try:
-            # Use the same config loading pattern as CLI with auto-detection
-            # This will load env vars, auto-detect .chunkhound.json, etc.
-            config = Config()  # This includes auto-detection in __init__
+            # Use the same config loading pattern as CLI
+            # Pass project_root as target_dir to detect .chunkhound.json
+            config = Config(target_dir=project_root)
             # Update debug mode from config
             debug_mode = config.debug or debug_mode
             if debug_mode:

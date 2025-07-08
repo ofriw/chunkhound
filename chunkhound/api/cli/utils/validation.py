@@ -31,12 +31,12 @@ def validate_path(
 
 
 def validate_provider_args(
-    provider: str, api_key: str | None, base_url: str | None, model: str | None
+    provider: str | None, api_key: str | None, base_url: str | None, model: str | None
 ) -> bool:
     """Validate embedding provider arguments.
 
     Args:
-        provider: Provider name
+        provider: Provider name (required)
         api_key: Optional API key (should come from unified config)
         base_url: Optional base URL
         model: Optional model name
@@ -44,6 +44,12 @@ def validate_provider_args(
     Returns:
         True if valid, False otherwise
     """
+    if not provider:
+        logger.error(
+            "Embedding provider must be specified. Choose from: openai, openai-compatible, tei, bge-in-icl. "
+            "Set via --provider, CHUNKHOUND_EMBEDDING__PROVIDER, or in config file."
+        )
+        return False
     if provider == "openai":
         if not api_key:
             logger.error(

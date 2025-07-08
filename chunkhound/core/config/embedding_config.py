@@ -9,7 +9,7 @@ indexing flows.
 
 from typing import Any, Literal
 
-from pydantic import Field, SecretStr, field_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -46,7 +46,7 @@ class EmbeddingConfig(BaseSettings):
 
     # Provider Selection
     provider: Literal["openai", "openai-compatible", "tei", "bge-in-icl"] = Field(
-        default="openai", description="Embedding provider to use"
+        description="Embedding provider to use (required)"
     )
 
     # Common Configuration
@@ -119,6 +119,17 @@ class EmbeddingConfig(BaseSettings):
         description="Size of context cache for BGE-IN-ICL optimization",
     )
 
+    @model_validator(mode="after")
+    def validate_provider_is_set(self) -> "EmbeddingConfig":
+        """Ensure provider is explicitly set."""
+        if not hasattr(self, "provider") or self.provider is None:
+            raise ValueError(
+                "Embedding provider must be explicitly selected. Available options: "
+                "openai, openai-compatible, tei, bge-in-icl. "
+                "Set via --provider, CHUNKHOUND_EMBEDDING__PROVIDER, or in config file."
+            )
+        return self
+    
     @field_validator("model")
     def validate_model(cls, v: str | None, info) -> str | None:
         """Validate model name based on provider."""
@@ -231,7 +242,13 @@ class EmbeddingConfig(BaseSettings):
 
         Returns:
             Default model name for the provider
+        
+        Raises:
+            ValueError: If no provider is selected
         """
+        if not self.provider:
+            raise ValueError("No embedding provider selected. Please specify a provider.")
+            
         defaults = {
             "openai": "text-embedding-3-small",
             "openai-compatible": "text-embedding-ada-002",
@@ -274,6 +291,11 @@ class EmbeddingConfig(BaseSettings):
             List of missing configuration parameter names
         """
         missing = []
+        
+        # Check if provider is set first
+        if not self.provider:
+            missing.append("provider (--provider, CHUNKHOUND_EMBEDDING__PROVIDER, or in config file)")
+            return missing  # Return early as other checks depend on provider
 
         if self.provider == "openai" and not self.api_key:
             missing.append("api_key (CHUNKHOUND_EMBEDDING_API_KEY)")

@@ -301,3 +301,17 @@ These runtime control variables are acceptable to keep as direct env vars since 
 
 ### Migration Complete
 The configuration system has been successfully refactored with no backward compatibility. All users must use the new system as documented in MIGRATION_GUIDE.md.
+
+## README Update (2025-07-08)
+
+### ✅ DOCUMENTATION UPDATED
+
+1. **Fixed auto-detection code**: Removed automatic `.chunkhound.json` detection from `config.py`
+2. **Updated README.md** with correct configuration information:
+   - Removed references to automatic config file loading
+   - Updated configuration hierarchy to match implementation
+   - Fixed all environment variable examples to use double underscores (`__`)
+   - Added examples showing `--config` flag usage
+   - Clarified that config files are only loaded when explicitly specified
+
+The configuration system and documentation are now fully aligned with the design requirements.

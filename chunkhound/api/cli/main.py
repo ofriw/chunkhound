@@ -106,14 +106,8 @@ def validate_args(args: argparse.Namespace) -> None:
 
         project_dir = Path(args.path) if hasattr(args, "path") else Path.cwd()
         
-        # Check for local .chunkhound.json and load it if it exists
-        local_config_path = project_dir / ".chunkhound.json"
-        if local_config_path.exists():
-            # Load config with local override (using the same logic as run_command)
-            from .commands.run import _load_config_with_local_override
-            unified_config = _load_config_with_local_override(args, project_dir, local_config_path)
-        else:
-            unified_config = args_to_config(args, project_dir)
+        # Load config (will automatically detect .chunkhound.json in project_dir)
+        unified_config = args_to_config(args, project_dir)
         db_path = (
             Path(unified_config.database.path)
             if unified_config.database.path
@@ -125,8 +119,13 @@ def validate_args(args: argparse.Namespace) -> None:
 
         # Validate provider-specific arguments for index command using unified config
         if not args.no_embeddings:
+            # Check if embedding config exists
+            if not unified_config.embedding:
+                logger.error("No embedding configuration found")
+                exit_on_validation_error("Embedding configuration required")
+            
             # Use unified config values instead of CLI args
-            provider = unified_config.embedding.provider
+            provider = unified_config.embedding.provider if hasattr(unified_config.embedding, 'provider') else None
             api_key = unified_config.embedding.api_key.get_secret_value() if unified_config.embedding.api_key else None
             base_url = unified_config.embedding.base_url
             model = unified_config.embedding.model
@@ -214,7 +213,15 @@ def main() -> None:
     except KeyboardInterrupt:
         sys.exit(0)
     except Exception as e:
-        logger.error(f"Unexpected error: {e}")
+        # Check if this is a Pydantic validation error for missing provider
+        error_str = str(e)
+        if "validation error for EmbeddingConfig" in error_str and "provider" in error_str:
+            logger.error(
+                "Embedding provider must be specified. Choose from: openai, openai-compatible, tei, bge-in-icl\n"
+                "Set via --provider, CHUNKHOUND_EMBEDDING__PROVIDER environment variable, or in config file."
+            )
+        else:
+            logger.error(f"Unexpected error: {e}")
         sys.exit(1)
 
 

@@ -2,16 +2,17 @@
 
 This module provides a unified configuration system with clear precedence:
 1. CLI arguments (highest priority)
-2. Config file (via --config path)
-3. Environment variables
-4. Default values (lowest priority)
+2. Local .chunkhound.json in target directory (if present)
+3. Config file (via --config path)
+4. Environment variables
+5. Default values (lowest priority)
 """
 
 import os
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, model_validator, ConfigDict
 
 from .database_config import DatabaseConfig
 from .embedding_config import EmbeddingConfig
@@ -22,8 +23,10 @@ from .mcp_config import MCPConfig
 class Config(BaseModel):
     """Centralized configuration for ChunkHound."""
     
+    model_config = ConfigDict(validate_assignment=True)
+    
     database: DatabaseConfig = Field(default_factory=DatabaseConfig)
-    embedding: EmbeddingConfig = Field(default_factory=EmbeddingConfig)
+    embedding: Optional[EmbeddingConfig] = Field(default=None)
     mcp: MCPConfig = Field(default_factory=MCPConfig)
     indexing: IndexingConfig = Field(default_factory=IndexingConfig)
     debug: bool = Field(default=False)
@@ -32,13 +35,15 @@ class Config(BaseModel):
         self, 
         config_file: Optional[Path] = None, 
         overrides: Optional[Dict[str, Any]] = None,
+        target_dir: Optional[Path] = None,
         **kwargs
     ):
         """Initialize configuration with hierarchical loading.
         
         Args:
-            config_file: Optional path to configuration file
+            config_file: Optional path to configuration file (from --config)
             overrides: Optional dictionary of CLI overrides
+            target_dir: Optional target directory to check for .chunkhound.json
             **kwargs: Additional keyword arguments
         """
         # Start with defaults
@@ -47,29 +52,37 @@ class Config(BaseModel):
         # 1. Load environment variables
         config_data.update(self._load_env_vars())
         
-        # 2. Load config file if provided OR auto-detect .chunkhound.json
-        config_file_to_load = config_file
-        if not config_file_to_load:
-            # Auto-detect .chunkhound.json in current directory
-            auto_config = Path.cwd() / ".chunkhound.json"
-            if auto_config.exists():
-                config_file_to_load = auto_config
-        
-        if config_file_to_load and config_file_to_load.exists():
+        # 2. Load config file if provided (from --config)
+        if config_file and config_file.exists():
             import json
-            with open(config_file_to_load) as f:
+            with open(config_file) as f:
                 file_config = json.load(f)
                 # Merge file config, overriding env vars
                 self._deep_merge(config_data, file_config)
         
-        # 3. Apply CLI overrides
+        # 3. Check for .chunkhound.json in target directory
+        if target_dir and target_dir.exists():
+            local_config_path = target_dir / ".chunkhound.json"
+            if local_config_path.exists():
+                import json
+                with open(local_config_path) as f:
+                    local_config = json.load(f)
+                    # Merge local config, overriding previous configs
+                    self._deep_merge(config_data, local_config)
+        
+        # 4. Apply CLI overrides
         if overrides:
             self._deep_merge(config_data, overrides)
             
-        # 4. Merge with any additional kwargs
+        # 5. Merge with any additional kwargs
         if kwargs:
             self._deep_merge(config_data, kwargs)
             
+        # For EmbeddingConfig which is a BaseSettings, we need special handling
+        if 'embedding' in config_data and isinstance(config_data['embedding'], dict):
+            # Create EmbeddingConfig instance with the data, disabling env var loading
+            config_data['embedding'] = EmbeddingConfig(_env_file=None, **config_data['embedding'])
+        
         # Initialize the model
         super().__init__(**config_data)
     
@@ -190,13 +203,15 @@ class Config(BaseModel):
     def from_cli_args(
         cls, 
         args: Any,
-        config_file: Optional[Path] = None
+        config_file: Optional[Path] = None,
+        target_dir: Optional[Path] = None
     ) -> "Config":
         """Create configuration from CLI arguments.
         
         Args:
             args: Parsed command line arguments
             config_file: Optional config file path (from --config)
+            target_dir: Optional target directory to check for .chunkhound.json
             
         Returns:
             Configured Config instance
@@ -270,7 +285,7 @@ class Config(BaseModel):
             overrides["debug"] = args.verbose
             
         # Create config with overrides
-        return cls(config_file=config_file, overrides=overrides)
+        return cls(config_file=config_file, overrides=overrides, target_dir=target_dir)
 
 
 # Global configuration instance
