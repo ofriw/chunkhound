@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.3.0] - 2025-07-08
+
+### Changed
+- **BREAKING**: Configuration system completely refactored with centralized management and clear precedence hierarchy
+- **BREAKING**: Automatic configuration file loading removed - config files now only load with explicit `--config` flag
+- **BREAKING**: Environment variables standardized to `CHUNKHOUND_*` prefix with `__` delimiters (e.g., `CHUNKHOUND_EMBEDDING__API_KEY`)
+- **BREAKING**: Legacy `OPENAI_API_KEY` and `OPENAI_BASE_URL` environment variables no longer supported
+
+### Added
+- Complete CLI argument coverage for all configuration options
+- Centralized configuration precedence: CLI args → Config file → Environment variables → Defaults
+- Comprehensive migration guide for updating existing configurations
+- Database file gitignore pattern for Lance database files
+
+### Fixed
+- MCP server database duplication caused by shared transaction state across async tasks
+- Parser architecture inconsistencies for C, Bash, and Makefile language parsers
+- Configuration auto-detection issues that caused deployment complexity
+
 ## [2.2.0] - 2025-01-07
 
 ### Fixed
@@ -207,7 +226,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 For more information, visit: https://github.com/chunkhound/chunkhound
 
-[Unreleased]: https://github.com/chunkhound/chunkhound/compare/v2.2.0...HEAD
+[Unreleased]: https://github.com/chunkhound/chunkhound/compare/v2.3.0...HEAD
+[2.3.0]: https://github.com/chunkhound/chunkhound/compare/v2.2.0...v2.3.0
 [2.2.0]: https://github.com/chunkhound/chunkhound/compare/v2.1.4...v2.2.0
 [2.1.4]: https://github.com/chunkhound/chunkhound/compare/v2.1.3...v2.1.4
 [2.1.3]: https://github.com/chunkhound/chunkhound/compare/v2.1.2...v2.1.3
