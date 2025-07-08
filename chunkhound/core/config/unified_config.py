@@ -1,232 +1,40 @@
 """
-Unified configuration system for ChunkHound.
+Unified configuration system for ChunkHound - Backward compatibility wrapper.
 
-This module provides a single, type-safe configuration model that unifies
-all ChunkHound configuration across embedding, MCP, indexing, and database
-components with hierarchical loading from multiple sources.
+This module provides backward compatibility for the ChunkHoundConfig class
+by wrapping the new centralized Config system. The actual configuration logic
+is now in chunkhound.core.config.config.Config.
+
+This wrapper maintains the existing API while delegating to the new system.
 """
 
 import json
 import os
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
-from pydantic import BaseModel, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# Import the proper EmbeddingConfig class with validation methods
+# Import configuration components from the new modular system
+from .config import Config
+from .database_config import DatabaseConfig
 from .embedding_config import EmbeddingConfig
-
-
-def _get_default_include_patterns() -> list[str]:
-    """Get complete default patterns from Language enum.
-
-    Returns all supported file extensions as glob patterns.
-    This is the single source of truth for default file discovery.
-    """
-    from core.types.common import Language
-
-    patterns = []
-    for ext in Language.get_all_extensions():
-        patterns.append(f"**/*{ext}")
-    # Add special filename patterns
-    patterns.extend(["**/Makefile", "**/makefile", "**/GNUmakefile", "**/gnumakefile"])
-    return patterns
-
-
-class MCPConfig(BaseModel):
-    """MCP server configuration."""
-
-    transport: Literal["stdio", "http"] = Field(
-        default="stdio", description="Transport type for MCP server"
-    )
-
-    port: int = Field(
-        default=3000, ge=1, le=65535, description="Port for HTTP transport"
-    )
-
-    host: str = Field(default="localhost", description="Host for HTTP transport")
-
-    cors: bool = Field(default=False, description="Enable CORS for HTTP transport")
-
-
-class IndexingConfig(BaseModel):
-    """Indexing configuration."""
-
-    include_patterns: list[str] = Field(
-        default_factory=_get_default_include_patterns,
-        description="File patterns to include in indexing (all supported languages)",
-    )
-
-    exclude_patterns: list[str] = Field(
-        default_factory=lambda: [
-            # Virtual environments and package managers
-            "**/node_modules/**",
-            "**/.git/**",
-            "**/__pycache__/**",
-            "**/venv/**",
-            "**/.venv/**",
-            "**/.mypy_cache/**",
-            # Build artifacts and distributions
-            "**/dist/**",
-            "**/build/**",
-            "**/target/**",
-            "**/.pytest_cache/**",
-            # IDE and editor files
-            "**/.vscode/**",
-            "**/.idea/**",
-            "**/.vs/**",
-            # Cache and temporary directories
-            "**/.cache/**",
-            "**/tmp/**",
-            "**/temp/**",
-            # Backup and old files
-            "**/*.backup",
-            "**/*.bak",
-            "**/*~",
-            "**/*.old",
-            # Large generated files
-            "**/*.min.js",
-            "**/*.min.css",
-            "**/bundle.js",
-            "**/vendor.js",
-        ],
-        description="File patterns to exclude from indexing",
-    )
-
-    def get_effective_exclude_patterns(self, base_dir: Path | None = None) -> list[str]:
-        """Get effective exclude patterns including .gitignore files.
-
-        Args:
-            base_dir: Base directory to search for .gitignore files
-
-        Returns:
-            Combined exclude patterns from config and .gitignore files
-        """
-        patterns = self.exclude_patterns.copy()
-
-        if base_dir is None:
-            base_dir = Path.cwd()
-
-        # Parse .gitignore file if it exists
-        gitignore_path = base_dir / ".gitignore"
-        if gitignore_path.exists():
-            try:
-                gitignore_patterns = self._parse_gitignore(gitignore_path)
-                patterns.extend(gitignore_patterns)
-            except Exception:
-                # Silently ignore gitignore parsing errors
-                pass
-
-        return patterns
-
-    def _parse_gitignore(self, gitignore_path: Path) -> list[str]:
-        """Parse .gitignore file into exclude patterns.
-
-        Args:
-            gitignore_path: Path to .gitignore file
-
-        Returns:
-            List of exclude patterns
-        """
-        patterns = []
-
-        try:
-            with open(gitignore_path, encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-
-                    # Skip empty lines and comments
-                    if not line or line.startswith("#"):
-                        continue
-
-                    # Handle negation patterns (not supported, skip)
-                    if line.startswith("!"):
-                        continue
-
-                    # Convert gitignore patterns to glob patterns
-                    if line.endswith("/"):
-                        # Directory pattern
-                        patterns.append(f"**/{line}**")
-                        patterns.append(f"**/{line[:-1]}/**")
-                    elif "/" in line:
-                        # Path pattern
-                        if line.startswith("/"):
-                            line = line[1:]  # Remove leading slash
-                        patterns.append(f"**/{line}")
-                        if not line.endswith("*"):
-                            patterns.append(f"**/{line}/**")
-                    else:
-                        # Filename pattern
-                        patterns.append(f"**/{line}")
-                        patterns.append(f"**/{line}/**")
-
-        except Exception:
-            # Return empty list on any parsing error
-            pass
-
-        return patterns
-
-    watch: bool = Field(
-        default=False, description="Enable file watching for automatic updates"
-    )
-
-    debounce_ms: int = Field(
-        default=500,
-        ge=100,
-        le=5000,
-        description="File change debounce time in milliseconds",
-    )
-
-    batch_size: int = Field(
-        default=10, ge=1, le=1000, description="Batch size for processing files"
-    )
-
-    db_batch_size: int = Field(
-        default=500,
-        ge=1,
-        le=10000,
-        description="Number of records per database transaction",
-    )
-
-    max_concurrent: int = Field(
-        default=4, ge=1, le=20, description="Maximum concurrent file processing"
-    )
-
-    force_reindex: bool = Field(
-        default=False, description="Force reindexing of all files"
-    )
-
-    cleanup: bool = Field(
-        default=False, description="Clean up orphaned chunks from deleted files"
-    )
-
-
-class DatabaseConfig(BaseModel):
-    """Database configuration."""
-
-    path: str = Field(default=".chunkhound.db", description="Path to database file")
-    provider: Literal["duckdb", "lancedb"] = Field(
-        default="duckdb", description="Database provider (duckdb or lancedb)"
-    )
-    lancedb_index_type: Literal["ivf_pq", "ivf_hnsw_sq"] | None = Field(
-        default=None,
-        description="LanceDB index type (auto-configured if not specified)",
-    )
+from .indexing_config import IndexingConfig
+from .mcp_config import MCPConfig
 
 
 class ChunkHoundConfig(BaseSettings):
     """
-    Unified configuration for ChunkHound.
-    This class provides consistent configuration management across all ChunkHound
-    components with support for hierarchical loading from multiple sources.
-
+    Unified configuration for ChunkHound - Backward compatibility wrapper.
+    
+    This class wraps the new Config class to maintain backward compatibility
+    while delegating all actual configuration logic to the centralized system.
+    
     Configuration Sources (in order of precedence):
-    1. Runtime parameters (highest priority)
-    2. Project config file (.chunkhound.json)
-    3. User config file (~/.chunkhound/config.json)
-    4. Environment variables (CHUNKHOUND_*)
-    5. Default values (lowest priority)
+    1. CLI arguments (highest priority)
+    2. Config file (via --config path)
+    3. Environment variables (CHUNKHOUND_*)
+    4. Default values (lowest priority)
 
     Environment Variable Examples:
         CHUNKHOUND_EMBEDDING__PROVIDER=openai
@@ -245,124 +53,72 @@ class ChunkHoundConfig(BaseSettings):
         case_sensitive=False,
         validate_default=True,
         extra="ignore",
-        # Custom sources for hierarchical loading
         env_file=None,  # Disable automatic .env loading
     )
 
-    # Component configurations
-    embedding: EmbeddingConfig = Field(
-        default_factory=EmbeddingConfig, description="Embedding provider configuration"
-    )
+    # Internal config instance that does the actual work
+    _config: Config | None = None
 
-    mcp: MCPConfig = Field(
-        default_factory=MCPConfig, description="MCP server configuration"
-    )
-
-    indexing: IndexingConfig = Field(
-        default_factory=IndexingConfig, description="Indexing configuration"
-    )
-
-    database: DatabaseConfig = Field(
-        default_factory=DatabaseConfig, description="Database configuration"
-    )
-
-    # Global settings
-    debug: bool = Field(default=False, description="Enable debug mode")
+    def __init__(self, **data: Any):
+        """Initialize the wrapper with a Config instance."""
+        # If we're being initialized with component configs, create a Config instance
+        if any(key in data for key in ["embedding", "mcp", "indexing", "database", "debug"]):
+            # Create Config instance from the provided data
+            self._config = Config(**data)
+        else:
+            # Create default Config instance
+            self._config = Config()
+        
+        # Initialize BaseSettings without the data (we'll use properties)
+        super().__init__()
+    
+    @property
+    def embedding(self) -> EmbeddingConfig:
+        """Get embedding configuration."""
+        return self._config.embedding if self._config else EmbeddingConfig()
+    
+    @property
+    def mcp(self) -> MCPConfig:
+        """Get MCP configuration."""
+        return self._config.mcp if self._config else MCPConfig()
+    
+    @property
+    def indexing(self) -> IndexingConfig:
+        """Get indexing configuration."""
+        return self._config.indexing if self._config else IndexingConfig()
+    
+    @property
+    def database(self) -> DatabaseConfig:
+        """Get database configuration."""
+        return self._config.database if self._config else DatabaseConfig()
+    
+    @property
+    def debug(self) -> bool:
+        """Get debug flag."""
+        return self._config.debug if self._config else False
 
     @classmethod
     def load_hierarchical(
-        cls, project_dir: Path | None = None, **override_values: Any
+        cls, config_file: Path | None = None, **override_values: Any
     ) -> "ChunkHoundConfig":
         """
         Load configuration from hierarchical sources.
 
         Args:
-            project_dir: Project directory to search for .chunkhound.json
+            config_file: Explicit configuration file path (via --config)
             **override_values: Runtime parameter overrides
 
         Returns:
             Loaded and validated configuration
         """
-        config_data = {}
-
-        # 1. Load user config file (~/.chunkhound/config.json)
-        user_config_path = Path.home() / ".chunkhound" / "config.json"
-        if user_config_path.exists():
-            try:
-                with open(user_config_path) as f:
-                    user_config = json.load(f)
-                config_data.update(user_config)
-            except (json.JSONDecodeError, OSError) as e:
-                if os.getenv("CHUNKHOUND_DEBUG"):
-                    print(
-                        f"Warning: Failed to load user config {user_config_path}: {e}"
-                    )
-
-        # 2. Load project config file (.chunkhound.json)
-        if project_dir is None:
-            project_dir = Path.cwd()
-
-        project_config_path = project_dir / ".chunkhound.json"
-        if project_config_path.exists():
-            try:
-                with open(project_config_path) as f:
-                    project_config = json.load(f)
-                config_data.update(project_config)
-            except (json.JSONDecodeError, OSError) as e:
-                if os.getenv("CHUNKHOUND_DEBUG"):
-                    print(
-                        f"Warning: Failed to load project config {project_config_path}: {e}"
-                    )
-
-        # 3. Apply runtime overrides
-        config_data.update(override_values)
-
-        # 4. Create instance with controlled environment variable loading
-        # First, create default instance to get environment variable values
-        env_instance = cls()
+        # Use the new Config class to handle loading
+        config = Config(config_file=config_file, overrides=override_values)
         
-        # Apply config file and override values on top of environment defaults
-        # This ensures config files override environment variables, not the reverse
-        final_config_data = {}
-        
-        # Start with environment-loaded values
-        final_config_data.update(env_instance.model_dump(exclude_none=True))
-        
-        # Override with config file data (this is the fix - config file wins over env)
-        final_config_data.update(config_data)
-        
-        # Handle embedding config specially to ensure proper EmbeddingConfig instantiation
-        if "embedding" in final_config_data and isinstance(final_config_data["embedding"], dict):
-            final_config_data["embedding"] = EmbeddingConfig(**final_config_data["embedding"])
+        # Create wrapper instance
+        instance = cls()
+        instance._config = config
+        return instance
 
-        # Create final instance without automatic environment processing to prevent double processing
-        return cls.model_validate(final_config_data)
-
-    @field_validator("embedding")
-    def validate_embedding_config(cls, v: EmbeddingConfig) -> EmbeddingConfig:
-        """Validate embedding configuration for provider requirements."""
-        # Check for legacy environment variables and warn
-        if not v.api_key and os.getenv("OPENAI_API_KEY"):
-            if os.getenv("CHUNKHOUND_DEBUG"):
-                print(
-                    "Warning: Using legacy OPENAI_API_KEY. Consider setting CHUNKHOUND_EMBEDDING__API_KEY"
-                )
-            # Create new config with legacy API key
-            config_dict = v.model_dump()
-            config_dict["api_key"] = os.getenv("OPENAI_API_KEY")
-            v = EmbeddingConfig(**config_dict)
-
-        if not v.base_url and os.getenv("OPENAI_BASE_URL"):
-            if os.getenv("CHUNKHOUND_DEBUG"):
-                print(
-                    "Warning: Using legacy OPENAI_BASE_URL. Consider setting CHUNKHOUND_EMBEDDING__BASE_URL"
-                )
-            # Create new config with legacy base URL
-            config_dict = v.model_dump()
-            config_dict["base_url"] = os.getenv("OPENAI_BASE_URL")
-            v = EmbeddingConfig(**config_dict)
-
-        return v
 
     def get_missing_config(self) -> list[str]:
         """
@@ -397,7 +153,16 @@ class ChunkHoundConfig(BaseSettings):
         Returns:
             Configuration as dictionary
         """
-        return self.model_dump(mode="json", exclude_none=True)
+        if self._config:
+            return self._config.to_dict()
+        # Return default structure if no config
+        return {
+            "embedding": self.embedding.model_dump(),
+            "mcp": self.mcp.model_dump(),
+            "indexing": self.indexing.model_dump(),
+            "database": self.database.model_dump(),
+            "debug": self.debug
+        }
 
     def save_to_file(self, file_path: Path) -> None:
         """
@@ -427,6 +192,10 @@ class ChunkHoundConfig(BaseSettings):
             f"mcp.transport={self.mcp.transport}, "
             f"database.path={self.database.path})"
         )
+    
+    def model_dump(self, **kwargs) -> dict[str, Any]:
+        """Dump model to dictionary for backward compatibility."""
+        return self.to_dict()
 
     @classmethod
     def get_default_exclude_patterns(cls) -> list[str]:
@@ -437,7 +206,7 @@ class ChunkHoundConfig(BaseSettings):
         """
         # Create a temporary instance to get the default patterns
         temp_config = IndexingConfig()
-        return temp_config.exclude_patterns
+        return temp_config.exclude
 
 
 # Global configuration instance
@@ -453,7 +222,8 @@ def get_config() -> ChunkHoundConfig:
     """
     global _config_instance
     if _config_instance is None:
-        _config_instance = ChunkHoundConfig.load_hierarchical()
+        # Create wrapper instance with default Config
+        _config_instance = ChunkHoundConfig()
     return _config_instance
 
 

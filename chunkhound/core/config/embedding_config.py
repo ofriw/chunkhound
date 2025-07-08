@@ -23,7 +23,7 @@ class EmbeddingConfig(BaseSettings):
 
     Configuration Sources (in order of precedence):
     1. Runtime parameters (highest priority)
-    2. Configuration files (.env, .chunkhound.json)
+    2. Configuration files (when explicitly specified via --config)
     3. Environment variables (CHUNKHOUND_EMBEDDING_*)
     4. Default values (lowest priority)
 
