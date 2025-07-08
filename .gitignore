@@ -259,3 +259,4 @@ config.json
 # ChunkHound database directories
 .chunkhound/
 *.lancedb/
+*.lance
