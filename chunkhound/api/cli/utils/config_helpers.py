@@ -9,6 +9,7 @@ import argparse
 import os
 from pathlib import Path
 
+from chunkhound.core.config.config import Config
 from chunkhound.core.config.unified_config import ChunkHoundConfig
 
 
@@ -25,74 +26,17 @@ def args_to_config(
     Returns:
         ChunkHoundConfig instance
     """
-    config_overrides = {}
-
-    # Database configuration - only override if explicitly provided
-    if hasattr(args, "db") and args.db is not None:
-        config_overrides["database"] = {"path": str(args.db)}
-
-    # Embedding configuration
-    embedding_config = {}
-    if hasattr(args, "provider") and args.provider:
-        embedding_config["provider"] = args.provider
-    if hasattr(args, "model") and args.model:
-        embedding_config["model"] = args.model
-    if hasattr(args, "api_key") and args.api_key:
-        embedding_config["api_key"] = args.api_key
-    if hasattr(args, "base_url") and args.base_url:
-        embedding_config["base_url"] = args.base_url
-    if hasattr(args, "embedding_batch_size") and args.embedding_batch_size:
-        embedding_config["batch_size"] = args.embedding_batch_size
-    if hasattr(args, "max_concurrent") and args.max_concurrent:
-        embedding_config["max_concurrent_batches"] = args.max_concurrent
-
-    if embedding_config:
-        config_overrides["embedding"] = embedding_config
-
-    # MCP configuration
-    mcp_config = {}
-    if hasattr(args, "http") and args.http:
-        mcp_config["transport"] = "http"
-    elif hasattr(args, "stdio") and args.stdio:
-        mcp_config["transport"] = "stdio"
-    if hasattr(args, "port") and args.port:
-        mcp_config["port"] = args.port
-    if hasattr(args, "host") and args.host:
-        mcp_config["host"] = args.host
-    if hasattr(args, "cors") and args.cors:
-        mcp_config["cors"] = args.cors
-
-    if mcp_config:
-        config_overrides["mcp"] = mcp_config
-
-    # Indexing configuration
-    indexing_config = {}
-    if hasattr(args, "include") and args.include:
-        indexing_config["include_patterns"] = args.include
-    if hasattr(args, "exclude") and args.exclude:
-        indexing_config["exclude_patterns"] = args.exclude
-    if hasattr(args, "watch") and args.watch:
-        indexing_config["watch"] = args.watch
-    if hasattr(args, "debounce_ms") and args.debounce_ms:
-        indexing_config["debounce_ms"] = args.debounce_ms
-    if hasattr(args, "db_batch_size") and args.db_batch_size:
-        indexing_config["db_batch_size"] = args.db_batch_size
-    if hasattr(args, "force_reindex") and args.force_reindex:
-        indexing_config["force_reindex"] = args.force_reindex
-    if hasattr(args, "cleanup") and args.cleanup:
-        indexing_config["cleanup"] = args.cleanup
-
-    if indexing_config:
-        config_overrides["indexing"] = indexing_config
-
-    # Global configuration
-    if hasattr(args, "verbose") and args.verbose:
-        config_overrides["debug"] = args.verbose
-
-    # Load configuration with hierarchical resolution
-    return ChunkHoundConfig.load_hierarchical(
-        project_dir=project_dir, **config_overrides
-    )
+    # Get config file path from args
+    config_file = getattr(args, "config", None)
+    
+    # Use the new Config class
+    config = Config.from_cli_args(args, config_file=config_file)
+    
+    # Create ChunkHoundConfig wrapper instance
+    chunk_config = ChunkHoundConfig()
+    chunk_config._config = config
+    
+    return chunk_config
 
 
 def create_legacy_registry_config(
@@ -128,7 +72,11 @@ def create_legacy_registry_config(
         }
 
         if config.embedding.api_key:
-            embedding_dict["api_key"] = config.embedding.api_key.get_secret_value()
+            embedding_dict["api_key"] = (
+                config.embedding.api_key.get_secret_value()
+                if hasattr(config.embedding.api_key, "get_secret_value")
+                else config.embedding.api_key
+            )
 
         if config.embedding.base_url:
             embedding_dict["base_url"] = config.embedding.base_url
@@ -151,14 +99,8 @@ def apply_legacy_env_vars(config: ChunkHoundConfig) -> ChunkHoundConfig:
     Returns:
         Updated configuration
     """
-    # Handle legacy OPENAI_API_KEY
-    if not config.embedding.api_key and os.getenv("OPENAI_API_KEY"):
-        config.embedding.api_key = os.getenv("OPENAI_API_KEY")
-
-    # Handle legacy OPENAI_BASE_URL
-    if not config.embedding.base_url and os.getenv("OPENAI_BASE_URL"):
-        config.embedding.base_url = os.getenv("OPENAI_BASE_URL")
-
+    # Legacy environment variables are now handled by the Config class
+    # in its _load_env_vars method, so this is now a no-op
     return config
 
 

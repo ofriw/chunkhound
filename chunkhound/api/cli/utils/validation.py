@@ -37,7 +37,7 @@ def validate_provider_args(
 
     Args:
         provider: Provider name
-        api_key: Optional API key
+        api_key: Optional API key (should come from unified config)
         base_url: Optional base URL
         model: Optional model name
 
@@ -46,14 +46,10 @@ def validate_provider_args(
     """
     if provider == "openai":
         if not api_key:
-            # Check environment variable
-            import os
-
-            if not os.getenv("OPENAI_API_KEY"):
-                logger.error(
-                    "OpenAI API key required. Set OPENAI_API_KEY or use --api-key"
-                )
-                return False
+            logger.error(
+                "OpenAI API key required. Set CHUNKHOUND_EMBEDDING_API_KEY or use --api-key"
+            )
+            return False
 
     elif provider == "openai-compatible":
         if not base_url:
