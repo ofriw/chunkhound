@@ -45,7 +45,7 @@ uv run chunkhound index
 uv run chunkhound mcp
 
 # Optional: Set OpenAI API key for semantic search
-export OPENAI_API_KEY="sk-your-key-here"
+export CHUNKHOUND_EMBEDDING_API_KEY="sk-your-key-here"
 ```
 
 ## Features
@@ -329,7 +329,7 @@ ChunkHound supports multiple embedding providers for semantic search:
 
 **OpenAI (requires API key)**:
 ```bash
-export OPENAI_API_KEY="sk-your-key-here"
+export CHUNKHOUND_EMBEDDING_API_KEY="sk-your-key-here"
 uv run chunkhound index --provider openai --model text-embedding-3-small
 ```
 
@@ -363,7 +363,7 @@ uv run chunkhound index --no-embeddings
 ### Environment Variables
 ```bash
 # For OpenAI semantic search only
-export OPENAI_API_KEY="sk-your-key-here"
+export CHUNKHOUND_EMBEDDING_API_KEY="sk-your-key-here"
 
 # For local embedding servers (Ollama, LocalAI, etc.)
 export CHUNKHOUND_EMBEDDING_PROVIDER="openai-compatible"

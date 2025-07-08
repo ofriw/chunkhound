@@ -319,7 +319,7 @@ ChunkHound uses a hierarchical configuration system:
     type: openai
     base_url: https://api.openai.com/v1
     model: text-embedding-3-small
-    api_key: ${OPENAI_API_KEY}
+    api_key: ${CHUNKHOUND_EMBEDDING_API_KEY}
     default: true
     enabled: true
     
@@ -558,7 +558,7 @@ spec:
       - name: chunkhound
         image: chunkhound:latest
         env:
-        - name: OPENAI_API_KEY
+        - name: CHUNKHOUND_EMBEDDING_API_KEY
           valueFrom:
             secretKeyRef:
               name: chunkhound-secrets

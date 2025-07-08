@@ -23,7 +23,7 @@ Create `.zed/settings.json` in the ChunkHound directory:
       "args": ["run", "chunkhound", "mcp", "--db", ".chunkhound.duckdb"],
       "cwd": ".",
       "env": {
-        "OPENAI_API_KEY": "your-openai-api-key-here"
+        "CHUNKHOUND_EMBEDDING_API_KEY": "your-openai-api-key-here"
       }
     }
   }
@@ -43,7 +43,7 @@ Install the MCP extension, then add to workspace `.vscode/settings.json`:
       "cwd": "${workspaceFolder}",
       "env": {
         "CHUNKHOUND_DB_PATH": "${workspaceFolder}/.chunkhound.duckdb",
-        "OPENAI_API_KEY": "your-openai-api-key-here"
+        "CHUNKHOUND_EMBEDDING_API_KEY": "your-openai-api-key-here"
       }
     }
   }
@@ -62,7 +62,7 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
       "args": ["run", "chunkhound", "mcp", "--db", "/full/path/to/chunkhound/.chunkhound.duckdb"],
       "cwd": "/full/path/to/chunkhound",
       "env": {
-        "OPENAI_API_KEY": "your-openai-api-key-here"
+        "CHUNKHOUND_EMBEDDING_API_KEY": "your-openai-api-key-here"
       }
     }
   }
@@ -85,7 +85,7 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 Create `.env` file in ChunkHound directory:
 
 ```bash
-OPENAI_API_KEY=your-openai-api-key-here
+CHUNKHOUND_EMBEDDING_API_KEY=your-openai-api-key-here
 CHUNKHOUND_DB_PATH=./.chunkhound.duckdb
 ```
 

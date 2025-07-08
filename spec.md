@@ -124,7 +124,7 @@ Providers register via `entry_points="mcp_embeddings"` so a simple `uv pip insta
 
 | Provider           | Default model          | Dims           | Required env / CLI                  |
 | ------------------ | ---------------------- | -------------- | ----------------------------------- |
-| openai             | text-embedding-3-small | 1536           | OPENAI_API_KEY / OPENAI_BASE_URL    |
+| openai             | text-embedding-3-small | 1536           | CHUNKHOUND_EMBEDDING_API_KEY / CHUNKHOUND_EMBEDDING_BASE_URL    |
 | claude (Voyage AI) | voyage-3.5-lite        | 1024 (default) | VOYAGE_API_KEY or AWS Bedrock creds |
 Flag `--model` overrides defaults; vectors are stored side-by-side, so you can **swap providers without re-indexing**—MCP backfills any missing vectors lazily.
 # CLI & config
@@ -139,7 +139,7 @@ $ mcp run <path> \
 
       --model text-embedding-3-small \
 
-      --api-key $OPENAI_API_KEY \
+      --api-key $CHUNKHOUND_EMBEDDING_API_KEY \
 
       --host 127.0.0.1 --port 7474
 ```
