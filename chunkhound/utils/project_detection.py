@@ -53,13 +53,16 @@ def get_project_database_path() -> Path:
     Returns:
         Path to database file in project root
     """
-    # Check environment variable first
-    if env_path := os.environ.get("CHUNKHOUND_DB_PATH"):
-        return Path(env_path)
+    # Use the config system which handles env vars
+    from chunkhound.core.config.config import get_config
+    config = get_config()
+    
+    if config.database.path:
+        return Path(config.database.path)
 
     # Find project root and use default database name
     project_root = find_project_root()
-    return project_root / ".chunkhound.db"
+    return project_root / ".chunkhound" / "db"
 
 
 def get_project_watch_paths() -> list[Path]:

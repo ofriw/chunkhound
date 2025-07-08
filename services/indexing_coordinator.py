@@ -558,8 +558,8 @@ class IndexingCoordinator(BaseService):
                     # Check if backup tables still exist
                     backup_exists = (
                         connection.execute(f"""
-                        SELECT COUNT(*) FROM sqlite_master
-                        WHERE type='table' AND name='{chunks_backup_table}'
+                        SELECT COUNT(*) FROM information_schema.tables
+                        WHERE table_name='{chunks_backup_table}'
                     """).fetchone()[0]
                         > 0
                     )

@@ -83,6 +83,9 @@ class PeriodicIndexManager:
         Returns:
             Configured PeriodicIndexManager instance
         """
+        # TODO: Add periodic indexing configuration to centralized Config class
+        # For now, keep using environment variables as these are specialized settings
+        # that are mainly used in subprocess/service contexts
         interval = int(os.getenv("CHUNKHOUND_PERIODIC_INDEX_INTERVAL", "300"))
         batch_size = int(os.getenv("CHUNKHOUND_PERIODIC_BATCH_SIZE", "10"))
         enabled = (
