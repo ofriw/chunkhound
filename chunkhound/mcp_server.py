@@ -39,7 +39,7 @@ except ImportError:
 
 try:
     from .core.config import EmbeddingProviderFactory
-    from .core.config.unified_config import ChunkHoundConfig
+    from .core.config.config import Config
     from .database import Database
     from .database_factory import create_database_with_dependencies
     from .embeddings import EmbeddingManager
@@ -51,7 +51,7 @@ try:
 except ImportError:
     # Handle running as standalone script or PyInstaller binary
     from chunkhound.core.config import EmbeddingProviderFactory
-    from chunkhound.core.config.unified_config import ChunkHoundConfig
+    from chunkhound.core.config.config import Config
     from chunkhound.database import Database
     from chunkhound.database_factory import create_database_with_dependencies
     from chunkhound.embeddings import EmbeddingManager
@@ -74,12 +74,12 @@ server = Server("ChunkHound Code Search")
 
 
 def _build_mcp_registry_config(
-    config: ChunkHoundConfig, db_path: Path
+    config: Config, db_path: Path
 ) -> dict[str, Any]:
     """Build registry configuration for MCP server mode.
 
     Args:
-        config: Unified configuration
+        config: Centralized configuration
         db_path: Database path
 
     Returns:
@@ -95,15 +95,13 @@ def _build_mcp_registry_config(
             "batch_size": config.embedding.batch_size,
             "max_concurrent_batches": config.embedding.max_concurrent_batches,
             "provider": config.embedding.provider,
-            "model": config.get_embedding_model(),
+            "model": config.embedding.model,
         },
     }
 
     # Add API key if available
     if config.embedding.api_key:
-        registry_config["embedding"]["api_key"] = (
-            config.embedding.api_key.get_secret_value()
-        )
+        registry_config["embedding"]["api_key"] = config.embedding.api_key
 
     # Add base URL if available
     if config.embedding.base_url:
@@ -133,13 +131,27 @@ def log_environment_diagnostics():
     if os.environ.get("CHUNKHOUND_MCP_MODE"):
         return
     print("=== MCP SERVER ENVIRONMENT DIAGNOSTICS ===", file=sys.stderr)
-    print(f"OPENAI_API_KEY present: {'OPENAI_API_KEY' in os.environ}", file=sys.stderr)
-    if "OPENAI_API_KEY" in os.environ:
-        key = os.environ["OPENAI_API_KEY"]
-        print(f"OPENAI_API_KEY length: {len(key)}", file=sys.stderr)
-        print(f"OPENAI_API_KEY prefix: {key[:7]}...", file=sys.stderr)
-    else:
-        print("OPENAI_API_KEY not found in process environment", file=sys.stderr)
+    
+    # Check for API key using config system
+    from chunkhound.core.config.embedding_config import EmbeddingConfig
+    
+    # Check config system
+    try:
+        temp_config = EmbeddingConfig(provider="openai")
+        has_key = temp_config.api_key is not None
+        print(f"CHUNKHOUND_EMBEDDING_API_KEY configured: {has_key}", file=sys.stderr)
+        
+        if has_key:
+            key_value = temp_config.api_key.get_secret_value()
+            print(f"API key length: {len(key_value)}", file=sys.stderr)
+            print(f"API key prefix: {key_value[:7]}...", file=sys.stderr)
+    except Exception as e:
+        has_key = False
+        print(f"CHUNKHOUND_EMBEDDING_API_KEY not configured: {e}", file=sys.stderr)
+    
+    if not has_key:
+        print("WARNING: No API key found. Set CHUNKHOUND_EMBEDDING_API_KEY environment variable.", file=sys.stderr)
+        
     print("===============================================", file=sys.stderr)
 
 
@@ -157,7 +169,9 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
     # Set MCP mode to suppress stderr output that interferes with JSON-RPC
     os.environ["CHUNKHOUND_MCP_MODE"] = "1"
 
-    if "CHUNKHOUND_DEBUG" in os.environ:
+    # Check debug flag from environment or config
+    debug_mode = os.getenv("CHUNKHOUND_DEBUG", "").lower() in ("true", "1", "yes")
+    if debug_mode:
         print("Server lifespan: Starting initialization", file=sys.stderr)
 
     try:
@@ -178,56 +192,56 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
 
         # Find project root first
         project_root = find_project_root()
-        if "CHUNKHOUND_DEBUG" in os.environ:
+        if debug_mode:
             print(
                 f"Server lifespan: Detected project root: {project_root}",
                 file=sys.stderr,
             )
 
-        # Load unified configuration FIRST - this is critical for proper initialization
+        # Load centralized configuration with auto-detection (same as CLI)
         try:
-            unified_config = ChunkHoundConfig.load_hierarchical(
-                project_dir=project_root
-            )
-
-            # Validate configuration for MCP
-            missing_config = unified_config.get_missing_config()
-            if missing_config and "CHUNKHOUND_DEBUG" in os.environ:
+            # Use the same config loading pattern as CLI with auto-detection
+            # This will load env vars, auto-detect .chunkhound.json, etc.
+            config = Config()  # This includes auto-detection in __init__
+            # Update debug mode from config
+            debug_mode = config.debug or debug_mode
+            if debug_mode:
                 print(
-                    f"Server lifespan: Missing config (will use defaults): {missing_config}",
+                    "Server lifespan: Loaded centralized configuration with auto-detection",
                     file=sys.stderr,
                 )
         except Exception as e:
-            if "CHUNKHOUND_DEBUG" in os.environ:
+            if debug_mode:
                 print(
-                    f"Server lifespan: Failed to load unified config, using defaults: {e}",
+                    f"Server lifespan: Failed to load config, using defaults: {e}",
                     file=sys.stderr,
                 )
             # Use default config if loading fails
-            unified_config = ChunkHoundConfig()
+            config = Config()
 
-        # Use consistent database path resolution between MCP and CLI
-        # Prefer environment variable, then project-aware default
-        if env_db_path := os.environ.get("CHUNKHOUND_DB_PATH"):
-            db_path = Path(env_db_path)
-        else:
-            # Use project-aware database path
+        # Get database path from config
+        db_path = config.database.path
+        if not db_path:
+            # Fallback to project-aware database path
             db_path = get_project_database_path()
+        else:
+            # Ensure it's a Path object
+            db_path = Path(db_path)
 
         db_path.parent.mkdir(parents=True, exist_ok=True)
 
-        if "CHUNKHOUND_DEBUG" in os.environ:
+        if debug_mode:
             print(f"Server lifespan: Using database at {db_path}", file=sys.stderr)
 
         # Initialize embedding configuration BEFORE database creation
         _embedding_manager = EmbeddingManager()
-        if "CHUNKHOUND_DEBUG" in os.environ:
+        if debug_mode:
             print("Server lifespan: Embedding manager initialized", file=sys.stderr)
 
         # Build registry config for unified factory
-        registry_config = _build_mcp_registry_config(unified_config, db_path)
+        registry_config = _build_mcp_registry_config(config, db_path)
 
-        if "CHUNKHOUND_DEBUG" in os.environ:
+        if debug_mode:
             print(
                 "Server lifespan: Registry config prepared for unified factory",
                 file=sys.stderr,
@@ -240,44 +254,44 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
         try:
             # Create provider using unified factory
             provider = EmbeddingProviderFactory.create_provider(
-                unified_config.embedding
+                config.embedding
             )
             _embedding_manager.register_provider(provider, set_default=True)
 
-            if "CHUNKHOUND_DEBUG" in os.environ:
+            if debug_mode:
                 print(
-                    f"Server lifespan: Embedding provider registered successfully: {unified_config.embedding.provider} with model {unified_config.get_embedding_model()}",
+                    f"Server lifespan: Embedding provider registered successfully: {config.embedding.provider} with model {config.embedding.model}",
                     file=sys.stderr,
                 )
 
         except ValueError as e:
             # API key or configuration issue - only log in non-MCP mode
-            if "CHUNKHOUND_DEBUG" in os.environ:
+            if debug_mode:
                 print(
                     f"Server lifespan: Embedding provider setup failed (expected): {e}",
                     file=sys.stderr,
                 )
-            if "CHUNKHOUND_DEBUG" in os.environ and not os.environ.get(
+            if debug_mode and not os.environ.get(
                 "CHUNKHOUND_MCP_MODE"
             ):
                 print(f"Embedding provider setup failed: {e}", file=sys.stderr)
                 print("Configuration help:", file=sys.stderr)
                 print(
-                    "- Set CHUNKHOUND_EMBEDDING_PROVIDER (openai|openai-compatible|tei|bge-in-icl)",
+                    "- Set CHUNKHOUND_EMBEDDING__PROVIDER (openai|openai-compatible|tei|bge-in-icl)",
                     file=sys.stderr,
                 )
                 print(
-                    "- Set CHUNKHOUND_EMBEDDING_API_KEY or legacy OPENAI_API_KEY",
+                    "- Set CHUNKHOUND_EMBEDDING__API_KEY or legacy OPENAI_API_KEY",
                     file=sys.stderr,
                 )
-                print("- Set CHUNKHOUND_EMBEDDING_MODEL (optional)", file=sys.stderr)
+                print("- Set CHUNKHOUND_EMBEDDING__MODEL (optional)", file=sys.stderr)
                 print(
-                    "- For OpenAI-compatible: Set CHUNKHOUND_EMBEDDING_BASE_URL",
+                    "- For OpenAI-compatible: Set CHUNKHOUND_EMBEDDING__BASE_URL",
                     file=sys.stderr,
                 )
         except Exception as e:
             # Unexpected error - log for debugging but continue
-            if "CHUNKHOUND_DEBUG" in os.environ:
+            if debug_mode:
                 print(
                     f"Server lifespan: Unexpected error setting up embedding provider: {e}",
                     file=sys.stderr,
@@ -297,7 +311,7 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
             # The database connection must be established before any async tasks start
             # to prevent concurrent database operations during initialization
             _database.connect()
-            if "CHUNKHOUND_DEBUG" in os.environ:
+            if debug_mode:
                 print(
                     "Server lifespan: Database connected successfully", file=sys.stderr
                 )
@@ -318,7 +332,7 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
                         file=sys.stderr,
                     )
         except Exception as db_error:
-            if "CHUNKHOUND_DEBUG" in os.environ:
+            if debug_mode:
                 print(
                     f"Server lifespan: Database connection error: {db_error}",
                     file=sys.stderr,
@@ -330,7 +344,7 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
 
         # Setup signal coordination for process coordination
         setup_signal_coordination(db_path, _database)
-        if "CHUNKHOUND_DEBUG" in os.environ:
+        if debug_mode:
             print(
                 "Server lifespan: Signal coordination setup complete", file=sys.stderr
             )
@@ -338,13 +352,13 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
         # Initialize task coordinator for priority-based operation processing
         _task_coordinator = TaskCoordinator(max_queue_size=1000)
         await _task_coordinator.start()
-        if "CHUNKHOUND_DEBUG" in os.environ:
+        if debug_mode:
             print("Server lifespan: Task coordinator initialized", file=sys.stderr)
 
         # Initialize filesystem watcher with offline catch-up
         _file_watcher = FileWatcherManager()
         try:
-            if "CHUNKHOUND_DEBUG" in os.environ:
+            if debug_mode:
                 print("Server lifespan: Initializing file watcher...", file=sys.stderr)
 
             # Check if watchdog is available before initializing
@@ -374,7 +388,7 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
                 print(f"❌ MCP SERVER ERROR: {error_msg}", file=sys.stderr)
                 raise RuntimeError(error_msg)
 
-            if "CHUNKHOUND_DEBUG" in os.environ:
+            if debug_mode:
                 print(
                     "Server lifespan: File watcher initialized successfully",
                     file=sys.stderr,
@@ -383,7 +397,7 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
             # FAIL FAST: Any file watcher error should crash the server
             error_msg = f"FATAL: File watcher initialization failed: {fw_error}"
             print(f"❌ MCP SERVER ERROR: {error_msg}", file=sys.stderr)
-            if "CHUNKHOUND_DEBUG" in os.environ:
+            if debug_mode:
                 import traceback
 
                 traceback.print_exc(file=sys.stderr)
@@ -391,7 +405,7 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
 
         # Initialize periodic indexer for background scanning
         try:
-            if "CHUNKHOUND_DEBUG" in os.environ:
+            if debug_mode:
                 print(
                     "Server lifespan: Initializing periodic indexer...", file=sys.stderr
                 )
@@ -413,14 +427,14 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
             # Start periodic indexer (immediate startup scan + periodic scans)
             await _periodic_indexer.start()
 
-            if "CHUNKHOUND_DEBUG" in os.environ:
+            if debug_mode:
                 print(
                     "Server lifespan: Periodic indexer initialized successfully",
                     file=sys.stderr,
                 )
         except Exception as pi_error:
             # Non-fatal error - log but continue without periodic indexing
-            if "CHUNKHOUND_DEBUG" in os.environ:
+            if debug_mode:
                 print(
                     f"Server lifespan: Periodic indexer initialization failed (non-fatal): {pi_error}",
                     file=sys.stderr,
@@ -430,7 +444,7 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
                 traceback.print_exc(file=sys.stderr)
             _periodic_indexer = None
 
-        if "CHUNKHOUND_DEBUG" in os.environ:
+        if debug_mode:
             print(
                 "Server lifespan: All components initialized successfully",
                 file=sys.stderr,
@@ -446,28 +460,28 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
         }
 
     except Exception as e:
-        if "CHUNKHOUND_DEBUG" in os.environ:
+        if debug_mode:
             print(f"Server lifespan: Initialization failed: {e}", file=sys.stderr)
             import traceback
 
             traceback.print_exc(file=sys.stderr)
         raise Exception(f"Failed to initialize database and embeddings: {e}")
     finally:
-        if "CHUNKHOUND_DEBUG" in os.environ:
+        if debug_mode:
             print("Server lifespan: Entering cleanup phase", file=sys.stderr)
 
         # Cleanup periodic indexer
         if _periodic_indexer:
             try:
-                if "CHUNKHOUND_DEBUG" in os.environ:
+                if debug_mode:
                     print(
                         "Server lifespan: Stopping periodic indexer...", file=sys.stderr
                     )
                 await _periodic_indexer.stop()
-                if "CHUNKHOUND_DEBUG" in os.environ:
+                if debug_mode:
                     print("Server lifespan: Periodic indexer stopped", file=sys.stderr)
             except Exception as pi_cleanup_error:
-                if "CHUNKHOUND_DEBUG" in os.environ:
+                if debug_mode:
                     print(
                         f"Server lifespan: Error stopping periodic indexer: {pi_cleanup_error}",
                         file=sys.stderr,
@@ -476,15 +490,15 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
         # Cleanup task coordinator
         if _task_coordinator:
             try:
-                if "CHUNKHOUND_DEBUG" in os.environ:
+                if debug_mode:
                     print(
                         "Server lifespan: Stopping task coordinator...", file=sys.stderr
                     )
                 await _task_coordinator.stop()
-                if "CHUNKHOUND_DEBUG" in os.environ:
+                if debug_mode:
                     print("Server lifespan: Task coordinator stopped", file=sys.stderr)
             except Exception as tc_cleanup_error:
-                if "CHUNKHOUND_DEBUG" in os.environ:
+                if debug_mode:
                     print(
                         f"Server lifespan: Error stopping task coordinator: {tc_cleanup_error}",
                         file=sys.stderr,
@@ -494,13 +508,13 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
         if _signal_coordinator:
             try:
                 _signal_coordinator.cleanup_coordination_files()
-                if "CHUNKHOUND_DEBUG" in os.environ:
+                if debug_mode:
                     print(
                         "Server lifespan: Signal coordination files cleaned up",
                         file=sys.stderr,
                     )
             except Exception as coord_error:
-                if "CHUNKHOUND_DEBUG" in os.environ:
+                if debug_mode:
                     print(
                         f"Server lifespan: Error cleaning up coordination files: {coord_error}",
                         file=sys.stderr,
@@ -509,18 +523,18 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
         # Cleanup filesystem watcher
         if _file_watcher:
             try:
-                if "CHUNKHOUND_DEBUG" in os.environ:
+                if debug_mode:
                     print(
                         "Server lifespan: Cleaning up file watcher...", file=sys.stderr
                     )
                 await _file_watcher.cleanup()
-                if "CHUNKHOUND_DEBUG" in os.environ:
+                if debug_mode:
                     print(
                         "Server lifespan: File watcher cleaned up successfully",
                         file=sys.stderr,
                     )
             except Exception as fw_cleanup_error:
-                if "CHUNKHOUND_DEBUG" in os.environ:
+                if debug_mode:
                     print(
                         f"Server lifespan: Error cleaning up file watcher: {fw_cleanup_error}",
                         file=sys.stderr,
@@ -529,7 +543,7 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
         # Cleanup database
         if _database:
             try:
-                if "CHUNKHOUND_DEBUG" in os.environ:
+                if debug_mode:
                     print(
                         "Server lifespan: Closing database connection...",
                         file=sys.stderr,
@@ -542,7 +556,7 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
                             _task_coordinator.wait_for_completion(), timeout=10.0
                         )
                     except asyncio.TimeoutError:
-                        if "CHUNKHOUND_DEBUG" in os.environ:
+                        if debug_mode:
                             print(
                                 "Server lifespan: Task coordinator cleanup timeout",
                                 file=sys.stderr,
@@ -551,13 +565,13 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
                 # Force final checkpoint before closing to minimize WAL size
                 try:
                     _database._execute_in_db_thread_sync("maybe_checkpoint", True)
-                    if "CHUNKHOUND_DEBUG" in os.environ:
+                    if debug_mode:
                         print(
                             "Server lifespan: Final checkpoint completed",
                             file=sys.stderr,
                         )
                 except Exception as checkpoint_error:
-                    if "CHUNKHOUND_DEBUG" in os.environ:
+                    if debug_mode:
                         print(
                             f"Server lifespan: Final checkpoint failed: {checkpoint_error}",
                             file=sys.stderr,
@@ -565,19 +579,19 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
 
                 # Close database (skip built-in checkpoint as we just did it)
                 _database.disconnect(skip_checkpoint=True)
-                if "CHUNKHOUND_DEBUG" in os.environ:
+                if debug_mode:
                     print(
                         "Server lifespan: Database connection closed successfully",
                         file=sys.stderr,
                     )
             except Exception as db_close_error:
-                if "CHUNKHOUND_DEBUG" in os.environ:
+                if debug_mode:
                     print(
                         f"Server lifespan: Error closing database: {db_close_error}",
                         file=sys.stderr,
                     )
 
-        if "CHUNKHOUND_DEBUG" in os.environ:
+        if debug_mode:
             print("Server lifespan: Cleanup complete", file=sys.stderr)
 
 
@@ -633,17 +647,14 @@ async def process_file_change(file_path: Path, event_type: str):
                 if file_path.exists() and file_path.is_file():
                     # Check if file should be excluded before processing with .gitignore support
                     try:
-                        from .core.config.unified_config import ChunkHoundConfig
+                        from .core.config.config import Config
                     except ImportError:
-                        from chunkhound.core.config.unified_config import (
-                            ChunkHoundConfig,
-                        )
+                        from chunkhound.core.config.config import Config
 
                     base_dir = Path.cwd()
-                    config = ChunkHoundConfig.load_hierarchical(project_dir=base_dir)
-                    exclude_patterns = config.indexing.get_effective_exclude_patterns(
-                        base_dir
-                    )
+                    # Create a new config instance to get exclude patterns
+                    config = Config()
+                    exclude_patterns = config.indexing.exclude or []
 
                     from fnmatch import fnmatch
 

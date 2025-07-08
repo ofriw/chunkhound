@@ -94,12 +94,10 @@ def main():
 
     # Set required environment variables
     os.environ["CHUNKHOUND_MCP_MODE"] = "1"
-    os.environ["CHUNKHOUND_DB_PATH"] = args.db
-
-    # Propagate OpenAI API key if available
-    openai_api_key = os.environ.get("OPENAI_API_KEY")
-    if openai_api_key:
-        os.environ["OPENAI_API_KEY"] = openai_api_key
+    
+    # Only set DB path if explicitly provided
+    if args.db and args.db != "chunkhound.db":
+        os.environ["CHUNKHOUND_DB_PATH"] = args.db
 
     # Set up watch paths for filesystem monitoring
     setup_watch_paths(args)

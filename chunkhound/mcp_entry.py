@@ -41,27 +41,11 @@ except ImportError:
 
 async def main() -> None:
     """Main entry point for MCP server with proper logging suppression."""
-    # Database path should be set via environment variable
-    db_path = os.environ.get("CHUNKHOUND_DB_PATH")
-    if not db_path:
-        from pathlib import Path
-
-        db_path = str(Path.home() / ".cache" / "chunkhound" / "chunks.duckdb")
-        os.environ["CHUNKHOUND_DB_PATH"] = db_path
-
-    # Ensure embedding API keys are available for semantic search
-    # This handles cases where keys might be set in parent process but not inherited
-
-    # Handle new unified API key
-    chunkhound_api_key = os.environ.get("CHUNKHOUND_EMBEDDING_API_KEY")
-    if chunkhound_api_key:
-        os.environ["CHUNKHOUND_EMBEDDING_API_KEY"] = chunkhound_api_key
-
-    # Handle legacy OpenAI API key for backward compatibility
-    openai_api_key = os.environ.get("OPENAI_API_KEY")
-    if openai_api_key:
-        os.environ["OPENAI_API_KEY"] = openai_api_key
-
+    # The centralized config system will handle all configuration including:
+    # - Database path (from env var, config file, or defaults)
+    # - API keys (from env vars or config)
+    # - All other settings
+    
     # Now import and run the MCP server
     from chunkhound.mcp_server import main as run_mcp_server
 
