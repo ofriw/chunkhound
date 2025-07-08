@@ -110,14 +110,32 @@ class OpenAIEmbeddingProvider:
                 "OpenAI package not available. Install with: uv pip install openai"
             )
 
-        self._api_key = api_key or os.getenv("OPENAI_API_KEY")
-        self._base_url = base_url or os.getenv("OPENAI_BASE_URL")
+        # Use the new config system for environment variables if not provided
+        if api_key is None or base_url is None:
+            # Import here to avoid circular imports
+            from chunkhound.core.config.embedding_config import EmbeddingConfig
+            
+            # Create a temporary config to get environment variables
+            temp_config = EmbeddingConfig(provider="openai")
+            
+            if api_key is None and temp_config.api_key:
+                self._api_key = temp_config.api_key.get_secret_value()
+            else:
+                self._api_key = api_key
+                
+            if base_url is None and temp_config.base_url:
+                self._base_url = temp_config.base_url
+            else:
+                self._base_url = base_url
+        else:
+            self._api_key = api_key
+            self._base_url = base_url
         self._model = model
         self._batch_size = batch_size
 
         if not self._api_key:
             raise ValueError(
-                "OpenAI API key required. Set OPENAI_API_KEY environment variable or pass api_key parameter."
+                "OpenAI API key required. Set CHUNKHOUND_EMBEDDING_API_KEY environment variable or pass api_key parameter."
             )
 
         # Initialize OpenAI client

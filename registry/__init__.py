@@ -1,12 +1,15 @@
 """Provider registry and dependency injection container for ChunkHound."""
 
 import os
-from typing import Any, TypeVar
+from typing import Any, TypeVar, Optional
 
 from loguru import logger
 
 # Import core types
 from core.types import Language
+
+# Import centralized configuration
+from chunkhound.core.config.config import Config
 
 # Import concrete providers
 from providers.database.duckdb_provider import DuckDBProvider
@@ -52,18 +55,18 @@ class ProviderRegistry:
         self._providers: dict[str, Any] = {}
         self._singletons: dict[str, Any] = {}
         self._language_parsers: dict[Language, Any] = {}
-        self._config: dict[str, Any] = {}
+        self._config: Optional[Config] = None
 
         # Register default providers
         self._register_default_providers()
 
-    def configure(self, config: dict[str, Any]) -> None:
+    def configure(self, config: Config) -> None:
         """Configure the registry with application settings.
 
         Args:
-            config: Configuration dictionary with provider settings
+            config: Configuration object with provider settings
         """
-        self._config = config.copy()
+        self._config = config
 
         # Register database provider after configuration is available
         self._register_database_provider()
@@ -224,26 +227,17 @@ class ProviderRegistry:
         except ValueError:
             logger.warning("No embedding provider configured for embedding service")
 
-        # Get unified batch configuration from config with environment variable override
+        # Get unified batch configuration from config object
         # Optimized defaults based on DuckDB performance research and HNSW vector index best practices
-        embedding_batch_size = int(
-            os.getenv(
-                "CHUNKHOUND_EMBEDDING_BATCH_SIZE",
-                self._config.get("embedding", {}).get("batch_size", 1000),
-            )
-        )
-        db_batch_size = int(
-            os.getenv(
-                "CHUNKHOUND_DB_BATCH_SIZE",
-                self._config.get("database", {}).get("batch_size", 5000),
-            )
-        )
-        max_concurrent = int(
-            os.getenv(
-                "CHUNKHOUND_MAX_CONCURRENT_EMBEDDINGS",
-                self._config.get("embedding", {}).get("max_concurrent_batches", 8),
-            )
-        )
+        if self._config:
+            embedding_batch_size = self._config.embedding.batch_size
+            db_batch_size = self._config.indexing.db_batch_size
+            max_concurrent = self._config.embedding.max_concurrent_batches
+        else:
+            # Fallback defaults if no config
+            embedding_batch_size = 1000
+            db_batch_size = 5000
+            max_concurrent = 8
 
         logger.info(
             f"EmbeddingService configuration: embedding_batch_size={embedding_batch_size}, "
@@ -354,11 +348,12 @@ class ProviderRegistry:
 
     def _register_database_provider(self) -> None:
         """Register the appropriate database provider based on configuration."""
-        database_config = self._config.get("database", {})
-        # Support both 'provider' and 'type' for backwards compatibility
-        provider_type = database_config.get(
-            "provider", database_config.get("type", "duckdb")
-        )
+        if not self._config:
+            # Default to DuckDB if no config
+            self.register_provider("database", DuckDBProvider, singleton=True)
+            return
+            
+        provider_type = self._config.database.provider
 
         if provider_type == "duckdb":
             self.register_provider("database", DuckDBProvider, singleton=True)
@@ -374,14 +369,20 @@ class ProviderRegistry:
 
     def _register_embedding_provider(self) -> None:
         """Register the appropriate embedding provider based on configuration using factory."""
-        embedding_config_dict = self._config.get("embedding", {})
+        if not self._config:
+            # Default to OpenAI if no config
+            self.register_provider("embedding", OpenAIEmbeddingProvider, singleton=True)
+            return
+            
+        embedding_config = self._config.embedding
         
         # Register a factory-based provider that creates the correct instance on demand
         class FactoryEmbeddingProvider:
             """Wrapper that uses factory to create correct provider type."""
             def __new__(cls, **kwargs):
                 # Merge config with any runtime kwargs
-                merged_config = {**embedding_config_dict, **kwargs}
+                merged_config = embedding_config.model_dump()
+                merged_config.update(kwargs)
                 
                 try:
                     # Create EmbeddingConfig from merged configuration
@@ -417,20 +418,14 @@ class ProviderRegistry:
                     or "LanceDBProvider" in cls.__name__
                 ):
                     # Database providers need db_path parameter and config
-                    db_path = self._config.get("database", {}).get(
-                        "path", "chunkhound.db"
-                    )
-
-                    # Create DatabaseConfig from registry config
-                    from chunkhound.core.config.unified_config import DatabaseConfig
-
-                    db_config = DatabaseConfig(
-                        path=db_path,
-                        provider=self._config.get("database", {}).get("type", "duckdb"),
-                        lancedb_index_type=self._config.get("database", {}).get(
-                            "lancedb_index_type"
-                        ),
-                    )
+                    if self._config:
+                        db_path = str(self._config.database.path)
+                        db_config = self._config.database
+                    else:
+                        # Default config if none provided
+                        from chunkhound.core.config.database_config import DatabaseConfig
+                        db_config = DatabaseConfig()
+                        db_path = str(db_config.path)
 
                     instance = cls(db_path, config=db_config)
                     instance.connect()
@@ -440,32 +435,37 @@ class ProviderRegistry:
                     return cls()
                 elif "Embedding" in cls.__name__ or cls.__name__ == "FactoryEmbeddingProvider":
                     # Factory-based embedding provider or legacy embedding provider
-                    embedding_config = self._config.get("embedding", {})
-
-                    # For factory provider, pass the config; for legacy, use old approach
                     if cls.__name__ == "FactoryEmbeddingProvider":
-                        logger.debug(f"Creating factory-based embedding provider with config: {embedding_config}")
+                        if self._config:
+                            logger.debug(f"Creating factory-based embedding provider with config")
                         return cls()
                     else:
                         # Legacy embedding provider - inject configuration
-                        config_params = {}
-                        for key in ["api_key", "base_url", "model", "batch_size"]:
-                            if (
-                                key in embedding_config
-                                and embedding_config[key] is not None
-                            ):
-                                config_params[key] = embedding_config[key]
+                        if self._config:
+                            embedding_config = self._config.embedding
+                            config_params = {}
+                            if embedding_config.api_key:
+                                config_params["api_key"] = embedding_config.api_key
+                            if embedding_config.base_url:
+                                config_params["base_url"] = embedding_config.base_url
+                            if embedding_config.model:
+                                config_params["model"] = embedding_config.model
+                            if embedding_config.batch_size:
+                                config_params["batch_size"] = embedding_config.batch_size
 
-                        logger.debug(
-                            f"Creating legacy embedding provider with config: {config_params}"
-                        )
-                        try:
-                            return cls(**config_params)
-                        except Exception as e:
-                            logger.error(
-                                f"Failed to create embedding provider {cls.__name__}: {e}"
+                            logger.debug(
+                                f"Creating legacy embedding provider with config: {config_params}"
                             )
-                            raise
+                            try:
+                                return cls(**config_params)
+                            except Exception as e:
+                                logger.error(
+                                    f"Failed to create embedding provider {cls.__name__}: {e}"
+                                )
+                                raise
+                        else:
+                            # No config - use default
+                            return cls()
                 else:
                     # Other services - try with no args first
                     return cls()
@@ -520,13 +520,19 @@ def get_registry() -> ProviderRegistry:
     return _registry
 
 
-def configure_registry(config: dict[str, Any]) -> None:
+def configure_registry(config: Config | dict[str, Any]) -> None:
     """Configure the global provider registry.
 
     Args:
-        config: Configuration dictionary
+        config: Configuration object or dictionary (for backward compatibility)
     """
-    get_registry().configure(config)
+    if isinstance(config, dict):
+        # Backward compatibility - convert dict to Config object
+        from chunkhound.core.config.config import Config as ConfigClass
+        config_obj = ConfigClass(**config)
+        get_registry().configure(config_obj)
+    else:
+        get_registry().configure(config)
 
 
 def get_provider(name: str) -> Any:
