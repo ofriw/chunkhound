@@ -3,7 +3,12 @@
 import argparse
 from typing import Any, cast
 
-from .main_parser import add_common_arguments, add_database_argument
+from .main_parser import (
+    add_common_arguments,
+    add_database_argument,
+    add_indexing_arguments,
+    add_mcp_arguments,
+)
 
 
 def add_mcp_subparser(subparsers: Any) -> argparse.ArgumentParser:
@@ -24,8 +29,10 @@ def add_mcp_subparser(subparsers: Any) -> argparse.ArgumentParser:
     # Add common arguments
     add_common_arguments(mcp_parser)
     add_database_argument(mcp_parser)
+    add_mcp_arguments(mcp_parser)
+    add_indexing_arguments(mcp_parser)
 
-    # MCP-specific arguments
+    # MCP-specific legacy arguments for backwards compatibility
     mcp_parser.add_argument(
         "--stdio",
         action="store_true",

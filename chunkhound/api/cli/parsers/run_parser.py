@@ -9,22 +9,29 @@ from .main_parser import (
     add_database_argument,
     add_embedding_arguments,
     add_file_pattern_arguments,
+    add_indexing_arguments,
+    add_mcp_arguments,
 )
 
 
 def validate_batch_sizes(
-    embedding_batch_size: int, db_batch_size: int, provider: str
+    embedding_batch_size: int | None, db_batch_size: int | None, provider: str
 ) -> tuple[bool, str]:
     """Validate batch size arguments against provider limits and system constraints.
 
     Args:
-        embedding_batch_size: Number of texts per embedding API request
-        db_batch_size: Number of records per database transaction
+        embedding_batch_size: Number of texts per embedding API request (None uses default)
+        db_batch_size: Number of records per database transaction (None uses default)
         provider: Embedding provider name
 
     Returns:
         Tuple of (is_valid, error_message)
     """
+    # Use defaults if None
+    if embedding_batch_size is None:
+        embedding_batch_size = 50  # Default from EmbeddingConfig
+    if db_batch_size is None:
+        db_batch_size = 100  # Default from IndexingConfig
     # Provider-specific embedding batch limits
     embedding_limits: dict[str, tuple[int, int]] = {
         "openai": (1, 2048),
@@ -127,8 +134,11 @@ def add_run_subparser(subparsers: Any) -> argparse.ArgumentParser:
     add_database_argument(run_parser)
     add_embedding_arguments(run_parser)
     add_file_pattern_arguments(run_parser)
+    add_indexing_arguments(run_parser)
+    add_mcp_arguments(run_parser)
 
-    # Run-specific arguments
+    # Run-specific arguments (only those not covered by the new functions)
+    # Keep legacy arguments for backwards compatibility but map to new names
     run_parser.add_argument(
         "--debounce-ms",
         type=int,
@@ -154,14 +164,7 @@ def add_run_subparser(subparsers: Any) -> argparse.ArgumentParser:
         help="Force reindexing of all files, even if they haven't changed",
     )
 
-    # Unified batching system - two clear arguments
-    run_parser.add_argument(
-        "--embedding-batch-size",
-        type=int,
-        default=100,
-        help="Number of text chunks per embedding API request (default: 100, range: 1-2048)",
-    )
-
+    # Database batch size (not covered by other functions)
     run_parser.add_argument(
         "--db-batch-size",
         type=int,
