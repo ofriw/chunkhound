@@ -98,6 +98,17 @@ class SerialDatabaseProvider(ABC):
         # For serial providers, we consider it connected if executor exists
         return self._executor is not None
 
+    @property 
+    def last_activity_time(self) -> float | None:
+        """Get the last database activity time.
+        
+        Returns:
+            Unix timestamp of last activity, or None if no activity yet
+        """
+        if self._executor:
+            return self._executor.get_last_activity_time()
+        return None
+
     def connect(self) -> None:
         """Establish database connection and initialize schema."""
         try:
@@ -251,6 +262,24 @@ class SerialDatabaseProvider(ABC):
             return [], {"error": "Text search not supported by this provider"}
 
         return self._execute_in_db_thread_sync("search_text", query, page_size, offset)
+
+    # Capability detection methods
+
+    def supports_semantic_search(self) -> bool:
+        """Check if this provider supports semantic search."""
+        return hasattr(self, "_executor_search_semantic")
+
+    def supports_regex_search(self) -> bool:
+        """Check if this provider supports regex search."""
+        return hasattr(self, "_executor_search_regex")
+
+    def supports_fuzzy_search(self) -> bool:
+        """Check if this provider supports fuzzy search."""
+        return hasattr(self, "_executor_search_fuzzy")
+
+    def supports_text_search(self) -> bool:
+        """Check if this provider supports text search."""
+        return hasattr(self, "_executor_search_text")
 
     # Transaction management
 

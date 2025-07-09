@@ -55,6 +55,7 @@ def get_thread_local_state() -> dict[str, Any]:
             "transaction_active": False,
             "operations_since_checkpoint": 0,
             "last_checkpoint_time": time.time(),
+            "last_activity_time": time.time(),  # Track last database activity
             "deferred_checkpoint": False,
             "checkpoint_threshold": 100,  # Checkpoint every N operations
         }
@@ -110,6 +111,9 @@ class SerialDatabaseExecutor:
 
             # Get thread-local state
             state = get_thread_local_state()
+            
+            # Update last activity time for ALL operations
+            state["last_activity_time"] = time.time()
 
             # Execute operation - look for method named _executor_{operation_name}
             op_func = getattr(provider, f"_executor_{operation_name}")
@@ -146,6 +150,9 @@ class SerialDatabaseExecutor:
 
             # Get thread-local state
             state = get_thread_local_state()
+            
+            # Update last activity time for ALL operations
+            state["last_activity_time"] = time.time()
 
             # Execute operation - look for method named _executor_{operation_name}
             op_func = getattr(provider, f"_executor_{operation_name}")
@@ -176,3 +183,19 @@ class SerialDatabaseExecutor:
             delattr(_executor_local, "connection")
         if hasattr(_executor_local, "state"):
             delattr(_executor_local, "state")
+
+    def get_last_activity_time(self) -> float | None:
+        """Get the last activity time from the executor thread.
+        
+        Returns:
+            Last activity timestamp, or None if no activity yet
+        """
+        def get_activity_time():
+            state = get_thread_local_state()
+            return state.get("last_activity_time", None)
+        
+        try:
+            future = self._db_executor.submit(get_activity_time)
+            return future.result(timeout=1.0)  # Quick operation, short timeout
+        except:
+            return None
