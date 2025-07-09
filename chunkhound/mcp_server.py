@@ -73,41 +73,6 @@ _periodic_indexer: PeriodicIndexManager | None = None
 server = Server("ChunkHound Code Search")
 
 
-def _build_mcp_registry_config(
-    config: Config, db_path: Path
-) -> dict[str, Any]:
-    """Build registry configuration for MCP server mode.
-
-    Args:
-        config: Centralized configuration
-        db_path: Database path
-
-    Returns:
-        Registry configuration dictionary
-    """
-    registry_config = {
-        "database": {
-            "path": str(db_path),
-            "type": config.database.provider,
-            "batch_size": config.indexing.db_batch_size,
-        },
-        "embedding": {
-            "batch_size": config.embedding.batch_size,
-            "max_concurrent_batches": config.embedding.max_concurrent_batches,
-            "provider": config.embedding.provider,
-            "model": config.embedding.model,
-        },
-    }
-
-    # Add API key if available
-    if config.embedding.api_key:
-        registry_config["embedding"]["api_key"] = config.embedding.api_key
-
-    # Add base URL if available
-    if config.embedding.base_url:
-        registry_config["embedding"]["base_url"] = config.embedding.base_url
-
-    return registry_config
 
 
 def setup_signal_coordination(db_path: Path, database: Database):
@@ -245,18 +210,11 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
             # print("Server lifespan: Embedding manager initialized", file=sys.stderr)
 
             pass
-        # Build registry config for unified factory
-        registry_config = _build_mcp_registry_config(config, db_path)
-
         if debug_mode:
             # print(
-            #     "Server lifespan: Registry config prepared for unified factory",
+            #     "Server lifespan: Using Config object directly for unified factory",
             #     file=sys.stderr,
             # )
-            # print(
-            #     f"Server lifespan: Registry config: {registry_config}", file=sys.stderr
-            # )
-
             pass
         # Setup embedding provider (optional - continue if it fails)
         try:
@@ -314,7 +272,7 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
         # Create database using unified factory to ensure consistent initialization with CLI
         _database = create_database_with_dependencies(
             db_path=db_path,
-            config=registry_config,
+            config=config,
             embedding_manager=_embedding_manager,
         )
         try:
@@ -686,22 +644,24 @@ async def process_file_change(file_path: Path, event_type: str):
                     # Check if file should be excluded before processing with .gitignore support
                     try:
                         from .core.config.config import Config
+                        from .utils.project_detection import find_project_root
                     except ImportError:
                         from chunkhound.core.config.config import Config
+                        from chunkhound.utils.project_detection import find_project_root
 
-                    base_dir = Path.cwd()
-                    # Create a new config instance to get exclude patterns
-                    config = Config()
+                    # Find project root to properly load .chunkhound.json
+                    project_root = find_project_root()
+                    # Create a new config instance with target_dir to detect .chunkhound.json
+                    config = Config(target_dir=project_root)
                     exclude_patterns = config.indexing.exclude or []
 
                     from fnmatch import fnmatch
 
                     should_exclude = False
 
-                    # Get relative path from current working directory for pattern matching
-                    base_dir = Path.cwd()
+                    # Get relative path from project root for pattern matching
                     try:
-                        rel_path = file_path.relative_to(base_dir)
+                        rel_path = file_path.relative_to(project_root)
                     except ValueError:
                         # File is not under base directory, use absolute path
                         rel_path = file_path

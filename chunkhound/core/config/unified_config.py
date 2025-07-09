@@ -61,16 +61,21 @@ class ChunkHoundConfig(BaseSettings):
 
     def __init__(self, **data: Any):
         """Initialize the wrapper with a Config instance."""
+        # Initialize BaseSettings first
+        super().__init__(**data)
+        
+        # Import here to avoid circular imports
+        from chunkhound.utils.project_detection import find_project_root
+        
         # If we're being initialized with component configs, create a Config instance
         if any(key in data for key in ["embedding", "mcp", "indexing", "database", "debug"]):
-            # Create Config instance from the provided data
-            self._config = Config(**data)
+            # Create Config instance from the provided data with project root
+            project_root = find_project_root()
+            self._config = Config(target_dir=project_root, **data)
         else:
-            # Create default Config instance
-            self._config = Config()
-        
-        # Initialize BaseSettings without the data (we'll use properties)
-        super().__init__()
+            # Create default Config instance with project root to detect .chunkhound.json
+            project_root = find_project_root()
+            self._config = Config(target_dir=project_root)
     
     @property
     def embedding(self) -> Optional[EmbeddingConfig]:

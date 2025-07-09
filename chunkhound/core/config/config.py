@@ -296,7 +296,11 @@ def get_config() -> Config:
     """Get the global configuration instance."""
     global _global_config
     if _global_config is None:
-        _global_config = Config()
+        # Import here to avoid circular imports
+        from chunkhound.utils.project_detection import find_project_root
+        # Create config with project root to detect .chunkhound.json
+        project_root = find_project_root()
+        _global_config = Config(target_dir=project_root)
     return _global_config
 
 
