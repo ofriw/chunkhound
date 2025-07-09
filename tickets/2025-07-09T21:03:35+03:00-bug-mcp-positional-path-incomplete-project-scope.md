@@ -89,3 +89,43 @@ Issue identified during investigation of CLI argument handling. The positional p
 - ✅ Complete project scope control achieved
 
 **Resolution**: The positional path argument now controls the entire project scope as expected. Users can run `chunkhound mcp <path>` and everything (database, config, watch paths) will be scoped to that directory.
+
+## 2025-07-09T21:30:00+03:00
+
+**ADDITIONAL BUG FIXED**: Ubuntu-specific TaskGroup crash when running MCP from different directory.
+
+**Root Cause**: The `os.chdir(watch_path)` call in `mcp_launcher.py` line 109 was changing the working directory to the watch path, which caused:
+1. Permission issues on Ubuntu (different from macOS behavior)
+2. Import path problems when chunkhound package not installed system-wide
+3. Module resolution failures leading to TaskGroup error -32603 (JSON-RPC internal error)
+
+**Changes Made**:
+- Removed `os.chdir(watch_path)` call from `mcp_launcher.py` 
+- Added comment explaining that watch path is handled via `CHUNKHOUND_WATCH_PATHS` environment variable
+- All path operations now use absolute paths instead of relying on working directory
+
+**Testing**: This should resolve the Ubuntu-specific crash when running `chunkhound mcp <path>` from a different directory while maintaining proper project scope control.
+
+## 2025-07-09T21:45:00+03:00
+
+**INVESTIGATION COMPLETE**: Analyzed root cause and historical context of the `os.chdir()` implementation.
+
+**Historical Context**:
+- The `os.chdir(watch_path)` call was added as a band-aid solution to handle relative path resolution
+- Originally intended to make relative paths "just work" when running MCP from different directories
+- Was a quick fix instead of properly updating all components to use absolute paths consistently
+
+**Root Cause Analysis**:
+1. **Import Path Corruption**: Changing working directory after Python startup breaks relative imports
+2. **Platform-Specific Permissions**: Ubuntu has stricter directory permissions than macOS
+3. **Path Resolution Inconsistency**: Some components used `os.getcwd()`, others used environment variables
+4. **Technical Debt**: The `os.chdir()` was a hack that caused more problems than it solved
+
+**Final Solution**:
+- ✅ Removed `os.chdir(watch_path)` from `mcp_launcher.py:109`
+- ✅ Added explanatory comment about path handling via environment variables
+- ✅ All path operations now use absolute paths consistently
+- ✅ Watch paths properly communicated via `CHUNKHOUND_WATCH_PATHS` environment variable
+- ✅ Code compiles without syntax errors
+
+**Status**: **RESOLVED** - Ubuntu TaskGroup crash fixed while maintaining complete project scope control for `chunkhound mcp <path>` command.

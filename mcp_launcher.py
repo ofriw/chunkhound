@@ -102,11 +102,9 @@ def main():
     # Set up watch paths for filesystem monitoring
     setup_watch_paths(args)
 
-    # Change to the watch directory if specified
-    if args.watch_path:
-        watch_path = Path(args.watch_path).resolve()
-        if watch_path.exists() and watch_path.is_dir():
-            os.chdir(watch_path)
+    # Note: Removed os.chdir() to avoid breaking imports and permissions issues
+    # The watch path is already handled via CHUNKHOUND_WATCH_PATHS environment variable
+    # and all path operations should use absolute paths
 
     # Import and run the MCP entry point
     try:
