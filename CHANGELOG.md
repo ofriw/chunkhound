@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.2] - 2025-01-09
+
 ### Added
 - MCP command now accepts optional path argument to specify directory for indexing and watching (defaults to current directory)
 
@@ -258,7 +260,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 For more information, visit: https://github.com/chunkhound/chunkhound
 
-[Unreleased]: https://github.com/chunkhound/chunkhound/compare/v2.4.1...HEAD
+[Unreleased]: https://github.com/chunkhound/chunkhound/compare/v2.4.2...HEAD
+[2.4.2]: https://github.com/chunkhound/chunkhound/compare/v2.4.1...v2.4.2
 [2.4.1]: https://github.com/chunkhound/chunkhound/compare/v2.4.0...v2.4.1
 [2.4.0]: https://github.com/chunkhound/chunkhound/compare/v2.3.1...v2.4.0
 [2.3.1]: https://github.com/chunkhound/chunkhound/compare/v2.3.0...v2.3.1
