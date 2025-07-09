@@ -1090,8 +1090,8 @@ async def list_tools() -> list[types.Tool]:
     if _database and hasattr(_database, "_provider"):
         provider = _database._provider
 
-        # All providers should support semantic search
-        if hasattr(provider, "search_semantic"):
+        # Check semantic search support
+        if provider.supports_semantic_search():
             tools.append(
                 types.Tool(
                     name="search_semantic",
@@ -1142,10 +1142,8 @@ async def list_tools() -> list[types.Tool]:
                 )
             )
 
-        # DuckDB supports regex search
-        if hasattr(provider, "search_regex") and not isinstance(
-            getattr(provider, "search_regex", None), property
-        ):
+        # Check regex search support
+        if provider.supports_regex_search():
             tools.append(
                 types.Tool(
                     name="search_regex",
@@ -1182,8 +1180,8 @@ async def list_tools() -> list[types.Tool]:
                 )
             )
 
-        # LanceDB supports fuzzy search
-        if hasattr(provider, "search_fuzzy"):
+        # Check fuzzy search support
+        if provider.supports_fuzzy_search():
             tools.append(
                 types.Tool(
                     name="search_fuzzy",
