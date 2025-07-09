@@ -385,18 +385,15 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
                 # )
 
                 pass
-            # Get base directory from environment or use current working directory
-            base_directory = Path(os.getcwd())
-
             # Use the SAME IndexingCoordinator instance from _database to ensure deduplication
             # This prevents duplicate entries by sharing the same ChunkCacheService state
             indexing_coordinator = _database._indexing_coordinator
 
             # Create periodic indexer with environment configuration
+            # Let from_environment() handle path resolution using the same logic as FileWatcherManager
             _periodic_indexer = PeriodicIndexManager.from_environment(
                 indexing_coordinator=indexing_coordinator,
                 task_coordinator=_task_coordinator,
-                base_directory=base_directory,
             )
 
             # Start periodic indexer (immediate startup scan + periodic scans)

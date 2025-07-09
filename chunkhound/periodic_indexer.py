@@ -70,7 +70,7 @@ class PeriodicIndexManager:
         cls,
         indexing_coordinator,
         task_coordinator: TaskCoordinator,
-        base_directory: Path,
+        base_directory: Path | None = None,
     ) -> "PeriodicIndexManager":
         """Create periodic index manager from environment variables.
 
@@ -78,11 +78,12 @@ class PeriodicIndexManager:
             CHUNKHOUND_PERIODIC_INDEX_INTERVAL: Scan interval in seconds (default: 300)
             CHUNKHOUND_PERIODIC_BATCH_SIZE: Files per batch (default: 10)
             CHUNKHOUND_PERIODIC_INDEX_ENABLED: Enable/disable (default: true)
+            CHUNKHOUND_WATCH_PATHS: Paths to watch (defaults to project root)
 
         Args:
             indexing_coordinator: IndexingCoordinator instance
             task_coordinator: TaskCoordinator instance
-            base_directory: Base directory to scan
+            base_directory: Base directory to scan (defaults to same logic as FileWatcherManager)
 
         Returns:
             Configured PeriodicIndexManager instance
@@ -95,6 +96,24 @@ class PeriodicIndexManager:
         enabled = (
             os.getenv("CHUNKHOUND_PERIODIC_INDEX_ENABLED", "true").lower() == "true"
         )
+
+        # Use the same path resolution logic as FileWatcherManager
+        if base_directory is None:
+            try:
+                from .utils.project_detection import get_project_watch_paths
+                watch_paths = get_project_watch_paths()
+                base_directory = watch_paths[0] if watch_paths else Path.cwd()
+            except ImportError:
+                # Fallback to environment variable check
+                paths_env = os.environ.get("CHUNKHOUND_WATCH_PATHS", "")
+                if paths_env:
+                    path_strings = [p.strip() for p in paths_env.split(",") if p.strip()]
+                    if path_strings:
+                        base_directory = Path(path_strings[0]).resolve()
+                    else:
+                        base_directory = Path.cwd()
+                else:
+                    base_directory = Path.cwd()
 
         return cls(
             indexing_coordinator=indexing_coordinator,
