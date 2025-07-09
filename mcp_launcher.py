@@ -102,6 +102,12 @@ def main():
     # Set up watch paths for filesystem monitoring
     setup_watch_paths(args)
 
+    # Change to the watch directory if specified
+    if args.watch_path:
+        watch_path = Path(args.watch_path).resolve()
+        if watch_path.exists() and watch_path.is_dir():
+            os.chdir(watch_path)
+
     # Import and run the MCP entry point
     try:
         from chunkhound.mcp_entry import main_sync

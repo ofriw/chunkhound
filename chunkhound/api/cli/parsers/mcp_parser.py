@@ -1,6 +1,7 @@
 """MCP command argument parser for ChunkHound CLI."""
 
 import argparse
+from pathlib import Path
 from typing import Any, cast
 
 from .main_parser import (
@@ -24,6 +25,15 @@ def add_mcp_subparser(subparsers: Any) -> argparse.ArgumentParser:
         "mcp",
         help="Run Model Context Protocol server",
         description="Start the MCP server for integration with MCP-compatible clients",
+    )
+
+    # Optional positional argument with default to current directory
+    mcp_parser.add_argument(
+        "path",
+        nargs="?",
+        type=Path,
+        default=Path("."),
+        help="Directory path to index (default: current directory)",
     )
 
     # Add common arguments

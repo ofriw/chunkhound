@@ -25,6 +25,10 @@ def mcp_command(args: argparse.Namespace) -> None:
     if args.db is not None:
         cmd.extend(["--db", str(args.db)])
 
+    # Pass the path argument as watch-path if provided and not current directory
+    if hasattr(args, 'path') and args.path != Path("."):
+        cmd.extend(["--watch-path", str(args.path.resolve())])
+
     # Inherit current environment - the centralized config will handle API keys
     env = os.environ.copy()
 
