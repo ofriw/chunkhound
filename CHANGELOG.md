@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Enhanced
+- MCP positional path argument now controls complete project scope - database location, config file search, and watch paths are all set to the specified directory instead of just watch paths
+
+### Fixed
+- MCP launcher import path resolution when running from different directories, eliminating TaskGroup errors on Ubuntu and other strict platforms
+
 ## [2.4.4] - 2025-01-09
 
 ### Fixed
