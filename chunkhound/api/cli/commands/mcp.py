@@ -21,16 +21,31 @@ def mcp_command(args: argparse.Namespace) -> None:
     )
     cmd = [sys.executable, str(mcp_launcher_path)]
 
-    # Only pass --db argument if explicitly provided, otherwise let unified config handle it
-    if args.db is not None:
-        cmd.extend(["--db", str(args.db)])
-
-    # Pass the path argument as watch-path if provided and not current directory
+    # Handle positional path argument for complete project scope control
     if hasattr(args, 'path') and args.path != Path("."):
-        cmd.extend(["--watch-path", str(args.path.resolve())])
+        project_path = args.path.resolve()
+        
+        # Set database path to <path>/.chunkhound/db if not explicitly provided
+        if args.db is None:
+            db_path = project_path / ".chunkhound" / "db"
+            cmd.extend(["--db", str(db_path)])
+        else:
+            cmd.extend(["--db", str(args.db)])
+        
+        # Set watch path to the project directory
+        cmd.extend(["--watch-path", str(project_path)])
+        
+    else:
+        # Only pass --db argument if explicitly provided, otherwise let unified config handle it
+        if args.db is not None:
+            cmd.extend(["--db", str(args.db)])
 
     # Inherit current environment - the centralized config will handle API keys
     env = os.environ.copy()
+    
+    # Set environment variable for config file search in project directory if path provided
+    if hasattr(args, 'path') and args.path != Path("."):
+        env["CHUNKHOUND_PROJECT_ROOT"] = str(args.path.resolve())
 
     process = subprocess.run(
         cmd,

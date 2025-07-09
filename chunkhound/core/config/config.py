@@ -61,6 +61,11 @@ class Config(BaseModel):
                 self._deep_merge(config_data, file_config)
         
         # 3. Check for .chunkhound.json in target directory
+        # First check CHUNKHOUND_PROJECT_ROOT if set (from positional path argument)
+        project_root = os.environ.get("CHUNKHOUND_PROJECT_ROOT")
+        if project_root:
+            target_dir = Path(project_root)
+        
         if target_dir and target_dir.exists():
             local_config_path = target_dir / ".chunkhound.json"
             if local_config_path.exists():

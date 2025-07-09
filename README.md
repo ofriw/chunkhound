@@ -45,6 +45,12 @@ uv run chunkhound index
 # 2. Start MCP server for AI assistants (auto-watches for changes)
 uv run chunkhound mcp
 
+# Work with any project directory - complete project scope control
+uv run chunkhound mcp /path/to/your/project
+# This sets database to /path/to/your/project/.chunkhound/db
+# Searches for config at /path/to/your/project/.chunkhound.json
+# Watches /path/to/your/project for changes
+
 # Optional: Set OpenAI API key for semantic search
 export CHUNKHOUND_EMBEDDING__API_KEY="sk-your-key-here"
 
@@ -54,15 +60,26 @@ uv run chunkhound index --config /path/to/different-config.json
 
 ### Automatic Configuration Detection
 
-When you run `chunkhound index` in any directory, ChunkHound automatically:
-1. Looks for `.chunkhound.json` in that directory
-2. Loads it if found (no `--config` flag needed)
-3. Uses those settings for indexing
+ChunkHound automatically detects and uses project configurations:
 
-Example:
+**For `index` command:**
 ```bash
 cd /my/project              # Has .chunkhound.json
 uv run chunkhound index     # Automatically uses /my/project/.chunkhound.json
+```
+
+**For `mcp` command with positional path:**
+```bash
+uv run chunkhound mcp /my/project
+# Automatically uses /my/project/.chunkhound.json
+# Sets database to /my/project/.chunkhound/db
+# Watches /my/project for changes
+```
+
+**For `mcp` command without path:**
+```bash
+cd /my/project              # Has .chunkhound.json
+uv run chunkhound mcp       # Automatically uses /my/project/.chunkhound.json
 ```
 
 ## Features
@@ -97,6 +114,18 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
   }
 }
 ```
+
+**For specific project directories:**
+```json
+{
+  "mcpServers": {
+    "chunkhound": {
+      "command": "uv",
+      "args": ["run", "chunkhound", "mcp", "/path/to/your/project"]
+    }
+  }
+}
+```
 </details>
 
 <details>
@@ -109,6 +138,18 @@ Add to `~/.claude.json`:
     "chunkhound": {
       "command": "uv",
       "args": ["run", "chunkhound", "mcp"]
+    }
+  }
+}
+```
+
+**For specific project directories:**
+```json
+{
+  "mcpServers": {
+    "chunkhound": {
+      "command": "uv",
+      "args": ["run", "chunkhound", "mcp", "/path/to/your/project"]
     }
   }
 }
@@ -129,6 +170,18 @@ Add to `.vscode/mcp.json` in your project:
   }
 }
 ```
+
+**For specific project directories:**
+```json
+{
+  "servers": {
+    "chunkhound": {
+      "command": "uv",
+      "args": ["run", "chunkhound", "mcp", "/path/to/your/project"]
+    }
+  }
+}
+```
 </details>
 
 <details>
@@ -145,6 +198,18 @@ Add to `.cursor/mcp.json` in your project:
   }
 }
 ```
+
+**For specific project directories:**
+```json
+{
+  "mcpServers": {
+    "chunkhound": {
+      "command": "uv",
+      "args": ["run", "chunkhound", "mcp", "/path/to/your/project"]
+    }
+  }
+}
+```
 </details>
 
 <details>
@@ -157,6 +222,18 @@ Add to `~/.codeium/windsurf/mcp_config.json`:
     "chunkhound": {
       "command": "uv",
       "args": ["run", "chunkhound", "mcp"]
+    }
+  }
+}
+```
+
+**For specific project directories:**
+```json
+{
+  "mcpServers": {
+    "chunkhound": {
+      "command": "uv",
+      "args": ["run", "chunkhound", "mcp", "/path/to/your/project"]
     }
   }
 }
@@ -180,6 +257,21 @@ Add to settings.json (Preferences > Open Settings):
   }
 }
 ```
+
+**For specific project directories:**
+```json
+{
+  "context_servers": {
+    "chunkhound": {
+      "source": "custom",
+      "command": {
+        "path": "uv",
+        "args": ["run", "chunkhound", "mcp", "/path/to/your/project"]
+      }
+    }
+  }
+}
+```
 </details>
 
 <details>
@@ -190,6 +282,12 @@ Go to Settings > Tools > AI Assistant > Model Context Protocol (MCP) and add:
 - **Command**: uv
 - **Arguments**: run chunkhound mcp
 - **Working Directory**: (leave empty or set to project root)
+
+**For specific project directories:**
+- **Name**: chunkhound
+- **Command**: uv
+- **Arguments**: run chunkhound mcp /path/to/your/project
+- **Working Directory**: (leave empty)
 </details>
 
 </details>
@@ -225,10 +323,24 @@ ChunkHound loads configuration in this order (highest priority first):
 
 ### Database Location
 
-By default, ChunkHound creates `.chunkhound.db` in your current directory. Customize with:
+ChunkHound automatically determines the database location based on project scope:
 
-- **Config file**: Add to `.chunkhound.json`: `{"database": {"path": "/path/to/.chunkhound.db"}}`
+**With positional path argument:**
+```bash
+uv run chunkhound mcp /my/project
+# Database automatically created at: /my/project/.chunkhound/db
+```
+
+**Without positional path (current directory):**
+```bash
+cd /my/project
+uv run chunkhound mcp
+# Database created at: /my/project/.chunkhound/db
+```
+
+**Manual overrides** (in priority order):
 - **Command line**: `--database-path /path/to/my-chunks`
+- **Config file**: Add to `.chunkhound.json`: `{"database": {"path": "/path/to/.chunkhound.db"}}`
 - **Environment variable**: `CHUNKHOUND_DATABASE__PATH="/path/to/.chunkhound.db"`
 
 ### Configuration File Format
@@ -510,6 +622,11 @@ ChunkHound indexes your codebase in three layers:
 1. **Pre-index** - Run `chunkhound index` to sync database with current code (automatically uses `.chunkhound.json` if present)
 2. **Background scan** - MCP server checks for changes every 5 minutes  
 3. **Real-time updates** - File system events trigger immediate updates
+
+**Project Scope Control:**
+- `chunkhound mcp` - Uses current directory as project root
+- `chunkhound mcp /path/to/project` - Uses specified path as project root
+- Database, config, and watch paths all scoped to project root
 
 **Processing pipeline:**
 Scan → Parse → Index → Embed → Search
