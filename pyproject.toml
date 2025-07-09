@@ -54,6 +54,7 @@ dependencies = [
     # "tree-sitter-matlab>=1.0.5,!=1.0.6",  # Using tree-sitter-language-pack instead
     "lancedb>=0.24.0",
     "pandas>=2.3.0",
+    "pylance>=0.31.0",
 ]
 
 [project.optional-dependencies]
