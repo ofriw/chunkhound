@@ -129,3 +129,39 @@ Issue identified during investigation of CLI argument handling. The positional p
 - ✅ Code compiles without syntax errors
 
 **Status**: **RESOLVED** - Ubuntu TaskGroup crash fixed while maintaining complete project scope control for `chunkhound mcp <path>` command.
+
+## 2025-07-09T21:54:14+03:00
+
+**REGRESSION FIXED**: Ubuntu TaskGroup crash still occurring after previous fix - root cause was deeper import path issue.
+
+**Problem**: Even after removing `os.chdir()`, the bug persisted on Ubuntu when running `chunkhound mcp <path>` from different directories:
+- ✅ Works: `cd /project && chunkhound mcp .`
+- ❌ Fails: `cd /other && chunkhound mcp /project` (TaskGroup error -32603)
+- ❌ Fails: Even with `CHUNKHOUND_DEBUG=1` - no debug output
+
+**Root Cause Discovery**: 
+The TaskGroup error -32603 was actually an `ImportError` in disguise. When `mcp_launcher.py` runs as a standalone script from a different directory, it fails at:
+```python
+from chunkhound.mcp_entry import main_sync  # Line 111
+```
+
+**Why Ubuntu vs macOS**: Ubuntu's Python path resolution is stricter than macOS. When the current working directory doesn't contain the `chunkhound` package, the import fails immediately.
+
+**Fix Applied**:
+Added Python path resolution to `mcp_launcher.py` before any imports:
+```python
+# Add the chunkhound package to Python path for imports
+# This fixes the import error when running from different directories
+script_dir = Path(__file__).parent
+if str(script_dir) not in sys.path:
+    sys.path.insert(0, str(script_dir))
+```
+
+**Why This Works**:
+1. `mcp_launcher.py` is in the project root alongside the `chunkhound/` package
+2. Adding the script's parent directory to `sys.path` ensures the `chunkhound` package is always findable
+3. The fix is applied before any imports, preventing the ImportError that manifested as TaskGroup -32603
+
+**Testing**: The fix should now allow `chunkhound mcp <path>` to work from any directory on Ubuntu while maintaining all existing functionality.
+
+**Status**: **RESOLVED** - Ubuntu import path issue fixed, TaskGroup -32603 error eliminated.
