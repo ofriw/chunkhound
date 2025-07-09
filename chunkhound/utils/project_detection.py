@@ -14,13 +14,18 @@ def find_project_root(start_path: Path | None = None) -> Path:
     3. pyproject.toml, package.json, etc. (project files)
 
     Args:
-        start_path: Starting directory (defaults to cwd)
+        start_path: Starting directory (defaults to CHUNKHOUND_PROJECT_ROOT env var or cwd)
 
     Returns:
         Path to project root directory
     """
     if start_path is None:
-        start_path = Path.cwd()
+        # Check environment variable first, then fall back to cwd
+        project_root_env = os.environ.get("CHUNKHOUND_PROJECT_ROOT")
+        if project_root_env:
+            start_path = Path(project_root_env)
+        else:
+            start_path = Path.cwd()
 
     current = Path(start_path).resolve()
 
@@ -42,7 +47,10 @@ def find_project_root(start_path: Path | None = None) -> Path:
                 return current
         current = current.parent
 
-    # If no markers found, use original cwd
+    # If no markers found, use project root env var or original cwd
+    project_root_env = os.environ.get("CHUNKHOUND_PROJECT_ROOT")
+    if project_root_env:
+        return Path(project_root_env)
     return Path.cwd()
 
 

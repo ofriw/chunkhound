@@ -59,27 +59,4 @@ def mcp_command(args: argparse.Namespace) -> None:
     sys.exit(process.returncode)
 
 
-def add_mcp_subparser(subparsers: Any) -> argparse.ArgumentParser:
-    """Add MCP command subparser to the main parser.
-
-    Args:
-        subparsers: Subparsers object from the main argument parser
-
-    Returns:
-        The configured MCP subparser
-    """
-    from chunkhound.api.cli.parsers.main_parser import add_database_argument
-
-    mcp_parser = subparsers.add_parser(
-        "mcp",
-        help="Run Model Context Protocol server",
-        description="Start the MCP server for integration with MCP-compatible clients",
-    )
-
-    # Use shared database argument function to respect unified config
-    add_database_argument(mcp_parser)
-
-    return cast(argparse.ArgumentParser, mcp_parser)
-
-
-__all__: list[str] = ["mcp_command", "add_mcp_subparser"]
+__all__: list[str] = ["mcp_command"]
