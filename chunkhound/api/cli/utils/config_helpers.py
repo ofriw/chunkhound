@@ -36,7 +36,7 @@ def args_to_config(
     if hasattr(args, "path"):
         target_dir = Path(args.path)
     elif project_dir:
-        target_dir = project_dir
+        target_dir = Path(project_dir)
     
     # Use the new Config class
     config = Config.from_cli_args(args, config_file=config_file, target_dir=target_dir)
@@ -64,7 +64,7 @@ def create_legacy_registry_config(
     registry_config = {
         "database": {
             "path": config.database.path,
-            "type": config.database.provider,
+            "provider": config.database.provider,
             "batch_size": config.indexing.db_batch_size,
             "lancedb_index_type": config.database.lancedb_index_type,
         },
@@ -133,9 +133,9 @@ def validate_config_for_command(config: ChunkHoundConfig, command: str) -> list[
             f"Missing required configuration: {item}" for item in missing_config
         )
 
-    # Command-specific validation
-    if command == "index":
-        # Validate embedding provider requirements for indexing
+    # Both index and mcp commands need embedding provider validation
+    if command in ["index", "mcp"]:
+        # Validate embedding provider requirements
         if (
             config.embedding.provider in ["tei", "bge-in-icl"]
             and not config.embedding.base_url
@@ -152,14 +152,6 @@ def validate_config_for_command(config: ChunkHoundConfig, command: str) -> list[
             if not config.embedding.base_url:
                 errors.append(
                     f"--base-url required for {config.embedding.provider} provider"
-                )
-
-    elif command == "mcp":
-        # MCP-specific validation
-        if config.mcp.transport == "http":
-            if not (1 <= config.mcp.port <= 65535):
-                errors.append(
-                    f"Invalid port {config.mcp.port}, must be between 1 and 65535"
                 )
 
     return errors

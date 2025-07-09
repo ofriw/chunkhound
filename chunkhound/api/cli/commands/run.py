@@ -19,7 +19,6 @@ from registry import configure_registry, create_indexing_coordinator
 from ..parsers.run_parser import process_batch_arguments
 from ..utils.config_helpers import (
     args_to_config,
-    create_legacy_registry_config,
     validate_config_for_command,
 )
 from ..utils.output import OutputFormatter, format_stats
@@ -80,10 +79,16 @@ async def run_command(args: argparse.Namespace) -> None:
         formatter.info(f"Include patterns: {include_patterns}")
         formatter.info(f"Exclude patterns: {exclude_patterns}")
 
-        # Create database using unified factory to ensure consistent initialization
-        config = _build_registry_config(args, unified_config)
+        # Validate configuration for the index command
+        validation_errors = validate_config_for_command(unified_config, "index")
+        if validation_errors:
+            for error in validation_errors:
+                logger.error(f"Configuration error: {error}")
+            raise ValueError("Invalid configuration")
+
+        # Configure registry directly with the Config object
         # Note: Not creating Database here - the indexing_coordinator is sufficient for CLI operations
-        configure_registry(config)
+        configure_registry(unified_config._config)
         indexing_coordinator = create_indexing_coordinator()
 
         formatter.success(f"Service layer initialized: {args.db}")
@@ -193,35 +198,6 @@ async def _handle_mcp_coordination(
             )
             sys.exit(1)
 
-
-def _build_registry_config(
-    args: argparse.Namespace, unified_config: Any = None
-) -> dict[str, Any]:
-    """Build configuration for the provider registry.
-
-    Args:
-        args: Parsed arguments
-        unified_config: Pre-loaded unified configuration (optional)
-
-    Returns:
-        Configuration dictionary
-    """
-    # Use provided unified configuration or load it
-    if unified_config is None:
-        project_dir = Path(args.path) if hasattr(args, "path") else Path.cwd()
-        unified_config = args_to_config(args, project_dir)
-
-    # Validate configuration for the index command
-    validation_errors = validate_config_for_command(unified_config, "index")
-    if validation_errors:
-        for error in validation_errors:
-            logger.error(f"Configuration error: {error}")
-        raise ValueError("Invalid configuration")
-
-    # Convert to legacy registry format
-    return create_legacy_registry_config(
-        unified_config, no_embeddings=getattr(args, "no_embeddings", False)
-    )
 
 
 def _setup_file_patterns_from_config(
