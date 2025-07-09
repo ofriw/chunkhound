@@ -76,10 +76,10 @@ def setup_watch_paths(args) -> None:
             os.environ["CHUNKHOUND_WATCH_PATHS"] = str(watch_path)
         else:
             # Log warning but don't fail - fall back to auto-detection
-            print(
-                f"Warning: Specified watch path does not exist: {watch_path}",
-                file=sys.stderr,
-            )
+            # print(
+            #     f"Warning: Specified watch path does not exist: {watch_path}",
+            #     file=sys.stderr,
+            # )
             os.environ["CHUNKHOUND_WATCH_PATHS"] = str(find_project_root())
     else:
         # Auto-detect project root

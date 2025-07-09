@@ -148,25 +148,28 @@ class OpenAIEmbeddingProvider:
                 self._client = openai.AsyncOpenAI(**client_kwargs)
                 # Only log in debug mode to avoid interfering with MCP JSON-RPC
                 if os.environ.get("CHUNKHOUND_DEBUG"):
-                    print("OpenAI client initialized successfully", file=sys.stderr)
-                    print(
-                        "===============================================",
-                        file=sys.stderr,
-                    )
+                    # print("OpenAI client initialized successfully", file=sys.stderr)
+                    # print(
+                    #     "===============================================",
+                    #     file=sys.stderr,
+                    # )
+                    pass
             else:
                 if os.environ.get("CHUNKHOUND_DEBUG"):  # type: ignore[unreachable]
-                    print("OpenAI package is None", file=sys.stderr)
-                    print(
-                        "===============================================",
-                        file=sys.stderr,
-                    )
+                    # print("OpenAI package is None", file=sys.stderr)
+                    # print(
+                    #     "===============================================",
+                    #     file=sys.stderr,
+                    # )
+                    pass
                 raise ImportError("OpenAI package not available")
         except Exception as e:
             if os.environ.get("CHUNKHOUND_DEBUG"):
-                print(f"OpenAI client initialization failed: {e}", file=sys.stderr)
-                print(
-                    "===============================================", file=sys.stderr
-                )
+                # print(f"OpenAI client initialization failed: {e}", file=sys.stderr)
+                # print(
+                #     "===============================================", file=sys.stderr
+                # )
+                pass
             raise
 
         # Model dimensions mapping

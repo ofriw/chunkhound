@@ -130,7 +130,7 @@ def log_environment_diagnostics():
     # Skip diagnostics in MCP mode to maintain clean JSON-RPC communication
     if os.environ.get("CHUNKHOUND_MCP_MODE"):
         return
-    print("=== MCP SERVER ENVIRONMENT DIAGNOSTICS ===", file=sys.stderr)
+    # print("=== MCP SERVER ENVIRONMENT DIAGNOSTICS ===", file=sys.stderr)
     
     # Check for API key using config system
     from chunkhound.core.config.embedding_config import EmbeddingConfig
@@ -139,20 +139,21 @@ def log_environment_diagnostics():
     try:
         temp_config = EmbeddingConfig(provider="openai")
         has_key = temp_config.api_key is not None
-        print(f"CHUNKHOUND_EMBEDDING_API_KEY configured: {has_key}", file=sys.stderr)
+        # print(f"CHUNKHOUND_EMBEDDING_API_KEY configured: {has_key}", file=sys.stderr)
         
         if has_key:
             key_value = temp_config.api_key.get_secret_value()
-            print(f"API key length: {len(key_value)}", file=sys.stderr)
-            print(f"API key prefix: {key_value[:7]}...", file=sys.stderr)
+            # print(f"API key length: {len(key_value)}", file=sys.stderr)
+            # print(f"API key prefix: {key_value[:7]}...", file=sys.stderr)
     except Exception as e:
         has_key = False
-        print(f"CHUNKHOUND_EMBEDDING_API_KEY not configured: {e}", file=sys.stderr)
+        # print(f"CHUNKHOUND_EMBEDDING_API_KEY not configured: {e}", file=sys.stderr)
     
     if not has_key:
-        print("WARNING: No API key found. Set CHUNKHOUND_EMBEDDING_API_KEY environment variable.", file=sys.stderr)
+        # print("WARNING: No API key found. Set CHUNKHOUND_EMBEDDING_API_KEY environment variable.", file=sys.stderr)
+        pass
         
-    print("===============================================", file=sys.stderr)
+    # print("===============================================", file=sys.stderr)
 
 
 @asynccontextmanager
@@ -172,7 +173,8 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
     # Check debug flag from environment or config
     debug_mode = os.getenv("CHUNKHOUND_DEBUG", "").lower() in ("true", "1", "yes")
     if debug_mode:
-        print("Server lifespan: Starting initialization", file=sys.stderr)
+        # print("Server lifespan: Starting initialization", file=sys.stderr)
+        pass
 
     try:
         # Log environment diagnostics for API key debugging
@@ -193,11 +195,12 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
         # Find project root first
         project_root = find_project_root()
         if debug_mode:
-            print(
-                f"Server lifespan: Detected project root: {project_root}",
-                file=sys.stderr,
-            )
+            # print(
+            #     f"Server lifespan: Detected project root: {project_root}",
+            #     file=sys.stderr,
+            # )
 
+            pass
         # Load centralized configuration with target directory
         try:
             # Use the same config loading pattern as CLI
@@ -206,16 +209,18 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
             # Update debug mode from config
             debug_mode = config.debug or debug_mode
             if debug_mode:
-                print(
-                    "Server lifespan: Loaded centralized configuration with auto-detection",
-                    file=sys.stderr,
-                )
+                # print(
+                #     "Server lifespan: Loaded centralized configuration with auto-detection",
+                #     file=sys.stderr,
+                # )
+                pass
         except Exception as e:
             if debug_mode:
-                print(
-                    f"Server lifespan: Failed to load config, using defaults: {e}",
-                    file=sys.stderr,
-                )
+                # print(
+                #     f"Server lifespan: Failed to load config, using defaults: {e}",
+                #     file=sys.stderr,
+                # )
+                pass
             # Use default config if loading fails
             config = Config()
 
@@ -231,25 +236,28 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
         db_path.parent.mkdir(parents=True, exist_ok=True)
 
         if debug_mode:
-            print(f"Server lifespan: Using database at {db_path}", file=sys.stderr)
+            # print(f"Server lifespan: Using database at {db_path}", file=sys.stderr)
 
+            pass
         # Initialize embedding configuration BEFORE database creation
         _embedding_manager = EmbeddingManager()
         if debug_mode:
-            print("Server lifespan: Embedding manager initialized", file=sys.stderr)
+            # print("Server lifespan: Embedding manager initialized", file=sys.stderr)
 
+            pass
         # Build registry config for unified factory
         registry_config = _build_mcp_registry_config(config, db_path)
 
         if debug_mode:
-            print(
-                "Server lifespan: Registry config prepared for unified factory",
-                file=sys.stderr,
-            )
-            print(
-                f"Server lifespan: Registry config: {registry_config}", file=sys.stderr
-            )
+            # print(
+            #     "Server lifespan: Registry config prepared for unified factory",
+            #     file=sys.stderr,
+            # )
+            # print(
+            #     f"Server lifespan: Registry config: {registry_config}", file=sys.stderr
+            # )
 
+            pass
         # Setup embedding provider (optional - continue if it fails)
         try:
             # Create provider using unified factory
@@ -259,46 +267,49 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
             _embedding_manager.register_provider(provider, set_default=True)
 
             if debug_mode:
-                print(
-                    f"Server lifespan: Embedding provider registered successfully: {config.embedding.provider} with model {config.embedding.model}",
-                    file=sys.stderr,
-                )
+                # print(
+                #     f"Server lifespan: Embedding provider registered successfully: {config.embedding.provider} with model {config.embedding.model}",
+                #     file=sys.stderr,
+                # )
 
+                pass
         except ValueError as e:
             # API key or configuration issue - only log in non-MCP mode
             if debug_mode:
-                print(
-                    f"Server lifespan: Embedding provider setup failed (expected): {e}",
-                    file=sys.stderr,
-                )
+                # print(
+                #     f"Server lifespan: Embedding provider setup failed (expected): {e}",
+                #     file=sys.stderr,
+                # )
+                pass
             if debug_mode and not os.environ.get(
                 "CHUNKHOUND_MCP_MODE"
             ):
-                print(f"Embedding provider setup failed: {e}", file=sys.stderr)
-                print("Configuration help:", file=sys.stderr)
-                print(
-                    "- Set CHUNKHOUND_EMBEDDING__PROVIDER (openai|openai-compatible|tei|bge-in-icl)",
-                    file=sys.stderr,
-                )
-                print(
-                    "- Set CHUNKHOUND_EMBEDDING__API_KEY or legacy OPENAI_API_KEY",
-                    file=sys.stderr,
-                )
-                print("- Set CHUNKHOUND_EMBEDDING__MODEL (optional)", file=sys.stderr)
-                print(
-                    "- For OpenAI-compatible: Set CHUNKHOUND_EMBEDDING__BASE_URL",
-                    file=sys.stderr,
-                )
+                # print(f"Embedding provider setup failed: {e}", file=sys.stderr)
+                # print("Configuration help:", file=sys.stderr)
+                # print(
+                #     "- Set CHUNKHOUND_EMBEDDING__PROVIDER (openai|openai-compatible|tei|bge-in-icl)",
+                #     file=sys.stderr,
+                # )
+                # print(
+                #     "- Set CHUNKHOUND_EMBEDDING__API_KEY or legacy OPENAI_API_KEY",
+                #     file=sys.stderr,
+                # )
+                # print("- Set CHUNKHOUND_EMBEDDING__MODEL (optional)", file=sys.stderr)
+                # print(
+                #     "- For OpenAI-compatible: Set CHUNKHOUND_EMBEDDING__BASE_URL",
+                #     file=sys.stderr,
+                # )
+                pass
         except Exception as e:
             # Unexpected error - log for debugging but continue
             if debug_mode:
-                print(
-                    f"Server lifespan: Unexpected error setting up embedding provider: {e}",
-                    file=sys.stderr,
-                )
+                # print(
+                #     f"Server lifespan: Unexpected error setting up embedding provider: {e}",
+                #     file=sys.stderr,
+                # )
                 import traceback
 
-                traceback.print_exc(file=sys.stderr)
+                # traceback.print_exc(file=sys.stderr)
 
         # Create database using unified factory to ensure consistent initialization with CLI
         _database = create_database_with_dependencies(
@@ -312,9 +323,9 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
             # to prevent concurrent database operations during initialization
             _database.connect()
             if debug_mode:
-                print(
-                    "Server lifespan: Database connected successfully", file=sys.stderr
-                )
+                # print(
+                #     "Server lifespan: Database connected successfully", file=sys.stderr
+                # )
                 # Verify IndexingCoordinator has embedding provider
                 try:
                     # Use the same instance from _database to avoid creating duplicates
@@ -322,45 +333,49 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
                     has_embedding_provider = (
                         indexing_coordinator._embedding_provider is not None
                     )
-                    print(
-                        f"Server lifespan: IndexingCoordinator embedding provider available: {has_embedding_provider}",
-                        file=sys.stderr,
-                    )
+                    # print(
+                    #     f"Server lifespan: IndexingCoordinator embedding provider available: {has_embedding_provider}",
+                    #     file=sys.stderr,
+                    # )
                 except Exception as debug_error:
-                    print(
-                        f"Server lifespan: Debug check failed: {debug_error}",
-                        file=sys.stderr,
-                    )
+                    # print(
+                    #     f"Server lifespan: Debug check failed: {debug_error}",
+                    #     file=sys.stderr,
+                    # )
+                    pass
         except Exception as db_error:
             if debug_mode:
-                print(
-                    f"Server lifespan: Database connection error: {db_error}",
-                    file=sys.stderr,
-                )
+                # print(
+                #     f"Server lifespan: Database connection error: {db_error}",
+                #     file=sys.stderr,
+                # )
                 import traceback
 
-                traceback.print_exc(file=sys.stderr)
+                # traceback.print_exc(file=sys.stderr)
             raise
 
         # Setup signal coordination for process coordination
         setup_signal_coordination(db_path, _database)
         if debug_mode:
-            print(
-                "Server lifespan: Signal coordination setup complete", file=sys.stderr
-            )
+            # print(
+            #     "Server lifespan: Signal coordination setup complete", file=sys.stderr
+            # )
 
+            pass
         # Initialize task coordinator for priority-based operation processing
         _task_coordinator = TaskCoordinator(max_queue_size=1000)
         await _task_coordinator.start()
         if debug_mode:
-            print("Server lifespan: Task coordinator initialized", file=sys.stderr)
+            # print("Server lifespan: Task coordinator initialized", file=sys.stderr)
 
+            pass
         # Initialize filesystem watcher with offline catch-up
         _file_watcher = FileWatcherManager()
         try:
             if debug_mode:
-                print("Server lifespan: Initializing file watcher...", file=sys.stderr)
+                # print("Server lifespan: Initializing file watcher...", file=sys.stderr)
 
+                pass
             # Check if watchdog is available before initializing
             try:
                 from .file_watcher import WATCHDOG_AVAILABLE
@@ -374,7 +389,7 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
                     "This causes silent failures where file modifications are missed.\n"
                     "Install watchdog: pip install watchdog>=4.0.0"
                 )
-                print(f"❌ MCP SERVER ERROR: {error_msg}", file=sys.stderr)
+                # print(f"❌ MCP SERVER ERROR: {error_msg}", file=sys.stderr)
                 raise ImportError(error_msg)
 
             watcher_success = await _file_watcher.initialize(process_file_change)
@@ -385,31 +400,33 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
                     "This causes silent failures where file modifications are missed.\n"
                     "Check watch paths configuration and filesystem permissions."
                 )
-                print(f"❌ MCP SERVER ERROR: {error_msg}", file=sys.stderr)
+                # print(f"❌ MCP SERVER ERROR: {error_msg}", file=sys.stderr)
                 raise RuntimeError(error_msg)
 
             if debug_mode:
-                print(
-                    "Server lifespan: File watcher initialized successfully",
-                    file=sys.stderr,
-                )
+                # print(
+                #     "Server lifespan: File watcher initialized successfully",
+                #     file=sys.stderr,
+                # )
+                pass
         except Exception as fw_error:
             # FAIL FAST: Any file watcher error should crash the server
             error_msg = f"FATAL: File watcher initialization failed: {fw_error}"
-            print(f"❌ MCP SERVER ERROR: {error_msg}", file=sys.stderr)
+            # print(f"❌ MCP SERVER ERROR: {error_msg}", file=sys.stderr)
             if debug_mode:
                 import traceback
 
-                traceback.print_exc(file=sys.stderr)
+                # traceback.print_exc(file=sys.stderr)
             raise RuntimeError(error_msg)
 
         # Initialize periodic indexer for background scanning
         try:
             if debug_mode:
-                print(
-                    "Server lifespan: Initializing periodic indexer...", file=sys.stderr
-                )
+                # print(
+                #     "Server lifespan: Initializing periodic indexer...", file=sys.stderr
+                # )
 
+                pass
             # Get base directory from environment or use current working directory
             base_directory = Path(os.getcwd())
 
@@ -428,28 +445,30 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
             await _periodic_indexer.start()
 
             if debug_mode:
-                print(
-                    "Server lifespan: Periodic indexer initialized successfully",
-                    file=sys.stderr,
-                )
+                # print(
+                #     "Server lifespan: Periodic indexer initialized successfully",
+                #     file=sys.stderr,
+                # )
+                pass
         except Exception as pi_error:
             # Non-fatal error - log but continue without periodic indexing
             if debug_mode:
-                print(
-                    f"Server lifespan: Periodic indexer initialization failed (non-fatal): {pi_error}",
-                    file=sys.stderr,
-                )
+                # print(
+                #     f"Server lifespan: Periodic indexer initialization failed (non-fatal): {pi_error}",
+                #     file=sys.stderr,
+                # )
                 import traceback
 
-                traceback.print_exc(file=sys.stderr)
+                # traceback.print_exc(file=sys.stderr)
             _periodic_indexer = None
 
         if debug_mode:
-            print(
-                "Server lifespan: All components initialized successfully",
-                file=sys.stderr,
-            )
+            # print(
+            #     "Server lifespan: All components initialized successfully",
+            #     file=sys.stderr,
+            # )
 
+            pass
         # Return server context to the caller
         yield {
             "db": _database,
@@ -461,94 +480,107 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
 
     except Exception as e:
         if debug_mode:
-            print(f"Server lifespan: Initialization failed: {e}", file=sys.stderr)
+            # print(f"Server lifespan: Initialization failed: {e}", file=sys.stderr)
             import traceback
 
-            traceback.print_exc(file=sys.stderr)
+            # traceback.print_exc(file=sys.stderr)
         raise Exception(f"Failed to initialize database and embeddings: {e}")
     finally:
         if debug_mode:
-            print("Server lifespan: Entering cleanup phase", file=sys.stderr)
+            # print("Server lifespan: Entering cleanup phase", file=sys.stderr)
 
+            pass
         # Cleanup periodic indexer
         if _periodic_indexer:
             try:
                 if debug_mode:
-                    print(
-                        "Server lifespan: Stopping periodic indexer...", file=sys.stderr
-                    )
+                    # print(
+                    #     "Server lifespan: Stopping periodic indexer...", file=sys.stderr
+                    # )
+                    pass
                 await _periodic_indexer.stop()
                 if debug_mode:
-                    print("Server lifespan: Periodic indexer stopped", file=sys.stderr)
+                    # print("Server lifespan: Periodic indexer stopped", file=sys.stderr)
+                    pass
             except Exception as pi_cleanup_error:
                 if debug_mode:
-                    print(
-                        f"Server lifespan: Error stopping periodic indexer: {pi_cleanup_error}",
-                        file=sys.stderr,
-                    )
+                    # print(
+                    #     f"Server lifespan: Error stopping periodic indexer: {pi_cleanup_error}",
+                    #     file=sys.stderr,
+                    # )
 
+                    pass
         # Cleanup task coordinator
         if _task_coordinator:
             try:
                 if debug_mode:
-                    print(
-                        "Server lifespan: Stopping task coordinator...", file=sys.stderr
-                    )
+                    # print(
+                    #     "Server lifespan: Stopping task coordinator...", file=sys.stderr
+                    # )
+                    pass
                 await _task_coordinator.stop()
                 if debug_mode:
-                    print("Server lifespan: Task coordinator stopped", file=sys.stderr)
+                    # print("Server lifespan: Task coordinator stopped", file=sys.stderr)
+                    pass
             except Exception as tc_cleanup_error:
                 if debug_mode:
-                    print(
-                        f"Server lifespan: Error stopping task coordinator: {tc_cleanup_error}",
-                        file=sys.stderr,
-                    )
+                    # print(
+                    #     f"Server lifespan: Error stopping task coordinator: {tc_cleanup_error}",
+                    #     file=sys.stderr,
+                    # )
 
+                    pass
         # Cleanup coordination files
         if _signal_coordinator:
             try:
                 _signal_coordinator.cleanup_coordination_files()
                 if debug_mode:
-                    print(
-                        "Server lifespan: Signal coordination files cleaned up",
-                        file=sys.stderr,
-                    )
+                    # print(
+                    #     "Server lifespan: Signal coordination files cleaned up",
+                    #     file=sys.stderr,
+                    # )
+                    pass
             except Exception as coord_error:
                 if debug_mode:
-                    print(
-                        f"Server lifespan: Error cleaning up coordination files: {coord_error}",
-                        file=sys.stderr,
-                    )
+                    # print(
+                    #     f"Server lifespan: Error cleaning up coordination files: {coord_error}",
+                    #     file=sys.stderr,
+                    # )
 
+                    pass
         # Cleanup filesystem watcher
         if _file_watcher:
             try:
                 if debug_mode:
-                    print(
-                        "Server lifespan: Cleaning up file watcher...", file=sys.stderr
-                    )
+                    # print(
+                    #     "Server lifespan: Cleaning up file watcher...", file=sys.stderr
+                    # )
+                    pass
                 await _file_watcher.cleanup()
                 if debug_mode:
-                    print(
-                        "Server lifespan: File watcher cleaned up successfully",
-                        file=sys.stderr,
-                    )
+                    # print(
+                    #     "Server lifespan: File watcher cleaned up successfully",
+                    #     file=sys.stderr,
+                    # )
+                    pass
             except Exception as fw_cleanup_error:
                 if debug_mode:
-                    print(
-                        f"Server lifespan: Error cleaning up file watcher: {fw_cleanup_error}",
-                        file=sys.stderr,
-                    )
+                    # print(
+                    #     f"Server lifespan: Error cleaning up file watcher: {fw_cleanup_error}",
+                    #     file=sys.stderr,
+                    # )
 
+                    pass
         # Cleanup database
         if _database:
             try:
                 if debug_mode:
-                    print(
-                        "Server lifespan: Closing database connection...",
-                        file=sys.stderr,
-                    )
+                    # print(
+                    #     "Server lifespan: Closing database connection...",
+                    #     file=sys.stderr,
+                    # )
 
+                    pass
                 # Ensure all pending operations complete
                 if _task_coordinator:
                     try:
@@ -557,44 +589,50 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
                         )
                     except asyncio.TimeoutError:
                         if debug_mode:
-                            print(
-                                "Server lifespan: Task coordinator cleanup timeout",
-                                file=sys.stderr,
-                            )
+                            # print(
+                            #     "Server lifespan: Task coordinator cleanup timeout",
+                            #     file=sys.stderr,
+                            # )
 
+                            pass
                 # Force final checkpoint before closing to minimize WAL size
                 try:
                     _database._execute_in_db_thread_sync("maybe_checkpoint", True)
                     if debug_mode:
-                        print(
-                            "Server lifespan: Final checkpoint completed",
-                            file=sys.stderr,
-                        )
+                        # print(
+                        #     "Server lifespan: Final checkpoint completed",
+                        #     file=sys.stderr,
+                        # )
+                        pass
                 except Exception as checkpoint_error:
                     if debug_mode:
-                        print(
-                            f"Server lifespan: Final checkpoint failed: {checkpoint_error}",
-                            file=sys.stderr,
-                        )
+                        # print(
+                        #     f"Server lifespan: Final checkpoint failed: {checkpoint_error}",
+                        #     file=sys.stderr,
+                        # )
 
+                        pass
                 # Close database (skip built-in checkpoint as we just did it)
                 _database.disconnect(skip_checkpoint=True)
                 if debug_mode:
-                    print(
-                        "Server lifespan: Database connection closed successfully",
-                        file=sys.stderr,
-                    )
+                    # print(
+                    #     "Server lifespan: Database connection closed successfully",
+                    #     file=sys.stderr,
+                    # )
+                    pass
             except Exception as db_close_error:
                 if debug_mode:
-                    print(
-                        f"Server lifespan: Error closing database: {db_close_error}",
-                        file=sys.stderr,
-                    )
+                    # print(
+                    #     f"Server lifespan: Error closing database: {db_close_error}",
+                    #     file=sys.stderr,
+                    # )
 
+                    pass
         if debug_mode:
-            print("Server lifespan: Cleanup complete", file=sys.stderr)
+            # print("Server lifespan: Cleanup complete", file=sys.stderr)
 
 
+            pass
 async def _wait_for_file_completion(file_path: Path, max_retries: int = 10) -> bool:
     """Wait for file to be fully written (not locked by editor)"""
     # Increased retries and wait time for new files
@@ -817,10 +855,11 @@ async def call_tool(
             # Check connection instead of forcing reconnection (fixes race condition)
             if _database and not _database.is_connected():
                 if "CHUNKHOUND_DEBUG" in os.environ:
-                    print(
-                        "Database not connected, reconnecting before regex search",
-                        file=sys.stderr,
-                    )
+                    # print(
+                    #     "Database not connected, reconnecting before regex search",
+                    #     file=sys.stderr,
+                    # )
+                    pass
                 _database.reconnect()
 
             results, pagination = _database.search_regex(
@@ -882,10 +921,11 @@ async def call_tool(
             # Check connection instead of forcing reconnection (fixes race condition)
             if _database and not _database.is_connected():
                 if "CHUNKHOUND_DEBUG" in os.environ:
-                    print(
-                        "Database not connected, reconnecting before semantic search",
-                        file=sys.stderr,
-                    )
+                    # print(
+                    #     "Database not connected, reconnecting before semantic search",
+                    #     file=sys.stderr,
+                    # )
+                    pass
                 _database.reconnect()
 
             # Implement timeout coordination for MCP-OpenAI API latency mismatch
@@ -958,10 +998,11 @@ async def call_tool(
             # Check connection instead of forcing reconnection (fixes race condition)
             if _database and not _database.is_connected():
                 if "CHUNKHOUND_DEBUG" in os.environ:
-                    print(
-                        "Database not connected, reconnecting before fuzzy search",
-                        file=sys.stderr,
-                    )
+                    # print(
+                    #     "Database not connected, reconnecting before fuzzy search",
+                    #     file=sys.stderr,
+                    # )
+                    pass
                 _database.reconnect()
 
             # Check if provider supports fuzzy search
@@ -1306,16 +1347,18 @@ async def handle_mcp_with_validation():
             try:
                 # Debug output to help diagnose initialization issues
                 if "CHUNKHOUND_DEBUG" in os.environ:
-                    print("MCP server: Starting server initialization", file=sys.stderr)
+                    # print("MCP server: Starting server initialization", file=sys.stderr)
 
+                    pass
                 async with server_lifespan(server) as server_context:
                     # Initialize the server
                     if "CHUNKHOUND_DEBUG" in os.environ:
-                        print(
-                            "MCP server: Server lifespan established, running server...",
-                            file=sys.stderr,
-                        )
+                        # print(
+                        #     "MCP server: Server lifespan established, running server...",
+                        #     file=sys.stderr,
+                        # )
 
+                        pass
                     try:
                         await server.run(
                             read_stream,
@@ -1331,11 +1374,12 @@ async def handle_mcp_with_validation():
                         )
 
                         if "CHUNKHOUND_DEBUG" in os.environ:
-                            print(
-                                "MCP server: Server.run() completed, entering keepalive mode",
-                                file=sys.stderr,
-                            )
+                            # print(
+                            #     "MCP server: Server.run() completed, entering keepalive mode",
+                            #     file=sys.stderr,
+                            # )
 
+                            pass
                         # Keep the process alive until client disconnects
                         # The MCP SDK handles the connection lifecycle, so we just need to wait
                         # for the server to be terminated by the client or signal
@@ -1344,45 +1388,46 @@ async def handle_mcp_with_validation():
                             await asyncio.Event().wait()
                         except (asyncio.CancelledError, KeyboardInterrupt):
                             if "CHUNKHOUND_DEBUG" in os.environ:
-                                print(
-                                    "MCP server: Received shutdown signal",
-                                    file=sys.stderr,
-                                )
+                                # print(
+                                #     "MCP server: Received shutdown signal",
+                                #     file=sys.stderr,
+                                # )
+                                pass
                         except Exception as e:
                             if "CHUNKHOUND_DEBUG" in os.environ:
-                                print(
-                                    f"MCP server unexpected error: {e}", file=sys.stderr
-                                )
+                                # print(
+                                #     f"MCP server unexpected error: {e}", file=sys.stderr
+                                # )
                                 import traceback
 
-                                traceback.print_exc(file=sys.stderr)
+                                # traceback.print_exc(file=sys.stderr)
                     except Exception as server_run_error:
                         if "CHUNKHOUND_DEBUG" in os.environ:
-                            print(
-                                f"MCP server.run() error: {server_run_error}",
-                                file=sys.stderr,
-                            )
+                            # print(
+                            #     f"MCP server.run() error: {server_run_error}",
+                            #     file=sys.stderr,
+                            # )
                             import traceback
 
-                            traceback.print_exc(file=sys.stderr)
+                            # traceback.print_exc(file=sys.stderr)
                         raise
             except Exception as lifespan_error:
                 if "CHUNKHOUND_DEBUG" in os.environ:
-                    print(
-                        f"MCP server lifespan error: {lifespan_error}", file=sys.stderr
-                    )
+                    # print(
+                    #     f"MCP server lifespan error: {lifespan_error}", file=sys.stderr
+                    # )
                     import traceback
 
-                    traceback.print_exc(file=sys.stderr)
+                    # traceback.print_exc(file=sys.stderr)
                 raise
     except Exception as e:
         # Analyze error for common protocol issues with recursive search
         error_details = str(e)
         if "CHUNKHOUND_DEBUG" in os.environ:
-            print(f"MCP server top-level error: {e}", file=sys.stderr)
+            # print(f"MCP server top-level error: {e}", file=sys.stderr)
             import traceback
 
-            traceback.print_exc(file=sys.stderr)
+            # traceback.print_exc(file=sys.stderr)
 
         def find_validation_error(error, depth=0):
             """Recursively search for ValidationError in exception chain."""
