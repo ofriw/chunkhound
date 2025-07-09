@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.5.1] - 2025-01-09
+
+### Fixed
+- Project detection now properly respects CHUNKHOUND_PROJECT_ROOT environment variable, ensuring MCP command works correctly when launched from any directory
+- Removed duplicate MCP parser function that could cause confusion
+
 ## [2.5.0] - 2025-01-09
 
 ### Enhanced
