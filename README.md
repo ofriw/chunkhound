@@ -40,7 +40,7 @@ uv tool install chunkhound
 ```bash
 # 1. Index your codebase (creates .chunkhound.db)
 uv run chunkhound index
-# Note: Automatically uses .chunkhound.json if present in indexed directory
+# ChunkHound automatically detects and uses .chunkhound.json in the current directory
 
 # 2. Start MCP server for AI assistants (auto-watches for changes)
 uv run chunkhound mcp
@@ -48,8 +48,21 @@ uv run chunkhound mcp
 # Optional: Set OpenAI API key for semantic search
 export CHUNKHOUND_EMBEDDING__API_KEY="sk-your-key-here"
 
-# Optional: Use a specific config file
-uv run chunkhound index --config /path/to/config.json
+# Optional: Override with a different config file
+uv run chunkhound index --config /path/to/different-config.json
+```
+
+### Automatic Configuration Detection
+
+When you run `chunkhound index` in any directory, ChunkHound automatically:
+1. Looks for `.chunkhound.json` in that directory
+2. Loads it if found (no `--config` flag needed)
+3. Uses those settings for indexing
+
+Example:
+```bash
+cd /my/project              # Has .chunkhound.json
+uv run chunkhound index     # Automatically uses /my/project/.chunkhound.json
 ```
 
 ## Features
@@ -191,33 +204,36 @@ Python, Java, C#, TypeScript, JavaScript, Groovy, Kotlin, Go, Rust, C, C++, Matl
 
 ## Configuration
 
+### Automatic Configuration Detection
+
+**ChunkHound automatically looks for `.chunkhound.json` in the directory being indexed - no flags needed!**
+
+```bash
+# If /my/project/.chunkhound.json exists:
+cd /my/project
+uv run chunkhound index    # Automatically uses .chunkhound.json
+```
+
+### Configuration Priority
+
+ChunkHound loads configuration in this order (highest priority first):
+1. **Command-line arguments** - Override everything
+2. **`.chunkhound.json` in indexed directory** - Automatically detected
+3. **`--config` file** - When explicitly specified
+4. **Environment variables** - System-wide defaults
+5. **Built-in defaults** - Fallback values
+
 ### Database Location
 
-By default, ChunkHound creates `.chunkhound.db` in your current directory. You can customize this with:
+By default, ChunkHound creates `.chunkhound.db` in your current directory. Customize with:
 
+- **Config file**: Add to `.chunkhound.json`: `{"database": {"path": "/path/to/.chunkhound.db"}}`
 - **Command line**: `--database-path /path/to/my-chunks`
 - **Environment variable**: `CHUNKHOUND_DATABASE__PATH="/path/to/.chunkhound.db"`
-- **Config file**: `--config config.json` with `{"database": {"path": "/path/to/.chunkhound.db"}}`
 
-### Configuration File
+### Configuration File Format
 
-ChunkHound supports configuration files when explicitly specified with the `--config` flag. This allows you to maintain consistent settings across your team and avoid repetitive command-line arguments.
-
-**Configuration Hierarchy** (highest to lowest priority):
-1. Command-line arguments
-2. Config file (via `--config` flag)
-3. Environment variables
-4. Default values
-
-**Note**: Configuration files are only loaded when explicitly specified with `--config`. Additionally, when running any command that targets a specific directory (like `index`), ChunkHound will automatically detect and use `.chunkhound.json` in that directory if present.
-
-**Automatic `.chunkhound.json` detection**:
-- When a command targets a directory, ChunkHound checks for `.chunkhound.json` in that directory
-- If found, it's automatically loaded with precedence: CLI args > local `.chunkhound.json` > `--config` file > env vars > defaults
-- This allows projects to maintain their own configuration preferences
-- The detection is built into the configuration system, not specific to any command
-
-**Example config file** (load with `--config path/to/config.json` or place as `.chunkhound.json` in indexed directory):
+Create `.chunkhound.json` in your project root for automatic loading:
 ```json
 {
   "embedding": {
@@ -255,6 +271,37 @@ ChunkHound supports configuration files when explicitly specified with the `--co
   },
   "debug": false
 }
+```
+
+### Working with `.chunkhound.json`
+
+**Example 1: Project with OpenAI embeddings**
+```bash
+# Create .chunkhound.json in your project
+echo '{
+  "embedding": {
+    "provider": "openai",
+    "api_key": "sk-your-key-here"
+  }
+}' > .chunkhound.json
+
+# Index - automatically uses .chunkhound.json
+uv run chunkhound index
+```
+
+**Example 2: Project with local Ollama**
+```bash
+# Create .chunkhound.json for Ollama
+echo '{
+  "embedding": {
+    "provider": "openai-compatible",
+    "base_url": "http://localhost:11434",
+    "model": "nomic-embed-text"
+  }
+}' > .chunkhound.json
+
+# Index - automatically uses .chunkhound.json
+uv run chunkhound index
 ```
 
 **Provider-Specific Examples**:
@@ -295,11 +342,11 @@ BGE-IN-ICL:
 
 **Security Note**: 
 - API keys in config files are convenient for local development
-- Config files (when loaded with `--config`) override environment variables
-- Add your config files to `.gitignore` to prevent committing API keys:
+- Add `.chunkhound.json` to `.gitignore` to prevent committing API keys:
 
 ```gitignore
-# ChunkHound config files (if using --config)
+# ChunkHound config files
+.chunkhound.json
 *.chunkhound.json
 chunkhound.json
 ```
@@ -331,11 +378,14 @@ chunkhound.json
 
 - **`debug`**: Enable debug logging
 
-**Security Note**: Never commit API keys to version control. Use environment variables or local config files:
+**Security Note**: Never commit API keys to version control. Use environment variables or `.chunkhound.json` (added to .gitignore):
 ```bash
+# Option 1: Environment variable
 export CHUNKHOUND_EMBEDDING__API_KEY="sk-your-key-here"
-# OR
-uv run chunkhound index --config local-config.json
+
+# Option 2: .chunkhound.json (automatically detected)
+echo '{"embedding": {"api_key": "sk-your-key-here"}}' > .chunkhound.json
+echo ".chunkhound.json" >> .gitignore
 ```
 
 ### Embedding Providers
@@ -344,6 +394,17 @@ ChunkHound supports multiple embedding providers for semantic search:
 
 **OpenAI (requires API key)**:
 ```bash
+# Option 1: Use .chunkhound.json (automatically detected)
+echo '{
+  "embedding": {
+    "provider": "openai",
+    "api_key": "sk-your-key-here",
+    "model": "text-embedding-3-small"
+  }
+}' > .chunkhound.json
+uv run chunkhound index
+
+# Option 2: Use environment variable
 export CHUNKHOUND_EMBEDDING__API_KEY="sk-your-key-here"
 uv run chunkhound index --provider openai --model text-embedding-3-small
 ```
@@ -355,17 +416,48 @@ uv run chunkhound index --provider openai --model text-embedding-3-small
 # First, start Ollama with an embedding model
 ollama pull nomic-embed-text
 
-# Then use ChunkHound with Ollama
+# Option 1: Use .chunkhound.json (automatically detected)
+echo '{
+  "embedding": {
+    "provider": "openai-compatible",
+    "base_url": "http://localhost:11434",
+    "model": "nomic-embed-text"
+  }
+}' > .chunkhound.json
+uv run chunkhound index
+
+# Option 2: Use command line
 uv run chunkhound index --provider openai-compatible --base-url http://localhost:11434 --model nomic-embed-text
 ```
 
 **LocalAI, LM Studio, or other OpenAI-compatible servers**:
 ```bash
+# Create .chunkhound.json for automatic detection
+echo '{
+  "embedding": {
+    "provider": "openai-compatible",
+    "base_url": "http://localhost:1234",
+    "model": "your-embedding-model"
+  }
+}' > .chunkhound.json
+uv run chunkhound index
+
+# Or use command line
 uv run chunkhound index --provider openai-compatible --base-url http://localhost:1234 --model your-embedding-model
 ```
 
 **Text Embeddings Inference (TEI)**:
 ```bash
+# Create .chunkhound.json for automatic detection
+echo '{
+  "embedding": {
+    "provider": "tei",
+    "base_url": "http://localhost:8080"
+  }
+}' > .chunkhound.json
+uv run chunkhound index
+
+# Or use command line
 uv run chunkhound index --provider tei --base-url http://localhost:8080
 ```
 
@@ -376,6 +468,9 @@ uv run chunkhound index --no-embeddings
 ```
 
 ### Environment Variables
+
+Environment variables are useful for system-wide defaults, but `.chunkhound.json` in your project directory will take precedence:
+
 ```bash
 # For OpenAI semantic search only
 export CHUNKHOUND_EMBEDDING__API_KEY="sk-your-key-here"
@@ -388,7 +483,7 @@ export CHUNKHOUND_EMBEDDING__MODEL="nomic-embed-text"
 # Optional: Database location
 export CHUNKHOUND_DATABASE__PATH="/path/to/.chunkhound.db"
 
-# Note: No environment variables needed for regex-only usage
+# Note: .chunkhound.json in your project will override these settings
 ```
 
 ## Security
@@ -412,7 +507,7 @@ Your code never leaves your environment unless you explicitly configure external
 ## How It Works
 
 ChunkHound indexes your codebase in three layers:
-1. **Pre-index** - Run `chunkhound index` to sync database with current code
+1. **Pre-index** - Run `chunkhound index` to sync database with current code (automatically uses `.chunkhound.json` if present)
 2. **Background scan** - MCP server checks for changes every 5 minutes  
 3. **Real-time updates** - File system events trigger immediate updates
 
