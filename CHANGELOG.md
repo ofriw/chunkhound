@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.3.1] - 2025-07-09
+
+### Fixed
+- MCP server communication reliability improved by preventing stderr output from corrupting JSON-RPC messages
+- Enhanced configuration documentation with automatic .chunkhound.json detection examples
+
 ## [2.3.0] - 2025-07-08
 
 ### Changed
@@ -226,7 +232,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 For more information, visit: https://github.com/chunkhound/chunkhound
 
-[Unreleased]: https://github.com/chunkhound/chunkhound/compare/v2.3.0...HEAD
+[Unreleased]: https://github.com/chunkhound/chunkhound/compare/v2.3.1...HEAD
+[2.3.1]: https://github.com/chunkhound/chunkhound/compare/v2.3.0...v2.3.1
 [2.3.0]: https://github.com/chunkhound/chunkhound/compare/v2.2.0...v2.3.0
 [2.2.0]: https://github.com/chunkhound/chunkhound/compare/v2.1.4...v2.2.0
 [2.1.4]: https://github.com/chunkhound/chunkhound/compare/v2.1.3...v2.1.4
