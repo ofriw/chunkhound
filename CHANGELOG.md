@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.4] - 2025-01-09
+
+### Fixed
+- Ubuntu TaskGroup crash fixed by removing problematic directory change in MCP launcher
+
 ## [2.4.3] - 2025-01-09
 
 ### Fixed
@@ -266,7 +271,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 For more information, visit: https://github.com/chunkhound/chunkhound
 
-[Unreleased]: https://github.com/chunkhound/chunkhound/compare/v2.4.3...HEAD
+[Unreleased]: https://github.com/chunkhound/chunkhound/compare/v2.4.4...HEAD
+[2.4.4]: https://github.com/chunkhound/chunkhound/compare/v2.4.3...v2.4.4
 [2.4.3]: https://github.com/chunkhound/chunkhound/compare/v2.4.2...v2.4.3
 [2.4.2]: https://github.com/chunkhound/chunkhound/compare/v2.4.1...v2.4.2
 [2.4.1]: https://github.com/chunkhound/chunkhound/compare/v2.4.0...v2.4.1
