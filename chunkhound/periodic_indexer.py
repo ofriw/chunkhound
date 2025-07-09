@@ -45,12 +45,15 @@ class PeriodicIndexManager:
 
         # State tracking
         self._scanning_task: asyncio.Task | None = None
+        self._optimization_task: asyncio.Task | None = None
         self._shutdown_event = asyncio.Event()
         self._running = False
         self._scan_position = 0
         self._last_scan_time = 0
         self._scan_start_counter = 0  # Count scan start attempts
         self._current_scan_start_time = 0  # Track when current scan started
+        self._last_optimization_time = 0  # Track last optimization time
+        self._quiet_period_minutes = 5  # 5 minutes of inactivity before optimization
 
         # Statistics
         self._stats = {
@@ -59,6 +62,7 @@ class PeriodicIndexManager:
             "files_updated": 0,
             "files_skipped": 0,
             "last_scan_duration": 0,
+            "optimizations_performed": 0,
         }
 
     @classmethod
@@ -111,6 +115,9 @@ class PeriodicIndexManager:
 
         # Start immediate background scan to catch changes since last offline index
         self._scanning_task = asyncio.create_task(self._periodic_scan_loop())
+        
+        # Start optimization task to handle quiet period optimization
+        self._optimization_task = asyncio.create_task(self._periodic_optimization_loop())
 
         # Debug output only in debug mode to avoid disrupting JSON-RPC
         if "CHUNKHOUND_DEBUG" in os.environ:
@@ -135,9 +142,10 @@ class PeriodicIndexManager:
         self._running = False
         self._shutdown_event.set()
 
+        # Stop scanning task
         if self._scanning_task:
             try:
-                await asyncio.wait_for(self._scanning_task, timeout=timeout)
+                await asyncio.wait_for(self._scanning_task, timeout=timeout/2)
             except asyncio.TimeoutError:
                 if "CHUNKHOUND_DEBUG" in os.environ:
                     # print(
@@ -148,6 +156,23 @@ class PeriodicIndexManager:
                 self._scanning_task.cancel()
                 try:
                     await self._scanning_task
+                except asyncio.CancelledError:
+                    pass
+        
+        # Stop optimization task
+        if self._optimization_task:
+            try:
+                await asyncio.wait_for(self._optimization_task, timeout=timeout/2)
+            except asyncio.TimeoutError:
+                if "CHUNKHOUND_DEBUG" in os.environ:
+                    # print(
+                    #     "PeriodicIndexManager optimization task did not stop gracefully, cancelling",
+                    #     file=sys.stderr,
+                    # )
+                    pass
+                self._optimization_task.cancel()
+                try:
+                    await self._optimization_task
                 except asyncio.CancelledError:
                     pass
 
@@ -468,3 +493,96 @@ class PeriodicIndexManager:
                     # )
                     pass
                 # Continue with next file despite errors
+    
+    async def _periodic_optimization_loop(self) -> None:
+        """Periodic loop to check for quiet periods and run database optimization."""
+        if "CHUNKHOUND_DEBUG" in os.environ:
+            # print("PeriodicIndexManager optimization loop started", file=sys.stderr)
+            pass
+        
+        while self._running:
+            try:
+                # Wait for 60 seconds between checks
+                try:
+                    await asyncio.wait_for(
+                        self._shutdown_event.wait(), timeout=60
+                    )
+                    # Shutdown signal received
+                    break
+                except asyncio.TimeoutError:
+                    # Timeout - continue with quiet period check
+                    pass
+                
+                # Get database provider from registry
+                try:
+                    from .registry import get_registry
+                    
+                    database_provider = get_registry().get_provider("database")
+                    if not database_provider:
+                        continue
+                        
+                    # Check if we have the last_activity_time property
+                    if not hasattr(database_provider, "last_activity_time"):
+                        continue
+                    
+                    # Get last activity time
+                    last_activity = database_provider.last_activity_time
+                    if last_activity is None:
+                        continue
+                    
+                    # Check if it's been quiet for the specified period
+                    current_time = time.time()
+                    quiet_duration = current_time - last_activity
+                    quiet_period_seconds = self._quiet_period_minutes * 60
+                    
+                    if quiet_duration >= quiet_period_seconds:
+                        # Check if we haven't optimized recently (avoid repeated optimizations)
+                        time_since_last_optimization = current_time - self._last_optimization_time
+                        if time_since_last_optimization >= quiet_period_seconds:
+                            if "CHUNKHOUND_DEBUG" in os.environ:
+                                # print(
+                                #     f"Database quiet for {quiet_duration:.1f}s, running optimization",
+                                #     file=sys.stderr,
+                                # )
+                                pass
+                            
+                            # Run optimization
+                            try:
+                                database_provider.optimize_tables()
+                                self._last_optimization_time = current_time
+                                self._stats["optimizations_performed"] += 1
+                                
+                                if "CHUNKHOUND_DEBUG" in os.environ:
+                                    # print(
+                                    #     "Database optimization completed successfully",
+                                    #     file=sys.stderr,
+                                    # )
+                                    pass
+                            except Exception as opt_error:
+                                if "CHUNKHOUND_DEBUG" in os.environ:
+                                    # print(
+                                    #     f"Database optimization failed: {opt_error}",
+                                    #     file=sys.stderr,
+                                    # )
+                                    pass
+                    
+                except Exception as e:
+                    if "CHUNKHOUND_DEBUG" in os.environ:
+                        # print(
+                        #     f"Error in optimization check: {e}",
+                        #     file=sys.stderr,
+                        # )
+                        pass
+                        
+            except asyncio.CancelledError:
+                # Handle graceful cancellation
+                if "CHUNKHOUND_DEBUG" in os.environ:
+                    # print("Optimization loop was cancelled", file=sys.stderr)
+                    pass
+                break
+            except Exception as e:
+                if "CHUNKHOUND_DEBUG" in os.environ:
+                    # print(f"Unexpected error in optimization loop: {e}", file=sys.stderr)
+                    pass
+                # Continue running despite errors
+                await asyncio.sleep(60)  # Wait before retrying

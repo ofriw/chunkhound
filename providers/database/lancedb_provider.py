@@ -1388,16 +1388,32 @@ class LanceDBProvider(SerialDatabaseProvider):
 
     def _executor_optimize_tables(self, conn: Any, state: dict[str, Any]) -> None:
         """Executor method for optimize_tables - runs in DB thread."""
+        from datetime import timedelta
+        
         try:
             if self._chunks_table:
-                logger.info("Optimizing chunks table - compacting fragments...")
+                logger.debug("Optimizing chunks table - compacting fragments...")
                 self._chunks_table.optimize()
-                logger.info("Chunks table optimization complete")
+                logger.debug("Cleaning up old versions for chunks table...")
+                # Clean up versions older than 1 hour aggressively
+                stats = self._chunks_table.cleanup_old_versions(
+                    older_than=timedelta(hours=1),
+                    delete_unverified=True
+                )
+                logger.debug(f"Chunks table cleanup freed {stats.bytes_removed / 1024 / 1024:.2f} MB")
+                logger.debug("Chunks table optimization complete")
 
             if self._files_table:
-                logger.info("Optimizing files table...")
+                logger.debug("Optimizing files table...")
                 self._files_table.optimize()
-                logger.info("Files table optimization complete")
+                logger.debug("Cleaning up old versions for files table...")
+                # Clean up versions older than 1 hour aggressively
+                stats = self._files_table.cleanup_old_versions(
+                    older_than=timedelta(hours=1),
+                    delete_unverified=True
+                )
+                logger.debug(f"Files table cleanup freed {stats.bytes_removed / 1024 / 1024:.2f} MB")
+                logger.debug("Files table optimization complete")
 
         except Exception as e:
             logger.warning(f"Failed to optimize tables: {e}")
