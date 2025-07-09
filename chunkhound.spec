@@ -15,12 +15,7 @@ chunkhound_root = project_root / "chunkhound"
 
 # Define all the packages that need to be included
 packages = [
-    'chunkhound',
-    'core',
-    'interfaces',
-    'providers',
-    'services',
-    'registry'
+    'chunkhound'
 ]
 
 # Collect all Python files from our packages
@@ -159,22 +154,7 @@ hiddenimports = [
     'chunkhound.api.cli.utils.validation',
     'chunkhound.mcp_entry',
 
-    # Core system modules
-    'core.models',
-    'core.models.chunk',
-    'core.models.file_metadata',
-    'core.models.search',
-    'interfaces.embedding',
-    'interfaces.parser',
-    'providers.embedding.openai_provider',
-    'providers.embedding.tei_provider',
-    'providers.embedding.bge_in_icl_provider',
-    'providers.parser.tree_sitter_provider',
-    'services.embedding_service',
-    'services.parsing_service',
-    'services.indexing_service',
-    'services.search_service',
-    'registry.service_registry',
+    # Core system modules are now within chunkhound package
 
     # Third-party hidden imports
     'tree_sitter',

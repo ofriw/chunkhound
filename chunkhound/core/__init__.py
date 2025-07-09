@@ -1,9 +1,42 @@
-"""
-Core configuration and shared utilities for ChunkHound.
+"""ChunkHound Core Package - Domain models, types, and exceptions.
 
-This package contains the unified configuration system that provides
-consistent settings management across all ChunkHound execution modes.
+This package contains the core domain models and types that form the foundation
+of the ChunkHound architecture. These models are independent of infrastructure
+concerns and provide a clean separation between business logic and implementation details.
+
+Modules:
+    models: Domain models for File, Chunk, and Embedding entities
+    types: Common type definitions and aliases
+    exceptions: Core exception classes for error handling
 """
 
-__version__ = "1.0.0"
-__all__ = ["config"]
+from chunkhound.core.exceptions import (
+    ChunkHoundError,
+    EmbeddingError,
+    ModelError,
+    ParsingError,
+    ValidationError,
+)
+from chunkhound.core.models import Chunk, Embedding, EmbeddingResult, File
+from chunkhound.core.types import ChunkType, Language, ModelName, ProviderName
+
+__all__ = [
+    # Domain Models
+    "File",
+    "Chunk",
+    "Embedding",
+    "EmbeddingResult",
+    # Types
+    "ChunkType",
+    "Language",
+    "ProviderName",
+    "ModelName",
+    # Exceptions
+    "ChunkHoundError",
+    "ValidationError",
+    "ModelError",
+    "EmbeddingError",
+    "ParsingError",
+]
+
+__version__ = "1.1.0"

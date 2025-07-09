@@ -24,16 +24,16 @@ from loguru import logger
 from chunkhound.core.config.unified_config import DatabaseConfig
 
 # Core imports
-from core.types.common import Language
+from chunkhound.core.types.common import Language
 
 if TYPE_CHECKING:
-    from services.embedding_service import EmbeddingService
-    from services.indexing_coordinator import IndexingCoordinator
-    from services.search_service import SearchService
+    from chunkhound.services.embedding_service import EmbeddingService
+    from chunkhound.services.indexing_coordinator import IndexingCoordinator
+    from chunkhound.services.search_service import SearchService
 
 # Provider imports
 # Registry import for service layer
-from registry import (
+from chunkhound.registry import (
     create_embedding_service,
     create_indexing_coordinator,
     create_search_service,
@@ -267,8 +267,8 @@ class Database:
     ) -> int:
         """Insert a new file record."""
         # Import here to avoid circular dependency
-        from core.models import File
-        from core.types import FilePath, Language, Timestamp
+        from chunkhound.core.models import File
+        from chunkhound.core.types.common import FilePath, Language, Timestamp
 
         if isinstance(file_or_path, str):
             file_model = File(
@@ -300,8 +300,8 @@ class Database:
     ) -> int:
         """Insert a new chunk record."""
         # Import here to avoid circular dependency
-        from core.models import Chunk
-        from core.types import ChunkType, FileId, Language, LineNumber
+        from chunkhound.core.models import Chunk
+        from chunkhound.core.types.common import ChunkType, FileId, Language, LineNumber
 
         if isinstance(chunk_or_file_id, int):
             chunk_model = Chunk(
@@ -331,7 +331,7 @@ class Database:
 
     def delete_file_chunks(self, file_id: int) -> None:
         """Delete all chunks for a file."""
-        from core.types import FileId
+        from chunkhound.core.types.common import FileId
 
         self._provider.delete_file_chunks(FileId(file_id))
 

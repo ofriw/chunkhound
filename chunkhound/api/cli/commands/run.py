@@ -14,7 +14,7 @@ from chunkhound.core.config.embedding_factory import EmbeddingProviderFactory
 from chunkhound.core.config.embedding_config import EmbeddingConfig
 from chunkhound.signal_coordinator import CLICoordinator
 from chunkhound.version import __version__
-from registry import configure_registry, create_indexing_coordinator
+from chunkhound.registry import configure_registry, create_indexing_coordinator
 
 from ..parsers.run_parser import process_batch_arguments
 from ..utils.config_helpers import (

@@ -10,7 +10,7 @@ from typing import Any
 
 from chunkhound.database import Database
 from chunkhound.embeddings import EmbeddingManager
-from registry import configure_registry, get_registry
+from chunkhound.registry import configure_registry, get_registry
 
 
 def create_database_with_dependencies(

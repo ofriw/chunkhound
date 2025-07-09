@@ -49,7 +49,7 @@ def debug_log(event_type, **data):
 
 
 # Import Language enum for centralized extension management
-from core.types.common import Language
+from chunkhound.core.types.common import Language
 
 # Use centralized extension list from Language enum
 SUPPORTED_EXTENSIONS = Language.get_all_extensions()

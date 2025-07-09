@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 import pytest
 
-from registry import get_registry, create_indexing_coordinator
+from chunkhound.registry import get_registry, create_indexing_coordinator
 from chunkhound.parser import CodeParser
 
 

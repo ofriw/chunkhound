@@ -78,7 +78,7 @@ Documentation = "https://github.com/chunkhound/chunkhound#readme"
 Changelog = "https://github.com/chunkhound/chunkhound/releases"
 
 [tool.hatch.build.targets.wheel]
-packages = ["chunkhound", "core", "interfaces", "providers", "services", "registry"]
+packages = ["chunkhound"]
 
 [tool.black]
 line-length = 88

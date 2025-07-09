@@ -5,10 +5,10 @@ from pathlib import Path
 import pytest
 import asyncio
 
-from registry import get_registry, create_indexing_coordinator
-from services.indexing_coordinator import IndexingCoordinator
+from chunkhound.registry import get_registry, create_indexing_coordinator
+from chunkhound.services.indexing_coordinator import IndexingCoordinator
 from chunkhound.parser import CodeParser
-from core.types import Language
+from chunkhound.core.types.common import Language
 
 
 def _is_csharp_parser_available():

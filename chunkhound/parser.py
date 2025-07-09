@@ -5,7 +5,7 @@ from typing import Any
 
 from loguru import logger
 
-from core.types import Language
+from chunkhound.core.types.common import Language
 
 from .tree_cache import TreeCache, get_default_cache
 
@@ -38,7 +38,7 @@ class CodeParser:
     def setup(self) -> None:
         """Set up the parser registry."""
         try:
-            from registry import get_registry
+            from chunkhound.registry import get_registry
 
             self._registry = get_registry()
             logger.debug("Parser registry initialized successfully")

@@ -7,7 +7,7 @@ import pytest
 
 from chunkhound.database import Database
 from chunkhound.embeddings import EmbeddingManager, OpenAIEmbeddingProvider
-from registry import get_registry, create_indexing_coordinator
+from chunkhound.registry import get_registry, create_indexing_coordinator
 
 
 @pytest.fixture

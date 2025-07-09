@@ -34,35 +34,9 @@ hiddenimports = [
     'chunkhound.parser',
     'chunkhound.tree_cache',
 
-    # Core system modules
-    'core.models.chunk',
-    'core.models.file',
-    'core.models.embedding',
-    'providers.database.duckdb_provider',
-    'providers.embeddings.openai_provider',  # Fixed: correct path
-    'services.embedding_service',
-    'services.indexing_coordinator',
+    # Core system modules are now within chunkhound package
     
-    # All parser modules
-    'providers.parsing',
-    'providers.parsing.base_parser',
-    'providers.parsing.python_parser',
-    'providers.parsing.javascript_parser',
-    'providers.parsing.typescript_parser',
-    'providers.parsing.java_parser',
-    'providers.parsing.csharp_parser',
-    'providers.parsing.markdown_parser',
-    'providers.parsing.rust_parser',
-    'providers.parsing.go_parser',
-    'providers.parsing.c_parser',
-    'providers.parsing.cpp_parser',
-    'providers.parsing.kotlin_parser',
-    'providers.parsing.groovy_parser',
-    'providers.parsing.bash_parser',
-    'providers.parsing.toml_parser',
-    'providers.parsing.matlab_parser',
-    'providers.parsing.makefile_parser',
-    'providers.parsing.text_parser',
+    # All parser modules are now within chunkhound package
 
     # Essential third-party modules
     'duckdb',

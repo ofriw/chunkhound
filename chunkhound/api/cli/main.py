@@ -212,6 +212,12 @@ def main() -> None:
         asyncio.run(async_main())
     except KeyboardInterrupt:
         sys.exit(0)
+    except ImportError as e:
+        # More specific handling for import errors
+        logger.error(f"Import error: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
     except Exception as e:
         # Check if this is a Pydantic validation error for missing provider
         error_str = str(e)

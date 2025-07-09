@@ -8,7 +8,7 @@ from unittest.mock import Mock, AsyncMock
 
 from chunkhound.database import Database
 from chunkhound.chunker import IncrementalChunker, ChunkDiff
-from registry import get_registry, create_indexing_coordinator
+from chunkhound.registry import get_registry, create_indexing_coordinator
 
 
 class TestDatabaseIncremental:

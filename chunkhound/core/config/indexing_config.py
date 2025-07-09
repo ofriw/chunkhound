@@ -15,7 +15,7 @@ def _get_default_include_patterns() -> list[str]:
     Returns all supported file extensions as glob patterns.
     This is the single source of truth for default file discovery.
     """
-    from core.types.common import Language
+    from chunkhound.core.types.common import Language
 
     patterns = []
     for ext in Language.get_all_extensions():
