@@ -13,6 +13,12 @@ import os
 import sys
 from pathlib import Path
 
+# Add the chunkhound package to Python path for imports
+# This fixes the import error when running from different directories
+script_dir = Path(__file__).parent
+if str(script_dir) not in sys.path:
+    sys.path.insert(0, str(script_dir))
+
 
 def parse_arguments():
     """Parse command line arguments."""
