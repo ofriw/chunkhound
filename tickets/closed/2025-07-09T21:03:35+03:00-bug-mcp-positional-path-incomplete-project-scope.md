@@ -165,3 +165,34 @@ if str(script_dir) not in sys.path:
 **Testing**: The fix should now allow `chunkhound mcp <path>` to work from any directory on Ubuntu while maintaining all existing functionality.
 
 **Status**: **RESOLVED** - Ubuntu import path issue fixed, TaskGroup -32603 error eliminated.
+
+## 2025-07-09T22:19:32+03:00
+
+**FINAL ROOT CAUSE IDENTIFIED AND FIXED**: The TaskGroup -32603 error persisted due to inconsistent project detection logic.
+
+**Root Cause**: The `find_project_root()` function in `chunkhound/utils/project_detection.py` was ignoring the `CHUNKHOUND_PROJECT_ROOT` environment variable set by the MCP command. This caused project detection to fail when running from different directories.
+
+**The Problem**:
+1. `chunkhound mcp /some/project` sets `CHUNKHOUND_PROJECT_ROOT=/some/project`
+2. `find_project_root()` ignored this and used `Path.cwd()` instead
+3. Project detection searched in wrong directory, causing failures on Ubuntu
+
+**Additional Issue**: Duplicate `add_mcp_subparser` function in `chunkhound/api/cli/commands/mcp.py` was unused but could cause confusion.
+
+**Changes Made**:
+
+1. **Updated `find_project_root()` in `chunkhound/utils/project_detection.py`**:
+   - Check `CHUNKHOUND_PROJECT_ROOT` environment variable first
+   - Fall back to `Path.cwd()` if not set
+   - Use environment variable as fallback when no project markers found
+
+2. **Removed duplicate parser** in `chunkhound/api/cli/commands/mcp.py`:
+   - Deleted unused `add_mcp_subparser` function
+   - Updated `__all__` to only export `mcp_command`
+
+**Why This Fixes Ubuntu Issue**:
+- Project detection now uses the specified path instead of current working directory
+- Consistent behavior across platforms for project scope control
+- Eliminates path resolution conflicts that caused TaskGroup errors
+
+**Status**: **DEFINITIVELY RESOLVED** - Ubuntu TaskGroup -32603 error eliminated by fixing project detection logic to respect MCP command arguments.
