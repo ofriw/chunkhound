@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- MCP command now accepts optional path argument to specify directory for indexing and watching (defaults to current directory)
+
+### Fixed
+- Parser architecture inconsistencies resolved across C, Bash, and Makefile parsers for consistent search functionality
+- MCP server database duplication eliminated through proper async task isolation
+- LanceDB storage growth controlled with automatic optimization during quiet periods
+- MCP server reliability improved with corrected import structure and dependency resolution
+- Python parser behavior now consistent between CLI and MCP modes
+- Search operation freezes after file deletion resolved with proper thread safety
+
 ## [2.4.1] - 2025-01-09
 
 ### Fixed
