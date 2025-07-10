@@ -168,10 +168,10 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
             pass
         # Load centralized configuration with target directory
         try:
-            # CRITICAL: Pass the project_root as target_dir to ensure .chunkhound.json is loaded
+            # CRITICAL: Use Config() without target_dir to respect environment variables
             # The MCP launcher already set CHUNKHOUND_DATABASE__PATH and CHUNKHOUND_PROJECT_ROOT
-            # But we need to explicitly pass target_dir for config file loading
-            config = Config(target_dir=project_root)
+            # Using target_dir would override these environment variables
+            config = Config()
             # Update debug mode from config
             debug_mode = config.debug or debug_mode
             if debug_mode:
