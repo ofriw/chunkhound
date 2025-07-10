@@ -1,0 +1,39 @@
+FROM ubuntu:20.04
+
+# Prevent interactive prompts during package installation
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install Python 3.10 and required packages
+RUN apt-get update && apt-get install -y \
+    software-properties-common \
+    curl \
+    git \
+    build-essential \
+    && add-apt-repository ppa:deadsnakes/ppa \
+    && apt-get update \
+    && apt-get install -y \
+        python3.10 \
+        python3.10-dev \
+        python3.10-distutils \
+        python3-pip \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install uv package manager
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+ENV PATH="/root/.cargo/bin:$PATH"
+
+# Set working directory
+WORKDIR /app
+
+# Copy project files
+COPY . .
+
+# Install dependencies with uv
+RUN uv sync --frozen
+
+# Set environment variables for testing
+ENV CHUNKHOUND_DEBUG=1
+ENV CHUNKHOUND_MCP_MODE=1
+
+# Default command
+CMD ["/bin/bash"]

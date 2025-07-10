@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  chunkhound-test:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    volumes:
+      - .:/app
+    environment:
+      - CHUNKHOUND_DEBUG=1
+      - CHUNKHOUND_MCP_MODE=1
+    stdin_open: true
+    tty: true
+    working_dir: /app
+    command: /bin/bash
