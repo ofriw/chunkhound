@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.6.0] - 2025-07-10
+
+### Fixed
+- MCP server crashes on Ubuntu and Linux systems when running from different directories by fixing database path resolution and process coordination
+- Enhanced TaskGroup error reporting to show underlying causes instead of generic wrapper errors
+- Configuration file loading in MCP server now properly respects .chunkhound.json files in target directories
+- Database lock conflicts between multiple MCP instances resolved with proper process detection
+
+### Enhanced
+- Docker test infrastructure for MCP server validation to prevent future regressions
+- Improved error messages for debugging MCP server issues with detailed analysis
+
 ## [2.5.4] - 2025-07-10
 
 ### Fixed
@@ -305,7 +317,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 For more information, visit: https://github.com/chunkhound/chunkhound
 
-[Unreleased]: https://github.com/chunkhound/chunkhound/compare/v2.5.4...HEAD
+[Unreleased]: https://github.com/chunkhound/chunkhound/compare/v2.6.0...HEAD
+[2.6.0]: https://github.com/chunkhound/chunkhound/compare/v2.5.4...v2.6.0
 [2.5.4]: https://github.com/chunkhound/chunkhound/compare/v2.5.3...v2.5.4
 [2.5.3]: https://github.com/chunkhound/chunkhound/compare/v2.5.2...v2.5.3
 [2.5.2]: https://github.com/chunkhound/chunkhound/compare/v2.5.1...v2.5.2
