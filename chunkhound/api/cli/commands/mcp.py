@@ -3,7 +3,6 @@
 import argparse
 import os
 from pathlib import Path
-from typing import Any, cast
 
 
 def mcp_command(args: argparse.Namespace) -> None:
@@ -24,26 +23,53 @@ def mcp_command(args: argparse.Namespace) -> None:
     # Handle positional path argument for complete project scope control
     if hasattr(args, 'path') and args.path != Path("."):
         project_path = args.path.resolve()
-        
+
         # Set database path to <path>/.chunkhound/db if not explicitly provided
         if args.db is None:
             db_path = project_path / ".chunkhound" / "db"
             cmd.extend(["--db", str(db_path)])
         else:
             cmd.extend(["--db", str(args.db)])
-        
+
         # Set watch path to the project directory
         cmd.extend(["--watch-path", str(project_path)])
-        
+
     else:
-        # Only pass --db argument if explicitly provided, otherwise let unified config handle it
+        # Only pass --db if explicitly provided, let unified config handle defaults
         if args.db is not None:
             cmd.extend(["--db", str(args.db)])
 
     # Inherit current environment - the centralized config will handle API keys
     env = os.environ.copy()
-    
-    # Set environment variable for config file search in project directory if path provided
+
+    # Preserve virtual environment context for Ubuntu/Linux compatibility
+    # This fixes the TaskGroup -32603 error when subprocess loses venv context
+
+    # 1. Preserve Python module search paths
+    env["PYTHONPATH"] = ":".join(sys.path)
+
+    # 2. Pass virtual environment information
+    if hasattr(sys, "prefix"):
+        env["VIRTUAL_ENV"] = sys.prefix
+
+    # 3. Ensure PATH includes venv bin directory
+    # Check if we're in a virtualenv
+    in_venv = hasattr(sys, "real_prefix") or (
+        hasattr(sys, "base_prefix") and sys.base_prefix != sys.prefix
+    )
+
+    if in_venv:
+        # Add venv bin to PATH to find correct Python and tools
+        venv_bin = Path(sys.prefix) / "bin"
+        current_path = env.get("PATH", "")
+        env["PATH"] = f"{venv_bin}:{current_path}"
+
+        # Also try to use venv Python directly if available
+        venv_python = venv_bin / "python"
+        if venv_python.exists():
+            cmd[0] = str(venv_python)
+
+    # Set environment variable for config file search if path provided
     if hasattr(args, 'path') and args.path != Path("."):
         env["CHUNKHOUND_PROJECT_ROOT"] = str(args.path.resolve())
 
