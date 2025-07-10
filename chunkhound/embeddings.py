@@ -1,8 +1,6 @@
 """Embedding providers for ChunkHound - pluggable vector embedding generation."""
 
 import asyncio
-import os
-import sys
 import time
 from dataclasses import dataclass, field
 from typing import Any, Protocol
@@ -12,27 +10,8 @@ from loguru import logger
 
 # Core domain models
 
-try:
-    import openai
-
-    OPENAI_AVAILABLE = True
-except ImportError:
-    openai = None  # type: ignore
-    OPENAI_AVAILABLE = False
-    # Suppress warning during MCP mode initialization
-    if not os.environ.get("CHUNKHOUND_MCP_MODE"):
-        logger.warning("OpenAI not available - install with: uv pip install openai")
-
-try:
-    import tiktoken
-
-    TIKTOKEN_AVAILABLE = True
-except ImportError:
-    tiktoken = None  # type: ignore
-    TIKTOKEN_AVAILABLE = False
-    # Suppress warning during MCP mode initialization
-    if not os.environ.get("CHUNKHOUND_MCP_MODE"):
-        logger.warning("tiktoken not available - install with: uv pip install tiktoken")
+# OpenAI and tiktoken imports have been moved to the specific provider implementations
+# that need them. This reduces unnecessary dependencies in the core module.
 
 
 class EmbeddingProvider(Protocol):
@@ -86,277 +65,9 @@ class LocalEmbeddingResult:
     total_tokens: int | None = None
 
 
-class OpenAIEmbeddingProvider:
-    """OpenAI embedding provider using text-embedding-3-small by default."""
-
-    def __init__(
-        self,
-        api_key: str | None = None,
-        base_url: str | None = None,
-        model: str = "text-embedding-3-small",
-        batch_size: int = 100,
-    ):
-        """Initialize OpenAI embedding provider.
-
-        Args:
-            api_key: OpenAI API key (defaults to OPENAI_API_KEY env var)
-            base_url: Base URL for OpenAI API (defaults to OPENAI_BASE_URL env var)
-            model: Model name to use for embeddings
-            batch_size: Maximum batch size for API requests
-        """
-        # Skip diagnostics in MCP mode to maintain clean JSON-RPC communication
-        if not OPENAI_AVAILABLE:
-            raise ImportError(
-                "OpenAI package not available. Install with: uv pip install openai"
-            )
-
-        # Use the new config system for environment variables if not provided
-        if api_key is None or base_url is None:
-            # Import here to avoid circular imports
-            from chunkhound.core.config.embedding_config import EmbeddingConfig
-            
-            # Create a temporary config to get environment variables
-            temp_config = EmbeddingConfig(provider="openai")
-            
-            if api_key is None and temp_config.api_key:
-                self._api_key = temp_config.api_key.get_secret_value()
-            else:
-                self._api_key = api_key
-                
-            if base_url is None and temp_config.base_url:
-                self._base_url = temp_config.base_url
-            else:
-                self._base_url = base_url
-        else:
-            self._api_key = api_key
-            self._base_url = base_url
-        self._model = model
-        self._batch_size = batch_size
-
-        if not self._api_key:
-            raise ValueError(
-                "OpenAI API key required. Set CHUNKHOUND_EMBEDDING_API_KEY environment variable or pass api_key parameter."
-            )
-
-        # Initialize OpenAI client
-        client_kwargs: dict[str, Any] = {"api_key": self._api_key}
-        if self._base_url:
-            client_kwargs["base_url"] = self._base_url
-
-        try:
-            if openai is not None:
-                self._client = openai.AsyncOpenAI(**client_kwargs)
-                # Only log in debug mode to avoid interfering with MCP JSON-RPC
-                if os.environ.get("CHUNKHOUND_DEBUG"):
-                    # print("OpenAI client initialized successfully", file=sys.stderr)
-                    # print(
-                    #     "===============================================",
-                    #     file=sys.stderr,
-                    # )
-                    pass
-            else:
-                if os.environ.get("CHUNKHOUND_DEBUG"):  # type: ignore[unreachable]
-                    # print("OpenAI package is None", file=sys.stderr)
-                    # print(
-                    #     "===============================================",
-                    #     file=sys.stderr,
-                    # )
-                    pass
-                raise ImportError("OpenAI package not available")
-        except Exception as e:
-            if os.environ.get("CHUNKHOUND_DEBUG"):
-                # print(f"OpenAI client initialization failed: {e}", file=sys.stderr)
-                # print(
-                #     "===============================================", file=sys.stderr
-                # )
-                pass
-            raise
-
-        # Model dimensions mapping
-        self._model_dims = {
-            "text-embedding-3-small": 1536,
-            "text-embedding-3-large": 3072,
-            "text-embedding-ada-002": 1536,
-        }
-
-        # Model token limits mapping
-        self._model_token_limits = {
-            "text-embedding-3-small": 8192,
-            "text-embedding-3-large": 8192,
-            "text-embedding-ada-002": 8192,
-        }
-
-        # Initialize tokenizer for token counting
-        self._tokenizer = None
-        if TIKTOKEN_AVAILABLE:
-            try:
-                self._tokenizer = tiktoken.encoding_for_model(self._model)
-            except KeyError:
-                # Fallback to cl100k_base for unknown models
-                self._tokenizer = tiktoken.get_encoding("cl100k_base")
-                logger.warning(
-                    f"Using cl100k_base tokenizer for unknown model: {self._model}"
-                )
-        else:
-            logger.warning(
-                "tiktoken not available - token counting disabled, may hit API limits"
-            )
-
-        logger.info(f"OpenAI embedding provider initialized with model: {self._model}")
-
-    @property
-    def name(self) -> str:
-        return "openai"
-
-    @property
-    def model(self) -> str:
-        return self._model
-
-    @property
-    def dims(self) -> int:
-        return self._model_dims.get(self._model, 1536)
-
-    @property
-    def distance(self) -> str:
-        return "cosine"
-
-    @property
-    def batch_size(self) -> int:
-        return self._batch_size
-
-    def count_tokens(self, text: str) -> int:
-        """Count tokens in text using tiktoken.
-
-        Args:
-            text: Text to count tokens for
-
-        Returns:
-            Number of tokens, or estimated count if tiktoken unavailable
-        """
-        if self._tokenizer is not None:
-            return len(self._tokenizer.encode(text))
-        else:
-            # Rough estimation: ~4 characters per token for English text
-            return len(text) // 4
-
-    def get_token_limit(self) -> int:
-        """Get token limit for current model.
-
-        Returns:
-            Token limit for the model
-        """
-        return self._model_token_limits.get(self._model, 8192)
-
-    def create_token_aware_batches(self, texts: list[str]) -> list[list[str]]:
-        """Create batches that respect token limits.
-
-        Args:
-            texts: List of text strings to batch
-
-        Returns:
-            List of batches, each respecting token limits
-        """
-        if not texts:
-            return []
-
-        token_limit = self.get_token_limit()
-        batches = []
-        current_batch: list[str] = []
-        current_tokens = 0
-        skipped_count = 0
-
-        for text in texts:
-            text_tokens = self.count_tokens(text)
-
-            # Handle oversized individual chunks
-            if text_tokens > token_limit:
-                logger.warning(
-                    f"Skipping chunk with {text_tokens} tokens (exceeds {token_limit} limit). "
-                    f"Content preview: {text[:100]}..."
-                )
-                skipped_count += 1
-                continue
-
-            # Check if adding this text would exceed token limit
-            if current_tokens + text_tokens > token_limit and current_batch:
-                # Start new batch
-                batches.append(current_batch)
-                current_batch = [text]
-                current_tokens = text_tokens
-            else:
-                # Add to current batch
-                current_batch.append(text)
-                current_tokens += text_tokens
-
-        # Add final batch if not empty
-        if current_batch:
-            batches.append(current_batch)
-
-        if skipped_count > 0:
-            logger.warning(f"Skipped {skipped_count} chunks that exceeded token limit")
-
-        logger.debug(
-            f"Created {len(batches)} token-aware batches from {len(texts)} texts"
-        )
-        return batches
-
-    async def embed(self, texts: list[str]) -> list[list[float]]:
-        """Generate embeddings using OpenAI API with token limit validation.
-
-        Args:
-            texts: List of text strings to embed
-
-        Returns:
-            List of embedding vectors (may be fewer than input if some texts exceed token limits)
-        """
-        if not texts:
-            return []
-
-        logger.debug(f"Generating embeddings for {len(texts)} texts using {self.model}")
-
-        try:
-            # Create token-aware batches instead of simple item-count batching
-            token_aware_batches = self.create_token_aware_batches(texts)
-
-            if not token_aware_batches:
-                logger.warning(
-                    "No valid batches created - all texts may exceed token limits"
-                )
-                return []
-
-            all_embeddings: list[list[float]] = []
-
-            for batch_idx, batch in enumerate(token_aware_batches):
-                if not batch:  # Skip empty batches
-                    continue
-
-                batch_tokens = sum(self.count_tokens(text) for text in batch)
-                logger.debug(
-                    f"Processing batch {batch_idx + 1}/{len(token_aware_batches)}: "
-                    f"{len(batch)} texts, {batch_tokens} tokens"
-                )
-
-                response = await self._client.embeddings.create(
-                    model=self.model, input=batch, encoding_format="float"
-                )
-
-                batch_embeddings = [data.embedding for data in response.data]
-                all_embeddings.extend(batch_embeddings)
-
-                # Add small delay between batches to be respectful
-                if batch_idx + 1 < len(token_aware_batches):
-                    await asyncio.sleep(0.1)
-
-            logger.debug(
-                f"Generated {len(all_embeddings)} embeddings using {self.model} "
-                f"({len(all_embeddings)}/{len(texts)} texts processed)"
-            )
-            return all_embeddings
-
-        except Exception as e:
-            logger.error(f"Failed to generate embeddings: {e}")
-            raise
-
+# OpenAIEmbeddingProvider has been moved to chunkhound.providers.embeddings.openai_provider
+# The old implementation has been removed to avoid duplication and confusion.
+# Use create_openai_provider() function below which imports from the new location.
 
 class OpenAICompatibleProvider:
     """Generic OpenAI-compatible embedding provider for any server implementing OpenAI embeddings API."""
@@ -684,7 +395,7 @@ def create_openai_provider(
     api_key: str | None = None,
     base_url: str | None = None,
     model: str = "text-embedding-3-small",
-) -> OpenAIEmbeddingProvider:
+) -> "OpenAIEmbeddingProvider":
     """Create an OpenAI embedding provider with default settings.
 
     Args:
@@ -695,6 +406,9 @@ def create_openai_provider(
     Returns:
         Configured OpenAI embedding provider
     """
+    # Import the new provider from the correct location
+    from chunkhound.providers.embeddings.openai_provider import OpenAIEmbeddingProvider
+    
     return OpenAIEmbeddingProvider(
         api_key=api_key,
         base_url=base_url,

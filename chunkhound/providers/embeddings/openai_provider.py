@@ -90,12 +90,16 @@ class OpenAIEmbeddingProvider:
             "errors": 0,
         }
 
-        # Initialize OpenAI client
+        # Initialize OpenAI client lazily to avoid TaskGroup errors on Ubuntu
+        # Creating AsyncOpenAI in __init__ can fail when no event loop is running
         self._client = None
-        self._initialize_client()
+        self._client_initialized = False
 
-    def _initialize_client(self) -> None:
-        """Initialize the OpenAI client."""
+    async def _ensure_client(self) -> None:
+        """Ensure the OpenAI client is initialized (must be called from async context)."""
+        if self._client is not None and self._client_initialized:
+            return
+            
         if not OPENAI_AVAILABLE or openai is None:
             raise RuntimeError(
                 "OpenAI library is not available. Install with: pip install openai"
@@ -109,26 +113,27 @@ class OpenAIEmbeddingProvider:
 
         if self._base_url:
             client_kwargs["base_url"] = self._base_url
+            
+            # Note: We intentionally do NOT create httpx.AsyncClient here
+            # Creating AsyncClient in __init__ (sync context) causes TaskGroup 
+            # errors on Ubuntu when running MCP server from different directories.
+            # The OpenAI SDK will create its own httpx client internally when needed.
+            # For local/dev environments with self-signed certs, users can set:
+            # export HTTPX_SSL_VERIFY=0
+            if (
+                "pdc-llm" in self._base_url
+                or "localhost" in self._base_url
+                or self._base_url.startswith("http://")
+            ):
+                logger.debug(
+                    f"Using internal endpoint: {self._base_url}. "
+                    "For self-signed certs, set HTTPX_SSL_VERIFY=0"
+                )
 
-            # For internal/custom endpoints, add SSL handling options
-            # This helps with self-signed certificates and internal CAs
-            try:
-                import httpx
-
-                # Create HTTP client with more permissive SSL for internal endpoints
-                if (
-                    "pdc-llm" in self._base_url
-                    or "localhost" in self._base_url
-                    or self._base_url.startswith("http://")
-                ):
-                    client_kwargs["http_client"] = httpx.AsyncClient(verify=False)
-                    logger.debug(
-                        f"Using permissive SSL for internal endpoint: {self._base_url}"
-                    )
-            except ImportError:
-                logger.warning("httpx not available, using default SSL settings")
-
+        # IMPORTANT: Create the client in async context to avoid TaskGroup errors on Ubuntu
+        # This ensures the event loop is running when the client initializes its httpx instance
         self._client = openai.AsyncOpenAI(**client_kwargs)
+        self._client_initialized = True
         logger.debug(
             f"OpenAI client initialized with base_url={self._base_url}, timeout={self._timeout}"
         )
@@ -222,9 +227,7 @@ class OpenAIEmbeddingProvider:
 
     def is_available(self) -> bool:
         """Check if the provider is available and properly configured."""
-        return (
-            OPENAI_AVAILABLE and self._api_key is not None and self._client is not None
-        )
+        return OPENAI_AVAILABLE and self._api_key is not None
 
     async def health_check(self) -> dict[str, Any]:
         """Perform health check and return status information."""
@@ -341,6 +344,7 @@ class OpenAIEmbeddingProvider:
 
     async def _embed_batch_internal(self, texts: list[str]) -> list[list[float]]:
         """Internal method to embed a batch of texts."""
+        await self._ensure_client()
         if not self._client:
             raise RuntimeError("OpenAI client not initialized")
 

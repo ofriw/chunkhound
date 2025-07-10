@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Automatic database optimization during embedding generation to maintain performance with large datasets (every 1000 batches, configurable via `CHUNKHOUND_EMBEDDING_OPTIMIZATION_BATCH_FREQUENCY`)
+
+### Fixed
+- MCP server compatibility on Ubuntu and other strict platforms by preserving virtual environment context in subprocesses
+
 ## [2.5.1] - 2025-01-09
 
 ### Fixed
@@ -285,7 +291,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 For more information, visit: https://github.com/chunkhound/chunkhound
 
-[Unreleased]: https://github.com/chunkhound/chunkhound/compare/v2.5.0...HEAD
+[Unreleased]: https://github.com/chunkhound/chunkhound/compare/v2.5.1...HEAD
+[2.5.1]: https://github.com/chunkhound/chunkhound/compare/v2.5.0...v2.5.1
 [2.5.0]: https://github.com/chunkhound/chunkhound/compare/v2.4.4...v2.5.0
 [2.4.4]: https://github.com/chunkhound/chunkhound/compare/v2.4.3...v2.4.4
 [2.4.3]: https://github.com/chunkhound/chunkhound/compare/v2.4.2...v2.4.3
