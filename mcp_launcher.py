@@ -101,9 +101,12 @@ def main():
     # Set required environment variables
     os.environ["CHUNKHOUND_MCP_MODE"] = "1"
     
-    # Only set DB path if explicitly provided
-    if args.db and args.db != "chunkhound.db":
-        os.environ["CHUNKHOUND_DB_PATH"] = args.db
+    # Set database path environment variable
+    # This ensures the config system uses the correct database path
+    if args.db:
+        # Always set the environment variable when a path is provided
+        # This includes paths like "/test-project/.chunkhound/db"
+        os.environ["CHUNKHOUND_DATABASE__PATH"] = args.db
 
     # Set up watch paths for filesystem monitoring
     setup_watch_paths(args)

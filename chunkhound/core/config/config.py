@@ -46,6 +46,9 @@ class Config(BaseModel):
             target_dir: Optional target directory to check for .chunkhound.json
             **kwargs: Additional keyword arguments
         """
+        # Store target_dir for use in validation
+        self._target_dir = target_dir
+        
         # Start with defaults
         config_data = {}
         
@@ -104,7 +107,8 @@ class Config(BaseModel):
             config["debug"] = os.getenv("CHUNKHOUND_DEBUG", "").lower() in ("true", "1", "yes")
         
         # Database configuration
-        if db_path := os.getenv("CHUNKHOUND_DB_PATH"):
+        # Support both old and new environment variable names
+        if db_path := (os.getenv("CHUNKHOUND_DATABASE__PATH") or os.getenv("CHUNKHOUND_DB_PATH")):
             config.setdefault("database", {})["path"] = db_path
         if db_provider := os.getenv("CHUNKHOUND_DATABASE__PROVIDER"):
             config.setdefault("database", {})["provider"] = db_provider
@@ -190,13 +194,23 @@ class Config(BaseModel):
         """Validate the configuration after initialization."""
         # Ensure database path is set
         if not self.database.path:
-            # Try to detect project root for default DB location
-            from chunkhound.utils.project_detection import find_project_root
-            project_root = find_project_root(Path.cwd())
-            if project_root:
-                self.database.path = project_root / ".chunkhound" / "db"
+            # Check if CHUNKHOUND_PROJECT_ROOT is set (from MCP command)
+            project_root_env = os.environ.get("CHUNKHOUND_PROJECT_ROOT")
+            if project_root_env:
+                project_root = Path(project_root_env)
             else:
-                self.database.path = Path.cwd() / ".chunkhound" / "db"
+                # Try to detect project root from target_dir or cwd
+                from chunkhound.utils.project_detection import find_project_root
+                # Use the target_dir if it was provided during initialization
+                start_path = getattr(self, '_target_dir', None)
+                project_root = find_project_root(start_path)
+            
+            # Set default database path in project root
+            self.database.path = project_root / ".chunkhound" / "db"
+        
+        # Ensure database path is absolute
+        if self.database.path and not self.database.path.is_absolute():
+            self.database.path = self.database.path.resolve()
                 
         return self
     

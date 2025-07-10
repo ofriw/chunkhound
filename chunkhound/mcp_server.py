@@ -147,15 +147,9 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
 
         # Import project detection utilities
         try:
-            from .utils.project_detection import (
-                find_project_root,
-                get_project_database_path,
-            )
+            from .utils.project_detection import find_project_root
         except ImportError:
-            from chunkhound.utils.project_detection import (
-                find_project_root,
-                get_project_database_path,
-            )
+            from chunkhound.utils.project_detection import find_project_root
 
         # Find project root first
         project_root = find_project_root()
@@ -189,14 +183,8 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
             # Use default config if loading fails
             config = Config()
 
-        # Get database path from config
-        db_path = config.database.path
-        if not db_path:
-            # Fallback to project-aware database path
-            db_path = get_project_database_path()
-        else:
-            # Ensure it's a Path object
-            db_path = Path(db_path)
+        # Get database path from config (always set by validation)
+        db_path = Path(config.database.path)
 
         db_path.parent.mkdir(parents=True, exist_ok=True)
 
