@@ -153,6 +153,10 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
 
         # Find project root first
         project_root = find_project_root()
+        
+        # Set project root environment variable so Config class can find .chunkhound.json
+        os.environ["CHUNKHOUND_PROJECT_ROOT"] = str(project_root)
+        
         if debug_mode:
             # print(
             #     f"Server lifespan: Detected project root: {project_root}",
@@ -162,14 +166,15 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
             pass
         # Load centralized configuration with target directory
         try:
-            # Use the same config loading pattern as CLI
-            # Pass project_root as target_dir to detect .chunkhound.json
-            config = Config(target_dir=project_root)
+            # CRITICAL: Use Config() without target_dir to respect environment variables
+            # The MCP launcher already set CHUNKHOUND_DATABASE__PATH and CHUNKHOUND_PROJECT_ROOT
+            # Using target_dir would override these environment variables
+            config = Config()
             # Update debug mode from config
             debug_mode = config.debug or debug_mode
             if debug_mode:
                 # print(
-                #     "Server lifespan: Loaded centralized configuration with auto-detection",
+                #     f"Server lifespan: Loaded configuration with database path: {config.database.path}",
                 #     file=sys.stderr,
                 # )
                 pass
@@ -192,6 +197,32 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
             # print(f"Server lifespan: Using database at {db_path}", file=sys.stderr)
 
             pass
+        
+        # CRITICAL: Check for existing MCP server instances BEFORE database connection
+        # This prevents the database lock conflict that causes TaskGroup errors
+        try:
+            from .process_detection import ProcessDetector
+        except ImportError:
+            from chunkhound.process_detection import ProcessDetector
+        
+        process_detector = ProcessDetector(db_path)
+        existing_server = process_detector.find_mcp_server()
+        
+        if existing_server:
+            # Another MCP server is already running for this database
+            raise Exception(
+                f"Another ChunkHound MCP server is already running for database '{db_path}' "
+                f"(PID {existing_server['pid']}). Only one MCP server instance per database is allowed. "
+                f"Please stop the existing server first or use a different database path."
+            )
+        
+        # Register this MCP server instance BEFORE database connection
+        # This prevents race conditions where multiple servers try to start simultaneously
+        process_detector.register_mcp_server(os.getpid())
+        if debug_mode:
+            # print(f"Server lifespan: Registered MCP server PID {os.getpid()}", file=sys.stderr)
+            pass
+        
         # Initialize embedding configuration BEFORE database creation
         _embedding_manager = EmbeddingManager()
         if debug_mode:
@@ -300,8 +331,10 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
                 # traceback.print_exc(file=sys.stderr)
             raise
 
-        # Setup signal coordination for process coordination
-        setup_signal_coordination(db_path, _database)
+        # Setup signal coordination for process coordination (skip duplicate registration)
+        global _signal_coordinator
+        _signal_coordinator = SignalCoordinator(db_path, _database)
+        _signal_coordinator.setup_mcp_signal_handling_no_register()
         if debug_mode:
             # print(
             #     "Server lifespan: Signal coordination setup complete", file=sys.stderr
@@ -491,6 +524,18 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
                     # )
 
                     pass
+        
+        # Cleanup process detector PID file
+        try:
+            if 'process_detector' in locals():
+                process_detector.remove_pid_file()
+                if debug_mode:
+                    # print("Server lifespan: Process detector PID file cleaned up", file=sys.stderr)
+                    pass
+        except Exception as pid_cleanup_error:
+            if debug_mode:
+                # print(f"Server lifespan: Error cleaning up PID file: {pid_cleanup_error}", file=sys.stderr)
+                pass
         # Cleanup filesystem watcher
         if _file_watcher:
             try:
@@ -1414,6 +1459,31 @@ async def handle_mcp_with_validation():
 
             return False, ""
 
+        def extract_taskgroup_details(error, depth=0):
+            """Extract detailed information from TaskGroup errors."""
+            if depth > 10:  # Prevent infinite recursion
+                return []
+
+            details = []
+            
+            # Add current error details
+            details.append(f"Level {depth}: {type(error).__name__}: {str(error)}")
+            
+            # Check exception chain
+            if hasattr(error, "__cause__") and error.__cause__:
+                details.extend(extract_taskgroup_details(error.__cause__, depth + 1))
+            
+            if hasattr(error, "__context__") and error.__context__:
+                details.extend(extract_taskgroup_details(error.__context__, depth + 1))
+            
+            # Check exception groups (anyio/asyncio task groups)
+            if hasattr(error, "exceptions") and error.exceptions:
+                for i, exc in enumerate(error.exceptions):
+                    details.append(f"TaskGroup exception {i+1}:")
+                    details.extend(extract_taskgroup_details(exc, depth + 1))
+            
+            return details
+
         is_validation_error, validation_details = find_validation_error(e)
         if validation_details:
             error_details = validation_details
@@ -1443,6 +1513,9 @@ async def handle_mcp_with_validation():
             )
         else:
             # Handle other initialization or runtime errors
+            # Extract detailed TaskGroup information for debugging
+            taskgroup_details = extract_taskgroup_details(e)
+            
             send_error_response(
                 None,
                 -32603,
@@ -1450,6 +1523,8 @@ async def handle_mcp_with_validation():
                 {
                     "details": str(e),
                     "suggestion": "Check that the database path is accessible and environment variables are correct.",
+                    "taskgroup_analysis": taskgroup_details,
+                    "error_type": type(e).__name__,
                 },
             )
 

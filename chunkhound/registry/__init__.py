@@ -74,7 +74,9 @@ class ProviderRegistry:
         # Register embedding provider after configuration is available
         self._register_embedding_provider()
 
-        logger.info("Provider registry configured")
+        # Provider registry configured (logging disabled for MCP/CLI compatibility)
+        if not os.environ.get("CHUNKHOUND_MCP_MODE"):
+            pass  # Could enable logging here for non-MCP modes if needed
 
     def register_provider(
         self, name: str, implementation: Any, singleton: bool = True
@@ -183,9 +185,13 @@ class ProviderRegistry:
         try:
             embedding_provider = self.get_provider("embedding")
         except ValueError as e:
-            logger.warning(f"No embedding provider configured: {e}")
+            # No embedding provider configured (logging disabled for MCP/CLI compatibility)
+            if not os.environ.get("CHUNKHOUND_MCP_MODE"):
+                pass  # Could enable logging here for non-MCP modes if needed
         except Exception as e:
-            logger.error(f"Failed to create embedding provider: {e}")
+            # Failed to create embedding provider (logging disabled for MCP/CLI compatibility)
+            if not os.environ.get("CHUNKHOUND_MCP_MODE"):
+                pass  # Could enable logging here for non-MCP modes if needed
 
         language_parsers = self.get_all_language_parsers()
 
@@ -229,7 +235,7 @@ class ProviderRegistry:
 
         # Get unified batch configuration from config object
         # Optimized defaults based on DuckDB performance research and HNSW vector index best practices
-        if self._config:
+        if self._config and self._config.embedding:
             embedding_batch_size = self._config.embedding.batch_size
             db_batch_size = self._config.indexing.db_batch_size
             max_concurrent = self._config.embedding.max_concurrent_batches
@@ -376,9 +382,9 @@ class ProviderRegistry:
 
     def _register_embedding_provider(self) -> None:
         """Register the appropriate embedding provider based on configuration using factory."""
-        if not self._config:
-            # Default to OpenAI if no config
-            self.register_provider("embedding", OpenAIEmbeddingProvider, singleton=True)
+        if not self._config or not self._config.embedding:
+            # Skip embedding provider registration if no config or no embedding config
+            # This allows the system to run without embeddings
             return
             
         embedding_config = self._config.embedding

@@ -46,11 +46,11 @@ class SignalCoordinator:
         """Ensure coordination directory exists."""
         try:
             self.coordination_dir.mkdir(parents=True, exist_ok=True)
-            logger.debug(f"Coordination directory ready: {self.coordination_dir}")
+            # Coordination directory ready (logging disabled for MCP/CLI compatibility)
+            pass
         except OSError as e:
-            logger.error(
-                f"Failed to create coordination directory {self.coordination_dir}: {e}"
-            )
+            # Failed to create coordination directory (logging disabled for MCP/CLI compatibility)
+            pass
             raise
 
     def setup_mcp_signal_handling(self) -> None:
@@ -73,15 +73,42 @@ class SignalCoordinator:
             # Register this process as the MCP server
             self.process_detector.register_mcp_server(os.getpid())
 
-            logger.info(f"Signal handling setup for database: {self.db_path}")
+            # Signal handling setup (logging disabled for MCP/CLI compatibility)
+            pass
 
         except Exception as e:
-            logger.error(f"Failed to setup signal handling: {e}")
+            # Failed to setup signal handling (logging disabled for MCP/CLI compatibility)
+            raise
+
+    def setup_mcp_signal_handling_no_register(self) -> None:
+        """Setup signal handlers for MCP server process without registering PID (already registered)."""
+        try:
+            # Store original handlers for restoration
+            self._original_handlers[signal.SIGUSR1] = signal.signal(
+                signal.SIGUSR1, self._handle_shutdown_request
+            )
+            self._original_handlers[signal.SIGUSR2] = signal.signal(
+                signal.SIGUSR2, self._handle_reopen_request
+            )
+            self._original_handlers[signal.SIGTERM] = signal.signal(
+                signal.SIGTERM, self._handle_terminate
+            )
+            self._original_handlers[signal.SIGINT] = signal.signal(
+                signal.SIGINT, self._handle_terminate
+            )
+
+            # Skip registration since it was already done in server_lifespan
+            # Signal handling setup (logging disabled for MCP/CLI compatibility)
+            pass
+
+        except Exception as e:
+            # Failed to setup signal handling (logging disabled for MCP/CLI compatibility)
             raise
 
     def _handle_shutdown_request(self, signum: int, frame: Any) -> None:
         """Handle SIGUSR1 - request to shutdown database access."""
-        logger.info("Received shutdown request (SIGUSR1)")
+        # Received shutdown request (logging disabled for MCP/CLI compatibility)
+        pass
 
         # Create async task for graceful shutdown
         try:
@@ -89,12 +116,14 @@ class SignalCoordinator:
             loop.create_task(self._graceful_database_shutdown())
         except RuntimeError:
             # No event loop running, handle synchronously
-            logger.warning("No event loop available, handling shutdown synchronously")
+            # No event loop available, handling shutdown synchronously (logging disabled for MCP/CLI compatibility)
+            pass
             asyncio.run(self._graceful_database_shutdown())
 
     def _handle_reopen_request(self, signum: int, frame: Any) -> None:
         """Handle SIGUSR2 - request to reopen database access."""
-        logger.info("Received reopen request (SIGUSR2)")
+        # Received reopen request (logging disabled for MCP/CLI compatibility)
+        pass
 
         # Create async task for graceful reopen
         try:
@@ -102,7 +131,8 @@ class SignalCoordinator:
             loop.create_task(self._graceful_database_reopen())
         except RuntimeError:
             # No event loop running, handle synchronously
-            logger.warning("No event loop available, handling reopen synchronously")
+            # No event loop available, handling reopen synchronously (logging disabled for MCP/CLI compatibility)
+            pass
             asyncio.run(self._graceful_database_reopen())
 
     def _handle_terminate(self, signum: int, frame: Any) -> None:
