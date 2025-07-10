@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.6.3] - 2025-07-10
+
+### Fixed
+- Configuration merge precedence now correctly preserves environment variables over JSON config values
+- MCP server semantic search now works properly when running from different directories
+
+### Removed
+- Removed obsolete Ubuntu 20 Dockerfile as issue was resolved in configuration system
+
 ## [2.6.2] - 2025-07-10
 
 ### Fixed
@@ -328,7 +337,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 For more information, visit: https://github.com/chunkhound/chunkhound
 
-[Unreleased]: https://github.com/chunkhound/chunkhound/compare/v2.6.2...HEAD
+[Unreleased]: https://github.com/chunkhound/chunkhound/compare/v2.6.3...HEAD
+[2.6.3]: https://github.com/chunkhound/chunkhound/compare/v2.6.2...v2.6.3
 [2.6.2]: https://github.com/chunkhound/chunkhound/compare/v2.6.1...v2.6.2
 [2.6.1]: https://github.com/chunkhound/chunkhound/compare/v2.6.0...v2.6.1
 [2.6.0]: https://github.com/chunkhound/chunkhound/compare/v2.5.4...v2.6.0
