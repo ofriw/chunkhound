@@ -52,16 +52,23 @@ class Config(BaseModel):
         # Start with defaults
         config_data = {}
         
-        # 1. Load environment variables
-        config_data.update(self._load_env_vars())
+        # 1. Load environment variables (highest precedence - preserve these)
+        env_vars = self._load_env_vars()
+        config_data.update(env_vars)
+        
+        # Make a deep copy of env vars to preserve them during merging
+        import copy
+        preserved_env_vars = copy.deepcopy(env_vars)
         
         # 2. Load config file if provided (from --config)
         if config_file and config_file.exists():
             import json
             with open(config_file) as f:
                 file_config = json.load(f)
-                # Merge file config, overriding env vars
+                # Merge file config, but preserve env vars
                 self._deep_merge(config_data, file_config)
+                # Restore environment variables (they have higher precedence)
+                self._deep_merge(config_data, preserved_env_vars)
         
         # 3. Check for .chunkhound.json in target directory
         # First check CHUNKHOUND_PROJECT_ROOT if set (from positional path argument)
@@ -75,8 +82,10 @@ class Config(BaseModel):
                 import json
                 with open(local_config_path) as f:
                     local_config = json.load(f)
-                    # Merge local config, overriding previous configs
+                    # Merge local config, but preserve env vars
                     self._deep_merge(config_data, local_config)
+                    # Restore environment variables (they have higher precedence)
+                    self._deep_merge(config_data, preserved_env_vars)
         
         # 4. Apply CLI overrides
         if overrides:
