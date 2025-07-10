@@ -151,11 +151,13 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
         except ImportError:
             from chunkhound.utils.project_detection import find_project_root
 
-        # Find project root first
-        project_root = find_project_root()
-        
-        # Set project root environment variable so Config class can find .chunkhound.json
-        os.environ["CHUNKHOUND_PROJECT_ROOT"] = str(project_root)
+        # Trust the CLI-provided CHUNKHOUND_PROJECT_ROOT or fall back to detection
+        project_root_env = os.environ.get("CHUNKHOUND_PROJECT_ROOT")
+        if project_root_env:
+            project_root = Path(project_root_env)
+        else:
+            project_root = find_project_root()
+            os.environ["CHUNKHOUND_PROJECT_ROOT"] = str(project_root)
         
         if debug_mode:
             # print(
