@@ -59,6 +59,16 @@ htmlcov/
 
 # Database cache (will be created in container)
 *.duckdb*
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+.chunkhound/
+*.log
+*.corrupt
+test.db*
+correct.db*
+chunkhound.db*
 
 # Docker files
 Dockerfile*
