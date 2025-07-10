@@ -233,15 +233,21 @@ class ProviderRegistry:
             embedding_batch_size = self._config.embedding.batch_size
             db_batch_size = self._config.indexing.db_batch_size
             max_concurrent = self._config.embedding.max_concurrent_batches
+            # Get optimization frequency with default
+            optimization_batch_frequency = getattr(
+                self._config.embedding, "optimization_batch_frequency", 1000
+            )
         else:
             # Fallback defaults if no config
             embedding_batch_size = 1000
             db_batch_size = 5000
             max_concurrent = 8
+            optimization_batch_frequency = 1000
 
         logger.info(
             f"EmbeddingService configuration: embedding_batch_size={embedding_batch_size}, "
-            f"db_batch_size={db_batch_size}, max_concurrent={max_concurrent}"
+            f"db_batch_size={db_batch_size}, max_concurrent={max_concurrent}, "
+            f"optimization_batch_frequency={optimization_batch_frequency}"
         )
 
         return EmbeddingService(
@@ -250,6 +256,7 @@ class ProviderRegistry:
             embedding_batch_size=embedding_batch_size,
             db_batch_size=db_batch_size,
             max_concurrent_batches=max_concurrent,
+            optimization_batch_frequency=optimization_batch_frequency,
         )
 
     def _register_default_providers(self) -> None:

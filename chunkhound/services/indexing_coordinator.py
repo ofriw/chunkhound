@@ -857,8 +857,17 @@ class IndexingCoordinator(BaseService):
             # Use EmbeddingService for embedding generation
             from .embedding_service import EmbeddingService
 
+            # Get optimization frequency from config or use default
+            optimization_batch_frequency = 1000
+            if hasattr(self._db, "_config") and self._db._config:
+                optimization_batch_frequency = getattr(
+                    self._db._config.embedding, "optimization_batch_frequency", 1000
+                )
+            
             embedding_service = EmbeddingService(
-                database_provider=self._db, embedding_provider=self._embedding_provider
+                database_provider=self._db, 
+                embedding_provider=self._embedding_provider,
+                optimization_batch_frequency=optimization_batch_frequency
             )
 
             return await embedding_service.generate_missing_embeddings(

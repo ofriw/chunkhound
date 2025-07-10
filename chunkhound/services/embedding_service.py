@@ -23,6 +23,7 @@ class EmbeddingService(BaseService):
         embedding_batch_size: int = 1000,
         db_batch_size: int = 5000,
         max_concurrent_batches: int = 8,
+        optimization_batch_frequency: int = 1000,
     ):
         """Initialize embedding service.
 
@@ -32,12 +33,14 @@ class EmbeddingService(BaseService):
             embedding_batch_size: Number of texts per embedding API request
             db_batch_size: Number of records per database transaction
             max_concurrent_batches: Maximum number of concurrent embedding batches
+            optimization_batch_frequency: Optimize DB every N batches (provider-aware)
         """
         super().__init__(database_provider)
         self._embedding_provider = embedding_provider
         self._embedding_batch_size = embedding_batch_size
         self._db_batch_size = db_batch_size
         self._max_concurrent_batches = max_concurrent_batches
+        self._optimization_batch_frequency = optimization_batch_frequency
 
     def set_embedding_provider(self, provider: EmbeddingProvider) -> None:
         """Set or update the embedding provider.
@@ -364,6 +367,13 @@ class EmbeddingService(BaseService):
             f"Processing {len(batches)} token-aware batches (avg {avg_batch_size:.1f} chunks each)"
         )
 
+        # Track batch count for periodic optimization
+        completed_batch_count = 0
+        should_optimize = (
+            hasattr(self._db, "optimize_tables") 
+            and self._optimization_batch_frequency > 0
+        )
+
         # Process batches with concurrency control
         semaphore = asyncio.Semaphore(self._max_concurrent_batches)
 
@@ -482,13 +492,35 @@ class EmbeddingService(BaseService):
             tasks = [process_batch(batch, i) for i, batch in enumerate(batches)]
             results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        # Count successful embeddings
+        # Count successful embeddings and track completed batches
         total_generated = 0
+        successful_batches = 0
         for result in results:
             if isinstance(result, int):
                 total_generated += result
+                if result > 0:
+                    successful_batches += 1
             else:
                 logger.error(f"Batch processing exception: {result}")
+
+        # Update completed batch count and run optimization if needed
+        if should_optimize and successful_batches > 0:
+            completed_batch_count += successful_batches
+            
+            # Check if we've reached the optimization threshold
+            batches_since_last_optimize = completed_batch_count % self._optimization_batch_frequency
+            if (
+                batches_since_last_optimize < successful_batches 
+                or completed_batch_count == self._optimization_batch_frequency
+            ):
+                logger.debug(
+                    f"Running periodic DB optimization after {completed_batch_count} total batches"
+                )
+                try:
+                    self._db.optimize_tables()
+                    logger.debug("Periodic optimization completed")
+                except Exception as e:
+                    logger.warning(f"Periodic optimization failed: {e}")
 
         return total_generated
 
@@ -610,6 +642,13 @@ class EmbeddingService(BaseService):
 
         total_generated = 0
         BATCH_SIZE = 100  # Process 100 chunks at a time to avoid memory issues
+        
+        # Track batch count for periodic optimization
+        batch_count = 0
+        should_optimize = (
+            hasattr(self._db, "optimize_tables") 
+            and self._optimization_batch_frequency > 0
+        )
 
         # Show progress bar immediately
         with tqdm(
@@ -629,10 +668,29 @@ class EmbeddingService(BaseService):
                 chunk_texts = [chunk["code"] for chunk in chunks_data]
 
                 # Generate embeddings for this batch (without inner progress bar)
-                batch_count = await self.generate_embeddings_for_chunks(
+                generated_count = await self.generate_embeddings_for_chunks(
                     chunk_id_list, chunk_texts, show_progress=False
                 )
-                total_generated += batch_count
+                total_generated += generated_count
+                
+                # Increment batch counter
+                if generated_count > 0:
+                    batch_count += 1
+                    
+                    # Periodic optimization (provider-aware)
+                    if (
+                        should_optimize 
+                        and batch_count > 0 
+                        and batch_count % self._optimization_batch_frequency == 0
+                    ):
+                        logger.debug(
+                            f"Running periodic DB optimization after {batch_count} batches"
+                        )
+                        try:
+                            self._db.optimize_tables()
+                            logger.debug("Periodic optimization completed")
+                        except Exception as e:
+                            logger.warning(f"Periodic optimization failed: {e}")
 
                 # Update progress
                 pbar.update(len(batch_ids))

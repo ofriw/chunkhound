@@ -80,6 +80,13 @@ class EmbeddingConfig(BaseSettings):
         default=3, ge=1, le=20, description="Maximum concurrent embedding batches"
     )
 
+    optimization_batch_frequency: int = Field(
+        default=1000,
+        ge=0,
+        le=10000,
+        description="Optimize database every N batches during embedding generation (0 to disable)",
+    )
+
     # Provider-Specific Configuration
     dimensions: int | None = Field(
         default=None,
