@@ -7,11 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.5.2] - 2025-07-10
+
 ### Added
 - Automatic database optimization during embedding generation to maintain performance with large datasets (every 1000 batches, configurable via `CHUNKHOUND_EMBEDDING_OPTIMIZATION_BATCH_FREQUENCY`)
 
 ### Fixed
 - MCP server compatibility on Ubuntu and other strict platforms by preserving virtual environment context in subprocesses
+- OpenAI embedding provider crash on Ubuntu due to async resource creation outside event loop context
 
 ## [2.5.1] - 2025-01-09
 
@@ -291,7 +294,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 For more information, visit: https://github.com/chunkhound/chunkhound
 
-[Unreleased]: https://github.com/chunkhound/chunkhound/compare/v2.5.1...HEAD
+[Unreleased]: https://github.com/chunkhound/chunkhound/compare/v2.5.2...HEAD
+[2.5.2]: https://github.com/chunkhound/chunkhound/compare/v2.5.1...v2.5.2
 [2.5.1]: https://github.com/chunkhound/chunkhound/compare/v2.5.0...v2.5.1
 [2.5.0]: https://github.com/chunkhound/chunkhound/compare/v2.4.4...v2.5.0
 [2.4.4]: https://github.com/chunkhound/chunkhound/compare/v2.4.3...v2.4.4
