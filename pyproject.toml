@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "chunkhound"
-version = "2.5.3"
+version = "2.5.4"
 description = "Local-first semantic code search with vector and regex capabilities for AI assistants via MCP"
 readme = "README.md"
 requires-python = ">=3.10"

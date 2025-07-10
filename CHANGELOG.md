@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.5.4] - 2025-07-10
+
+### Fixed
+- MCP server reliability on Ubuntu and other Linux distributions when running from different directories
+- Database path resolution consistency across all MCP server components
+
 ## [2.5.3] - 2025-07-10
 
 ### Fixed
@@ -299,7 +305,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 For more information, visit: https://github.com/chunkhound/chunkhound
 
-[Unreleased]: https://github.com/chunkhound/chunkhound/compare/v2.5.3...HEAD
+[Unreleased]: https://github.com/chunkhound/chunkhound/compare/v2.5.4...HEAD
+[2.5.4]: https://github.com/chunkhound/chunkhound/compare/v2.5.3...v2.5.4
 [2.5.3]: https://github.com/chunkhound/chunkhound/compare/v2.5.2...v2.5.3
 [2.5.2]: https://github.com/chunkhound/chunkhound/compare/v2.5.1...v2.5.2
 [2.5.1]: https://github.com/chunkhound/chunkhound/compare/v2.5.0...v2.5.1
