@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.6.1] - 2025-07-10
+
+### Fixed
+- MCP server now properly respects CLI-provided project root directory for configuration loading
+- Configuration files (.chunkhound.json) are now correctly loaded when running MCP server from different directories
+
 ## [2.6.0] - 2025-07-10
 
 ### Fixed
@@ -317,7 +323,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 For more information, visit: https://github.com/chunkhound/chunkhound
 
-[Unreleased]: https://github.com/chunkhound/chunkhound/compare/v2.6.0...HEAD
+[Unreleased]: https://github.com/chunkhound/chunkhound/compare/v2.6.1...HEAD
+[2.6.1]: https://github.com/chunkhound/chunkhound/compare/v2.6.0...v2.6.1
 [2.6.0]: https://github.com/chunkhound/chunkhound/compare/v2.5.4...v2.6.0
 [2.5.4]: https://github.com/chunkhound/chunkhound/compare/v2.5.3...v2.5.4
 [2.5.3]: https://github.com/chunkhound/chunkhound/compare/v2.5.2...v2.5.3
