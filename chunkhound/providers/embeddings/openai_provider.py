@@ -120,23 +120,12 @@ class OpenAIEmbeddingProvider:
             # The OpenAI SDK will create its own httpx client internally when needed.
             # For local/dev environments with self-signed certs, users can set:
             # export HTTPX_SSL_VERIFY=0
-            if (
-                "pdc-llm" in self._base_url
-                or "localhost" in self._base_url
-                or self._base_url.startswith("http://")
-            ):
-                logger.debug(
-                    f"Using internal endpoint: {self._base_url}. "
-                    "For self-signed certs, set HTTPX_SSL_VERIFY=0"
-                )
+            # Skip debug logging to avoid interfering with MCP JSON-RPC
 
         # IMPORTANT: Create the client in async context to avoid TaskGroup errors on Ubuntu
         # This ensures the event loop is running when the client initializes its httpx instance
         self._client = openai.AsyncOpenAI(**client_kwargs)
         self._client_initialized = True
-        logger.debug(
-            f"OpenAI client initialized with base_url={self._base_url}, timeout={self._timeout}"
-        )
 
     @property
     def name(self) -> str:
@@ -212,11 +201,10 @@ class OpenAIEmbeddingProvider:
     async def initialize(self) -> None:
         """Initialize the embedding provider."""
         if not self._client:
-            self._initialize_client()
+            await self._ensure_client()
 
-        # Validate API key with a test request
-        await self.validate_api_key()
-        logger.info(f"OpenAI embedding provider initialized with model {self.model}")
+        # Skip API key validation during initialization to avoid TaskGroup errors
+        # API key validation will happen on first actual embedding request
 
     async def shutdown(self) -> None:
         """Shutdown the embedding provider and cleanup resources."""
@@ -585,10 +573,14 @@ class OpenAIEmbeddingProvider:
             self._max_tokens = kwargs["max_tokens"]
         if "api_key" in kwargs:
             self._api_key = kwargs["api_key"]
-            self._initialize_client()
+            # Reset client to force re-initialization with new API key
+            self._client = None
+            self._client_initialized = False
         if "base_url" in kwargs:
             self._base_url = kwargs["base_url"]
-            self._initialize_client()
+            # Reset client to force re-initialization with new base URL
+            self._client = None
+            self._client_initialized = False
 
     def get_supported_distances(self) -> list[str]:
         """Get list of supported distance metrics."""

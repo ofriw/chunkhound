@@ -102,9 +102,7 @@ class OpenAICompatibleProvider:
         self._dims: int | None = None
         self._distance = "cosine"  # Default for most embedding models
 
-        logger.info(
-            f"OpenAI-compatible provider initialized: {self._provider_name} (base_url: {self._base_url}, model: {self._model})"
-        )
+        # Skip logging to avoid interfering with MCP JSON-RPC
 
     @property
     def name(self) -> str:
