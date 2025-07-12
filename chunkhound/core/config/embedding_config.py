@@ -210,7 +210,7 @@ class EmbeddingConfig(BaseSettings):
         """
         base_config = {
             "provider": self.provider,
-            "model": self.model,
+            "model": self.get_default_model(),  # Always provide resolved model to factory
             "batch_size": self.batch_size,
             "timeout": self.timeout,
             "max_retries": self.max_retries,
