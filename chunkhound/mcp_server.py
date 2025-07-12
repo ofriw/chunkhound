@@ -921,15 +921,31 @@ async def call_tool(
         page_size = max(1, min(arguments.get("page_size", 10), 100))
         offset = max(0, arguments.get("offset", 0))
         max_tokens = max(1000, min(arguments.get("max_response_tokens", 20000), 25000))
-        provider = arguments.get("provider", "openai")
-        model = arguments.get("model", "text-embedding-3-small")
-        threshold = arguments.get("threshold")
-        path_filter = arguments.get("path")
-
+        
+        # Get provider and model from arguments or embedding manager configuration
         if not _embedding_manager or not _embedding_manager.list_providers():
             raise Exception(
                 "No embedding providers available. Set OPENAI_API_KEY to enable semantic search."
             )
+        
+        # Use explicit provider/model from arguments, otherwise get from configured provider
+        provider = arguments.get("provider")
+        model = arguments.get("model")
+        
+        if not provider or not model:
+            try:
+                default_provider_obj = _embedding_manager.get_provider()
+                if not provider:
+                    provider = default_provider_obj.name
+                if not model:
+                    model = default_provider_obj.model
+            except ValueError:
+                raise Exception(
+                    "No default embedding provider configured. "
+                    "Either specify provider and model explicitly, or configure a default provider."
+                )
+        threshold = arguments.get("threshold")
+        path_filter = arguments.get("path")
 
         async def _execute_semantic_search():
             # Check connection instead of forcing reconnection (fixes race condition)
