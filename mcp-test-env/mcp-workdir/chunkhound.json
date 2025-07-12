@@ -1,0 +1,13 @@
+{
+    "index": {
+        "path": "/Users/ofri/Documents/GitHub/chunkhound/mcp-test-env/test-data/source"
+    },
+    "embeddings": {
+        "provider": "openai",
+        "model": "all-minilm",
+        "base_url": "http://localhost:11434/v1"
+    },
+    "database": {
+        "path": "/Users/ofri/Documents/GitHub/chunkhound/mcp-test-env/mcp-workdir/.chunkhound/test.db"
+    }
+}
