@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.7.0] - 2025-07-12
+
 ### Fixed
 - MCP server now uses configured embedding model instead of hardcoded text-embedding-3-small default, ensuring semantic search works with any configured model
 - MCP test environment improvements with comprehensive test data and configuration files
@@ -341,7 +343,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 For more information, visit: https://github.com/chunkhound/chunkhound
 
-[Unreleased]: https://github.com/chunkhound/chunkhound/compare/v2.6.3...HEAD
+[Unreleased]: https://github.com/chunkhound/chunkhound/compare/v2.7.0...HEAD
+[2.7.0]: https://github.com/chunkhound/chunkhound/compare/v2.6.3...v2.7.0
 [2.6.3]: https://github.com/chunkhound/chunkhound/compare/v2.6.2...v2.6.3
 [2.6.2]: https://github.com/chunkhound/chunkhound/compare/v2.6.1...v2.6.2
 [2.6.1]: https://github.com/chunkhound/chunkhound/compare/v2.6.0...v2.6.1
