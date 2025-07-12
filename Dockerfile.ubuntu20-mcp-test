@@ -1,0 +1,39 @@
+FROM ubuntu:20.04
+
+# Prevent interactive prompts during package installation
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    python3.8 \
+    python3.8-dev \
+    python3-pip \
+    curl \
+    git \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install uv
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+ENV PATH="/root/.cargo/bin:$PATH"
+
+# Create test directories
+RUN mkdir -p /test-data/source /mcp-workdir
+
+# Create a single Python test file
+RUN printf 'def calculate_sum(a, b):\n    """Calculate the sum of two numbers"""\n    return a + b\n\ndef calculate_product(a, b):\n    """Calculate the product of two numbers"""\n    return a * b\n\nclass Calculator:\n    def __init__(self):\n        self.history = []\n    \n    def add(self, a, b):\n        result = calculate_sum(a, b)\n        self.history.append(f"add({a}, {b}) = {result}")\n        return result\n    \n    def multiply(self, a, b):\n        result = calculate_product(a, b)\n        self.history.append(f"multiply({a}, {b}) = {result}")\n        return result\n    \n    def get_history(self):\n        return self.history\n' > /test-data/source/calculator.py
+
+# Copy ChunkHound source
+COPY . /chunkhound
+
+# Set working directory
+WORKDIR /chunkhound
+
+# Install ChunkHound dependencies
+RUN uv sync
+
+# Create test configuration
+RUN printf '{\n    "index": {\n        "path": "/test-data/source"\n    },\n    "embeddings": {\n        "provider": "openai",\n        "model": "all-minilm",\n        "base_url": "http://host.docker.internal:11434/v1"\n    }\n}' > /mcp-workdir/chunkhound.json
+
+# Set default command
+CMD ["/bin/bash"]

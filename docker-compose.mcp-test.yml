@@ -1,0 +1,22 @@
+version: '3.8'
+
+services:
+  mcp-test:
+    build:
+      context: .
+      dockerfile: Dockerfile.ubuntu20-mcp-test
+    container_name: chunkhound-mcp-test
+    volumes:
+      - ./test-logs:/test-logs
+    working_dir: /mcp-workdir
+    environment:
+      - PYTHONPATH=/chunkhound
+      - CHUNKHOUND_CONFIG=/mcp-workdir/chunkhound.json
+    networks:
+      - test-network
+    stdin_open: true
+    tty: true
+
+networks:
+  test-network:
+    driver: bridge
