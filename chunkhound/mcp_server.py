@@ -68,6 +68,7 @@ _file_watcher: FileWatcherManager | None = None
 _signal_coordinator: SignalCoordinator | None = None
 _task_coordinator: TaskCoordinator | None = None
 _periodic_indexer: PeriodicIndexManager | None = None
+_initialization_complete: asyncio.Event = asyncio.Event()
 
 # Initialize MCP server with explicit stdio
 server = Server("ChunkHound Code Search")
@@ -130,7 +131,8 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
         _file_watcher, \
         _signal_coordinator, \
         _task_coordinator, \
-        _periodic_indexer
+        _periodic_indexer, \
+        _initialization_complete
 
     # Set MCP mode to suppress stderr output that interferes with JSON-RPC
     os.environ["CHUNKHOUND_MCP_MODE"] = "1"
@@ -447,6 +449,10 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
             # )
 
             pass
+        
+        # Mark initialization as complete
+        _initialization_complete.set()
+        
         # Return server context to the caller
         yield {
             "db": _database,
@@ -464,6 +470,9 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
             # traceback.print_exc(file=sys.stderr)
         raise Exception(f"Failed to initialize database and embeddings: {e}")
     finally:
+        # Reset initialization flag
+        _initialization_complete.clear()
+        
         if debug_mode:
             # print("Server lifespan: Entering cleanup phase", file=sys.stderr)
 
@@ -575,7 +584,7 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
                 if _task_coordinator:
                     try:
                         await asyncio.wait_for(
-                            _task_coordinator.wait_for_completion(), timeout=10.0
+                            _task_coordinator.stop(), timeout=10.0
                         )
                     except asyncio.TimeoutError:
                         if debug_mode:
@@ -659,6 +668,13 @@ async def process_file_change(file_path: Path, event_type: str):
     This function is called by the filesystem watcher when files change.
     Uses the task coordinator to ensure file processing doesn't block search operations.
     """
+    # Wait for server initialization to complete
+    try:
+        await asyncio.wait_for(_initialization_complete.wait(), timeout=30.0)
+    except asyncio.TimeoutError:
+        # Log initialization timeout but continue anyway
+        pass
+    
     global _database, _embedding_manager, _task_coordinator
 
     if not _database:
@@ -830,6 +846,12 @@ async def call_tool(
     name: str, arguments: dict
 ) -> list[types.TextContent | types.ImageContent | types.EmbeddedResource]:
     """Handle tool calls"""
+    # Wait for server initialization to complete
+    try:
+        await asyncio.wait_for(_initialization_complete.wait(), timeout=30.0)
+    except asyncio.TimeoutError:
+        # Continue anyway - individual resource checks will handle missing resources
+        pass
     if not _database:
         if _signal_coordinator and _signal_coordinator.is_coordination_active():
             raise Exception("Database temporarily unavailable during coordination")
@@ -1100,6 +1122,12 @@ async def call_tool(
 @server.list_tools()
 async def list_tools() -> list[types.Tool]:
     """List tools based on what the database provider supports."""
+    # Wait for server initialization to complete
+    try:
+        await asyncio.wait_for(_initialization_complete.wait(), timeout=30.0)
+    except asyncio.TimeoutError:
+        pass
+    
     tools = []
 
     # Always available tools
