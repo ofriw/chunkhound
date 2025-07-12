@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- MCP server now uses configured embedding model instead of hardcoded text-embedding-3-small default, ensuring semantic search works with any configured model
+- MCP test environment improvements with comprehensive test data and configuration files
+
 ## [2.6.3] - 2025-07-10
 
 ### Fixed
