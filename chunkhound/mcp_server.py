@@ -94,6 +94,7 @@ _task_coordinator: TaskCoordinator | None = None
 _periodic_indexer: PeriodicIndexManager | None = None
 _deferred_init_task: asyncio.Task | None = None
 _initialization_complete: asyncio.Event = asyncio.Event()
+_base_directory: Path | None = None  # Base directory for relative paths
 
 # MCP handshake and initialization tracking
 _mcp_handshake_complete: asyncio.Event = asyncio.Event()  # Set after initialize/initialized exchange
@@ -160,7 +161,7 @@ async def _deferred_database_initialization(
     embedding_manager: EmbeddingManager | None
 ) -> None:
     """Initialize database connection and dependent services after MCP handshake."""
-    global _database, _periodic_indexer, _signal_coordinator, _initialization_error, _database_ready
+    global _database, _periodic_indexer, _signal_coordinator, _initialization_error, _database_ready, _base_directory
     
     debug_log("_deferred_database_initialization: Starting")
     try:
@@ -168,6 +169,11 @@ async def _deferred_database_initialization(
         debug_log("_deferred_database_initialization: Waiting for MCP handshake")
         await _mcp_handshake_complete.wait()
         debug_log("_deferred_database_initialization: MCP handshake complete")
+        
+        # Set base directory from config or project detection
+        from chunkhound.utils.project_detection import find_project_root
+        _base_directory = config.target_dir if hasattr(config, 'target_dir') and config.target_dir else find_project_root()
+        debug_log(f"_deferred_database_initialization: Base directory set to {_base_directory}")
         
         if debug_mode := os.getenv("CHUNKHOUND_DEBUG", "").lower() in ("true", "1", "yes"):
             pass
@@ -937,6 +943,33 @@ def truncate_code(code: str, max_chars: int = 1000) -> tuple[str, bool]:
     return "\n".join(truncated_lines) + "\n...", True
 
 
+def convert_relative_paths_in_results(results: list[dict[str, Any]], base_dir: Path) -> list[dict[str, Any]]:
+    """Convert relative paths in search results to absolute paths.
+    
+    Args:
+        results: List of search result dictionaries
+        base_dir: Base directory for converting relative paths
+        
+    Returns:
+        Results with converted paths
+    """
+    converted_results = []
+    for result in results:
+        # Make a copy to avoid modifying original
+        result_copy = result.copy()
+        
+        # Convert file_path if present and relative
+        if 'file_path' in result_copy:
+            file_path = Path(result_copy['file_path'])
+            if not file_path.is_absolute():
+                # Convert relative to absolute
+                result_copy['file_path'] = str(base_dir / file_path)
+        
+        converted_results.append(result_copy)
+    
+    return converted_results
+
+
 def limit_response_size(
     response_data: dict[str, Any], max_tokens: int
 ) -> dict[str, Any]:
@@ -1080,6 +1113,10 @@ async def call_tool(
                 offset=offset,
                 path_filter=path_filter,
             )
+            
+            # Convert relative paths to absolute for display
+            if _base_directory and results:
+                results = convert_relative_paths_in_results(results, _base_directory)
 
             # Format response with pagination metadata
             response_data = {"results": results, "pagination": pagination}
@@ -1175,6 +1212,10 @@ async def call_tool(
                     threshold=threshold,
                     path_filter=path_filter,
                 )
+                
+                # Convert relative paths to absolute for display
+                if _base_directory and results:
+                    results = convert_relative_paths_in_results(results, _base_directory)
 
                 # Format response with pagination metadata
                 response_data = {"results": results, "pagination": pagination}

@@ -502,3 +502,122 @@ File modification indexing failure makes ChunkHound **unusable for active develo
 **Previous fix attempts have failed.** The core issue persists unchanged.
 
 Comprehensive QA testing revealed critical file modification indexing failure. System performs complete file deletion on modification but never re-indexes files, making it unusable for active development. Testing confirmed this affects all supported file types and languages. Database stats and task coordinator monitoring confirmed the broken delete-without-reindex pattern.
+
+## 2025-07-13T17:55:00+03:00
+
+**INVESTIGATION UPDATE - Root Cause Still Under Investigation**
+
+Initial analysis suggested path normalization mismatch between `/var/folders` and `/private/var/folders` on macOS, but this analysis was incomplete.
+
+### Key Consideration: Database Portability
+
+ChunkHound currently stores **absolute paths** in the database, which creates portability issues:
+- Database cannot be shared between different machines
+- Cannot be used in Docker containers with different mount paths
+- Cannot be shared in team environments where project locations differ
+
+**Correct Design**: Paths should be stored **relative to the indexed base directory** for database portability.
+
+### Current Investigation Status
+
+The file modification bug may be related to:
+1. How ChunkHound handles the base directory concept
+2. Path resolution during file modifications
+3. Inconsistencies in absolute vs relative path handling
+
+### Next Steps
+
+Need to investigate:
+- How ChunkHound determines the base directory for indexing
+- Whether path handling inconsistencies between absolute and relative paths cause the modification bug
+- The exact code flow during file modifications to identify where the re-indexing fails
+
+## 2025-07-13T19:00:00+03:00
+
+**ROOT CAUSE IDENTIFIED - Missing Chunk IDs in Database Query Results**
+
+Deep analysis of the chunk diffing and deletion logic revealed the actual cause of file modification indexing failures:
+
+### Primary Issue: Chunk Models Missing ID Field
+
+**Location**: `DuckDBChunkRepository.get_chunks_by_file_id()` and `get_chunk_by_id()` methods
+
+When `as_model=True`, these methods create Chunk model objects WITHOUT including the `id` field from the database results.
+
+**Code Analysis** (`chunk_repository.py:228-242`):
+```python
+chunks.append(
+    Chunk(
+        file_id=result[1],
+        chunk_type=ChunkType(result[2]) if result[2] else ChunkType.UNKNOWN,
+        symbol=result[3],
+        code=result[4],
+        start_line=result[5],
+        end_line=result[6],
+        start_byte=result[7],
+        end_byte=result[8],
+        language=Language(result[9]) if result[9] else Language.UNKNOWN,
+    )
+)
+```
+
+**Missing**: The `id` field from `result[0]` is not included when creating the Chunk model.
+
+### Why This Causes File Modification Failures
+
+1. **IndexingCoordinator** retrieves existing chunks with `as_model=True` (line 256-257)
+2. **ChunkCacheService** performs diff to identify chunks to delete (modified + deleted chunks)
+3. **Deletion Logic** tries to get chunk IDs: `chunk.id for chunk in chunks_to_delete if chunk.id is not None`
+4. **All chunk.id values are None**, so no chunks are deleted
+5. **Result**: Old chunks remain in the database alongside new ones, causing:
+   - Duplicate content in search results
+   - Stale data persisting indefinitely
+   - File modification appearing to "fail"
+
+### Evidence Supporting This Analysis
+
+- **Code Inspection**: Confirmed `id` field is missing in Chunk model creation
+- **Same Issue in Multiple Methods**: Both `get_chunk_by_id()` and `get_chunks_by_file_id()` have the same bug
+- **Explains All Symptoms**: 
+  - Why deletions don't happen (no chunk IDs)
+  - Why old content persists (chunks not deleted)
+  - Why file counts appear to change (new chunks added but old ones remain)
+
+### Required Fix
+
+Add the `id` field when creating Chunk models from database results:
+
+```python
+chunks.append(
+    Chunk(
+        id=result[0],  # ADD THIS LINE
+        file_id=result[1],
+        chunk_type=ChunkType(result[2]) if result[2] else ChunkType.UNKNOWN,
+        symbol=result[3],
+        code=result[4],
+        start_line=result[5],
+        end_line=result[6],
+        start_byte=result[7],
+        end_byte=result[8],
+        language=Language(result[9]) if result[9] else Language.UNKNOWN,
+    )
+)
+```
+
+**Status**: Root cause definitively identified. Fix requires adding missing `id` field to Chunk model creation in database repository methods.
+
+## 2025-07-13T19:35:00+03:00
+
+**TICKET CLOSED - SUPERSEDED BY COMPREHENSIVE QA FINDINGS**
+
+This ticket focused primarily on file modification indexing but comprehensive QA testing revealed broader issues affecting both file modification AND deletion indexing. The core problem is chunk cleanup failure during any file change operation.
+
+**Superseded by**: `2025-07-13-bug-qa-file-modification-deletion-indexing-broken.md`
+
+**QA Findings Summary**:
+- ❌ File modification indexing: Creates duplicate chunks (old + new content both searchable)
+- ❌ File deletion indexing: Leaves orphaned chunks (deleted files remain searchable)
+- ✅ New file indexing: Works correctly
+- ✅ Search functionality: Works correctly but returns stale data
+
+The QA ticket provides cleaner reproduction steps and evidence without the complex debugging history in this ticket. Moving forward with the QA-based ticket for resolution.
