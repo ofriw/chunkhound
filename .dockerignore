@@ -69,6 +69,13 @@ htmlcov/
 test.db*
 correct.db*
 chunkhound.db*
+chunkhound.lancedb/
+*.lance/
+*.lancedb/
+test-logs/
+crashing.db*
+bloated.db*
+test.lancedb/
 
 # Docker files
 Dockerfile*
