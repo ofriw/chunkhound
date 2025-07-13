@@ -141,11 +141,14 @@ class IndexingCoordinator(BaseService):
         Returns:
             Dictionary with processing results including status, chunks, and embeddings
         """
+        # Normalize path to handle symlinks and relative paths consistently
+        # This ensures /var/folders and /private/var/folders resolve to the same path
+        normalized_path = file_path.resolve()
 
         # Acquire file-level lock to prevent concurrent processing
-        file_lock = await self._get_file_lock(file_path)
+        file_lock = await self._get_file_lock(normalized_path)
         async with file_lock:
-            return await self._process_file_locked(file_path, skip_embeddings)
+            return await self._process_file_locked(normalized_path, skip_embeddings)
 
     async def _process_file_locked(
         self, file_path: Path, skip_embeddings: bool = False
@@ -808,8 +811,11 @@ class IndexingCoordinator(BaseService):
             Number of chunks removed
         """
         try:
+            # Normalize path to handle symlinks consistently
+            normalized_path = str(Path(file_path).resolve())
+            
             # Get file record to get chunk count before deletion
-            file_record = self._db.get_file_by_path(file_path)
+            file_record = self._db.get_file_by_path(normalized_path)
             if not file_record:
                 return 0
 
@@ -823,11 +829,11 @@ class IndexingCoordinator(BaseService):
             chunk_count = len(chunks) if chunks else 0
 
             # Delete the file completely (this will also delete chunks and embeddings)
-            success = self._db.delete_file_completely(file_path)
+            success = self._db.delete_file_completely(normalized_path)
 
             # Clean up the file lock since the file no longer exists
             if success:
-                self._cleanup_file_lock(Path(file_path))
+                self._cleanup_file_lock(Path(normalized_path))
 
             return chunk_count if success else 0
 
@@ -1121,13 +1127,13 @@ class IndexingCoordinator(BaseService):
             Number of orphaned files cleaned up
         """
         try:
-            # Create set of absolute paths for fast lookup
+            # Create set of resolved paths for fast lookup (handles symlinks)
             current_file_paths = {
-                str(file_path.absolute()) for file_path in current_files
+                str(file_path.resolve()) for file_path in current_files
             }
 
             # Get all files in database that are under this directory
-            directory_str = str(directory.absolute())
+            directory_str = str(directory.resolve())
             query = """
                 SELECT id, path
                 FROM files

@@ -1,8 +1,6 @@
 """DuckDB connection and schema management for ChunkHound."""
 
 import os
-import shutil
-import time
 from pathlib import Path
 from typing import Any
 
@@ -49,8 +47,14 @@ class DuckDBConnectionManager:
 
     @property
     def is_connected(self) -> bool:
-        """Check if database connection is active."""
-        return self.connection is not None
+        """Check if database connection is active.
+        
+        When using executor pattern, connection is managed by the executor thread.
+        We consider it connected if initialization succeeded.
+        """
+        # With executor pattern, we don't maintain a connection here
+        # Return True to indicate manager is initialized
+        return True
 
     def connect(self) -> None:
         """Establish database connection and initialize schema with WAL validation."""
@@ -64,173 +68,26 @@ class DuckDBConnectionManager:
             if duckdb is None:
                 raise ImportError("duckdb not available")
 
-            # Connect to database with WAL validation
-            # Thread safety is now handled by DuckDBProvider's executor pattern
-            self._preemptive_wal_cleanup()
-            self._connect_with_wal_validation()
-
-            logger.info("DuckDB connection established")
-
-            # Load required extensions
-            self._load_extensions()
-
-            # Note: Schema and index creation is now handled by DuckDBProvider's executor
-
-            logger.info("DuckDB connection manager initialization complete")
+            # CRITICAL: Do NOT create connection here when using executor pattern
+            # The executor will create its own thread-local connection
+            # WAL handling has been moved to the executor's _create_connection method
+            
+            # Skip actual connection creation - executor will handle it
+            logger.info("DuckDB connection manager initialized (connection deferred to executor)")
 
         except Exception as e:
-            logger.error(f"DuckDB connection failed: {e}")
+            logger.error(f"DuckDB connection manager initialization failed: {e}")
             raise
 
-    def _connect_with_wal_validation(self) -> None:
-        """Connect to DuckDB with WAL corruption detection and automatic cleanup."""
-        try:
-            # Attempt initial connection
-            self.connection = duckdb.connect(str(self.db_path))
-            logger.debug("DuckDB connection successful")
-
-        except duckdb.Error as e:
-            error_msg = str(e)
-
-            # Check for WAL corruption patterns
-            if self._is_wal_corruption_error(error_msg):
-                logger.warning(f"WAL corruption detected: {error_msg}")
-                self._handle_wal_corruption()
-
-                # Retry connection after WAL cleanup
-                try:
-                    self.connection = duckdb.connect(str(self.db_path))
-                    logger.info("DuckDB connection successful after WAL cleanup")
-                except Exception as retry_error:
-                    logger.error(
-                        f"Connection failed even after WAL cleanup: {retry_error}"
-                    )
-                    raise
-            else:
-                # Not a WAL corruption error, re-raise original exception
-                raise
+    # WAL validation moved to DuckDBProvider._create_connection()
 
     # Method removed - MCP safety is now handled by executor pattern
 
-    def _is_wal_corruption_error(self, error_msg: str) -> bool:
-        """Check if error message indicates WAL corruption."""
-        corruption_indicators = [
-            "Failure while replaying WAL file",
-            'Catalog "chunkhound" does not exist',
-            "BinderException",
-            "Binder Error",
-            "Cannot bind index",
-            "unknown index type",
-            "HNSW",
-            "You need to load the extension",
-        ]
+    # WAL corruption detection moved to DuckDBProvider._is_wal_corruption_error()
 
-        return any(indicator in error_msg for indicator in corruption_indicators)
+    # WAL cleanup moved to DuckDBProvider._create_connection()
 
-    def _preemptive_wal_cleanup(self) -> None:
-        """Proactively check for and clean up potentially corrupted WAL files.
-
-        This prevents segfaults that occur when DuckDB tries to replay corrupted
-        WAL files during connection, which can happen before proper error handling
-        kicks in.
-        """
-        if str(self.db_path) == ":memory:":
-            return  # No WAL files for in-memory databases
-
-        db_path = Path(self.db_path)
-        wal_file = db_path.with_suffix(db_path.suffix + ".wal")
-
-        if not wal_file.exists():
-            return  # No WAL file, nothing to clean up
-
-        # Check WAL file age - if it's older than 24 hours, it's likely stale
-        try:
-            wal_age = time.time() - wal_file.stat().st_mtime
-            if wal_age > 86400:  # 24 hours
-                logger.warning(
-                    f"Found stale WAL file (age: {wal_age / 3600:.1f}h), "
-                    "removing preemptively"
-                )
-                self._handle_wal_corruption()
-                return
-        except OSError:
-            pass
-
-        # Try a quick validation by attempting to open the database
-        # If it crashes or fails, clean up the WAL using existing logic
-        try:
-            test_conn = duckdb.connect(str(self.db_path))
-            # Simple query to trigger WAL replay
-            test_conn.execute("SELECT 1").fetchone()
-            test_conn.close()
-            logger.debug("WAL file validation passed")
-        except Exception as e:
-            logger.warning(f"WAL validation failed ({e}), cleaning up WAL file")
-            self._handle_wal_corruption()
-
-    def _handle_wal_corruption(self) -> None:
-        """Handle WAL corruption using advanced recovery with VSS extension."""
-        db_path = Path(self.db_path)
-        wal_file = db_path.with_suffix(db_path.suffix + ".wal")
-
-        if not wal_file.exists():
-            logger.warning(
-                f"WAL corruption detected but no WAL file found at: {wal_file}"
-            )
-            return
-
-        # Get WAL file size for logging
-        file_size = wal_file.stat().st_size
-        logger.warning(f"WAL corruption detected. File size: {file_size:,} bytes")
-
-        # First attempt: Try recovery with VSS extension preloaded
-        logger.info("Attempting WAL recovery with VSS extension preloaded...")
-
-        try:
-            # Create a temporary recovery connection
-            recovery_conn = duckdb.connect(":memory:")
-
-            # Load VSS extension first
-            recovery_conn.execute("INSTALL vss")
-            recovery_conn.execute("LOAD vss")
-
-            # Enable experimental persistence for HNSW indexes
-            recovery_conn.execute("SET hnsw_enable_experimental_persistence = true")
-
-            # Now attach the database file - this will trigger WAL replay
-            # with extension loaded
-            recovery_conn.execute(f"ATTACH '{db_path}' AS recovery_db")
-
-            # Verify tables are accessible
-            recovery_conn.execute("SELECT COUNT(*) FROM recovery_db.files").fetchone()
-
-            # Force a checkpoint to ensure WAL is integrated
-            recovery_conn.execute("CHECKPOINT recovery_db")
-
-            # Detach and close
-            recovery_conn.execute("DETACH recovery_db")
-            recovery_conn.close()
-
-            logger.info("WAL recovery successful with VSS extension preloaded")
-            return
-
-        except Exception as recovery_error:
-            logger.warning(f"Recovery with VSS preloading failed: {recovery_error}")
-
-            # Second attempt: Conservative recovery - remove WAL but create backup first
-            try:
-                # Create backup of WAL file before removal
-                backup_path = wal_file.with_suffix(".wal.corrupt")
-                shutil.copy2(wal_file, backup_path)
-                logger.info(f"Created WAL backup at: {backup_path}")
-
-                # Remove corrupted WAL file
-                os.remove(wal_file)
-                logger.warning(f"Removed corrupted WAL file: {wal_file} (backup saved)")
-
-            except Exception as e:
-                logger.error(f"Failed to handle corrupted WAL file {wal_file}: {e}")
-                raise
+    # WAL corruption handling moved to DuckDBProvider._create_connection()
 
     def disconnect(self, skip_checkpoint: bool = False) -> None:
         """Close database connection with optional checkpointing.
@@ -240,29 +97,10 @@ class DuckDBConnectionManager:
                            checkpoint was already done recently to avoid
                            checkpoint conflicts)
         """
-        if self.connection is not None:
-            try:
-                if not skip_checkpoint:
-                    # Force checkpoint before close to ensure durability
-                    self.connection.execute("CHECKPOINT")
-                    # Only log in non-MCP mode to avoid JSON-RPC interference
-                    if not os.environ.get("CHUNKHOUND_MCP_MODE"):
-                        logger.debug("Database checkpoint completed before disconnect")
-                else:
-                    if not os.environ.get("CHUNKHOUND_MCP_MODE"):
-                        logger.debug(
-                            "Skipping checkpoint before disconnect (already done)"
-                        )
-            except Exception as e:
-                # Only log errors in non-MCP mode
-                if not os.environ.get("CHUNKHOUND_MCP_MODE"):
-                    logger.error(f"Checkpoint failed during disconnect: {e}")
-                # Continue with close - don't block shutdown
-            finally:
-                self.connection.close()
-                self.connection = None
-                if not os.environ.get("CHUNKHOUND_MCP_MODE"):
-                    logger.info("DuckDB connection closed")
+        # With executor pattern, connection is managed by the executor
+        # Nothing to do here since we don't maintain a connection
+        if not os.environ.get("CHUNKHOUND_MCP_MODE"):
+            logger.info("DuckDB connection manager disconnect (connection managed by executor)")
 
     def _load_extensions(self) -> None:
         """Load required DuckDB extensions with macOS x86 crash prevention."""
@@ -302,44 +140,8 @@ class DuckDBConnectionManager:
             status["errors"].append("Not connected to database")
             return status
 
-        try:
-            # Check connection before proceeding
-            if self.connection is None:
-                status["errors"].append("Database connection is None")
-                return status
-
-            # Get DuckDB version
-            version_result = self.connection.execute("SELECT version()").fetchone()
-            status["version"] = version_result[0] if version_result else "unknown"
-
-            # Check if VSS extension is loaded
-            extensions_result = self.connection.execute("""
-                SELECT extension_name, loaded
-                FROM duckdb_extensions()
-                WHERE extension_name = 'vss'
-            """).fetchone()
-
-            if extensions_result:
-                status["extensions"].append(
-                    {"name": extensions_result[0], "loaded": extensions_result[1]}
-                )
-
-            # Check if tables exist
-            tables_result = self.connection.execute("""
-                SELECT table_name FROM information_schema.tables
-                WHERE table_schema = 'main' AND table_type = 'BASE TABLE'
-            """).fetchall()
-
-            status["tables"] = [table[0] for table in tables_result]
-
-            # Basic functionality test
-            test_result = self.connection.execute("SELECT 1").fetchone()
-            if test_result[0] != 1:
-                status["errors"].append("Basic query test failed")
-
-        except Exception as e:
-            status["errors"].append(f"Health check error: {str(e)}")
-
+        # With executor pattern, connection is managed by executor thread
+        # Return basic status without accessing connection
         return status
 
     def get_connection_info(self) -> dict[str, Any]:
@@ -349,7 +151,5 @@ class DuckDBConnectionManager:
             "db_path": str(self.db_path),
             "connected": self.is_connected,
             "memory_database": str(self.db_path) == ":memory:",
-            "connection_type": (
-                type(self.connection).__name__ if self.connection else None
-            ),
+            "connection_type": "executor-managed",
         }

@@ -79,10 +79,52 @@ class DuckDBProvider(SerialDatabaseProvider):
             DuckDB connection object
         """
         import duckdb
+        import os
+        import shutil
+        import time
+        from pathlib import Path
         
-        # Create a NEW connection for the executor thread
-        # This ensures thread safety - only this thread will use this connection
-        conn = duckdb.connect(str(self._connection_manager.db_path))
+        db_path = self._connection_manager.db_path
+        
+        # Handle WAL cleanup if needed (without creating a connection)
+        if str(db_path) != ":memory:":
+            wal_file = Path(db_path).with_suffix(Path(db_path).suffix + ".wal")
+            if wal_file.exists():
+                # Check if WAL is stale (older than 24 hours)
+                try:
+                    wal_age = time.time() - wal_file.stat().st_mtime
+                    if wal_age > 86400:  # 24 hours
+                        logger.warning(
+                            f"Found stale WAL file (age: {wal_age / 3600:.1f}h), removing it"
+                        )
+                        # Create backup before removal
+                        backup_path = wal_file.with_suffix(".wal.corrupt")
+                        shutil.copy2(wal_file, backup_path)
+                        os.remove(wal_file)
+                        logger.info(f"Removed stale WAL file (backup saved at {backup_path})")
+                except OSError as e:
+                    logger.warning(f"Error checking WAL file: {e}")
+        
+        # Try to create connection
+        try:
+            conn = duckdb.connect(str(db_path))
+        except duckdb.Error as e:
+            error_msg = str(e)
+            # Check if this is a WAL corruption error
+            if self._is_wal_corruption_error(error_msg):
+                logger.warning(f"WAL corruption detected: {error_msg}")
+                # Handle WAL corruption by removing the file
+                wal_file = Path(db_path).with_suffix(Path(db_path).suffix + ".wal")
+                if wal_file.exists():
+                    backup_path = wal_file.with_suffix(".wal.corrupt")
+                    shutil.copy2(wal_file, backup_path)
+                    os.remove(wal_file)
+                    logger.warning(f"Removed corrupted WAL file (backup saved at {backup_path})")
+                # Retry connection
+                conn = duckdb.connect(str(db_path))
+                logger.info("Successfully connected after WAL cleanup")
+            else:
+                raise
         
         # Load required extensions
         conn.execute("INSTALL vss")
@@ -91,6 +133,20 @@ class DuckDBProvider(SerialDatabaseProvider):
         
         logger.debug(f"Created new DuckDB connection in executor thread {threading.get_ident()}")
         return conn
+    
+    def _is_wal_corruption_error(self, error_msg: str) -> bool:
+        """Check if error message indicates WAL corruption."""
+        corruption_indicators = [
+            "Failure while replaying WAL file",
+            'Catalog "chunkhound" does not exist',
+            "BinderException",
+            "Binder Error",
+            "Cannot bind index",
+            "unknown index type",
+            "HNSW",
+            "You need to load the extension",
+        ]
+        return any(indicator in error_msg for indicator in corruption_indicators)
 
     def _get_schema_sql(self) -> list[str] | None:
         """Get SQL statements for creating the DuckDB schema.
