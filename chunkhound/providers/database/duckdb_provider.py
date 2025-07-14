@@ -1127,10 +1127,55 @@ class DuckDBProvider(SerialDatabaseProvider):
         # Track operation for checkpoint management
         track_operation(state)
         
-        # Get file ID first
+        # Try to find the file with the given path
         result = conn.execute(
             "SELECT id FROM files WHERE path = ?", [file_path]
         ).fetchone()
+        
+        # If not found and path is absolute, try relative paths
+        if not result and os.path.isabs(file_path):
+            from pathlib import Path
+            # Try to find project root
+            try:
+                from chunkhound.utils.project_detection import find_project_root
+                project_root = find_project_root()
+                
+                # Try relative to project root
+                try:
+                    relative_path = str(Path(file_path).relative_to(project_root))
+                    result = conn.execute(
+                        "SELECT id FROM files WHERE path = ?", [relative_path]
+                    ).fetchone()
+                except ValueError:
+                    pass
+                
+                # If still not found, check all files and try to match by filename
+                if not result:
+                    filename = os.path.basename(file_path)
+                    # Get all files with matching filename
+                    candidates = conn.execute(
+                        "SELECT id, path FROM files WHERE path LIKE ?", 
+                        [f"%/{filename}"]
+                    ).fetchall()
+                    
+                    # If only one match, use it
+                    if len(candidates) == 1:
+                        result = (candidates[0][0],)
+                    # If multiple matches, try to find exact match by resolving paths
+                    elif len(candidates) > 1:
+                        target_resolved = Path(file_path).resolve()
+                        for candidate_id, candidate_path in candidates:
+                            # Handle both relative and absolute paths in DB
+                            if os.path.isabs(candidate_path):
+                                candidate_resolved = Path(candidate_path).resolve()
+                            else:
+                                candidate_resolved = (project_root / candidate_path).resolve()
+                            
+                            if candidate_resolved == target_resolved:
+                                result = (candidate_id,)
+                                break
+            except ImportError:
+                pass
         
         if not result:
             return False
