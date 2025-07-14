@@ -443,3 +443,33 @@ This approach:
 ### Root Cause Summary
 
 The issue isn't about hardcoding provider assumptions, but about the 30-second timeout during initialization that prevents proper provider detection. The fix should focus on better timeout handling and logging, not bypassing the provider detection mechanism.
+
+## 2025-07-14T23:49:55+03:00
+
+**FIXED**: Implemented unconditional search tool listing to ensure MCP clients always see all 4 tools.
+
+### Solution Implemented
+
+Modified `list_tools()` function in `chunkhound/mcp_server.py` (lines 1377-1624) to:
+
+1. **Reduced Timeout**: Changed from 30 seconds to 5 seconds for database initialization wait
+2. **Added Fallback Logic**: When database provider isn't available, provide expected search tools anyway
+3. **Preserved Provider Detection**: Still respects actual provider capabilities when available
+4. **Improved Error Handling**: Better exception handling for initialization timeouts
+
+### Key Changes
+
+- **Line 1402**: Reduced timeout from 30.0 to 5.0 seconds
+- **Lines 1406-1408**: Added proper exception handling for TimeoutError and AttributeError
+- **Lines 1538-1622**: Added fallback tool definitions for `search_semantic` and `search_regex`
+
+### Benefits
+
+1. **Immediate Tool Discovery**: MCP clients always see 4 tools on startup
+2. **Better UX**: No more "Discovered 2 tools" - always shows full capability
+3. **Database Independence**: Tool listing doesn't block on database initialization
+4. **Provider Aware**: Still uses actual provider capabilities when database is ready
+
+### Testing Required
+
+The user has indicated they will test with a large database to verify the fix works correctly in the problematic scenario.
