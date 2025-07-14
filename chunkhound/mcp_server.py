@@ -1377,12 +1377,6 @@ async def call_tool(
 @server.list_tools()
 async def list_tools() -> list[types.Tool]:
     """List tools based on what the database provider supports."""
-    # Wait for server initialization to complete
-    try:
-        await asyncio.wait_for(_initialization_complete.wait(), timeout=30.0)
-    except asyncio.TimeoutError:
-        pass
-    
     tools = []
 
     # Always available tools
@@ -1402,9 +1396,18 @@ async def list_tools() -> list[types.Tool]:
     )
 
     # Check provider capabilities and add supported tools
-    if _database and hasattr(_database, "_provider"):
-        provider = _database._provider
+    # Use a brief timeout but don't block tool discovery
+    provider_available = False
+    try:
+        await asyncio.wait_for(_initialization_complete.wait(), timeout=5.0)
+        if _database and hasattr(_database, "_provider"):
+            provider = _database._provider
+            provider_available = True
+    except (asyncio.TimeoutError, AttributeError):
+        # Fall back to default expected tools when database isn't ready
+        provider_available = False
 
+    if provider_available:
         # Check semantic search support
         if provider.supports_semantic_search():
             tools.append(
@@ -1532,6 +1535,91 @@ async def list_tools() -> list[types.Tool]:
                     },
                 )
             )
+    else:
+        # Fallback: Provide expected search tools even when database isn't ready
+        # This ensures MCP clients always see the full tool set
+        tools.extend([
+            types.Tool(
+                name="search_semantic",
+                description="Search code using semantic similarity with pagination support.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "Natural language search query",
+                        },
+                        "page_size": {
+                            "type": "integer",
+                            "description": "Number of results per page (1-100)",
+                            "default": 10,
+                        },
+                        "offset": {
+                            "type": "integer",
+                            "description": "Starting position for pagination",
+                            "default": 0,
+                        },
+                        "max_response_tokens": {
+                            "type": "integer",
+                            "description": "Maximum response size in tokens (1000-25000)",
+                            "default": 20000,
+                        },
+                        "provider": {
+                            "type": "string",
+                            "description": "Embedding provider to use",
+                            "default": "openai",
+                        },
+                        "model": {
+                            "type": "string",
+                            "description": "Embedding model to use",
+                            "default": "text-embedding-3-small",
+                        },
+                        "threshold": {
+                            "type": "number",
+                            "description": "Distance threshold for filtering results (optional)",
+                        },
+                        "path": {
+                            "type": "string",
+                            "description": "Optional relative path to limit search scope (e.g., 'src/', 'tests/')",
+                        },
+                    },
+                    "required": ["query"],
+                },
+            ),
+            types.Tool(
+                name="search_regex",
+                description="Search code chunks using regex patterns with pagination support.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "pattern": {
+                            "type": "string",
+                            "description": "Regular expression pattern to search for",
+                        },
+                        "page_size": {
+                            "type": "integer",
+                            "description": "Number of results per page (1-100)",
+                            "default": 10,
+                        },
+                        "offset": {
+                            "type": "integer",
+                            "description": "Starting position for pagination",
+                            "default": 0,
+                        },
+                        "max_response_tokens": {
+                            "type": "integer",
+                            "description": "Maximum response size in tokens (1000-25000)",
+                            "default": 20000,
+                        },
+                        "path": {
+                            "type": "string",
+                            "description": "Optional relative path to limit search scope (e.g., 'src/', 'tests/')",
+                        },
+                    },
+                    "required": ["pattern"],
+                },
+            ),
+        ])
 
     return tools
 
