@@ -47,7 +47,7 @@ async def ensure_initialization():
         pass
 
 
-# Initialize FastMCP 2.0 server without lifespan
+# Initialize FastMCP 2.0 server
 mcp = FastMCP("ChunkHound Code Search")
 
 
@@ -171,6 +171,7 @@ def is_main_thread() -> bool:
 def main():
     """Main entry point for HTTP server"""
     import argparse
+    import uvicorn
     
     parser = argparse.ArgumentParser(description="ChunkHound MCP HTTP Server")
     parser.add_argument("--host", default="127.0.0.1", help="Host to bind to")
@@ -191,13 +192,23 @@ def main():
         # Running in non-main thread, skip signal setup
         pass
     
-    # Run FastMCP with HTTP transport
+    # Create HTTP app with proper JSON response configuration
     print(f"About to start FastMCP server on {args.host}:{args.port}", file=sys.stderr)
-    mcp.run(
-        transport="http",
+    
+    # Use the correct FastMCP configuration for JSON responses
+    app = mcp.http_app(
+        path="/mcp",
+        json_response=True,      # Force JSON responses instead of SSE
+        stateless_http=True,     # Enable stateless HTTP for proper JSON-RPC
+        transport="http"         # Use HTTP transport
+    )
+    
+    # Run with uvicorn
+    uvicorn.run(
+        app,
         host=args.host,
         port=args.port,
-        path="/mcp",
+        log_level="info" if args.debug else "warning"
     )
 
 
