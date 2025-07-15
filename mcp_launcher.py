@@ -153,9 +153,10 @@ def main():
             # Use stdio transport (default)
             from chunkhound.mcp_entry import main_sync
             main_sync()
-    except ImportError:
-        sys.exit(1)
-    except Exception:
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc(file=sys.stderr)
         sys.exit(1)
 
 

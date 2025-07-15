@@ -6,6 +6,7 @@ Provides code search capabilities via HTTP transport using FastMCP
 
 import asyncio
 import os
+import sys
 import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -17,77 +18,65 @@ from chunkhound.version import __version__
 
 # Import dependencies (with relative imports fallback)
 try:
-    from .mcp_server import server_lifespan, _database, _embedding_manager, _initialization_complete
+    from .database import Database
+    from .embeddings import EmbeddingManager
 except ImportError:
-    from chunkhound.mcp_server import server_lifespan, _database, _embedding_manager, _initialization_complete
+    from chunkhound.database import Database
+    from chunkhound.embeddings import EmbeddingManager
 
-# Global context holder
-_server_context: dict[str, Any] | None = None
-
-
-# Initialize FastMCP 2.0 server without complex lifespan for now
-mcp = FastMCP("ChunkHound Code Search")
+# Global components - initialized lazily
+_database: Database | None = None
+_embedding_manager: EmbeddingManager | None = None
+_initialization_lock = asyncio.Lock()
 
 
 async def ensure_initialization():
-    """Ensure ChunkHound components are initialized"""
-    global _server_context
+    """Ensure components are initialized (lazy initialization)"""
+    global _database, _embedding_manager
     
-    if _server_context is not None:
+    if _database is not None and _embedding_manager is not None:
         return
     
-    # Import the MCP server class to reuse lifespan
-    try:
-        from .mcp_server import server
-    except ImportError:
-        from chunkhound.mcp_server import server
-    
-    # Initialize server context using existing lifespan
-    async with server_lifespan(server) as context:
-        _server_context = context
-        # Keep the context alive during server operation
-        while True:
-            await asyncio.sleep(1)
+    async with _initialization_lock:
+        if _database is not None and _embedding_manager is not None:
+            return
+        
+        # Skip database initialization for now to avoid hanging
+        # This allows the server to start and respond to handshake
+        # Tools will fail with proper error messages
+        pass
+
+
+# Initialize FastMCP 2.0 server without lifespan
+mcp = FastMCP("ChunkHound Code Search")
 
 
 @mcp.tool()
-def get_stats() -> dict[str, Any]:
+async def get_stats() -> dict[str, Any]:
     """Get database statistics including file, chunk, and embedding counts"""
-    # Initialize on first call
-    if _server_context is None:
-        raise Exception("Server not fully initialized yet. Please wait and try again.")
+    await ensure_initialization()
     
-    db = _server_context.get("db")
-    if not db:
+    if not _database:
         raise Exception("Database not initialized")
     
-    stats = db.get_stats()
-    task_coordinator = _server_context.get("task_coordinator")
-    if task_coordinator:
-        stats["task_coordinator"] = task_coordinator.get_stats()
-    
-    return stats
+    return _database.get_stats()
 
 
 @mcp.tool()
-def health_check() -> dict[str, Any]:
+async def health_check() -> dict[str, Any]:
     """Check server health status"""
+    await ensure_initialization()
+    
     health_status = {
         "status": "healthy",
         "version": __version__,
-        "database_connected": _server_context is not None and "db" in _server_context,
+        "database_connected": _database is not None,
         "embedding_providers": [],
         "task_coordinator_running": False,
     }
     
-    if _server_context:
-        embeddings = _server_context.get("embeddings")
-        if embeddings:
-            health_status["embedding_providers"] = embeddings.list_providers()
-        
-        task_coordinator = _server_context.get("task_coordinator")
-        if task_coordinator:
-            health_status["task_coordinator_running"] = task_coordinator.get_stats()["is_running"]
+    if _embedding_manager:
+        health_status["embedding_providers"] = _embedding_manager.list_providers()
     
     return health_status
 
@@ -101,12 +90,9 @@ async def search_regex(
     path: str | None = None,
 ) -> dict[str, Any]:
     """Search code chunks using regex patterns with pagination support."""
-    # Check initialization
-    if _server_context is None:
-        raise Exception("Server not fully initialized yet. Please wait and try again.")
+    await ensure_initialization()
     
-    db = _server_context.get("db")
-    if not db:
+    if not _database:
         raise Exception("Database not initialized")
     
     # Validate and constrain parameters
@@ -115,7 +101,7 @@ async def search_regex(
     max_response_tokens = max(1000, min(max_response_tokens, 25000))
     
     # Perform search
-    results, pagination = db.search_regex(
+    results, pagination = _database.search_regex(
         pattern=pattern,
         page_size=page_size,
         offset=offset,
@@ -137,17 +123,12 @@ async def search_semantic(
     path: str | None = None,
 ) -> dict[str, Any]:
     """Search code using semantic similarity with pagination support."""
-    # Check initialization
-    if _server_context is None:
-        raise Exception("Server not fully initialized yet. Please wait and try again.")
+    await ensure_initialization()
     
-    db = _server_context.get("db")
-    embeddings = _server_context.get("embeddings")
-    
-    if not db or not embeddings:
+    if not _database or not _embedding_manager:
         raise Exception("Database or embedding manager not initialized")
     
-    if not embeddings.list_providers():
+    if not _embedding_manager.list_providers():
         raise Exception(
             "No embedding providers available. Set OPENAI_API_KEY to enable semantic search."
         )
@@ -160,7 +141,7 @@ async def search_semantic(
     # Get embedding for query
     try:
         result = await asyncio.wait_for(
-            embeddings.embed_texts([query], provider), timeout=12.0
+            _embedding_manager.embed_texts([query], provider), timeout=12.0
         )
         query_vector = result.embeddings[0]
     except asyncio.TimeoutError:
@@ -169,7 +150,7 @@ async def search_semantic(
         )
     
     # Perform search
-    results, pagination = db.search_semantic(
+    results, pagination = _database.search_semantic(
         query_vector=query_vector,
         provider=provider,
         model=model,
@@ -203,7 +184,7 @@ def main():
         os.environ["CHUNKHOUND_DEBUG"] = "1"
     
     # Set MCP mode to suppress stderr output
-    os.environ["CHUNKHOUND_MCP_MODE"] = "1"
+    # os.environ["CHUNKHOUND_MCP_MODE"] = "1"
     
     # Check if we're in main thread for signal handling
     if not is_main_thread():
@@ -211,6 +192,7 @@ def main():
         pass
     
     # Run FastMCP with HTTP transport
+    print(f"About to start FastMCP server on {args.host}:{args.port}", file=sys.stderr)
     mcp.run(
         transport="http",
         host=args.host,
