@@ -787,8 +787,10 @@ async def _process_file_change_impl(file_path: Path, event_type: str):
         """Execute the actual file processing logic."""
         try:
             if event_type == "deleted":
-                # Remove file from database with cleanup tracking
-                await _database.delete_file_completely_async(str(file_path))
+                # Remove file from database using IndexingCoordinator for consistent path handling
+                removed_chunks = await _database._indexing_coordinator.remove_file(str(file_path))
+                if removed_chunks > 0:
+                    debug_log(f"Removed {removed_chunks} chunks from deleted file: {file_path}")
             else:
                 # Process file (created, modified, moved)
                 if file_path.exists() and file_path.is_file():
