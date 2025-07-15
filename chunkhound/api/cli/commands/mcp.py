@@ -13,8 +13,6 @@ def mcp_command(args: argparse.Namespace) -> None:
     """
     import subprocess
     import sys
-    
-    print(f"mcp_command called with args: {args}", file=sys.stderr)
 
     # Use the standalone MCP launcher that sets environment before any imports
     mcp_launcher_path = (
@@ -88,41 +86,16 @@ def mcp_command(args: argparse.Namespace) -> None:
     if hasattr(args, 'path') and args.path != Path("."):
         env["CHUNKHOUND_PROJECT_ROOT"] = str(args.path.resolve())
 
-    # For HTTP transport, call directly to avoid subprocess issues
-    if hasattr(args, 'http') and args.http:
-        # Set environment variables
-        for key, value in env.items():
-            os.environ[key] = value
-        
-        print(f"About to import HTTP server...", file=sys.stderr)
-        
-        # Import and run HTTP server directly
-        from chunkhound.mcp_http_server import main as http_main
-        
-        print(f"HTTP server imported, setting up argv...", file=sys.stderr)
-        
-        # Override sys.argv for the HTTP server
-        sys.argv = [
-            "mcp_http_server",
-            "--host", getattr(args, 'host', '127.0.0.1'),
-            "--port", str(getattr(args, 'port', 8000)),
-        ]
-        
-        print(f"About to call http_main()...", file=sys.stderr)
-        
-        # Call HTTP server main function
-        http_main()
-    else:
-        # For stdio transport, use subprocess.run as before
-        process = subprocess.run(
-            cmd,
-            stdin=sys.stdin,
-            stdout=sys.stdout,
-            stderr=sys.stderr,  # Allow stderr for MCP SDK internal error handling
-            env=env,  # Pass environment variables to subprocess
-        )
-        # Exit with the same code as the subprocess
-        sys.exit(process.returncode)
+    # Use subprocess for both stdio and HTTP transports
+    process = subprocess.run(
+        cmd,
+        stdin=sys.stdin,
+        stdout=sys.stdout,
+        stderr=sys.stderr,  # Allow stderr for MCP SDK internal error handling
+        env=env,  # Pass environment variables to subprocess
+    )
+    # Exit with the same code as the subprocess
+    sys.exit(process.returncode)
 
 
 __all__: list[str] = ["mcp_command"]

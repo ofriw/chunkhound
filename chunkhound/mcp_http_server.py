@@ -49,15 +49,19 @@ _file_watcher: FileWatcherManager | None = None
 _task_coordinator: TaskCoordinator | None = None
 _periodic_indexer: PeriodicIndexManager | None = None
 _signal_coordinator: SignalCoordinator | None = None
-_initialization_lock = asyncio.Lock()
+_initialization_lock = None
 
 
 async def ensure_initialization():
     """Ensure components are initialized (lazy initialization)"""
-    global _database, _embedding_manager, _file_watcher, _task_coordinator, _periodic_indexer, _signal_coordinator
+    global _database, _embedding_manager, _file_watcher, _task_coordinator, _periodic_indexer, _signal_coordinator, _initialization_lock
     
     if _database is not None and _embedding_manager is not None:
         return
+    
+    # Create lock on first use
+    if _initialization_lock is None:
+        _initialization_lock = asyncio.Lock()
     
     async with _initialization_lock:
         if _database is not None and _embedding_manager is not None:
@@ -367,8 +371,47 @@ def main():
     # Create HTTP app with proper JSON response configuration
     print(f"About to start FastMCP server on {args.host}:{args.port}", file=sys.stderr)
     
+    # Create a new MCP instance for the HTTP app to avoid conflicts with module-level instance
+    local_mcp = FastMCP("ChunkHound Code Search")
+    
+    # Register the same tools on the new instance
+    @local_mcp.tool()
+    async def get_stats_local() -> dict[str, Any]:
+        """Get database statistics including file, chunk, and embedding counts"""
+        return await get_stats()
+    
+    @local_mcp.tool()
+    async def health_check_local() -> dict[str, Any]:
+        """Check server health status"""
+        return await health_check()
+    
+    @local_mcp.tool()
+    async def search_regex_local(
+        pattern: str,
+        page_size: int = 10,
+        offset: int = 0,
+        max_response_tokens: int = 20000,
+        path: str | None = None,
+    ) -> dict[str, Any]:
+        """Search code chunks using regex patterns with pagination support."""
+        return await search_regex(pattern, page_size, offset, max_response_tokens, path)
+    
+    @local_mcp.tool()
+    async def search_semantic_local(
+        query: str,
+        page_size: int = 10,
+        offset: int = 0,
+        max_response_tokens: int = 20000,
+        provider: str = "openai",
+        model: str = "text-embedding-3-small",
+        threshold: float | None = None,
+        path: str | None = None,
+    ) -> dict[str, Any]:
+        """Search code using semantic similarity with pagination support."""
+        return await search_semantic(query, page_size, offset, max_response_tokens, provider, model, threshold, path)
+    
     # Use the correct FastMCP configuration for JSON responses
-    app = mcp.http_app(
+    app = local_mcp.http_app(
         path="/mcp",
         json_response=True,      # Force JSON responses instead of SSE
         stateless_http=True,     # Enable stateless HTTP for proper JSON-RPC
@@ -380,7 +423,7 @@ def main():
         app,
         host=args.host,
         port=args.port,
-        log_level="info" if args.debug else "warning"
+        log_level="info"
     )
 
 

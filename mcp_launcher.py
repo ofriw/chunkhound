@@ -136,19 +136,26 @@ def main():
     # Import and run the appropriate MCP server based on transport
     try:
         if args.transport == "http":
-            # Use HTTP transport with FastMCP
-            from chunkhound.mcp_http_server import main as http_main
+            # Use HTTP transport with FastMCP via subprocess to avoid module state issues
+            import subprocess
             
-            # Override sys.argv to pass arguments to HTTP server
-            sys.argv = [
-                "mcp_http_server",
+            http_cmd = [
+                "uv", "run", "python", "-m", "chunkhound.mcp_http_server",
                 "--host", args.host,
                 "--port", str(args.port),
             ]
             if os.environ.get("CHUNKHOUND_DEBUG"):
-                sys.argv.append("--debug")
+                http_cmd.append("--debug")
             
-            http_main()
+            # Run HTTP server in subprocess to avoid module import conflicts
+            process = subprocess.run(
+                http_cmd,
+                stdin=sys.stdin,
+                stdout=sys.stdout,
+                stderr=sys.stderr,
+                env=os.environ.copy()
+            )
+            sys.exit(process.returncode)
         else:
             # Use stdio transport (default)
             from chunkhound.mcp_entry import main_sync
