@@ -39,6 +39,19 @@ def mcp_command(args: argparse.Namespace) -> None:
         if args.db is not None:
             cmd.extend(["--db", str(args.db)])
 
+    # Handle transport selection
+    if hasattr(args, 'http') and args.http:
+        cmd.extend(["--transport", "http"])
+        
+        # Add host and port for HTTP transport
+        if hasattr(args, 'host'):
+            cmd.extend(["--host", args.host])
+        if hasattr(args, 'port'):
+            cmd.extend(["--port", str(args.port)])
+    else:
+        # Default to stdio transport
+        cmd.extend(["--transport", "stdio"])
+
     # Inherit current environment - the centralized config will handle API keys
     env = os.environ.copy()
 

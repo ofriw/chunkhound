@@ -32,6 +32,24 @@ def parse_arguments():
         help="Directory to watch for file changes (overrides auto-detection)",
         default=None,
     )
+    parser.add_argument(
+        "--transport",
+        choices=["stdio", "http"],
+        default="stdio",
+        help="Transport method (stdio or http)"
+    )
+    parser.add_argument(
+        "--host",
+        type=str,
+        default="127.0.0.1",
+        help="Host to bind to (HTTP transport only)"
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=8000,
+        help="Port to bind to (HTTP transport only)"
+    )
     return parser.parse_args()
 
 
@@ -115,11 +133,26 @@ def main():
     # The watch path is already handled via CHUNKHOUND_WATCH_PATHS environment variable
     # and all path operations should use absolute paths
 
-    # Import and run the MCP entry point
+    # Import and run the appropriate MCP server based on transport
     try:
-        from chunkhound.mcp_entry import main_sync
-
-        main_sync()
+        if args.transport == "http":
+            # Use HTTP transport with FastMCP
+            from chunkhound.mcp_http_server import main as http_main
+            
+            # Override sys.argv to pass arguments to HTTP server
+            sys.argv = [
+                "mcp_http_server",
+                "--host", args.host,
+                "--port", str(args.port),
+            ]
+            if os.environ.get("CHUNKHOUND_DEBUG"):
+                sys.argv.append("--debug")
+            
+            http_main()
+        else:
+            # Use stdio transport (default)
+            from chunkhound.mcp_entry import main_sync
+            main_sync()
     except ImportError:
         sys.exit(1)
     except Exception:
