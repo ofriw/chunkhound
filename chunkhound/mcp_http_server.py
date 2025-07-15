@@ -293,8 +293,8 @@ async def search_semantic(
     page_size: int = 10,
     offset: int = 0,
     max_response_tokens: int = 20000,
-    provider: str = "openai",
-    model: str = "text-embedding-3-small",
+    provider: str | None = None,
+    model: str | None = None,
     threshold: float | None = None,
     path: str | None = None,
 ) -> dict[str, Any]:
@@ -308,6 +308,20 @@ async def search_semantic(
         raise Exception(
             "No embedding providers available. Set OPENAI_API_KEY to enable semantic search."
         )
+    
+    # Use explicit provider/model from arguments, otherwise get from configured provider
+    if not provider or not model:
+        try:
+            default_provider_obj = _embedding_manager.get_provider()
+            if not provider:
+                provider = default_provider_obj.name
+            if not model:
+                model = default_provider_obj.model
+        except ValueError:
+            raise Exception(
+                "No default embedding provider configured. "
+                "Either specify provider and model explicitly, or configure a default provider."
+            )
     
     # Validate and constrain parameters
     page_size = max(1, min(page_size, 100))
@@ -440,8 +454,8 @@ def main():
         page_size: int = 10,
         offset: int = 0,
         max_response_tokens: int = 20000,
-        provider: str = "openai",
-        model: str = "text-embedding-3-small",
+        provider: str | None = None,
+        model: str | None = None,
         threshold: float | None = None,
         path: str | None = None,
     ) -> dict[str, Any]:
@@ -455,6 +469,20 @@ def main():
             raise Exception(
                 "No embedding providers available. Set OPENAI_API_KEY to enable semantic search."
             )
+        
+        # Use explicit provider/model from arguments, otherwise get from configured provider
+        if not provider or not model:
+            try:
+                default_provider_obj = _embedding_manager.get_provider()
+                if not provider:
+                    provider = default_provider_obj.name
+                if not model:
+                    model = default_provider_obj.model
+            except ValueError:
+                raise Exception(
+                    "No default embedding provider configured. "
+                    "Either specify provider and model explicitly, or configure a default provider."
+                )
         
         # Validate and constrain parameters
         page_size = max(1, min(page_size, 100))
