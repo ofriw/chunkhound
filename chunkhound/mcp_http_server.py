@@ -18,21 +18,43 @@ from chunkhound.version import __version__
 
 # Import dependencies (with relative imports fallback)
 try:
+    from .core.config import EmbeddingProviderFactory
+    from .core.config.config import Config
     from .database import Database
+    from .database_factory import create_database_with_dependencies
     from .embeddings import EmbeddingManager
+    from .file_watcher import FileWatcherManager
+    from .periodic_indexer import PeriodicIndexManager
+    from .process_detection import ProcessDetector
+    from .signal_coordinator import SignalCoordinator
+    from .task_coordinator import TaskCoordinator
+    from .utils.project_detection import find_project_root
 except ImportError:
+    from chunkhound.core.config import EmbeddingProviderFactory
+    from chunkhound.core.config.config import Config
     from chunkhound.database import Database
+    from chunkhound.database_factory import create_database_with_dependencies
     from chunkhound.embeddings import EmbeddingManager
+    from chunkhound.file_watcher import FileWatcherManager
+    from chunkhound.periodic_indexer import PeriodicIndexManager
+    from chunkhound.process_detection import ProcessDetector
+    from chunkhound.signal_coordinator import SignalCoordinator
+    from chunkhound.task_coordinator import TaskCoordinator
+    from chunkhound.utils.project_detection import find_project_root
 
 # Global components - initialized lazily
 _database: Database | None = None
 _embedding_manager: EmbeddingManager | None = None
+_file_watcher: FileWatcherManager | None = None
+_task_coordinator: TaskCoordinator | None = None
+_periodic_indexer: PeriodicIndexManager | None = None
+_signal_coordinator: SignalCoordinator | None = None
 _initialization_lock = asyncio.Lock()
 
 
 async def ensure_initialization():
     """Ensure components are initialized (lazy initialization)"""
-    global _database, _embedding_manager
+    global _database, _embedding_manager, _file_watcher, _task_coordinator, _periodic_indexer, _signal_coordinator
     
     if _database is not None and _embedding_manager is not None:
         return
@@ -41,10 +63,158 @@ async def ensure_initialization():
         if _database is not None and _embedding_manager is not None:
             return
         
-        # Skip database initialization for now to avoid hanging
-        # This allows the server to start and respond to handshake
-        # Tools will fail with proper error messages
-        pass
+        # Set MCP mode to suppress stderr output that interferes with JSON-RPC
+        os.environ["CHUNKHOUND_MCP_MODE"] = "1"
+        
+        # Check debug flag from environment
+        debug_mode = os.getenv("CHUNKHOUND_DEBUG", "").lower() in ("true", "1", "yes")
+        
+        try:
+            # Trust the CLI-provided CHUNKHOUND_PROJECT_ROOT or fall back to detection
+            project_root_env = os.environ.get("CHUNKHOUND_PROJECT_ROOT")
+            if project_root_env:
+                project_root = Path(project_root_env)
+            else:
+                project_root = find_project_root()
+                os.environ["CHUNKHOUND_PROJECT_ROOT"] = str(project_root)
+            
+            # Load centralized configuration
+            config = Config()
+            debug_mode = config.debug or debug_mode
+            
+            # Get database path from config
+            db_path = Path(config.database.path)
+            db_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            # Check for existing MCP server instances
+            process_detector = ProcessDetector(db_path)
+            existing_server = process_detector.find_mcp_server()
+            
+            if existing_server:
+                raise Exception(
+                    f"Another ChunkHound MCP server is already running for database '{db_path}' "
+                    f"(PID {existing_server['pid']}). Only one MCP server instance per database is allowed. "
+                    f"Please stop the existing server first or use a different database path."
+                )
+            
+            # Register this MCP server instance
+            process_detector.register_mcp_server(os.getpid())
+            
+            # Initialize embedding manager
+            _embedding_manager = EmbeddingManager()
+            
+            # Setup embedding provider (optional - continue if it fails)
+            try:
+                provider = EmbeddingProviderFactory.create_provider(config.embedding)
+                _embedding_manager.register_provider(provider, set_default=True)
+            except (ValueError, Exception) as e:
+                # API key or configuration issue - continue without embedding provider
+                if debug_mode:
+                    print(f"Embedding provider setup failed: {e}", file=sys.stderr)
+            
+            # Create database using unified factory
+            _database = create_database_with_dependencies(
+                db_path=db_path,
+                config=config,
+                embedding_manager=_embedding_manager,
+            )
+            
+            # Connect to database
+            _database.connect()
+            
+            # Setup signal coordination
+            _signal_coordinator = SignalCoordinator(db_path, _database)
+            _signal_coordinator.setup_mcp_signal_handling_no_register()
+            
+            # Initialize task coordinator
+            _task_coordinator = TaskCoordinator(max_queue_size=1000)
+            await _task_coordinator.start()
+            
+            # Initialize file watcher (optional for HTTP server)
+            try:
+                _file_watcher = FileWatcherManager()
+                # Skip file watcher initialization for HTTP server to avoid complexity
+                # HTTP server is typically used for stateless operations
+                pass
+            except Exception as fw_error:
+                # Non-fatal for HTTP server
+                if debug_mode:
+                    print(f"File watcher initialization skipped: {fw_error}", file=sys.stderr)
+                _file_watcher = None
+            
+            # Initialize periodic indexer (optional)
+            try:
+                indexing_coordinator = _database._indexing_coordinator
+                _periodic_indexer = PeriodicIndexManager.from_environment(
+                    indexing_coordinator=indexing_coordinator,
+                    task_coordinator=_task_coordinator,
+                )
+                await _periodic_indexer.start()
+            except Exception as pi_error:
+                # Non-fatal error - continue without periodic indexing
+                if debug_mode:
+                    print(f"Periodic indexer initialization failed: {pi_error}", file=sys.stderr)
+                _periodic_indexer = None
+                
+        except Exception as e:
+            raise Exception(f"Failed to initialize database and embeddings: {e}")
+
+
+async def process_file_change(file_path: Path, event_type: str):
+    """
+    Process a file change event by updating the database.
+    
+    This function is called by the filesystem watcher when files change.
+    Uses the task coordinator to ensure file processing doesn't block search operations.
+    """
+    global _database, _embedding_manager, _task_coordinator
+    
+    if not _database:
+        return
+    
+    async def _execute_file_processing():
+        """Execute the actual file processing logic."""
+        try:
+            if event_type == "deleted":
+                # Remove file from database with cleanup tracking
+                await _database.delete_file_completely_async(str(file_path))
+            else:
+                # Process file (created, modified, moved)
+                if file_path.exists() and file_path.is_file():
+                    # Check if file should be excluded before processing
+                    config = Config()
+                    exclude_patterns = config.indexing.exclude or []
+                    
+                    from fnmatch import fnmatch
+                    
+                    should_exclude = False
+                    
+                    # Get relative path for pattern matching
+                    try:
+                        project_root = find_project_root()
+                        rel_path = file_path.relative_to(project_root)
+                    except ValueError:
+                        rel_path = file_path
+                    
+                    # Check exclude patterns
+                    for pattern in exclude_patterns:
+                        if fnmatch(str(rel_path), pattern):
+                            should_exclude = True
+                            break
+                    
+                    if not should_exclude:
+                        await _database.process_file_async(str(file_path))
+        except Exception as e:
+            # Log error but don't crash the server
+            debug_mode = os.getenv("CHUNKHOUND_DEBUG", "").lower() in ("true", "1", "yes")
+            if debug_mode:
+                print(f"Error processing file {file_path}: {e}", file=sys.stderr)
+    
+    # Execute file processing
+    if _task_coordinator:
+        await _task_coordinator.add_task(_execute_file_processing())
+    else:
+        await _execute_file_processing()
 
 
 # Initialize FastMCP 2.0 server
@@ -72,7 +242,9 @@ async def health_check() -> dict[str, Any]:
         "version": __version__,
         "database_connected": _database is not None,
         "embedding_providers": [],
-        "task_coordinator_running": False,
+        "task_coordinator_running": _task_coordinator is not None,
+        "file_watcher_active": _file_watcher is not None,
+        "periodic_indexer_running": _periodic_indexer is not None,
     }
     
     if _embedding_manager:
