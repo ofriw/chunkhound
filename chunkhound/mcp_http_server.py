@@ -378,12 +378,32 @@ def main():
     @local_mcp.tool()
     async def get_stats_local() -> dict[str, Any]:
         """Get database statistics including file, chunk, and embedding counts"""
-        return await get_stats()
+        await ensure_initialization()
+        
+        if not _database:
+            raise Exception("Database not initialized")
+        
+        return _database.get_stats()
     
     @local_mcp.tool()
     async def health_check_local() -> dict[str, Any]:
         """Check server health status"""
-        return await health_check()
+        await ensure_initialization()
+        
+        health_status = {
+            "status": "healthy",
+            "version": __version__,
+            "database_connected": _database is not None,
+            "embedding_providers": [],
+            "task_coordinator_running": _task_coordinator is not None,
+            "file_watcher_active": _file_watcher is not None,
+            "periodic_indexer_running": _periodic_indexer is not None,
+        }
+        
+        if _embedding_manager:
+            health_status["embedding_providers"] = _embedding_manager.list_providers()
+        
+        return health_status
     
     @local_mcp.tool()
     async def search_regex_local(
@@ -394,7 +414,25 @@ def main():
         path: str | None = None,
     ) -> dict[str, Any]:
         """Search code chunks using regex patterns with pagination support."""
-        return await search_regex(pattern, page_size, offset, max_response_tokens, path)
+        await ensure_initialization()
+        
+        if not _database:
+            raise Exception("Database not initialized")
+        
+        # Validate and constrain parameters
+        page_size = max(1, min(page_size, 100))
+        offset = max(0, offset)
+        max_response_tokens = max(1000, min(max_response_tokens, 25000))
+        
+        # Perform search
+        results, pagination = _database.search_regex(
+            pattern=pattern,
+            page_size=page_size,
+            offset=offset,
+            path_filter=path,
+        )
+        
+        return {"results": results, "pagination": pagination}
     
     @local_mcp.tool()
     async def search_semantic_local(
@@ -408,7 +446,44 @@ def main():
         path: str | None = None,
     ) -> dict[str, Any]:
         """Search code using semantic similarity with pagination support."""
-        return await search_semantic(query, page_size, offset, max_response_tokens, provider, model, threshold, path)
+        await ensure_initialization()
+        
+        if not _database or not _embedding_manager:
+            raise Exception("Database or embedding manager not initialized")
+        
+        if not _embedding_manager.list_providers():
+            raise Exception(
+                "No embedding providers available. Set OPENAI_API_KEY to enable semantic search."
+            )
+        
+        # Validate and constrain parameters
+        page_size = max(1, min(page_size, 100))
+        offset = max(0, offset)
+        max_response_tokens = max(1000, min(max_response_tokens, 25000))
+        
+        # Get embedding for query
+        try:
+            result = await asyncio.wait_for(
+                _embedding_manager.embed_texts([query], provider), timeout=12.0
+            )
+            query_vector = result.embeddings[0]
+        except asyncio.TimeoutError:
+            raise Exception(
+                "Semantic search timed out. This can happen when OpenAI API is experiencing high latency. Please try again."
+            )
+        
+        # Perform search
+        results, pagination = _database.search_semantic(
+            query_vector=query_vector,
+            provider=provider,
+            model=model,
+            page_size=page_size,
+            offset=offset,
+            threshold=threshold,
+            path_filter=path,
+        )
+        
+        return {"results": results, "pagination": pagination}
     
     # Use the correct FastMCP configuration for JSON responses
     app = local_mcp.http_app(
