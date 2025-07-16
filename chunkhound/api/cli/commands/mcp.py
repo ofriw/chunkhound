@@ -82,9 +82,8 @@ def mcp_command(args: argparse.Namespace) -> None:
         if venv_python.exists():
             cmd[0] = str(venv_python)
 
-    # Set environment variable for config file search if path provided
-    if hasattr(args, 'path') and args.path != Path("."):
-        env["CHUNKHOUND_PROJECT_ROOT"] = str(args.path.resolve())
+    # Note: Project root detection is now handled internally by find_project_root()
+    # The MCP server will detect project root automatically based on CLI args or .chunkhound.json
 
     # Use subprocess for both stdio and HTTP transports
     process = subprocess.run(
