@@ -12,7 +12,7 @@ import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 import mcp.server.stdio
 import mcp.types as types
@@ -40,6 +40,7 @@ except ImportError:
 try:
     from .core.config import EmbeddingProviderFactory
     from .core.config.config import Config
+    from .api.cli.utils.config_helpers import validate_config_for_command
     from .database import Database
     from .database_factory import create_database_with_dependencies
     from .embeddings import EmbeddingManager
@@ -52,6 +53,7 @@ except ImportError:
     # Handle running as standalone script or PyInstaller binary
     from chunkhound.core.config import EmbeddingProviderFactory
     from chunkhound.core.config.config import Config
+    from chunkhound.api.cli.utils.config_helpers import validate_config_for_command
     from chunkhound.database import Database
     from chunkhound.database_factory import create_database_with_dependencies
     from chunkhound.embeddings import EmbeddingManager
@@ -69,6 +71,7 @@ _signal_coordinator: SignalCoordinator | None = None
 _task_coordinator: TaskCoordinator | None = None
 _periodic_indexer: PeriodicIndexManager | None = None
 _initialization_complete: asyncio.Event = asyncio.Event()
+_server_config: Optional["Config"] = None  # Store initial config for file change processing
 
 # Initialize MCP server with explicit stdio
 server = Server("ChunkHound Code Search")
@@ -132,7 +135,8 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
         _signal_coordinator, \
         _task_coordinator, \
         _periodic_indexer, \
-        _initialization_complete
+        _initialization_complete, \
+        _server_config
 
     # Set MCP mode to suppress stderr output that interferes with JSON-RPC
     os.environ["CHUNKHOUND_MCP_MODE"] = "1"
@@ -153,13 +157,8 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
         except ImportError:
             from chunkhound.utils.project_detection import find_project_root
 
-        # Trust the CLI-provided CHUNKHOUND_PROJECT_ROOT or fall back to detection
-        project_root_env = os.environ.get("CHUNKHOUND_PROJECT_ROOT")
-        if project_root_env:
-            project_root = Path(project_root_env)
-        else:
-            project_root = find_project_root()
-            os.environ["CHUNKHOUND_PROJECT_ROOT"] = str(project_root)
+        # Always detect project root using unified logic
+        project_root = find_project_root()
         
         if debug_mode:
             # print(
@@ -168,12 +167,12 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
             # )
 
             pass
-        # Load centralized configuration with target directory
+        # Load configuration with unified project detection
         try:
-            # CRITICAL: Use Config() without target_dir to respect environment variables
-            # The MCP launcher already set CHUNKHOUND_DATABASE__PATH and CHUNKHOUND_PROJECT_ROOT
-            # Using target_dir would override these environment variables
-            config = Config()
+            config = Config(target_dir=project_root)  # Always use detected project root
+            # Store config globally for file change processing consistency
+            global _server_config
+            _server_config = config
             # Update debug mode from config
             debug_mode = config.debug or debug_mode
             if debug_mode:
@@ -190,7 +189,31 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
                 # )
                 pass
             # Use default config if loading fails
-            config = Config()
+            config = Config(target_dir=project_root)
+            # Store fallback config globally for file change processing consistency
+            _server_config = config
+
+        # Validate configuration for MCP server
+        # This ensures same validation as CLI commands and prevents silent failures
+        try:
+            # Validate configuration for MCP server
+            validation_errors = config.validate_for_command("mcp")
+            if validation_errors:
+                if debug_mode:
+                    # print(
+                    #     f"Server lifespan: Configuration validation failed: {validation_errors}",
+                    #     file=sys.stderr,
+                    # )
+                    pass
+                # Continue with config anyway for MCP servers (embedding provider optional)
+        except Exception as validation_error:
+            if debug_mode:
+                # print(
+                #     f"Server lifespan: Configuration validation error: {validation_error}",
+                #     file=sys.stderr,
+                # )
+                pass
+            # Continue with config anyway for MCP servers
 
         # Get database path from config (always set by validation)
         db_path = Path(config.database.path)
@@ -292,7 +315,8 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
 
                 # traceback.print_exc(file=sys.stderr)
 
-        # Create database using unified factory to ensure consistent initialization with CLI
+        # Create database using unified factory for consistency with CLI commands
+        # This ensures same initialization across all execution paths
         _database = create_database_with_dependencies(
             db_path=db_path,
             config=config,
@@ -627,6 +651,10 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
                     # )
 
                     pass
+        
+        # Reset stored config
+        _server_config = None
+        
         if debug_mode:
             # print("Server lifespan: Cleanup complete", file=sys.stderr)
 
@@ -675,9 +703,9 @@ async def process_file_change(file_path: Path, event_type: str):
         # Log initialization timeout but continue anyway
         pass
     
-    global _database, _embedding_manager, _task_coordinator
+    global _database, _embedding_manager, _task_coordinator, _server_config
 
-    if not _database:
+    if not _database or not _server_config:
         return
 
     async def _execute_file_processing():
@@ -691,17 +719,16 @@ async def process_file_change(file_path: Path, event_type: str):
                 if file_path.exists() and file_path.is_file():
                     # Check if file should be excluded before processing with .gitignore support
                     try:
-                        from .core.config.config import Config
                         from .utils.project_detection import find_project_root
                     except ImportError:
-                        from chunkhound.core.config.config import Config
                         from chunkhound.utils.project_detection import find_project_root
 
-                    # Find project root to properly load .chunkhound.json
+                    # Find project root for pattern matching
                     project_root = find_project_root()
-                    # Create a new config instance with target_dir to detect .chunkhound.json
-                    config = Config(target_dir=project_root)
-                    exclude_patterns = config.indexing.exclude or []
+                    
+                    # FIXED: Use stored server config for consistency with initial indexing
+                    # This ensures file change processing uses the same configuration as initial indexing
+                    exclude_patterns = _server_config.indexing.exclude or []
 
                     from fnmatch import fnmatch
 

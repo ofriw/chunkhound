@@ -356,11 +356,9 @@ class PeriodicIndexManager:
         try:
             # Discover all files in base directory
             # Get patterns and exclude patterns from unified config
-            from chunkhound.core.config.unified_config import ChunkHoundConfig
+            from chunkhound.core.config.config import Config
 
-            config = ChunkHoundConfig.load_hierarchical(
-                project_dir=self._base_directory
-            )
+            config = Config.from_environment(self._base_directory)
             exclude_patterns = config.indexing.get_effective_exclude_patterns(
                 self._base_directory
             )

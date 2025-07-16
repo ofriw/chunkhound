@@ -20,6 +20,7 @@ from chunkhound.version import __version__
 try:
     from .core.config import EmbeddingProviderFactory
     from .core.config.config import Config
+    from .api.cli.utils.config_helpers import validate_config_for_command
     from .database import Database
     from .database_factory import create_database_with_dependencies
     from .embeddings import EmbeddingManager
@@ -32,6 +33,7 @@ try:
 except ImportError:
     from chunkhound.core.config import EmbeddingProviderFactory
     from chunkhound.core.config.config import Config
+    from chunkhound.api.cli.utils.config_helpers import validate_config_for_command
     from chunkhound.database import Database
     from chunkhound.database_factory import create_database_with_dependencies
     from chunkhound.embeddings import EmbeddingManager
@@ -50,11 +52,12 @@ _task_coordinator: TaskCoordinator | None = None
 _periodic_indexer: PeriodicIndexManager | None = None
 _signal_coordinator: SignalCoordinator | None = None
 _initialization_lock = None
+_server_config: "Config" | None = None  # Store initial config for consistency
 
 
 async def ensure_initialization():
     """Ensure components are initialized (lazy initialization)"""
-    global _database, _embedding_manager, _file_watcher, _task_coordinator, _periodic_indexer, _signal_coordinator, _initialization_lock
+    global _database, _embedding_manager, _file_watcher, _task_coordinator, _periodic_indexer, _signal_coordinator, _initialization_lock, _server_config
     
     if _database is not None and _embedding_manager is not None:
         return
@@ -74,17 +77,28 @@ async def ensure_initialization():
         debug_mode = os.getenv("CHUNKHOUND_DEBUG", "").lower() in ("true", "1", "yes")
         
         try:
-            # Trust the CLI-provided CHUNKHOUND_PROJECT_ROOT or fall back to detection
-            project_root_env = os.environ.get("CHUNKHOUND_PROJECT_ROOT")
-            if project_root_env:
-                project_root = Path(project_root_env)
-            else:
-                project_root = find_project_root()
-                os.environ["CHUNKHOUND_PROJECT_ROOT"] = str(project_root)
+            # Always detect project root using unified logic
+            project_root = find_project_root()
             
-            # Load centralized configuration
-            config = Config()
+            # Load configuration with unified project detection
+            # Must match stdio server pattern for consistency
+            config = Config(target_dir=project_root)  # Always use detected project root
+            # Store config globally for file change processing consistency
+            _server_config = config
             debug_mode = config.debug or debug_mode
+            
+            # Validate configuration for MCP HTTP server
+            # This ensures same validation as stdio server and CLI
+            try:
+                # Validate configuration for MCP server
+                validation_errors = config.validate_for_command("mcp")
+                if validation_errors and debug_mode:
+                    # Non-fatal for HTTP server - continue with config anyway
+                    pass
+            except Exception as validation_error:
+                if debug_mode:
+                    # Non-fatal for HTTP server - continue with config anyway
+                    pass
             
             # Get database path from config
             db_path = Path(config.database.path)
@@ -116,7 +130,8 @@ async def ensure_initialization():
                 if debug_mode:
                     print(f"Embedding provider setup failed: {e}", file=sys.stderr)
             
-            # Create database using unified factory
+            # Create database using unified factory for consistency with stdio server
+            # This ensures same initialization across all MCP servers
             _database = create_database_with_dependencies(
                 db_path=db_path,
                 config=config,
@@ -186,8 +201,8 @@ async def process_file_change(file_path: Path, event_type: str):
                 # Process file (created, modified, moved)
                 if file_path.exists() and file_path.is_file():
                     # Check if file should be excluded before processing
-                    config = Config()
-                    exclude_patterns = config.indexing.exclude or []
+                    # Use stored server config for consistency
+                    exclude_patterns = _server_config.indexing.exclude or []
                     
                     from fnmatch import fnmatch
                     
