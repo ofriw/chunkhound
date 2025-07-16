@@ -417,12 +417,12 @@ Create `.chunkhound.json` in your project root for automatic loading:
     "batch_size": 100,
     "db_batch_size": 500,
     "max_concurrent": 4,
-    "include_patterns": [
+    "include": [
       "**/*.py",
       "**/*.ts",
       "**/*.jsx"
     ],
-    "exclude_patterns": [
+    "exclude": [
       "**/node_modules/**",
       "**/__pycache__/**",
       "**/dist/**"
@@ -537,8 +537,8 @@ chunkhound.json
   - `batch_size`: Files to process per batch
   - `db_batch_size`: Database records per transaction
   - `max_concurrent`: Parallel file processing limit
-  - `include_patterns`: Glob patterns for files to index
-  - `exclude_patterns`: Glob patterns to ignore
+  - `include`: Glob patterns for files to index
+  - `exclude`: Glob patterns to ignore
 
 - **`debug`**: Enable debug logging
 

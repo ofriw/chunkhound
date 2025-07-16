@@ -491,7 +491,6 @@ class PeriodicIndexManager:
                 # Use existing process_file method for consistent processing
                 result = await self._indexing_coordinator.process_file(
                     file_path,
-                    skip_embeddings=True,  # Skip embeddings for background processing
                 )
 
                 # Update statistics
