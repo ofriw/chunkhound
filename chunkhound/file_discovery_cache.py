@@ -6,7 +6,6 @@ specifically glob pattern matching and file filtering.
 """
 
 import logging
-import os
 import time
 from collections import OrderedDict
 from fnmatch import fnmatch
@@ -208,7 +207,7 @@ class FileDiscoveryCache:
     def _discover_files(
         self, directory: Path, patterns: list[str], exclude_patterns: list[str] | None
     ) -> list[Path]:
-        """Fast file discovery using os.scandir() - single traversal for all platforms.
+        """Perform actual file discovery.
 
         Args:
             directory: Directory to search
@@ -219,44 +218,37 @@ class FileDiscoveryCache:
             List of matching file paths
         """
         try:
-            # Parse patterns to extract extensions and special filenames
-            extensions = set()
-            special_files = set()
+            # Find all matching files from all patterns
+            files: list[Path] = []
             for pattern in patterns:
-                if '**/*' in pattern:
-                    extensions.add(pattern.replace('**/*', ''))
-                elif '**/' in pattern:
-                    special_files.add(pattern.replace('**/', ''))
-            
-            files = []
-            
-            def scan_directory(path: Path):
-                """Recursively scan directory using os.scandir()."""
-                try:
-                    with os.scandir(path) as entries:
-                        for entry in entries:
-                            try:
-                                if entry.is_file(follow_symlinks=False):
-                                    # Check extensions or special filenames
-                                    if any(entry.name.endswith(ext) for ext in extensions) or entry.name in special_files:
-                                        file_path = Path(entry.path)
-                                        # Apply exclusions if any
-                                        if exclude_patterns:
-                                            rel_path = file_path.relative_to(directory)
-                                            if any(fnmatch(str(rel_path), pattern) for pattern in exclude_patterns):
-                                                continue
-                                        files.append(file_path)
-                                elif entry.is_dir(follow_symlinks=False) and not entry.name.startswith('.'):
-                                    # Recurse into non-hidden directories
-                                    scan_directory(Path(entry.path))
-                            except OSError:
-                                # Skip inaccessible entries
-                                continue
-                except OSError:
-                    # Skip inaccessible directories
-                    pass
-            
-            scan_directory(directory)
+                files.extend(directory.glob(pattern))
+
+            # Remove duplicates while preserving order
+            seen = set()
+            unique_files = []
+            for file_path in files:
+                if file_path not in seen:
+                    seen.add(file_path)
+                    unique_files.append(file_path)
+            files = unique_files
+
+            # Filter out excluded files
+            if exclude_patterns:
+                filtered_files = []
+                for file_path in files:
+                    # Convert to relative path from directory for pattern matching
+                    rel_path = file_path.relative_to(directory)
+                    excluded = False
+                    for exclude_pattern in exclude_patterns:
+                        if fnmatch(str(rel_path), exclude_pattern) or fnmatch(
+                            str(file_path), exclude_pattern
+                        ):
+                            excluded = True
+                            break
+                    if not excluded:
+                        filtered_files.append(file_path)
+                files = filtered_files
+
             return files
 
         except Exception as e:

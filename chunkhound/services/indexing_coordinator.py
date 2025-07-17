@@ -26,7 +26,6 @@ class IndexingCoordinator(BaseService):
         database_provider: DatabaseProvider,
         embedding_provider: EmbeddingProvider | None = None,
         language_parsers: dict[Language, LanguageParser] | None = None,
-        base_dir: Path | None = None,
     ):
         """Initialize indexing coordinator.
 
@@ -34,14 +33,10 @@ class IndexingCoordinator(BaseService):
             database_provider: Database provider for persistence
             embedding_provider: Optional embedding provider for vector generation
             language_parsers: Optional mapping of language to parser implementations
-            base_dir: Base directory for relative path storage (defaults to cwd)
         """
         super().__init__(database_provider)
         self._embedding_provider = embedding_provider
         self._language_parsers = language_parsers or {}
-        
-        # Base directory for relative path calculations
-        self._base_dir = (base_dir or Path.cwd()).resolve()
 
         # Performance optimization: shared instances
         self._parser_cache: dict[Language, LanguageParser] = {}
@@ -146,14 +141,11 @@ class IndexingCoordinator(BaseService):
         Returns:
             Dictionary with processing results including status, chunks, and embeddings
         """
-        # Normalize path to handle symlinks and relative paths consistently
-        # This ensures /var/folders and /private/var/folders resolve to the same path
-        normalized_path = file_path.resolve()
 
         # Acquire file-level lock to prevent concurrent processing
-        file_lock = await self._get_file_lock(normalized_path)
+        file_lock = await self._get_file_lock(file_path)
         async with file_lock:
-            return await self._process_file_locked(normalized_path, skip_embeddings)
+            return await self._process_file_locked(file_path, skip_embeddings)
 
     async def _process_file_locked(
         self, file_path: Path, skip_embeddings: bool = False
@@ -687,20 +679,8 @@ class IndexingCoordinator(BaseService):
         self, file_path: Path, file_stat: Any, language: Language
     ) -> int:
         """Store or update file record in database."""
-        # Convert absolute path to relative path for storage
-        try:
-            relative_path = file_path.relative_to(self._base_dir)
-            path_to_store = str(relative_path)
-        except ValueError:
-            # File is outside base directory, store absolute path with warning
-            logger.warning(f"File {file_path} is outside base directory {self._base_dir}, storing absolute path")
-            path_to_store = str(file_path)
-        
-        # Check if file already exists (try both relative and absolute for backwards compatibility)
-        existing_file = self._db.get_file_by_path(path_to_store)
-        if not existing_file and path_to_store != str(file_path):
-            # Also check with absolute path for backwards compatibility
-            existing_file = self._db.get_file_by_path(str(file_path))
+        # Check if file already exists
+        existing_file = self._db.get_file_by_path(str(file_path))
 
         if existing_file:
             # Update existing file with new metadata
@@ -711,9 +691,9 @@ class IndexingCoordinator(BaseService):
                 )
                 return file_id
 
-        # Create new File model instance with relative path
+        # Create new File model instance
         file_model = File(
-            path=FilePath(path_to_store),
+            path=FilePath(str(file_path)),
             size_bytes=file_stat.st_size,
             mtime=file_stat.st_mtime,
             language=language,
@@ -828,24 +808,10 @@ class IndexingCoordinator(BaseService):
             Number of chunks removed
         """
         try:
-            # Normalize path to handle symlinks consistently
-            normalized_path = Path(file_path).resolve()
-            
-            # Convert to relative path for database lookup
-            try:
-                relative_path = normalized_path.relative_to(self._base_dir)
-                path_for_lookup = str(relative_path)
-            except ValueError:
-                # File is outside base directory
-                path_for_lookup = str(normalized_path)
-            
             # Get file record to get chunk count before deletion
-            file_record = self._db.get_file_by_path(path_for_lookup)
+            file_record = self._db.get_file_by_path(file_path)
             if not file_record:
-                # Try absolute path for backwards compatibility
-                file_record = self._db.get_file_by_path(str(normalized_path))
-                if not file_record:
-                    return 0
+                return 0
 
             # Get file ID
             file_id = self._extract_file_id(file_record)
@@ -856,13 +822,12 @@ class IndexingCoordinator(BaseService):
             chunks = self._db.get_chunks_by_file_id(file_id)
             chunk_count = len(chunks) if chunks else 0
 
-            # Delete the file completely using the path from the database record
-            db_path = file_record.get('path') if isinstance(file_record, dict) else file_record.path
-            success = self._db.delete_file_completely(db_path)
+            # Delete the file completely (this will also delete chunks and embeddings)
+            success = self._db.delete_file_completely(file_path)
 
             # Clean up the file lock since the file no longer exists
             if success:
-                self._cleanup_file_lock(Path(normalized_path))
+                self._cleanup_file_lock(Path(file_path))
 
             return chunk_count if success else 0
 
@@ -1156,24 +1121,19 @@ class IndexingCoordinator(BaseService):
             Number of orphaned files cleaned up
         """
         try:
-            # Create set of relative paths for current files
-            current_file_paths = set()
-            for file_path in current_files:
-                try:
-                    # Try to get relative path
-                    rel_path = file_path.resolve().relative_to(self._base_dir)
-                    current_file_paths.add(str(rel_path))
-                except ValueError:
-                    # File outside base dir, use absolute
-                    current_file_paths.add(str(file_path.resolve()))
+            # Create set of absolute paths for fast lookup
+            current_file_paths = {
+                str(file_path.absolute()) for file_path in current_files
+            }
 
-            # Get all files in database
-            # For relative paths, we need to check if they're under the target directory
+            # Get all files in database that are under this directory
+            directory_str = str(directory.absolute())
             query = """
                 SELECT id, path
                 FROM files
+                WHERE path LIKE ? || '%'
             """
-            db_files = self._db.execute_query(query, [])
+            db_files = self._db.execute_query(query, [directory_str])
 
             # Find orphaned files (in DB but not on disk or excluded by patterns)
             orphaned_files = []
@@ -1185,36 +1145,30 @@ class IndexingCoordinator(BaseService):
                 patterns_to_check = exclude_patterns
 
             for db_file in db_files:
-                file_path_str = db_file["path"]
-                file_path_obj = Path(file_path_str)
-                
-                # Determine if this file is under the target directory
-                if file_path_obj.is_absolute():
-                    # Absolute path in DB - check if under directory
-                    try:
-                        file_path_obj.relative_to(directory.resolve())
-                    except ValueError:
-                        # Not under target directory, skip
-                        continue
-                else:
-                    # Relative path in DB - construct full path
-                    full_path = self._base_dir / file_path_obj
-                    try:
-                        full_path.relative_to(directory.resolve())
-                    except ValueError:
-                        # Not under target directory, skip
-                        continue
+                file_path = db_file["path"]
 
                 # Check if file should be excluded based on current patterns
                 should_exclude = False
+
+                # Convert to Path for relative path calculation
+                file_path_obj = Path(file_path)
+                try:
+                    rel_path = file_path_obj.relative_to(directory)
+                except ValueError:
+                    # File is not under the directory, use absolute path
+                    rel_path = file_path_obj
+
                 for exclude_pattern in patterns_to_check:
-                    if fnmatch(file_path_str, exclude_pattern):
+                    # Check both relative and absolute paths
+                    if fnmatch(str(rel_path), exclude_pattern) or fnmatch(
+                        file_path, exclude_pattern
+                    ):
                         should_exclude = True
                         break
 
                 # Mark for removal if not in current files or should be excluded
-                if file_path_str not in current_file_paths or should_exclude:
-                    orphaned_files.append(file_path_str)
+                if file_path not in current_file_paths or should_exclude:
+                    orphaned_files.append(file_path)
 
             # Remove orphaned files with progress bar
             orphaned_count = 0

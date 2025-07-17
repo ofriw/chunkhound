@@ -18,28 +18,6 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-import traceback
-
-# Debug logging to file
-DEBUG_LOG_FILE = None
-if os.environ.get("CHUNKHOUND_DEBUG_LOG"):
-    DEBUG_LOG_FILE = Path(os.environ["CHUNKHOUND_DEBUG_LOG"])
-    DEBUG_LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
-
-def debug_log(message: str, exc_info: Exception = None):
-    """Write debug messages to file, never to stdout/stderr"""
-    if DEBUG_LOG_FILE:
-        try:
-            with open(DEBUG_LOG_FILE, "a") as f:
-                timestamp = datetime.now().isoformat()
-                f.write(f"[{timestamp}] {message}\n")
-                if exc_info:
-                    f.write(f"Exception: {type(exc_info).__name__}: {str(exc_info)}\n")
-                    f.write(traceback.format_exc())
-                    f.write("\n")
-                f.flush()
-        except:
-            pass  # Silent fail
 from typing import Any, Protocol
 
 # Set up logger
@@ -471,9 +449,7 @@ class FileWatcher:
                         # )
                         pass
 
-                    debug_log("FileWatcher.start: Calling observer.start()")
                     self.observer.start()
-                    debug_log(f"FileWatcher.start: observer.start() returned, is_alive={self.observer.is_alive()}")
                     self.is_watching = True
 
                     if "CHUNKHOUND_DEBUG" in os.environ:
@@ -500,7 +476,6 @@ class FileWatcher:
             return False
 
         except Exception as e:
-            debug_log(f"FileWatcher.start: Exception caught", exc_info=e)
             # Log the error to help debug watchdog issues
             if "CHUNKHOUND_DEBUG" in os.environ:
                 import sys
@@ -807,17 +782,13 @@ class FileWatcherManager:
                     )
 
             # Start simple polling task
-            debug_log("FileWatcherManager.initialize: Creating polling task")
             self.polling_task = asyncio.create_task(
                 self._polling_loop(process_callback)
             )
-            debug_log("FileWatcherManager.initialize: Polling task created")
 
-            debug_log("FileWatcherManager.initialize: Successfully completed")
             return True
 
         except Exception as e:
-            debug_log(f"FileWatcherManager.initialize: Exception caught", exc_info=e)
             logging.error(
                 f"FileWatcherManager: Failed to initialize filesystem monitoring: {e}"
             )

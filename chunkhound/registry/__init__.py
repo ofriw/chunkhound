@@ -194,21 +194,11 @@ class ProviderRegistry:
                 pass  # Could enable logging here for non-MCP modes if needed
 
         language_parsers = self.get_all_language_parsers()
-        
-        # Get base directory from config or environment
-        from pathlib import Path
-        if self._config and hasattr(self._config, 'target_dir') and self._config.target_dir:
-            base_dir = Path(self._config.target_dir)
-        else:
-            # Try to find project root
-            from chunkhound.utils.project_detection import find_project_root
-            base_dir = find_project_root()
 
         return IndexingCoordinator(
             database_provider=database_provider,
             embedding_provider=embedding_provider,
             language_parsers=language_parsers,
-            base_dir=base_dir,
         )
 
     def create_search_service(self) -> SearchService:

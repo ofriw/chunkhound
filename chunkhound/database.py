@@ -24,7 +24,6 @@ from loguru import logger
 from chunkhound.core.config.unified_config import DatabaseConfig
 
 # Core imports
-from chunkhound.core.models import Chunk
 from chunkhound.core.types.common import Language
 
 if TYPE_CHECKING:
@@ -366,9 +365,11 @@ class Database:
             # Fallback for providers without async support
             return self._provider.delete_file_completely(file_path)
 
-    def get_chunks_by_file_id(self, file_id: int, as_model: bool = False) -> list[dict[str, Any] | Chunk]:
+    def get_chunks_by_file_id(self, file_id: int) -> list[dict[str, Any]]:
         """Get chunks for a specific file."""
-        return self._provider.get_chunks_by_file_id(file_id, as_model=as_model)
+        results = self._provider.get_chunks_by_file_id(file_id, as_model=False)
+        # Ensure we return Dict objects, not Chunk models
+        return [result for result in results if isinstance(result, dict)]
 
     # =============================================================================
     # Process Coordination Methods - Legacy Support

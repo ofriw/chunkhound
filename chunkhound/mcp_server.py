@@ -5,7 +5,6 @@ Provides code search capabilities via stdin/stdout JSON-RPC protocol
 """
 
 import asyncio
-import errno
 import json
 import logging
 import os
@@ -14,8 +13,6 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
-import traceback
-from datetime import datetime
 
 import mcp.server.stdio
 import mcp.types as types
@@ -29,27 +26,6 @@ from chunkhound.version import __version__
 logging.disable(logging.CRITICAL)
 for logger_name in ["", "mcp", "server", "fastmcp"]:
     logging.getLogger(logger_name).setLevel(logging.CRITICAL + 1)
-
-# Debug logging to file
-DEBUG_LOG_FILE = None
-if os.environ.get("CHUNKHOUND_DEBUG_LOG"):
-    DEBUG_LOG_FILE = Path(os.environ["CHUNKHOUND_DEBUG_LOG"])
-    DEBUG_LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
-
-def debug_log(message: str, exc_info: Exception = None):
-    """Write debug messages to file, never to stdout/stderr"""
-    if DEBUG_LOG_FILE:
-        try:
-            with open(DEBUG_LOG_FILE, "a") as f:
-                timestamp = datetime.now().isoformat()
-                f.write(f"[{timestamp}] {message}\n")
-                if exc_info:
-                    f.write(f"Exception: {type(exc_info).__name__}: {str(exc_info)}\n")
-                    f.write(traceback.format_exc())
-                    f.write("\n")
-                f.flush()
-        except:
-            pass  # Silent fail
 
 
 # Disable loguru logger used by database module
@@ -92,15 +68,7 @@ _file_watcher: FileWatcherManager | None = None
 _signal_coordinator: SignalCoordinator | None = None
 _task_coordinator: TaskCoordinator | None = None
 _periodic_indexer: PeriodicIndexManager | None = None
-_deferred_init_task: asyncio.Task | None = None
 _initialization_complete: asyncio.Event = asyncio.Event()
-_base_directory: Path | None = None  # Base directory for relative paths
-
-# MCP handshake and initialization tracking
-_mcp_handshake_complete: asyncio.Event = asyncio.Event()  # Set after initialize/initialized exchange
-_database_ready: asyncio.Event = asyncio.Event()          # Set after DB connection established
-_initialization_error: Exception | None = None            # Store initialization errors
-_queued_file_changes: list[tuple[Path, str]] = []        # Queue file changes during init
 
 # Initialize MCP server with explicit stdio
 server = Server("ChunkHound Code Search")
@@ -154,117 +122,6 @@ def log_environment_diagnostics():
     # print("===============================================", file=sys.stderr)
 
 
-async def _deferred_database_initialization(
-    db_path: Path, 
-    config, 
-    process_detector,
-    embedding_manager: EmbeddingManager | None
-) -> None:
-    """Initialize database connection and dependent services after MCP handshake."""
-    global _database, _periodic_indexer, _signal_coordinator, _initialization_error, _database_ready, _base_directory
-    
-    debug_log("_deferred_database_initialization: Starting")
-    try:
-        # Wait for MCP handshake to complete first
-        debug_log("_deferred_database_initialization: Waiting for MCP handshake")
-        await _mcp_handshake_complete.wait()
-        debug_log("_deferred_database_initialization: MCP handshake complete")
-        
-        # Set base directory from config or project detection
-        from chunkhound.utils.project_detection import find_project_root
-        _base_directory = config.target_dir if hasattr(config, 'target_dir') and config.target_dir else find_project_root()
-        debug_log(f"_deferred_database_initialization: Base directory set to {_base_directory}")
-        
-        if debug_mode := os.getenv("CHUNKHOUND_DEBUG", "").lower() in ("true", "1", "yes"):
-            pass
-            # print("Deferred init: Starting database connection...", file=sys.stderr)
-        
-        # Create and connect database
-        debug_log("_deferred_database_initialization: Creating database")
-        _database = create_database_with_dependencies(
-            db_path=db_path,
-            config=config,
-            embedding_manager=embedding_manager,
-        )
-        
-        # Connect to database - let serial executor handle threading internally
-        debug_log("_deferred_database_initialization: Connecting to database")
-        _database.connect()  # Serial executor handles threading, no asyncio.to_thread needed
-        debug_log("_deferred_database_initialization: Database connected")
-        _database_ready.set()
-        
-        if debug_mode:
-            pass
-            # print("Deferred init: Database connected successfully", file=sys.stderr)
-        
-        # Setup signal coordination after database is ready
-        _signal_coordinator = SignalCoordinator(db_path, _database)
-        _signal_coordinator.setup_mcp_signal_handling_no_register()
-        
-        # Initialize periodic indexer now that database is ready
-        indexing_coordinator = _database._indexing_coordinator
-        _periodic_indexer = PeriodicIndexManager.from_environment(
-            indexing_coordinator=indexing_coordinator,
-            task_coordinator=_task_coordinator,
-        )
-        await _periodic_indexer.start()
-        
-        if debug_mode:
-            pass
-            # print("Deferred init: Periodic indexer started", file=sys.stderr)
-        
-        # Process any queued file changes
-        await _process_queued_file_changes()
-        
-        # Mark initialization as complete
-        _initialization_complete.set()
-        
-        if debug_mode:
-            pass
-            # print("Deferred init: Initialization complete", file=sys.stderr)
-            
-    except Exception as e:
-        debug_log(f"_deferred_database_initialization: Exception caught", exc_info=e)
-        _initialization_error = e
-        if debug_mode:
-            pass
-            # print(f"Deferred init: Failed with error: {e}", file=sys.stderr)
-            import traceback
-            # traceback.print_exc(file=sys.stderr)
-        # Set events even on error so waiters don't hang
-        _database_ready.set()
-        _initialization_complete.set()
-        # Re-raise the exception so the task fails properly
-        raise
-
-
-async def _process_queued_file_changes() -> None:
-    """Process file changes that were queued during initialization."""
-    global _queued_file_changes
-    
-    if not _queued_file_changes:
-        return
-        
-    debug_mode = os.getenv("CHUNKHOUND_DEBUG", "").lower() in ("true", "1", "yes")
-    if debug_mode:
-        pass
-        # print(f"Processing {len(_queued_file_changes)} queued file changes", file=sys.stderr)
-    
-    # Process all queued changes
-    for file_path, event_type in _queued_file_changes:
-        try:
-            await _process_file_change_impl(file_path, event_type)
-        except Exception as e:
-            # Log queued file change errors to debug file
-            debug_log(
-                f"Failed to process queued file change for {file_path}: {event_type}",
-                exc_info=e
-            )
-    
-    # Clear the queue
-    _queued_file_changes.clear()
-
-
 @asynccontextmanager
 async def server_lifespan(server: Server) -> AsyncIterator[dict]:
     """Manage server startup and shutdown lifecycle."""
@@ -275,7 +132,6 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
         _signal_coordinator, \
         _task_coordinator, \
         _periodic_indexer, \
-        _deferred_init_task, \
         _initialization_complete
 
     # Set MCP mode to suppress stderr output that interferes with JSON-RPC
@@ -287,7 +143,6 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
         # print("Server lifespan: Starting initialization", file=sys.stderr)
         pass
 
-    debug_log("server_lifespan: Starting")
     try:
         # Log environment diagnostics for API key debugging
         log_environment_diagnostics()
@@ -299,14 +154,12 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
             from chunkhound.utils.project_detection import find_project_root
 
         # Trust the CLI-provided CHUNKHOUND_PROJECT_ROOT or fall back to detection
-        debug_log("server_lifespan: Finding project root")
         project_root_env = os.environ.get("CHUNKHOUND_PROJECT_ROOT")
         if project_root_env:
             project_root = Path(project_root_env)
         else:
             project_root = find_project_root()
             os.environ["CHUNKHOUND_PROJECT_ROOT"] = str(project_root)
-        debug_log(f"server_lifespan: Project root = {project_root}")
         
         if debug_mode:
             # print(
@@ -316,13 +169,11 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
 
             pass
         # Load centralized configuration with target directory
-        debug_log("server_lifespan: Loading config")
         try:
             # CRITICAL: Use Config() without target_dir to respect environment variables
             # The MCP launcher already set CHUNKHOUND_DATABASE__PATH and CHUNKHOUND_PROJECT_ROOT
             # Using target_dir would override these environment variables
             config = Config()
-            debug_log(f"server_lifespan: Config loaded, db_path = {config.database.path}")
             # Update debug mode from config
             debug_mode = config.debug or debug_mode
             if debug_mode:
@@ -332,7 +183,6 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
                 # )
                 pass
         except Exception as e:
-            debug_log(f"server_lifespan: Config loading failed", exc_info=e)
             if debug_mode:
                 # print(
                 #     f"Server lifespan: Failed to load config, using defaults: {e}",
@@ -378,9 +228,7 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
             pass
         
         # Initialize embedding configuration BEFORE database creation
-        debug_log("server_lifespan: Creating EmbeddingManager")
         _embedding_manager = EmbeddingManager()
-        debug_log("server_lifespan: EmbeddingManager created")
         if debug_mode:
             # print("Server lifespan: Embedding manager initialized", file=sys.stderr)
 
@@ -444,22 +292,68 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
 
                 # traceback.print_exc(file=sys.stderr)
 
-        # NOTE: Database creation and connection moved to deferred initialization
-        # This ensures the MCP server can respond immediately to initialize requests
+        # Create database using unified factory to ensure consistent initialization with CLI
+        _database = create_database_with_dependencies(
+            db_path=db_path,
+            config=config,
+            embedding_manager=_embedding_manager,
+        )
+        try:
+            # CRITICAL: Ensure thread-safe database initialization for MCP server
+            # The database connection must be established before any async tasks start
+            # to prevent concurrent database operations during initialization
+            _database.connect()
+            if debug_mode:
+                # print(
+                #     "Server lifespan: Database connected successfully", file=sys.stderr
+                # )
+                # Verify IndexingCoordinator has embedding provider
+                try:
+                    # Use the same instance from _database to avoid creating duplicates
+                    indexing_coordinator = _database._indexing_coordinator
+                    has_embedding_provider = (
+                        indexing_coordinator._embedding_provider is not None
+                    )
+                    # print(
+                    #     f"Server lifespan: IndexingCoordinator embedding provider available: {has_embedding_provider}",
+                    #     file=sys.stderr,
+                    # )
+                except Exception as debug_error:
+                    # print(
+                    #     f"Server lifespan: Debug check failed: {debug_error}",
+                    #     file=sys.stderr,
+                    # )
+                    pass
+        except Exception as db_error:
+            if debug_mode:
+                # print(
+                #     f"Server lifespan: Database connection error: {db_error}",
+                #     file=sys.stderr,
+                # )
+                import traceback
+
+                # traceback.print_exc(file=sys.stderr)
+            raise
+
+        # Setup signal coordination for process coordination (skip duplicate registration)
+        global _signal_coordinator
+        _signal_coordinator = SignalCoordinator(db_path, _database)
+        _signal_coordinator.setup_mcp_signal_handling_no_register()
+        if debug_mode:
+            # print(
+            #     "Server lifespan: Signal coordination setup complete", file=sys.stderr
+            # )
+
+            pass
         # Initialize task coordinator for priority-based operation processing
-        debug_log("server_lifespan: Creating TaskCoordinator")
         _task_coordinator = TaskCoordinator(max_queue_size=1000)
-        debug_log("server_lifespan: Starting TaskCoordinator")
         await _task_coordinator.start()
-        debug_log("server_lifespan: TaskCoordinator started")
         if debug_mode:
             # print("Server lifespan: Task coordinator initialized", file=sys.stderr)
 
             pass
-        # Initialize filesystem watcher with guarded handler
-        debug_log("server_lifespan: Creating FileWatcherManager")
+        # Initialize filesystem watcher with offline catch-up
         _file_watcher = FileWatcherManager()
-        debug_log("server_lifespan: FileWatcherManager created")
         try:
             if debug_mode:
                 # print("Server lifespan: Initializing file watcher...", file=sys.stderr)
@@ -481,9 +375,7 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
                 # print(f"❌ MCP SERVER ERROR: {error_msg}", file=sys.stderr)
                 raise ImportError(error_msg)
 
-            debug_log("server_lifespan: Initializing file watcher")
-            watcher_success = await _file_watcher.initialize(_guarded_file_change_handler)
-            debug_log(f"server_lifespan: File watcher initialized, success = {watcher_success}")
+            watcher_success = await _file_watcher.initialize(process_file_change)
             if not watcher_success:
                 # FAIL FAST: file watcher initialization failed
                 error_msg = (
@@ -501,7 +393,6 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
                 # )
                 pass
         except Exception as fw_error:
-            debug_log(f"server_lifespan: File watcher initialization failed", exc_info=fw_error)
             # FAIL FAST: Any file watcher error should crash the server
             error_msg = f"FATAL: File watcher initialization failed: {fw_error}"
             # print(f"❌ MCP SERVER ERROR: {error_msg}", file=sys.stderr)
@@ -511,67 +402,73 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
                 # traceback.print_exc(file=sys.stderr)
             raise RuntimeError(error_msg)
 
-        # NOTE: Periodic indexer initialization moved to deferred initialization
-        # It requires database connection which is now deferred
+        # Initialize periodic indexer for background scanning
+        try:
+            if debug_mode:
+                # print(
+                #     "Server lifespan: Initializing periodic indexer...", file=sys.stderr
+                # )
 
-        # Start deferred database initialization in background
-        # This will run after MCP handshake completes
-        deferred_init_task = asyncio.create_task(
-            _deferred_database_initialization(
-                db_path=db_path,
-                config=config,
-                process_detector=process_detector,
-                embedding_manager=_embedding_manager
-            )
-        )
-        
-        # Store the task reference for cleanup
-        _deferred_init_task = deferred_init_task
-        
-        # Add a callback to handle exceptions from the deferred init task
-        def handle_deferred_init_exception(task):
-            """Handle exceptions from deferred initialization task."""
-            try:
-                task.result()  # This will raise if the task failed
-            except asyncio.CancelledError:
-                # Task was cancelled, this is expected during shutdown
                 pass
-            except Exception as e:
-                # Log the error but don't crash the server
-                if debug_mode:
-                    import traceback
-                    # print(f"Deferred initialization failed: {e}", file=sys.stderr)
-                    # traceback.print_exc(file=sys.stderr)
-        
-        deferred_init_task.add_done_callback(handle_deferred_init_exception)
-        
+            # Use the SAME IndexingCoordinator instance from _database to ensure deduplication
+            # This prevents duplicate entries by sharing the same ChunkCacheService state
+            indexing_coordinator = _database._indexing_coordinator
+
+            # Create periodic indexer with environment configuration
+            # Let from_environment() handle path resolution using the same logic as FileWatcherManager
+            _periodic_indexer = PeriodicIndexManager.from_environment(
+                indexing_coordinator=indexing_coordinator,
+                task_coordinator=_task_coordinator,
+            )
+
+            # Start periodic indexer (immediate startup scan + periodic scans)
+            await _periodic_indexer.start()
+
+            if debug_mode:
+                # print(
+                #     "Server lifespan: Periodic indexer initialized successfully",
+                #     file=sys.stderr,
+                # )
+                pass
+        except Exception as pi_error:
+            # Non-fatal error - log but continue without periodic indexing
+            if debug_mode:
+                # print(
+                #     f"Server lifespan: Periodic indexer initialization failed (non-fatal): {pi_error}",
+                #     file=sys.stderr,
+                # )
+                import traceback
+
+                # traceback.print_exc(file=sys.stderr)
+            _periodic_indexer = None
+
         if debug_mode:
             # print(
-            #     "Server lifespan: Minimal initialization complete, database deferred",
+            #     "Server lifespan: All components initialized successfully",
             #     file=sys.stderr,
             # )
+
             pass
+        
+        # Mark initialization as complete
+        _initialization_complete.set()
         
         # Return server context to the caller
         yield {
-            "deferred_init_task": deferred_init_task,
+            "db": _database,
             "embeddings": _embedding_manager,
             "watcher": _file_watcher,
             "task_coordinator": _task_coordinator,
+            "periodic_indexer": _periodic_indexer,
         }
 
     except Exception as e:
-        debug_log(f"server_lifespan: Exception caught in main try block", exc_info=e)
         if debug_mode:
             # print(f"Server lifespan: Initialization failed: {e}", file=sys.stderr)
             import traceback
 
             # traceback.print_exc(file=sys.stderr)
-        # Add more context about the error type
-        error_msg = f"Failed to initialize database and embeddings: {type(e).__name__}: {e}"
-        if hasattr(e, '__cause__') and e.__cause__:
-            error_msg += f" (caused by {type(e.__cause__).__name__}: {e.__cause__})"
-        raise Exception(error_msg)
+        raise Exception(f"Failed to initialize database and embeddings: {e}")
     finally:
         # Reset initialization flag
         _initialization_complete.clear()
@@ -580,29 +477,6 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
             # print("Server lifespan: Entering cleanup phase", file=sys.stderr)
 
             pass
-        
-        # Handle deferred initialization task
-        if _deferred_init_task and not _deferred_init_task.done():
-            try:
-                if debug_mode:
-                    # print("Server lifespan: Cancelling deferred initialization task...", file=sys.stderr)
-                    pass
-                _deferred_init_task.cancel()
-                # Wait for cancellation to complete
-                try:
-                    await _deferred_init_task
-                except asyncio.CancelledError:
-                    # This is expected when cancelling
-                    pass
-                except Exception as deferred_error:
-                    if debug_mode:
-                        # print(f"Server lifespan: Deferred init task error: {deferred_error}", file=sys.stderr)
-                        pass
-            except Exception as cancel_error:
-                if debug_mode:
-                    # print(f"Server lifespan: Error cancelling deferred init task: {cancel_error}", file=sys.stderr)
-                    pass
-        
         # Cleanup periodic indexer
         if _periodic_indexer:
             try:
@@ -758,39 +632,60 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
 
 
             pass
-async def _guarded_file_change_handler(file_path: Path, event_type: str):
-    """File change handler that waits for MCP handshake before processing."""
-    global _queued_file_changes
-    
-    # If MCP handshake not complete, queue the change
-    if not _mcp_handshake_complete.is_set():
-        _queued_file_changes.append((file_path, event_type))
-        return
-    
-    # If database not ready, queue the change
-    if not _database_ready.is_set():
-        _queued_file_changes.append((file_path, event_type))
-        return
-    
-    # Process normally
-    await process_file_change(file_path, event_type)
+async def _wait_for_file_completion(file_path: Path, max_retries: int = 10) -> bool:
+    """Wait for file to be fully written (not locked by editor)"""
+    # Increased retries and wait time for new files
+    for attempt in range(max_retries):
+        try:
+            # Check if file exists first
+            if not file_path.exists():
+                await asyncio.sleep(0.1)
+                continue
+
+            # Try to read the file
+            with open(file_path, "rb") as f:
+                f.read(1)  # Test read access
+
+            # Additional check: ensure file size is stable
+            if attempt == 0:
+                initial_size = file_path.stat().st_size
+                await asyncio.sleep(0.05)  # Brief wait
+                if file_path.stat().st_size != initial_size:
+                    continue  # File still being written
+
+            return True
+        except (OSError, PermissionError, FileNotFoundError):
+            # Increase wait time for later attempts
+            wait_time = 0.1 if attempt < 5 else 0.2
+            await asyncio.sleep(wait_time)
+    return False
 
 
-async def _process_file_change_impl(file_path: Path, event_type: str):
-    """Actual file change processing implementation."""
+async def process_file_change(file_path: Path, event_type: str):
+    """
+    Process a file change event by updating the database.
+
+    This function is called by the filesystem watcher when files change.
+    Uses the task coordinator to ensure file processing doesn't block search operations.
+    """
+    # Wait for server initialization to complete
+    try:
+        await asyncio.wait_for(_initialization_complete.wait(), timeout=30.0)
+    except asyncio.TimeoutError:
+        # Log initialization timeout but continue anyway
+        pass
+    
     global _database, _embedding_manager, _task_coordinator
-    
+
     if not _database:
         return
-    
+
     async def _execute_file_processing():
         """Execute the actual file processing logic."""
         try:
             if event_type == "deleted":
-                # Remove file from database using IndexingCoordinator for consistent path handling
-                removed_chunks = await _database._indexing_coordinator.remove_file(str(file_path))
-                if removed_chunks > 0:
-                    debug_log(f"Removed {removed_chunks} chunks from deleted file: {file_path}")
+                # Remove file from database with cleanup tracking
+                await _database.delete_file_completely_async(str(file_path))
             else:
                 # Process file (created, modified, moved)
                 if file_path.exists() and file_path.is_file():
@@ -828,12 +723,10 @@ async def _process_file_change_impl(file_path: Path, event_type: str):
                             break
 
                     if should_exclude:
-                        debug_log(f"File processing skipped - excluded by pattern: {file_path}")
                         return
 
                     # Phase 4: Verify file is fully written before processing
                     if not await _wait_for_file_completion(file_path):
-                        debug_log(f"File processing skipped - file not ready: {file_path}")
                         return  # Skip if file not ready
 
                     # Use standard processing path with smart diff for correct deduplication
@@ -842,15 +735,9 @@ async def _process_file_change_impl(file_path: Path, event_type: str):
                     )
 
                     # Transaction already committed by IndexingCoordinator with backup/rollback safety
-        except Exception as e:
-            # Log exception to debug file while avoiding JSON-RPC corruption
-            debug_log(
-                f"Failed to process file change for {file_path}: {event_type}",
-                exc_info=e
-            )
-            # Re-raise critical file system errors that should not be ignored
-            if isinstance(e, (OSError, PermissionError)) and e.errno in (errno.ENOSPC, errno.EROFS):
-                raise
+        except Exception:
+            # Silently handle exceptions to avoid corrupting JSON-RPC
+            pass
 
     # Queue file processing as low-priority task to avoid blocking searches
     if _task_coordinator:
@@ -867,58 +754,6 @@ async def _process_file_change_impl(file_path: Path, event_type: str):
     else:
         # Fallback to direct processing if no task coordinator
         await _execute_file_processing()
-
-
-async def _wait_for_file_completion(file_path: Path, max_retries: int = 3) -> bool:
-    """Wait for file to be accessible for reading.
-    
-    Simplified version that avoids problematic file size stability checks
-    that conflict with modern editor atomic save behavior.
-    """
-    debug_log(f"_wait_for_file_completion: Checking file readiness for {file_path}")
-    
-    for attempt in range(max_retries):
-        try:
-            # Check if file exists
-            if not file_path.exists():
-                debug_log(f"_wait_for_file_completion: File does not exist, attempt {attempt + 1}/{max_retries}")
-                await asyncio.sleep(0.1)
-                continue
-
-            # Try to read the file to ensure it's accessible
-            with open(file_path, "rb") as f:
-                f.read(1)  # Test read access
-            
-            debug_log(f"_wait_for_file_completion: File is ready for processing")
-            return True
-            
-        except (OSError, PermissionError, FileNotFoundError) as e:
-            debug_log(f"_wait_for_file_completion: File access error on attempt {attempt + 1}/{max_retries}: {e}")
-            # Brief wait before retry
-            await asyncio.sleep(0.1)
-    
-    debug_log(f"_wait_for_file_completion: File not ready after {max_retries} attempts")
-    return False
-
-
-async def process_file_change(file_path: Path, event_type: str):
-    """
-    Process a file change event by updating the database.
-
-    This function is called by the filesystem watcher when files change.
-    Uses the task coordinator to ensure file processing doesn't block search operations.
-    """
-    # Wait for server initialization to complete
-    try:
-        await asyncio.wait_for(_initialization_complete.wait(), timeout=30.0)
-    except asyncio.TimeoutError:
-        # Queue the change if initialization times out
-        global _queued_file_changes
-        _queued_file_changes.append((file_path, event_type))
-        return
-    
-    # Delegate to implementation
-    await _process_file_change_impl(file_path, event_type)
 
 
 def estimate_tokens(text: str) -> int:
@@ -943,33 +778,6 @@ def truncate_code(code: str, max_chars: int = 1000) -> tuple[str, bool]:
         char_count += len(line) + 1
 
     return "\n".join(truncated_lines) + "\n...", True
-
-
-def convert_relative_paths_in_results(results: list[dict[str, Any]], base_dir: Path) -> list[dict[str, Any]]:
-    """Convert relative paths in search results to absolute paths.
-    
-    Args:
-        results: List of search result dictionaries
-        base_dir: Base directory for converting relative paths
-        
-    Returns:
-        Results with converted paths
-    """
-    converted_results = []
-    for result in results:
-        # Make a copy to avoid modifying original
-        result_copy = result.copy()
-        
-        # Convert file_path if present and relative
-        if 'file_path' in result_copy:
-            file_path = Path(result_copy['file_path'])
-            if not file_path.is_absolute():
-                # Convert relative to absolute
-                result_copy['file_path'] = str(base_dir / file_path)
-        
-        converted_results.append(result_copy)
-    
-    return converted_results
 
 
 def limit_response_size(
@@ -1038,58 +846,17 @@ async def call_tool(
     name: str, arguments: dict
 ) -> list[types.TextContent | types.ImageContent | types.EmbeddedResource]:
     """Handle tool calls"""
-    # For database-dependent tools, check initialization
-    db_dependent_tools = {"search_regex", "search_semantic", "search_fuzzy", "get_stats"}
-    
-    if name in db_dependent_tools:
-        # Check if still initializing
-        if not _initialization_complete.is_set():
-            # Wait with shorter timeout for better UX
-            try:
-                await asyncio.wait_for(_initialization_complete.wait(), timeout=5.0)
-            except asyncio.TimeoutError:
-                # Return initialization status instead of error
-                init_status = {
-                    "error": "Server is still initializing. Please try again in a few seconds.",
-                    "status": "initializing", 
-                    "components": {
-                        "handshake_complete": _mcp_handshake_complete.is_set(),
-                        "database_ready": _database_ready.is_set()
-                    }
-                }
-                
-                # For search tools, include empty results to maintain protocol
-                if name.startswith("search_"):
-                    init_status["results"] = []
-                    init_status["pagination"] = {
-                        "offset": arguments.get("offset", 0),
-                        "page_size": 0,
-                        "has_more": False
-                    }
-                
-                return [types.TextContent(type="text", text=json.dumps(init_status))]
-        
-        # Check for initialization errors
-        if _initialization_error:
-            error_response = {
-                "error": f"Server initialization failed: {str(_initialization_error)}",
-                "status": "error"
-            }
-            if name.startswith("search_"):
-                error_response["results"] = []
-                error_response["pagination"] = {
-                    "offset": arguments.get("offset", 0),
-                    "page_size": 0,
-                    "has_more": False
-                }
-            return [types.TextContent(type="text", text=json.dumps(error_response))]
-        
-        # Final database check
-        if not _database:
-            if _signal_coordinator and _signal_coordinator.is_coordination_active():
-                raise Exception("Database temporarily unavailable during coordination")
-            else:
-                raise Exception("Database not initialized")
+    # Wait for server initialization to complete
+    try:
+        await asyncio.wait_for(_initialization_complete.wait(), timeout=30.0)
+    except asyncio.TimeoutError:
+        # Continue anyway - individual resource checks will handle missing resources
+        pass
+    if not _database:
+        if _signal_coordinator and _signal_coordinator.is_coordination_active():
+            raise Exception("Database temporarily unavailable during coordination")
+        else:
+            raise Exception("Database not initialized")
 
     if name == "search_regex":
         pattern = arguments.get("pattern", "")
@@ -1115,10 +882,6 @@ async def call_tool(
                 offset=offset,
                 path_filter=path_filter,
             )
-            
-            # Convert relative paths to absolute for display
-            if _base_directory and results:
-                results = convert_relative_paths_in_results(results, _base_directory)
 
             # Format response with pagination metadata
             response_data = {"results": results, "pagination": pagination}
@@ -1214,10 +977,6 @@ async def call_tool(
                     threshold=threshold,
                     path_filter=path_filter,
                 )
-                
-                # Convert relative paths to absolute for display
-                if _base_directory and results:
-                    results = convert_relative_paths_in_results(results, _base_directory)
 
                 # Format response with pagination metadata
                 response_data = {"results": results, "pagination": pagination}
@@ -1379,6 +1138,12 @@ async def call_tool(
 @server.list_tools()
 async def list_tools() -> list[types.Tool]:
     """List tools based on what the database provider supports."""
+    # Wait for server initialization to complete
+    try:
+        await asyncio.wait_for(_initialization_complete.wait(), timeout=30.0)
+    except asyncio.TimeoutError:
+        pass
+    
     tools = []
 
     # Always available tools
@@ -1398,18 +1163,9 @@ async def list_tools() -> list[types.Tool]:
     )
 
     # Check provider capabilities and add supported tools
-    # Use a brief timeout but don't block tool discovery
-    provider_available = False
-    try:
-        await asyncio.wait_for(_initialization_complete.wait(), timeout=5.0)
-        if _database and hasattr(_database, "_provider"):
-            provider = _database._provider
-            provider_available = True
-    except (asyncio.TimeoutError, AttributeError):
-        # Fall back to default expected tools when database isn't ready
-        provider_available = False
+    if _database and hasattr(_database, "_provider"):
+        provider = _database._provider
 
-    if provider_available:
         # Check semantic search support
         if provider.supports_semantic_search():
             tools.append(
@@ -1537,91 +1293,6 @@ async def list_tools() -> list[types.Tool]:
                     },
                 )
             )
-    else:
-        # Fallback: Provide expected search tools even when database isn't ready
-        # This ensures MCP clients always see the full tool set
-        tools.extend([
-            types.Tool(
-                name="search_semantic",
-                description="Search code using semantic similarity with pagination support.",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "query": {
-                            "type": "string",
-                            "description": "Natural language search query",
-                        },
-                        "page_size": {
-                            "type": "integer",
-                            "description": "Number of results per page (1-100)",
-                            "default": 10,
-                        },
-                        "offset": {
-                            "type": "integer",
-                            "description": "Starting position for pagination",
-                            "default": 0,
-                        },
-                        "max_response_tokens": {
-                            "type": "integer",
-                            "description": "Maximum response size in tokens (1000-25000)",
-                            "default": 20000,
-                        },
-                        "provider": {
-                            "type": "string",
-                            "description": "Embedding provider to use",
-                            "default": "openai",
-                        },
-                        "model": {
-                            "type": "string",
-                            "description": "Embedding model to use",
-                            "default": "text-embedding-3-small",
-                        },
-                        "threshold": {
-                            "type": "number",
-                            "description": "Distance threshold for filtering results (optional)",
-                        },
-                        "path": {
-                            "type": "string",
-                            "description": "Optional relative path to limit search scope (e.g., 'src/', 'tests/')",
-                        },
-                    },
-                    "required": ["query"],
-                },
-            ),
-            types.Tool(
-                name="search_regex",
-                description="Search code chunks using regex patterns with pagination support.",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "pattern": {
-                            "type": "string",
-                            "description": "Regular expression pattern to search for",
-                        },
-                        "page_size": {
-                            "type": "integer",
-                            "description": "Number of results per page (1-100)",
-                            "default": 10,
-                        },
-                        "offset": {
-                            "type": "integer",
-                            "description": "Starting position for pagination",
-                            "default": 0,
-                        },
-                        "max_response_tokens": {
-                            "type": "integer",
-                            "description": "Maximum response size in tokens (1000-25000)",
-                            "default": 20000,
-                        },
-                        "path": {
-                            "type": "string",
-                            "description": "Optional relative path to limit search scope (e.g., 'src/', 'tests/')",
-                        },
-                    },
-                    "required": ["pattern"],
-                },
-            ),
-        ])
 
     return tools
 
@@ -1703,12 +1374,9 @@ def provide_mcp_example():
 
 async def handle_mcp_with_validation():
     """Handle MCP with improved error messages for protocol issues."""
-    debug_log("handle_mcp_with_validation: Starting")
     try:
         # Use the official MCP Python SDK stdio server pattern
-        debug_log("handle_mcp_with_validation: Creating stdio_server context")
         async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
-            debug_log("handle_mcp_with_validation: stdio_server context entered")
             # Initialize with lifespan context
             try:
                 # Debug output to help diagnose initialization issues
@@ -1716,9 +1384,7 @@ async def handle_mcp_with_validation():
                     # print("MCP server: Starting server initialization", file=sys.stderr)
 
                     pass
-                debug_log("handle_mcp_with_validation: Creating server_lifespan context")
                 async with server_lifespan(server) as server_context:
-                    debug_log("handle_mcp_with_validation: server_lifespan context entered")
                     # Initialize the server
                     if "CHUNKHOUND_DEBUG" in os.environ:
                         # print(
@@ -1727,19 +1393,6 @@ async def handle_mcp_with_validation():
                         # )
 
                         pass
-                    # Create a task to track MCP handshake completion
-                    async def track_handshake():
-                        """Track MCP handshake completion with a short delay."""
-                        # The initialized notification typically comes within 50-100ms
-                        # We wait a bit longer to be safe
-                        await asyncio.sleep(0.2)
-                        _mcp_handshake_complete.set()
-                        if "CHUNKHOUND_DEBUG" in os.environ:
-                            pass
-                            # print("MCP handshake tracking: Handshake assumed complete", file=sys.stderr)
-                    
-                    handshake_tracker = asyncio.create_task(track_handshake())
-                    
                     try:
                         await server.run(
                             read_stream,
@@ -1783,7 +1436,6 @@ async def handle_mcp_with_validation():
 
                                 # traceback.print_exc(file=sys.stderr)
                     except Exception as server_run_error:
-                        debug_log(f"handle_mcp_with_validation: server.run() failed", exc_info=server_run_error)
                         if "CHUNKHOUND_DEBUG" in os.environ:
                             # print(
                             #     f"MCP server.run() error: {server_run_error}",
@@ -1793,16 +1445,7 @@ async def handle_mcp_with_validation():
 
                             # traceback.print_exc(file=sys.stderr)
                         raise
-                    finally:
-                        # Cancel handshake tracker task if it's still running
-                        if not handshake_tracker.done():
-                            handshake_tracker.cancel()
-                            try:
-                                await handshake_tracker
-                            except asyncio.CancelledError:
-                                pass
             except Exception as lifespan_error:
-                debug_log(f"handle_mcp_with_validation: server_lifespan failed", exc_info=lifespan_error)
                 if "CHUNKHOUND_DEBUG" in os.environ:
                     # print(
                     #     f"MCP server lifespan error: {lifespan_error}", file=sys.stderr
@@ -1812,7 +1455,6 @@ async def handle_mcp_with_validation():
                     # traceback.print_exc(file=sys.stderr)
                 raise
     except Exception as e:
-        debug_log(f"handle_mcp_with_validation: Top-level exception caught", exc_info=e)
         # Analyze error for common protocol issues with recursive search
         error_details = str(e)
         if "CHUNKHOUND_DEBUG" in os.environ:

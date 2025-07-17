@@ -79,52 +79,10 @@ class DuckDBProvider(SerialDatabaseProvider):
             DuckDB connection object
         """
         import duckdb
-        import os
-        import shutil
-        import time
-        from pathlib import Path
         
-        db_path = self._connection_manager.db_path
-        
-        # Handle WAL cleanup if needed (without creating a connection)
-        if str(db_path) != ":memory:":
-            wal_file = Path(db_path).with_suffix(Path(db_path).suffix + ".wal")
-            if wal_file.exists():
-                # Check if WAL is stale (older than 24 hours)
-                try:
-                    wal_age = time.time() - wal_file.stat().st_mtime
-                    if wal_age > 86400:  # 24 hours
-                        logger.warning(
-                            f"Found stale WAL file (age: {wal_age / 3600:.1f}h), removing it"
-                        )
-                        # Create backup before removal
-                        backup_path = wal_file.with_suffix(".wal.corrupt")
-                        shutil.copy2(wal_file, backup_path)
-                        os.remove(wal_file)
-                        logger.info(f"Removed stale WAL file (backup saved at {backup_path})")
-                except OSError as e:
-                    logger.warning(f"Error checking WAL file: {e}")
-        
-        # Try to create connection
-        try:
-            conn = duckdb.connect(str(db_path))
-        except duckdb.Error as e:
-            error_msg = str(e)
-            # Check if this is a WAL corruption error
-            if self._is_wal_corruption_error(error_msg):
-                logger.warning(f"WAL corruption detected: {error_msg}")
-                # Handle WAL corruption by removing the file
-                wal_file = Path(db_path).with_suffix(Path(db_path).suffix + ".wal")
-                if wal_file.exists():
-                    backup_path = wal_file.with_suffix(".wal.corrupt")
-                    shutil.copy2(wal_file, backup_path)
-                    os.remove(wal_file)
-                    logger.warning(f"Removed corrupted WAL file (backup saved at {backup_path})")
-                # Retry connection
-                conn = duckdb.connect(str(db_path))
-                logger.info("Successfully connected after WAL cleanup")
-            else:
-                raise
+        # Create a NEW connection for the executor thread
+        # This ensures thread safety - only this thread will use this connection
+        conn = duckdb.connect(str(self._connection_manager.db_path))
         
         # Load required extensions
         conn.execute("INSTALL vss")
@@ -133,20 +91,6 @@ class DuckDBProvider(SerialDatabaseProvider):
         
         logger.debug(f"Created new DuckDB connection in executor thread {threading.get_ident()}")
         return conn
-    
-    def _is_wal_corruption_error(self, error_msg: str) -> bool:
-        """Check if error message indicates WAL corruption."""
-        corruption_indicators = [
-            "Failure while replaying WAL file",
-            'Catalog "chunkhound" does not exist',
-            "BinderException",
-            "Binder Error",
-            "Cannot bind index",
-            "unknown index type",
-            "HNSW",
-            "You need to load the extension",
-        ]
-        return any(indicator in error_msg for indicator in corruption_indicators)
 
     def _get_schema_sql(self) -> list[str] | None:
         """Get SQL statements for creating the DuckDB schema.
@@ -1127,55 +1071,10 @@ class DuckDBProvider(SerialDatabaseProvider):
         # Track operation for checkpoint management
         track_operation(state)
         
-        # Try to find the file with the given path
+        # Get file ID first
         result = conn.execute(
             "SELECT id FROM files WHERE path = ?", [file_path]
         ).fetchone()
-        
-        # If not found and path is absolute, try relative paths
-        if not result and os.path.isabs(file_path):
-            from pathlib import Path
-            # Try to find project root
-            try:
-                from chunkhound.utils.project_detection import find_project_root
-                project_root = find_project_root()
-                
-                # Try relative to project root
-                try:
-                    relative_path = str(Path(file_path).relative_to(project_root))
-                    result = conn.execute(
-                        "SELECT id FROM files WHERE path = ?", [relative_path]
-                    ).fetchone()
-                except ValueError:
-                    pass
-                
-                # If still not found, check all files and try to match by filename
-                if not result:
-                    filename = os.path.basename(file_path)
-                    # Get all files with matching filename
-                    candidates = conn.execute(
-                        "SELECT id, path FROM files WHERE path LIKE ?", 
-                        [f"%/{filename}"]
-                    ).fetchall()
-                    
-                    # If only one match, use it
-                    if len(candidates) == 1:
-                        result = (candidates[0][0],)
-                    # If multiple matches, try to find exact match by resolving paths
-                    elif len(candidates) > 1:
-                        target_resolved = Path(file_path).resolve()
-                        for candidate_id, candidate_path in candidates:
-                            # Handle both relative and absolute paths in DB
-                            if os.path.isabs(candidate_path):
-                                candidate_resolved = Path(candidate_path).resolve()
-                            else:
-                                candidate_resolved = (project_root / candidate_path).resolve()
-                            
-                            if candidate_resolved == target_resolved:
-                                result = (candidate_id,)
-                                break
-            except ImportError:
-                pass
         
         if not result:
             return False
