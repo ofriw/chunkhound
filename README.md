@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/ofriw-chunkhound-badge.png)](https://mseep.ai/app/ofriw-chunkhound)
+
 # ChunkHound
 
 **Modern RAG for your codebase - semantic and regex search via MCP.**
