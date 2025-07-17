@@ -489,9 +489,7 @@ class PeriodicIndexManager:
 
             try:
                 # Use existing process_file method for consistent processing
-                result = await self._indexing_coordinator.process_file(
-                    file_path,
-                )
+                result = await self._indexing_coordinator.process_file(file_path)
 
                 # Update statistics
                 self._stats["files_processed"] += 1
