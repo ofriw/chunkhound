@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
-from chunkhound.core.config.unified_config import DatabaseConfig
+from chunkhound.core.config.database_config import DatabaseConfig
 
 # Core imports
 from chunkhound.core.types.common import Language
@@ -95,11 +95,11 @@ class Database:
 
             # Auto-detect configuration if not provided
             if config is None:
-                from chunkhound.core.config.unified_config import ChunkHoundConfig
+                from chunkhound.core.config.config import Config
 
                 try:
-                    unified_config = ChunkHoundConfig.load_hierarchical()
-                    config = unified_config.database
+                    full_config = Config.from_environment()
+                    config = full_config.database
                 except Exception:
                     # Fallback to default configuration
                     config = DatabaseConfig()

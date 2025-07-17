@@ -34,7 +34,7 @@ if is_mcp_command():
     # Import only what's needed for MCP
     from pathlib import Path
 
-    # Parse MCP arguments minimally for database path only
+    # Parse MCP arguments minimally for database path and transport
     # The centralized config will handle all other settings
     if "--db" in sys.argv:
         db_index = sys.argv.index("--db")
@@ -43,17 +43,43 @@ if is_mcp_command():
             # Only set if explicitly provided
             os.environ["CHUNKHOUND_DB_PATH"] = str(db_path)
 
-    # Launch MCP server directly via import (fixes PyInstaller sys.executable recursion bug)
-    try:
-        from chunkhound.mcp_entry import main_sync
+    # Check for HTTP transport flag
+    use_http = "--http" in sys.argv
+    
+    if use_http:
+        # Extract host and port if provided
+        host = "127.0.0.1"
+        port = 8000
+        
+        if "--host" in sys.argv:
+            host_index = sys.argv.index("--host")
+            if host_index + 1 < len(sys.argv):
+                host = sys.argv[host_index + 1]
+                
+        if "--port" in sys.argv:
+            port_index = sys.argv.index("--port")
+            if port_index + 1 < len(sys.argv):
+                port = int(sys.argv[port_index + 1])
+        
+        # Launch HTTP MCP server
+        from chunkhound.mcp_http_server import main as http_main
+        
+        # Set up sys.argv for HTTP server
+        sys.argv = ["mcp_http_server", "--host", host, "--port", str(port)]
+        
+        http_main()
+    else:
+        # Launch stdio MCP server directly via import (fixes PyInstaller sys.executable recursion bug)
+        try:
+            from chunkhound.mcp_entry import main_sync
 
-        main_sync()
-    except ImportError as e:
-        print(f"Error: Could not import chunkhound.mcp_entry: {e}", file=sys.stderr)
-        sys.exit(1)
-    except Exception as e:
-        print(f"Error starting MCP server: {e}", file=sys.stderr)
-        sys.exit(1)
+            main_sync()
+        except ImportError as e:
+            print(f"Error: Could not import chunkhound.mcp_entry: {e}", file=sys.stderr)
+            sys.exit(1)
+        except Exception as e:
+            print(f"Error starting MCP server: {e}", file=sys.stderr)
+            sys.exit(1)
 
     # This should not be reached, but added for safety
     sys.exit(0)

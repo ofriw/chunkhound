@@ -32,6 +32,24 @@ def parse_arguments():
         help="Directory to watch for file changes (overrides auto-detection)",
         default=None,
     )
+    parser.add_argument(
+        "--transport",
+        choices=["stdio", "http"],
+        default="stdio",
+        help="Transport method (stdio or http)"
+    )
+    parser.add_argument(
+        "--host",
+        type=str,
+        default="127.0.0.1",
+        help="Host to bind to (HTTP transport only)"
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=8000,
+        help="Port to bind to (HTTP transport only)"
+    )
     return parser.parse_args()
 
 
@@ -115,14 +133,37 @@ def main():
     # The watch path is already handled via CHUNKHOUND_WATCH_PATHS environment variable
     # and all path operations should use absolute paths
 
-    # Import and run the MCP entry point
+    # Import and run the appropriate MCP server based on transport
     try:
-        from chunkhound.mcp_entry import main_sync
-
-        main_sync()
-    except ImportError:
-        sys.exit(1)
-    except Exception:
+        if args.transport == "http":
+            # Use HTTP transport with FastMCP via subprocess to avoid module state issues
+            import subprocess
+            
+            http_cmd = [
+                "uv", "run", "python", "-m", "chunkhound.mcp_http_server",
+                "--host", args.host,
+                "--port", str(args.port),
+            ]
+            if os.environ.get("CHUNKHOUND_DEBUG"):
+                http_cmd.append("--debug")
+            
+            # Run HTTP server in subprocess to avoid module import conflicts
+            process = subprocess.run(
+                http_cmd,
+                stdin=sys.stdin,
+                stdout=sys.stdout,
+                stderr=sys.stderr,
+                env=os.environ.copy()
+            )
+            sys.exit(process.returncode)
+        else:
+            # Use stdio transport (default)
+            from chunkhound.mcp_entry import main_sync
+            main_sync()
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc(file=sys.stderr)
         sys.exit(1)
 
 

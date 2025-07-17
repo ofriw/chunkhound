@@ -59,14 +59,14 @@ def add_mcp_subparser(subparsers: Any) -> argparse.ArgumentParser:
     mcp_parser.add_argument(
         "--port",
         type=int,
-        default=3000,
-        help="Port for HTTP transport (default: 3000)",
+        default=8000,
+        help="Port for HTTP transport (default: 8000)",
     )
 
     mcp_parser.add_argument(
         "--host",
-        default="localhost",
-        help="Host for HTTP transport (default: localhost)",
+        default="127.0.0.1",
+        help="Host for HTTP transport (default: 127.0.0.1)",
     )
 
     mcp_parser.add_argument(
