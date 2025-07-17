@@ -9,6 +9,7 @@ import json
 import logging
 import os
 import sys
+import traceback
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -77,6 +78,19 @@ _server_config: Optional["Config"] = None  # Store initial config for file chang
 server = Server("ChunkHound Code Search")
 
 
+def _log_processing_error(e: Exception, event_type: str, file_path: Path) -> None:
+    """Log file processing errors without corrupting JSON-RPC."""
+    debug_mode = os.getenv("CHUNKHOUND_DEBUG", "").lower() in ("true", "1", "yes")
+    if debug_mode:
+        print(f"[MCP-SERVER] Error processing {event_type} for {file_path}: {e}", file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)
+    
+    # Also log to logger if available
+    try:
+        from loguru import logger
+        logger.error(f"File processing failed for {event_type} {file_path}: {e}")
+    except ImportError:
+        pass
 
 
 def setup_signal_coordination(db_path: Path, database: Database):
@@ -762,19 +776,15 @@ async def process_file_change(file_path: Path, event_type: str):
                     )
 
                     # Transaction already committed by IndexingCoordinator with backup/rollback safety
-        except Exception:
-            # Silently handle exceptions to avoid corrupting JSON-RPC
-            pass
+        except Exception as e:
+            _log_processing_error(e, event_type, file_path)
 
     # Queue file processing as low-priority task to avoid blocking searches
     if _task_coordinator:
         try:
-            # Use nowait to avoid blocking the file watcher
-            future = await _task_coordinator.queue_task_nowait(
+            await _task_coordinator.queue_task(
                 TaskPriority.LOW, _execute_file_processing
             )
-
-            # Don't await the future - let file processing happen in background
         except Exception:
             # Fallback to direct processing if queue is full or coordinator is down
             await _execute_file_processing()
