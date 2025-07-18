@@ -24,7 +24,7 @@ from chunkhound.providers.database.serial_executor import (
 
 # Type hinting only
 if TYPE_CHECKING:
-    from chunkhound.core.config.unified_config import DatabaseConfig
+    from chunkhound.core.config.database_config import DatabaseConfig
 
 
 

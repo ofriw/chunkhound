@@ -63,29 +63,41 @@ class Config(BaseModel):
         # 2. Load config file if provided (from --config)
         if config_file and config_file.exists():
             import json
-            with open(config_file) as f:
-                file_config = json.load(f)
-                # Merge file config, but preserve env vars
-                self._deep_merge(config_data, file_config)
-                # Restore environment variables (they have higher precedence)
-                self._deep_merge(config_data, preserved_env_vars)
+            try:
+                with open(config_file) as f:
+                    file_config = json.load(f)
+                    # Merge file config, but preserve env vars
+                    self._deep_merge(config_data, file_config)
+                    # Restore environment variables (they have higher precedence)
+                    self._deep_merge(config_data, preserved_env_vars)
+            except json.JSONDecodeError as e:
+                raise ValueError(
+                    f"Invalid JSON in config file {config_file}: {e}. "
+                    "Please check the file format and try again."
+                )
         
         # 3. Check for .chunkhound.json in target directory
-        # First check CHUNKHOUND_PROJECT_ROOT if set (from positional path argument)
-        project_root = os.environ.get("CHUNKHOUND_PROJECT_ROOT")
-        if project_root:
-            target_dir = Path(project_root)
+        # Always use target_dir if provided, otherwise auto-detect project root
+        if target_dir is None:
+            from chunkhound.utils.project_detection import find_project_root
+            target_dir = find_project_root()
         
         if target_dir and target_dir.exists():
             local_config_path = target_dir / ".chunkhound.json"
             if local_config_path.exists():
                 import json
-                with open(local_config_path) as f:
-                    local_config = json.load(f)
-                    # Merge local config, but preserve env vars
-                    self._deep_merge(config_data, local_config)
-                    # Restore environment variables (they have higher precedence)
-                    self._deep_merge(config_data, preserved_env_vars)
+                try:
+                    with open(local_config_path) as f:
+                        local_config = json.load(f)
+                        # Merge local config, but preserve env vars
+                        self._deep_merge(config_data, local_config)
+                        # Restore environment variables (they have higher precedence)
+                        self._deep_merge(config_data, preserved_env_vars)
+                except json.JSONDecodeError as e:
+                    raise ValueError(
+                        f"Invalid JSON in config file {local_config_path}: {e}. "
+                        "Please check the file format and try again."
+                    )
         
         # 4. Apply CLI overrides
         if overrides:
@@ -203,16 +215,11 @@ class Config(BaseModel):
         """Validate the configuration after initialization."""
         # Ensure database path is set
         if not self.database.path:
-            # Check if CHUNKHOUND_PROJECT_ROOT is set (from MCP command)
-            project_root_env = os.environ.get("CHUNKHOUND_PROJECT_ROOT")
-            if project_root_env:
-                project_root = Path(project_root_env)
-            else:
-                # Try to detect project root from target_dir or cwd
-                from chunkhound.utils.project_detection import find_project_root
-                # Use the target_dir if it was provided during initialization
-                start_path = getattr(self, '_target_dir', None)
-                project_root = find_project_root(start_path)
+            # Try to detect project root from target_dir or auto-detect
+            from chunkhound.utils.project_detection import find_project_root
+            # Use the target_dir if it was provided during initialization
+            start_path = getattr(self, '_target_dir', None)
+            project_root = find_project_root(start_path)
             
             # Set default database path in project root
             self.database.path = project_root / ".chunkhound" / "db"
@@ -314,6 +321,91 @@ class Config(BaseModel):
             
         # Create config with overrides
         return cls(config_file=config_file, overrides=overrides, target_dir=target_dir)
+    
+    @classmethod
+    def from_environment(cls, project_root: Optional[Path] = None) -> "Config":
+        """
+        Create configuration from environment variables only.
+        
+        Args:
+            project_root: Optional project root (for target_dir)
+            
+        Returns:
+            Config instance with environment-based configuration
+        """
+        # Use provided project_root or auto-detect
+        if project_root is None:
+            from chunkhound.utils.project_detection import find_project_root
+            project_root = find_project_root()
+        
+        # Load configuration with target_dir for consistent local config detection
+        return cls(target_dir=project_root)
+    
+    def validate_for_command(self, command: str) -> list[str]:
+        """
+        Validate configuration for a specific command.
+        
+        Args:
+            command: Command name ('index', 'mcp', etc.)
+            
+        Returns:
+            List of validation errors (empty if valid)
+        """
+        # Import here to avoid circular imports
+        from chunkhound.api.cli.utils.config_helpers import validate_config_for_command
+        return validate_config_for_command(self, command)
+    
+    def get_missing_config(self) -> list[str]:
+        """
+        Get list of missing required configuration parameters.
+        
+        Returns:
+            List of missing configuration parameter names
+        """
+        missing = []
+        
+        # Check embedding configuration if it exists
+        if self.embedding:
+            if hasattr(self.embedding, 'get_missing_config'):
+                embedding_missing = self.embedding.get_missing_config()
+                for item in embedding_missing:
+                    missing.append(f"embedding.{item}")
+        else:
+            # If embedding is None, check what would be missing for default provider
+            try:
+                from .embedding_config import EmbeddingConfig
+                default_embedding = EmbeddingConfig(provider="openai")
+                embedding_missing = default_embedding.get_missing_config()
+                for item in embedding_missing:
+                    missing.append(f"embedding.{item}")
+            except Exception:
+                missing.append("embedding.provider")
+        
+        return missing
+    
+    def is_fully_configured(self) -> bool:
+        """
+        Check if all required configuration is present.
+        
+        Returns:
+            True if fully configured, False otherwise
+        """
+        return self.embedding is not None and self.embedding.is_provider_configured()
+    
+    def to_dict(self) -> dict[str, Any]:
+        """
+        Convert configuration to dictionary format.
+        
+        Returns:
+            Configuration as dictionary
+        """
+        return {
+            "embedding": self.embedding.model_dump() if self.embedding else None,
+            "mcp": self.mcp.model_dump(),
+            "indexing": self.indexing.model_dump(),
+            "database": self.database.model_dump(),
+            "debug": self.debug
+        }
 
 
 # Global configuration instance
