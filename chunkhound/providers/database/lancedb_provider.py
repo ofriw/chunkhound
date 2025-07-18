@@ -17,7 +17,7 @@ from chunkhound.providers.database.serial_database_provider import SerialDatabas
 
 # Type hinting only
 if TYPE_CHECKING:
-    from chunkhound.core.config.database_config import DatabaseConfig
+    from chunkhound.core.config.unified_config import DatabaseConfig
 
 
 # PyArrow schemas - avoiding LanceModel to prevent enum issues

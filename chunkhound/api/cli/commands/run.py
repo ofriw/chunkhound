@@ -12,7 +12,6 @@ from loguru import logger
 from chunkhound.embeddings import EmbeddingManager
 from chunkhound.core.config.embedding_factory import EmbeddingProviderFactory
 from chunkhound.core.config.embedding_config import EmbeddingConfig
-from chunkhound.core.config.config import Config
 from chunkhound.signal_coordinator import CLICoordinator
 from chunkhound.version import __version__
 from chunkhound.registry import configure_registry, create_indexing_coordinator
@@ -41,18 +40,17 @@ async def run_command(args: argparse.Namespace) -> None:
     # Initialize output formatter
     formatter = OutputFormatter(verbose=args.verbose)
 
-    # Load configuration using CLI pattern with local .chunkhound.json detection
-    # This is the mandatory pattern for ALL CLI commands to respect local config
+    # Load unified configuration
     project_dir = Path(args.path) if hasattr(args, "path") else Path.cwd()
-    config = Config.from_cli_args(args, target_dir=project_dir)
+    unified_config = args_to_config(args, project_dir)
     
     # Check if local config was found (for logging purposes)
     local_config_path = project_dir / ".chunkhound.json"
     if local_config_path.exists():
         formatter.info(f"Found local config: {local_config_path}")
 
-    # Use database path from config
-    db_path = Path(config.database.path)
+    # Use database path from unified config
+    db_path = Path(unified_config.database.path)
 
     # Display startup information
     formatter.info(f"Starting ChunkHound v{__version__}")
@@ -64,7 +62,7 @@ async def run_command(args: argparse.Namespace) -> None:
 
     # Validate arguments - update args.db to use config value for validation
     args.db = db_path
-    if not _validate_run_arguments(args, formatter, config):
+    if not _validate_run_arguments(args, formatter, unified_config):
         sys.exit(1)
 
     # Initialize CLI coordinator for database access coordination
@@ -76,21 +74,21 @@ async def run_command(args: argparse.Namespace) -> None:
 
         # Set up file patterns using unified config (already loaded)
         include_patterns, exclude_patterns = _setup_file_patterns_from_config(
-            config, args
+            unified_config, args
         )
         formatter.info(f"Include patterns: {include_patterns}")
         formatter.info(f"Exclude patterns: {exclude_patterns}")
 
-        # Validate configuration before use to prevent runtime errors
-        # This is mandatory for all config usage and prevents security issues
-        validation_errors = config.validate_for_command("index")
+        # Validate configuration for the index command
+        validation_errors = validate_config_for_command(unified_config, "index")
         if validation_errors:
             for error in validation_errors:
                 logger.error(f"Configuration error: {error}")
             raise ValueError("Invalid configuration")
 
-        # Configure registry with the Config object
-        configure_registry(config)
+        # Configure registry directly with the Config object
+        # Note: Not creating Database here - the indexing_coordinator is sufficient for CLI operations
+        configure_registry(unified_config._config)
         indexing_coordinator = create_indexing_coordinator()
 
         formatter.success(f"Service layer initialized: {args.db}")
@@ -131,14 +129,14 @@ async def run_command(args: argparse.Namespace) -> None:
 
 
 def _validate_run_arguments(
-    args: argparse.Namespace, formatter: OutputFormatter, config: Any = None
+    args: argparse.Namespace, formatter: OutputFormatter, unified_config: Any = None
 ) -> bool:
     """Validate run command arguments.
 
     Args:
         args: Parsed arguments
         formatter: Output formatter
-        config: Configuration (optional)
+        unified_config: Unified configuration (optional)
 
     Returns:
         True if valid, False otherwise
@@ -154,11 +152,11 @@ def _validate_run_arguments(
     # Validate provider arguments
     if not args.no_embeddings:
         # Use unified config values if available, fall back to CLI args
-        if config:
-            provider = config.embedding.provider
-            api_key = config.embedding.api_key.get_secret_value() if config.embedding.api_key else None
-            base_url = config.embedding.base_url
-            model = config.embedding.model
+        if unified_config:
+            provider = unified_config.embedding.provider
+            api_key = unified_config.embedding.api_key.get_secret_value() if unified_config.embedding.api_key else None
+            base_url = unified_config.embedding.base_url
+            model = unified_config.embedding.model
         else:
             provider = args.provider
             api_key = args.api_key

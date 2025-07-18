@@ -979,9 +979,9 @@ class IndexingCoordinator(BaseService):
 
         # Default exclude patterns from unified config with .gitignore support
         if not exclude_patterns:
-            from chunkhound.core.config.config import Config
+            from chunkhound.core.config.unified_config import ChunkHoundConfig
 
-            config = Config.from_environment(directory)
+            config = ChunkHoundConfig.load_hierarchical(project_dir=directory)
             exclude_patterns = config.indexing.get_effective_exclude_patterns(directory)
 
         # Use custom directory walker that respects exclude patterns during traversal
@@ -1138,10 +1138,9 @@ class IndexingCoordinator(BaseService):
             # Find orphaned files (in DB but not on disk or excluded by patterns)
             orphaned_files = []
             if not exclude_patterns:
-                from chunkhound.core.config.config import Config
+                from chunkhound.core.config.unified_config import ChunkHoundConfig
 
-                config = Config.from_environment()
-                patterns_to_check = config.indexing.get_default_exclude_patterns()
+                patterns_to_check = ChunkHoundConfig.get_default_exclude_patterns()
             else:
                 patterns_to_check = exclude_patterns
 

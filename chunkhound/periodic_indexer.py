@@ -356,9 +356,11 @@ class PeriodicIndexManager:
         try:
             # Discover all files in base directory
             # Get patterns and exclude patterns from unified config
-            from chunkhound.core.config.config import Config
+            from chunkhound.core.config.unified_config import ChunkHoundConfig
 
-            config = Config.from_environment(self._base_directory)
+            config = ChunkHoundConfig.load_hierarchical(
+                project_dir=self._base_directory
+            )
             exclude_patterns = config.indexing.get_effective_exclude_patterns(
                 self._base_directory
             )
@@ -489,7 +491,10 @@ class PeriodicIndexManager:
 
             try:
                 # Use existing process_file method for consistent processing
-                result = await self._indexing_coordinator.process_file(file_path)
+                result = await self._indexing_coordinator.process_file(
+                    file_path,
+                    skip_embeddings=True,  # Skip embeddings for background processing
+                )
 
                 # Update statistics
                 self._stats["files_processed"] += 1

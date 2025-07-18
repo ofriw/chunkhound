@@ -6,27 +6,16 @@ services:
       context: .
       dockerfile: Dockerfile.ubuntu20-mcp-test
     container_name: chunkhound-mcp-test
-    ports:
-      - "8080:8080"  # Code-server web interface
     volumes:
       - ./test-logs:/test-logs
-      - ./test-workspace:/home/coder/project  # Mount workspace for persistence
     working_dir: /mcp-workdir
     environment:
       - PYTHONPATH=/chunkhound
       - CHUNKHOUND_CONFIG=/mcp-workdir/chunkhound.json
-      - OPENAI_API_KEY=sk-test-local-ollama
-      - PASSWORD=test-mcp-2025  # Code-server password
     networks:
       - test-network
     stdin_open: true
     tty: true
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
 
 networks:
   test-network:

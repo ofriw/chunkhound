@@ -5,42 +5,14 @@ Ensures search operations get priority over file processing operations.
 """
 
 import asyncio
-import json
 import logging
-import os
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime
 from enum import IntEnum
-from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
-
-
-# Debug logging function for MCP-safe debugging
-def debug_log(event_type, **data):
-    """Log debug events to file (MCP-safe)."""
-    try:
-        if os.environ.get("CHUNKHOUND_DEBUG_MODE") == "1":
-            debug_dir = Path(".mem/debug")
-            debug_dir.mkdir(parents=True, exist_ok=True)
-            debug_file = debug_dir / f"chunkhound-task-coordinator-debug-{os.getpid()}.jsonl"
-
-            entry = {
-                "timestamp": time.time(),
-                "timestamp_iso": datetime.now().isoformat(),
-                "event": event_type,
-                "process_id": os.getpid(),
-                "data": data,
-            }
-
-            with open(debug_file, "a") as f:
-                f.write(json.dumps(entry) + "\n")
-                f.flush()
-    except:
-        pass  # Silent fail for MCP safety
 
 
 class TaskPriority(IntEnum):
@@ -90,8 +62,7 @@ class TaskCoordinator:
         self._worker_task: asyncio.Task | None = None
         self._shutdown_event = asyncio.Event()
         self._running = False
-        
-        self._stats: dict[str, int] = {
+        self._stats = {
             "tasks_queued": 0,
             "tasks_completed": 0,
             "tasks_failed": 0,
@@ -221,7 +192,6 @@ class TaskCoordinator:
         except asyncio.QueueFull:
             logger.error("Task queue is full, rejecting task")
             raise
-
 
     def get_stats(self) -> dict[str, Any]:
         """Get task coordinator statistics."""

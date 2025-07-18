@@ -11,34 +11,17 @@ RUN apt-get update && apt-get install -y \
     curl \
     git \
     build-essential \
-    wget \
-    jq \
-    sudo \
     && rm -rf /var/lib/apt/lists/*
 
 # Install uv
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
-ENV PATH="/root/.local/bin:$PATH"
-
-# Install code-server
-RUN curl -fsSL https://code-server.dev/install.sh | sh
-
-# Create a non-root user for code-server
-RUN useradd -m -s /bin/bash coder && \
-    echo 'coder ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
-
-# Set up code-server configuration
-RUN mkdir -p /home/coder/.config/code-server && \
-    echo 'bind-addr: 0.0.0.0:8080\nauth: password\npassword: test-mcp-2025\ncert: false' > /home/coder/.config/code-server/config.yaml
-
-# Create VS Code extensions directory
-RUN mkdir -p /home/coder/.local/share/code-server/extensions
+ENV PATH="/root/.cargo/bin:$PATH"
 
 # Create test directories
-RUN mkdir -p /test-data/source /mcp-workdir /home/coder/project
+RUN mkdir -p /test-data/source /mcp-workdir
 
-# Copy comprehensive multi-language test files
-COPY test-workspace/ /test-data/source/
+# Create a single Python test file
+RUN printf 'def calculate_sum(a, b):\n    """Calculate the sum of two numbers"""\n    return a + b\n\ndef calculate_product(a, b):\n    """Calculate the product of two numbers"""\n    return a * b\n\nclass Calculator:\n    def __init__(self):\n        self.history = []\n    \n    def add(self, a, b):\n        result = calculate_sum(a, b)\n        self.history.append(f"add({a}, {b}) = {result}")\n        return result\n    \n    def multiply(self, a, b):\n        result = calculate_product(a, b)\n        self.history.append(f"multiply({a}, {b}) = {result}")\n        return result\n    \n    def get_history(self):\n        return self.history\n' > /test-data/source/calculator.py
 
 # Copy ChunkHound source
 COPY . /chunkhound
@@ -49,22 +32,8 @@ WORKDIR /chunkhound
 # Install ChunkHound dependencies
 RUN uv sync
 
-# Remove the local config file that interferes with our test setup
-RUN rm -f /chunkhound/.chunkhound.json /chunkhound/.chunkhound.db
-
 # Create test configuration
-RUN printf '{\n    "index": {\n        "path": "/test-data/source"\n    },\n    "embedding": {\n        "provider": "openai-compatible",\n        "model": "nomic-embed-text",\n        "base_url": "http://host.docker.internal:11434/v1",\n        "api_key": "sk-test-local-ollama"\n    }\n}' > /mcp-workdir/chunkhound.json
-
-# Create VS Code MCP configuration
-RUN mkdir -p /home/coder/project/.vscode && \
-    printf '{\n  "servers": {\n    "chunkhound": {\n      "type": "stdio",\n      "command": "uv",\n      "args": [\n        "run",\n        "--directory",\n        "/chunkhound",\n        "chunkhound",\n        "mcp"\n      ],\n      "env": {\n        "OPENAI_API_KEY": "sk-test-local-ollama",\n        "CHUNKHOUND_CONFIG": "/test-data/source/.chunkhound.json"\n      }\n    }\n  }\n}' > /home/coder/project/.vscode/mcp.json
-
-# Set proper permissions
-RUN chown -R coder:coder /home/coder /test-data /mcp-workdir
-
-# Create startup script for code-server with MCP
-RUN printf '#!/bin/bash\n\n# Set up environment\nexport PYTHONPATH=/chunkhound\nexport CHUNKHOUND_CONFIG=/home/coder/project/.chunkhound.json\nexport OPENAI_API_KEY="sk-test-local-ollama"\n\necho "Setting up ChunkHound test project..."\n# Create simplified config for project\necho "{\n    \\"index\\": {\n        \\"path\\": \\"/home/coder/project\\"\n    },\n    \\"embedding\\": {\n        \\"provider\\": \\"openai-compatible\\",\n        \\"model\\": \\"nomic-embed-text\\",\n        \\"base_url\\": \\"http://host.docker.internal:11434/v1\\",\n        \\"api_key\\": \\"sk-test-local-ollama\\"\n    }\n}" > /home/coder/project/.chunkhound.json\n\necho "Starting code-server with project directory..."\n# Start code-server in background with project directory\ncd /home/coder/project\ncode-server --bind-addr 0.0.0.0:8080 --auth password /home/coder/project &\n\n# Wait for code-server to start\nsleep 5\n\necho "VS Code with MCP is ready at http://localhost:8080"\necho "Password: test-mcp-2025"\necho "Project directory: /home/coder/project"\n\n# Keep container running\ntail -f /dev/null\n' > /start-code-server.sh && \
-    chmod +x /start-code-server.sh
+RUN printf '{\n    "index": {\n        "path": "/test-data/source"\n    },\n    "embeddings": {\n        "provider": "openai",\n        "model": "all-minilm",\n        "base_url": "http://host.docker.internal:11434/v1"\n    }\n}' > /mcp-workdir/chunkhound.json
 
 # Set default command
-CMD ["/start-code-server.sh"]
+CMD ["/bin/bash"]

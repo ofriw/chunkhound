@@ -6,47 +6,52 @@ from pathlib import Path
 
 def find_project_root(start_path: Path | None = None) -> Path:
     """
-    Find project root directory using strict requirements.
-    
-    Project root is determined ONLY by:
-    1. A positional CLI argument (passed as start_path)
-    2. The presence of .chunkhound.json in the current directory
-    3. Everything else is considered an error and terminates the process
-    
+    Find the project root directory by looking for markers.
+
+    Searches upward from start_path for:
+    1. .chunkhound.db or chunkhound.db (existing database)
+    2. .git directory (git repository root)
+    3. pyproject.toml, package.json, etc. (project files)
+
     Args:
-        start_path: Starting directory from CLI positional argument (optional)
-    
+        start_path: Starting directory (defaults to CHUNKHOUND_PROJECT_ROOT env var or cwd)
+
     Returns:
         Path to project root directory
-        
-    Raises:
-        SystemExit: If no valid project root can be determined
     """
-    import sys
-    
-    if start_path is not None:
-        # CLI positional argument provided - use it directly
-        project_root = Path(start_path).resolve()
-        if not project_root.exists():
-            print(f"Error: Specified project directory does not exist: {project_root}", file=sys.stderr)
-            sys.exit(1)
-        if not project_root.is_dir():
-            print(f"Error: Specified project path is not a directory: {project_root}", file=sys.stderr)
-            sys.exit(1)
-        return project_root
-    
-    # No CLI argument - check for .chunkhound.json in current directory
-    current_dir = Path.cwd()
-    chunkhound_json = current_dir / ".chunkhound.json"
-    
-    if chunkhound_json.exists():
-        return current_dir
-    
-    # No valid project root found - terminate with clear error
-    print(f"Error: No ChunkHound project found.", file=sys.stderr)
-    print(f"Expected .chunkhound.json in current directory: {current_dir}", file=sys.stderr)
-    print(f"Or provide a project directory as a positional argument.", file=sys.stderr)
-    sys.exit(1)
+    if start_path is None:
+        # Check environment variable first, then fall back to cwd
+        project_root_env = os.environ.get("CHUNKHOUND_PROJECT_ROOT")
+        if project_root_env:
+            start_path = Path(project_root_env)
+        else:
+            start_path = Path.cwd()
+
+    current = Path(start_path).resolve()
+
+    # Project markers in order of preference
+    markers = [
+        ".chunkhound.db",
+        ".git",
+        "pyproject.toml",
+        "package.json",
+        "Cargo.toml",
+        "go.mod",
+        ".chunkhound.json",
+    ]
+
+    # Search upward for project markers
+    while current != current.parent:
+        for marker in markers:
+            if (current / marker).exists():
+                return current
+        current = current.parent
+
+    # If no markers found, use project root env var or original cwd
+    project_root_env = os.environ.get("CHUNKHOUND_PROJECT_ROOT")
+    if project_root_env:
+        return Path(project_root_env)
+    return Path.cwd()
 
 
 def get_project_database_path() -> Path:

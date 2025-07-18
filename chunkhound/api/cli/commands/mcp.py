@@ -39,19 +39,6 @@ def mcp_command(args: argparse.Namespace) -> None:
         if args.db is not None:
             cmd.extend(["--db", str(args.db)])
 
-    # Handle transport selection
-    if hasattr(args, 'http') and args.http:
-        cmd.extend(["--transport", "http"])
-        
-        # Add host and port for HTTP transport
-        if hasattr(args, 'host'):
-            cmd.extend(["--host", args.host])
-        if hasattr(args, 'port'):
-            cmd.extend(["--port", str(args.port)])
-    else:
-        # Default to stdio transport
-        cmd.extend(["--transport", "stdio"])
-
     # Inherit current environment - the centralized config will handle API keys
     env = os.environ.copy()
 
@@ -82,10 +69,10 @@ def mcp_command(args: argparse.Namespace) -> None:
         if venv_python.exists():
             cmd[0] = str(venv_python)
 
-    # Note: Project root detection is now handled internally by find_project_root()
-    # The MCP server will detect project root automatically based on CLI args or .chunkhound.json
+    # Set environment variable for config file search if path provided
+    if hasattr(args, 'path') and args.path != Path("."):
+        env["CHUNKHOUND_PROJECT_ROOT"] = str(args.path.resolve())
 
-    # Use subprocess for both stdio and HTTP transports
     process = subprocess.run(
         cmd,
         stdin=sys.stdin,
@@ -93,6 +80,7 @@ def mcp_command(args: argparse.Namespace) -> None:
         stderr=sys.stderr,  # Allow stderr for MCP SDK internal error handling
         env=env,  # Pass environment variables to subprocess
     )
+
     # Exit with the same code as the subprocess
     sys.exit(process.returncode)
 

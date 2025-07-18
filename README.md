@@ -51,10 +51,6 @@ uv run chunkhound mcp /path/to/your/project
 # Searches for config at /path/to/your/project/.chunkhound.json
 # Watches /path/to/your/project for changes
 
-# 3. Optional: Use HTTP transport for enhanced VS Code compatibility
-uv run chunkhound mcp --http              # HTTP on 127.0.0.1:8000
-uv run chunkhound mcp --http --port 8080  # Custom port
-
 # Optional: Set OpenAI API key for semantic search
 export CHUNKHOUND_EMBEDDING__API_KEY="sk-your-key-here"
 
@@ -93,37 +89,9 @@ uv run chunkhound mcp       # Automatically uses /my/project/.chunkhound.json
 - **Code context** - AI assistants understand your codebase structure
 - **Multi-language** - 20+ languages supported
 - **Real-time updates** - Automatically watches for file changes
-- **Dual transport** - Both stdio and HTTP transport support
 
 **With API Key:**
 - **Semantic search** - Natural language queries like "find database connection code"
-
-## Transport Options
-
-ChunkHound supports two transport methods for MCP communication:
-
-### Stdio Transport (Default)
-- **Best for**: Most AI assistants and development tools
-- **Pros**: Simple setup, automatic process management
-- **Usage**: `uv run chunkhound mcp`
-
-### HTTP Transport  
-- **Best for**: VS Code, large databases, standalone server deployment
-- **Pros**: Better compatibility with VS Code, supports large responses, separate process isolation
-- **Usage**: `uv run chunkhound mcp --http --port 8000`
-
-**When to use HTTP transport:**
-- VS Code MCP extension (recommended)
-- Large codebases that may hit stdio buffer limits
-- When you need the server to run independently of the IDE
-- Multiple concurrent AI assistant connections
-
-**HTTP transport options:**
-```bash
-uv run chunkhound mcp --http                    # Default: 127.0.0.1:8000
-uv run chunkhound mcp --http --port 8080        # Custom port
-uv run chunkhound mcp --http --host 127.0.0.1   # Custom host (security: localhost only)
-```
 
 ## AI Assistant Setup
 
@@ -191,7 +159,6 @@ Add to `~/.claude.json`:
 <details>
 <summary><strong>VS Code</strong></summary>
 
-**Standard (stdio transport):**
 Add to `.vscode/mcp.json` in your project:
 ```json
 {
@@ -202,23 +169,6 @@ Add to `.vscode/mcp.json` in your project:
     }
   }
 }
-```
-
-**HTTP transport (recommended for VS Code):**
-```json
-{
-  "servers": {
-    "chunkhound": {
-      "url": "http://127.0.0.1:8000/mcp/",
-      "transport": "http"
-    }
-  }
-}
-```
-
-Then start the HTTP server separately:
-```bash
-uv run chunkhound mcp --http --port 8000
 ```
 
 **For specific project directories:**
@@ -417,21 +367,19 @@ Create `.chunkhound.json` in your project root for automatic loading:
     "batch_size": 100,
     "db_batch_size": 500,
     "max_concurrent": 4,
-    "include": [
+    "include_patterns": [
       "**/*.py",
       "**/*.ts",
       "**/*.jsx"
     ],
-    "exclude": [
+    "exclude_patterns": [
       "**/node_modules/**",
       "**/__pycache__/**",
       "**/dist/**"
     ]
   },
   "mcp": {
-    "transport": "stdio",
-    "host": "127.0.0.1",
-    "port": 8000
+    "transport": "stdio"
   },
   "debug": false
 }
@@ -537,8 +485,8 @@ chunkhound.json
   - `batch_size`: Files to process per batch
   - `db_batch_size`: Database records per transaction
   - `max_concurrent`: Parallel file processing limit
-  - `include`: Glob patterns for files to index
-  - `exclude`: Glob patterns to ignore
+  - `include_patterns`: Glob patterns for files to index
+  - `exclude_patterns`: Glob patterns to ignore
 
 - **`debug`**: Enable debug logging
 
