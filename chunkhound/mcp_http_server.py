@@ -149,12 +149,11 @@ async def ensure_initialization():
             _task_coordinator = TaskCoordinator(max_queue_size=1000)
             await _task_coordinator.start()
             
-            # Initialize file watcher (optional for HTTP server)
+            # Initialize file watcher for HTTP server
             try:
                 _file_watcher = FileWatcherManager()
-                # Skip file watcher initialization for HTTP server to avoid complexity
-                # HTTP server is typically used for stateless operations
-                pass
+                # Enable file watcher for HTTP server to support real-time updates
+                watcher_success = await _file_watcher.initialize(process_file_change)
             except Exception as fw_error:
                 # Non-fatal for HTTP server
                 if debug_mode:
@@ -186,6 +185,10 @@ async def process_file_change(file_path: Path, event_type: str):
     This function is called by the filesystem watcher when files change.
     Uses the task coordinator to ensure file processing doesn't block search operations.
     """
+    from chunkhound.file_watcher import debug_log
+    
+    debug_log("http_process_file_change_entry", file_path=str(file_path), event_type=event_type)
+    
     global _database, _embedding_manager, _task_coordinator
     
     if not _database:
@@ -195,8 +198,14 @@ async def process_file_change(file_path: Path, event_type: str):
         """Execute the actual file processing logic."""
         try:
             if event_type == "deleted":
-                # Remove file from database with cleanup tracking
-                await _database.delete_file_completely_async(str(file_path))
+                # Remove file and its chunks using same approach as CLI indexer
+                # This ensures consistent transaction handling and prevents race conditions
+                removed_chunks = await _database._indexing_coordinator.remove_file(str(file_path))
+                
+                # Log deletion result for debugging
+                debug_mode = os.getenv("CHUNKHOUND_DEBUG", "").lower() in ("true", "1", "yes")
+                if debug_mode and removed_chunks > 0:
+                    print(f"[MCP-HTTP-SERVER] Removed {removed_chunks} chunks from deleted file: {file_path}", file=sys.stderr)
             else:
                 # Process file (created, modified, moved)
                 if file_path.exists() and file_path.is_file():
@@ -222,7 +231,15 @@ async def process_file_change(file_path: Path, event_type: str):
                             break
                     
                     if not should_exclude:
-                        await _database.process_file_async(str(file_path))
+                        # Process file through IndexingCoordinator for atomic transaction handling
+                        result = await _database._indexing_coordinator.process_file(file_path)
+                        
+                        # Handle processing results with same logic as CLI indexer
+                        if result["status"] not in ["success", "up_to_date", "skipped", "no_content", "no_chunks"]:
+                            # Log processing errors for debugging
+                            debug_mode = os.getenv("CHUNKHOUND_DEBUG", "").lower() in ("true", "1", "yes")
+                            if debug_mode:
+                                print(f"[MCP-HTTP-SERVER] File processing failed: {result}", file=sys.stderr)
         except Exception as e:
             # Log error but don't crash the server
             debug_mode = os.getenv("CHUNKHOUND_DEBUG", "").lower() in ("true", "1", "yes")

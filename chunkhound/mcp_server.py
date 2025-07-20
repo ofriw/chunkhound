@@ -22,6 +22,7 @@ from mcp.server.lowlevel import NotificationOptions
 from mcp.server.models import InitializationOptions
 
 from chunkhound.version import __version__
+from chunkhound.file_watcher import debug_log
 
 # Disable all logging for MCP server to prevent interference with JSON-RPC
 logging.disable(logging.CRITICAL)
@@ -413,7 +414,9 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
                 # print(f"❌ MCP SERVER ERROR: {error_msg}", file=sys.stderr)
                 raise ImportError(error_msg)
 
+            debug_log("mcp_server_initializing_watcher")
             watcher_success = await _file_watcher.initialize(process_file_change)
+            debug_log("mcp_server_watcher_initialized", success=watcher_success)
             if not watcher_success:
                 # FAIL FAST: file watcher initialization failed
                 error_msg = (
@@ -719,18 +722,34 @@ async def process_file_change(file_path: Path, event_type: str):
     
     global _database, _embedding_manager, _task_coordinator, _server_config
 
+    # DEBUG: Log entry point
+    debug_log("process_file_change_entry", file_path=str(file_path), file_event_type=event_type)
+
     if not _database or not _server_config:
+        debug_log("process_file_change_abort", reason="missing_database_or_config")
         return
 
     async def _execute_file_processing():
         """Execute the actual file processing logic."""
+        debug_log("execute_file_processing_start", file_path=str(file_path), file_event_type=event_type)
         try:
             if event_type == "deleted":
-                # Remove file from database with cleanup tracking
-                await _database.delete_file_completely_async(str(file_path))
+                debug_log("processing_deletion", file_path=str(file_path))
+                # Remove file and its chunks using same approach as CLI indexer
+                # This ensures consistent transaction handling and prevents race conditions
+                removed_chunks = await _database._indexing_coordinator.remove_file(str(file_path))
+                
+                debug_log("deletion_complete", file_path=str(file_path), removed_chunks=removed_chunks)
+                
+                # Log deletion result for debugging
+                debug_mode = os.getenv("CHUNKHOUND_DEBUG", "").lower() in ("true", "1", "yes")
+                if debug_mode and removed_chunks > 0:
+                    print(f"[MCP-SERVER] Removed {removed_chunks} chunks from deleted file: {file_path}", file=sys.stderr)
             else:
+                debug_log("processing_file_change", file_path=str(file_path), file_event_type=event_type)
                 # Process file (created, modified, moved)
                 if file_path.exists() and file_path.is_file():
+                    debug_log("file_exists_check_passed", file_path=str(file_path))
                     # Check if file should be excluded before processing with .gitignore support
                     try:
                         from .utils.project_detection import find_project_root
@@ -740,7 +759,7 @@ async def process_file_change(file_path: Path, event_type: str):
                     # Find project root for pattern matching
                     project_root = find_project_root()
                     
-                    # FIXED: Use stored server config for consistency with initial indexing
+                    # Use stored server config for consistency with initial indexing
                     # This ensures file change processing uses the same configuration as initial indexing
                     exclude_patterns = _server_config.indexing.exclude or []
 
@@ -764,31 +783,64 @@ async def process_file_change(file_path: Path, event_type: str):
                             break
 
                     if should_exclude:
+                        debug_log("file_excluded", file_path=str(file_path), exclude_patterns=exclude_patterns)
                         return
 
-                    # Phase 4: Verify file is fully written before processing
+                    debug_log("checking_file_completion", file_path=str(file_path))
+                    # Verify file is fully written before processing to avoid partial content
                     if not await _wait_for_file_completion(file_path):
+                        debug_log("file_completion_failed", file_path=str(file_path))
                         return  # Skip if file not ready
+                    
+                    debug_log("file_completion_passed", file_path=str(file_path))
 
-                    # Use standard processing path with smart diff for correct deduplication
+                    debug_log("calling_indexing_coordinator", file_path=str(file_path))
+                    # Process file through IndexingCoordinator for atomic transaction handling
+                    # This handles smart diff, chunk comparison, and embedding preservation
                     result = await _database._indexing_coordinator.process_file(
                         file_path
                     )
 
-                    # Transaction already committed by IndexingCoordinator with backup/rollback safety
+                    debug_log("indexing_coordinator_result", file_path=str(file_path), result=result)
+
+                    # Handle processing results with same logic as CLI indexer
+                    if result["status"] in ["success", "up_to_date"]:
+                        debug_log("processing_success", file_path=str(file_path), status=result["status"])
+                        # success: file was modified and re-indexed  
+                        # up_to_date: smart diff detected no changes (valid outcome)
+                        pass
+                    elif result["status"] in ["skipped", "no_content", "no_chunks"]:
+                        debug_log("processing_skipped", file_path=str(file_path), status=result["status"])
+                        # File skipped for valid reasons (empty file, unsupported type, etc.)
+                        pass
+                    else:
+                        debug_log("processing_error", file_path=str(file_path), result=result)
+                        # Log processing errors for debugging
+                        _log_processing_error(
+                            Exception(f"File processing returned: {result}"), 
+                            event_type, 
+                            file_path
+                        )
+                else:
+                    debug_log("file_not_found", file_path=str(file_path), exists=file_path.exists(), is_file=file_path.is_file() if file_path.exists() else False)
         except Exception as e:
+            debug_log("execute_file_processing_exception", file_path=str(file_path), error=str(e))
             _log_processing_error(e, event_type, file_path)
 
     # Queue file processing as low-priority task to avoid blocking searches
+    debug_log("queuing_task", file_path=str(file_path), has_coordinator=bool(_task_coordinator))
     if _task_coordinator:
         try:
             await _task_coordinator.queue_task(
                 TaskPriority.LOW, _execute_file_processing
             )
-        except Exception:
+            debug_log("task_queued_success", file_path=str(file_path))
+        except Exception as e:
+            debug_log("task_queue_failed", file_path=str(file_path), error=str(e))
             # Fallback to direct processing if queue is full or coordinator is down
             await _execute_file_processing()
     else:
+        debug_log("no_task_coordinator_direct_processing", file_path=str(file_path))
         # Fallback to direct processing if no task coordinator
         await _execute_file_processing()
 

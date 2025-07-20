@@ -350,20 +350,6 @@ class Database:
         """
         return self._provider.delete_file_completely(file_path)
     
-    async def delete_file_completely_async(self, file_path: str) -> bool:
-        """Async version of delete_file_completely for non-blocking operation.
-
-        Args:
-            file_path: Path to file to delete completely
-
-        Returns:
-            True if deletion successful, False otherwise
-        """
-        if hasattr(self._provider, 'delete_file_completely_async'):
-            return await self._provider.delete_file_completely_async(file_path)
-        else:
-            # Fallback for providers without async support
-            return self._provider.delete_file_completely(file_path)
 
     def get_chunks_by_file_id(self, file_id: int) -> list[dict[str, Any]]:
         """Get chunks for a specific file."""
