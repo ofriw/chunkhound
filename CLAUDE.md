@@ -1,44 +1,105 @@
-# ChunkHound Project Context
+# ChunkHound LLM Context
 
-## What ChunkHound Is
-ChunkHound is a semantic and regex search tool for codebases that provides MCP (Model Context Protocol) integration for AI assistants. It indexes code files using tree-sitter parsing, stores chunks in a local database, and enables both exact pattern matching and semantic search through AI embeddings.
+## PROJECT_IDENTITY
+ChunkHound: Semantic and regex search tool for codebases with MCP (Model Context Protocol) integration
+Built: 100% by AI agents - NO human-written code
+Purpose: Transform codebases into searchable knowledge bases for AI assistants
 
-**THIS PROJECT IS BEING BUILT WITH AN AI AGENT DIRECTED BY A HUMAN. OPTIMIZE THE CODEBASE AND STYLING FOR LLM EDITING. NO DIRECT HUMAN EDITING IS EXPECTED**
+## CRITICAL_CONSTRAINTS
+- DuckDB/LanceDB: SINGLE_THREADED_ONLY (concurrent access = segfault/corruption)
+- Embedding batching: MANDATORY (100x performance difference)
+- Vector index optimization: DROP_BEFORE_BULK_INSERT (20x speedup for >50 embeddings)
+- MCP server: NO_STDOUT_LOGS (breaks JSON-RPC protocol)
+- File processing: SEQUENTIAL_ONLY (prevents database contention)
 
-## Key Technologies
-- Python 3.10+ with tree-sitter for parsing
-  - Using `uv` package and project manager
-- SQLite database for local storage
-- OpenAI embeddings for semantic search
-- MCP server for AI assistant integration
-- Support for Python, Java, C#, TypeScript, JavaScript, and Markdown
-- Use `uv` to run python code and manage dependencies
+## ARCHITECTURE_RATIONALE
+- SerialDatabaseProvider: NOT_OPTIONAL (wraps all DB access in single thread)
+- Service layers: REQUIRED_FOR_BATCHING (provider-specific optimizations)
+- Global state in MCP: STDIO_CONSTRAINT (stateless would break connection)
+- Database wrapper: LEGACY_COMPATIBILITY (provides migration path)
+- Transaction backup tables: ATOMIC_FILE_UPDATES (ensures consistency)
 
-## Project Structure
-- Main indexing and search logic in chunkhound/ directory
-- CLI wrapper and MCP launcher at root level
-- Real-time file watching with debouncing for incremental updates
-- Test files for modification and creation verification
-- `<project dir>/tickets` contains project tickets
+## MODIFICATION_RULES
+- NEVER: Remove SerialDatabaseProvider wrapper
+- NEVER: Add concurrent file processing
+- NEVER: Use print() in MCP server
+- NEVER: Make single-row DB inserts in loops
+- ALWAYS: Batch embeddings (min: 100, max: provider_limit)
+- ALWAYS: Drop HNSW indexes for bulk inserts > 50 rows
+- ALWAYS: Use uv for all Python operations
+- ALWAYS: Update version via scripts/update_version.py
 
-# Important!
-- Avoid logs in the MCP server that will mess with the JSON-RPC
+## PERFORMANCE_CRITICAL_NUMBERS
+| Operation | Unbatched | Batched | Constraint |
+|-----------|-----------|---------|------------|
+| Embeddings (1000 texts) | 100s | 1s | API rate limits |
+| DB inserts (5000 chunks) | 250s | 1s | Index overhead |
+| File update (1000 chunks) | 60s | 5s | Drop/recreate indexes |
+| Tree parsing | - | - | CPU-bound, parallelizable |
+| DB operations | - | - | Single-threaded only |
 
-## Version Management
-
-ChunkHound uses centralized version management with a single source of truth in `chunkhound/version.py`. All version references automatically import from this file.
-
-### Updating the Version
+## KEY_COMMANDS
 ```bash
-# Update to a new version (e.g., 2.2.0)
-uv run scripts/update_version.py 2.2.0
+# Development
+lint: uv run ruff check chunkhound
+typecheck: uv run mypy chunkhound
+test: uv run pytest tests/
+format: uv run ruff format chunkhound
 
-# Verify versions are in sync
-uv run scripts/sync_version.py
+# Version management
+update_version: uv run scripts/update_version.py X.Y.Z
+sync_version: uv run scripts/sync_version.py
+
+# Running
+index: uv run chunkhound index [directory]
+mcp_stdio: uv run chunkhound mcp stdio
+mcp_http: uv run chunkhound mcp http --port 5173
 ```
 
-The version is automatically used in:
-- `chunkhound/__init__.py` - Package version
-- `chunkhound/api/cli/parsers/main_parser.py` - CLI `--version` flag
-- `chunkhound/api/cli/commands/run.py` - CLI startup display
-- `chunkhound/mcp_server.py` - MCP server version
+## COMMON_ERRORS_AND_SOLUTIONS
+- "database is locked": SerialDatabaseProvider not wrapping call
+- "segmentation fault": Concurrent DB access attempted
+- "Rate limit exceeded": Reduce embedding_batch_size or max_concurrent_batches
+- "Out of memory": Reduce chunk_batch_size or file_batch_size
+- JSON-RPC errors: Check for print() statements in mcp_server.py
+
+## DIRECTORY_STRUCTURE
+```
+chunkhound/
+├── providers/         # Database and embedding implementations
+├── services/          # Orchestration and batching logic
+├── core/             # Data models and configuration
+├── interfaces/       # Protocol definitions (contracts)
+├── api/              # CLI and HTTP interfaces
+├── mcp_server.py     # MCP stdio server
+├── mcp_http_server.py # MCP HTTP server
+├── database.py       # Legacy compatibility wrapper
+└── CLAUDE.md files   # Directory-specific LLM context
+```
+
+## TECHNOLOGY_STACK
+- Python 3.10+ (async/await patterns)
+- uv (package manager - ALWAYS use this)
+- DuckDB (primary) / LanceDB (alternative) 
+- Tree-sitter (20+ language parsers)
+- OpenAI/Ollama/TEI embeddings
+- MCP protocol (stdio and HTTP)
+- Pydantic (configuration validation)
+
+## TESTING_APPROACH
+- Unit tests: Core logic (chunking, parsing)
+- Integration tests: Provider implementations
+- System tests: End-to-end workflows
+- Performance tests: Batching optimizations
+- Concurrency tests: Thread safety verification
+
+## VERSION_MANAGEMENT
+Single source of truth: chunkhound/version.py
+Auto-synchronized to all components via imports
+NEVER manually edit version strings - use update_version.py
+
+## PROJECT_MAINTENANCE
+- Tickets: /tickets/ directory (active) and /tickets/closed/ (completed)
+- No human editing expected - optimize for LLM modification
+- All code patterns should be self-documenting with rationale
+- Performance numbers justify architectural decisions

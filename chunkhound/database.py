@@ -1,16 +1,21 @@
 """Database module for ChunkHound - Service layer delegation wrapper.
 
-This is a compatibility wrapper that delegates operations to the new modular
-service layer.
-The original monolithic Database class (2055 lines) has been moved to
-database_legacy.py.
-This new implementation reduces the Database class to ~150 lines by delegating to:
-- DuckDBProvider for database operations
-- IndexingCoordinator for file processing workflows
-- SearchService for semantic and regex search
-- EmbeddingService for vector operations
+# FILE_CONTEXT: Compatibility wrapper for legacy API
+# ROLE: Maintains backward compatibility while delegating to service layer
+# CRITICAL: DO NOT REMOVE - required for existing integrations
+# ARCHITECTURE_DECISION: Wrapper pattern chosen over breaking changes
 
-This maintains backward compatibility while using the new modular architecture.
+## WHY_THIS_EXISTS
+The original monolithic Database class (2055 lines) violated SOLID principles.
+This wrapper provides the same API while delegating to specialized services:
+- DuckDBProvider: Thread-safe database operations
+- IndexingCoordinator: Orchestrates parse→embed→store workflow
+- SearchService: Optimized query execution
+- EmbeddingService: Batched vector generation
+
+## MIGRATION_PATH
+New code should use create_database_with_dependencies() instead of direct instantiation.
+Existing code continues to work through this compatibility layer.
 """
 
 import threading
@@ -50,8 +55,10 @@ from .file_discovery_cache import FileDiscoveryCache
 class Database:
     """Database connection manager - delegates to service layer.
 
-    This is a compatibility wrapper that maintains the original Database API
-    while delegating operations to the new modular service layer architecture.
+    # CLASS_CONTEXT: Legacy API wrapper for backward compatibility
+    # RELATIONSHIP: Delegates_to -> IndexingCoordinator, SearchService, Provider
+    # CONSTRAINT: Must maintain exact API compatibility with v1.x
+    # PERFORMANCE: No overhead - direct delegation to services
     """
 
     def __init__(
@@ -65,6 +72,15 @@ class Database:
         provider: Any | None = None,
     ):
         """Initialize database connection and service layer.
+
+        # INITIALIZATION_PATHS:
+        # 1. PREFERRED: Pass pre-configured services (dependency injection)
+        # 2. LEGACY: Auto-configure from registry (triggers warning)
+        
+        # CRITICAL: Services must be properly configured with:
+        # - SerialDatabaseProvider wrapper (thread safety)
+        # - Correct batch sizes per provider
+        # - Rate limiting for embeddings
 
         Args:
             db_path: Path to database file or ":memory:" for in-memory database
@@ -81,14 +97,17 @@ class Database:
         # Connection synchronization lock
         self._connection_lock = threading.RLock()
 
-        # Use injected dependencies if provided (preferred path)
+        # SECTION: Dependency_Injection_Path (PREFERRED)
+        # PATTERN: Accept pre-configured services for proper initialization
         if indexing_coordinator and search_service and embedding_service and provider:
             self._indexing_coordinator = indexing_coordinator
             self._search_service = search_service
             self._embedding_service = embedding_service
             self._provider = provider
         else:
-            # Legacy path: Auto-configure (deprecated, use create_database_with_dependencies)
+            # SECTION: Legacy_Auto_Configuration (DEPRECATED)
+            # WARNING: Auto-configuration may not set optimal batch sizes
+            # MIGRATION: Use create_database_with_dependencies() instead
             logger.warning(
                 "Using legacy Database initialization - consider using create_database_with_dependencies()"
             )
@@ -173,6 +192,10 @@ class Database:
 
     # =============================================================================
     # File Processing Methods - Delegate to IndexingCoordinator
+    # PATTERN: All file operations go through IndexingCoordinator for:
+    # - File-level locking (prevents concurrent modification)
+    # - Transaction boundaries (atomic updates)
+    # - Proper batching (parse→embed→store workflow)
     # =============================================================================
 
     async def process_file(
@@ -180,7 +203,10 @@ class Database:
     ) -> dict[str, Any]:
         """Process a file end-to-end: parse, chunk, and store in database.
 
-        Delegates to IndexingCoordinator for actual processing.
+        # DELEGATION: IndexingCoordinator handles the complex workflow
+        # WORKFLOW: Parse(CPU) → Chunk(CPU) → Embed(IO) → Store(Serial)
+        # CONSTRAINT: One file at a time to prevent DB contention
+        # PERFORMANCE: Batching happens inside coordinator
         """
         return await self._indexing_coordinator.process_file(file_path, skip_embeddings)
 
@@ -203,7 +229,11 @@ class Database:
         )
 
     # =============================================================================
-    # Search Methods - Delegate to SearchService
+    # Search Methods - Delegate to SearchService  
+    # PATTERN: SearchService optimizes queries per provider:
+    # - DuckDB: HNSW index with pre-filtering
+    # - LanceDB: IVF index with post-filtering
+    # PERFORMANCE: Provider-specific optimizations applied automatically
     # =============================================================================
 
     def search_semantic(
@@ -247,6 +277,9 @@ class Database:
 
     # =============================================================================
     # Database Operations - Delegate to Provider
+    # PATTERN: Direct delegation to provider for CRUD operations
+    # CRITICAL: All operations go through SerialDatabaseProvider wrapper
+    # THREAD_SAFETY: Single executor thread prevents corruption
     # =============================================================================
 
     def get_stats(self) -> dict[str, Any]:
@@ -266,6 +299,9 @@ class Database:
         size_bytes: int | None = None,
     ) -> int:
         """Insert a new file record."""
+        # PATTERN: Type conversion for backward compatibility
+        # LEGACY: Accepts dict format from v1.x
+        # MODERN: Converts to typed models internally
         # Import here to avoid circular dependency
         from chunkhound.core.models import File
         from chunkhound.core.types.common import FilePath, Language, Timestamp
@@ -359,6 +395,9 @@ class Database:
 
     # =============================================================================
     # Process Coordination Methods - Legacy Support
+    # PATTERN: Connection management for multi-process scenarios
+    # USE_CASE: File watcher needs to detach/reattach for child processes
+    # CRITICAL: Must use connection_lock to prevent race conditions
     # =============================================================================
 
     def detach_database(self) -> bool:
@@ -416,6 +455,9 @@ class Database:
 
     # =============================================================================
     # Legacy Compatibility Properties
+    # PATTERN: Expose internal state for backward compatibility
+    # WARNING: New code should not use these properties
+    # MIGRATION: Use service methods directly instead
     # =============================================================================
 
     # Legacy compatibility - expose db_path as attribute

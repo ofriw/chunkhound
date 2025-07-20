@@ -2,6 +2,11 @@
 """
 ChunkHound MCP Server - Model Context Protocol implementation
 Provides code search capabilities via stdin/stdout JSON-RPC protocol
+
+# FILE_CONTEXT: MCP stdio server for AI assistant integration
+# CRITICAL: NO stdout output allowed - breaks JSON-RPC protocol
+# ARCHITECTURE: Global state required for stdio communication model
+# CONSTRAINT: Single instance per database (enforced via ProcessDetector)
 """
 
 import asyncio
@@ -24,7 +29,9 @@ from mcp.server.models import InitializationOptions
 from chunkhound.version import __version__
 from chunkhound.file_watcher import debug_log
 
-# Disable all logging for MCP server to prevent interference with JSON-RPC
+# CRITICAL: Disable ALL logging to prevent JSON-RPC corruption
+# REASON: Any stdout output breaks the protocol
+# PATTERN: All debug output must use stderr or be disabled
 logging.disable(logging.CRITICAL)
 for logger_name in ["", "mcp", "server", "fastmcp"]:
     logging.getLogger(logger_name).setLevel(logging.CRITICAL + 1)
@@ -64,8 +71,10 @@ except ImportError:
     from chunkhound.signal_coordinator import SignalCoordinator
     from chunkhound.task_coordinator import TaskCoordinator, TaskPriority
 
-# Global database, embedding manager, and file watcher instances
-# Global state management
+# SECTION: Global_State_Management
+# RATIONALE: MCP stdio protocol requires persistent state across requests
+# CONSTRAINT: Cannot use dependency injection - no request context in stdio
+# PATTERN: Initialize once in lifespan, reuse for all operations
 _database: Database | None = None
 _embedding_manager: EmbeddingManager | None = None
 _file_watcher: FileWatcherManager | None = None
@@ -80,7 +89,12 @@ server = Server("ChunkHound Code Search")
 
 
 def _log_processing_error(e: Exception, event_type: str, file_path: Path) -> None:
-    """Log file processing errors without corrupting JSON-RPC."""
+    """Log file processing errors without corrupting JSON-RPC.
+    
+    # CRITICAL: Must use stderr, never stdout
+    # PATTERN: Only log in debug mode to minimize output
+    # FORMAT: [MCP-SERVER] prefix for grep filtering
+    """
     debug_mode = os.getenv("CHUNKHOUND_DEBUG", "").lower() in ("true", "1", "yes")
     if debug_mode:
         print(f"[MCP-SERVER] Error processing {event_type} for {file_path}: {e}", file=sys.stderr)
@@ -142,7 +156,13 @@ def log_environment_diagnostics():
 
 @asynccontextmanager
 async def server_lifespan(server: Server) -> AsyncIterator[dict]:
-    """Manage server startup and shutdown lifecycle."""
+    """Manage server startup and shutdown lifecycle.
+    
+    # LIFECYCLE: Initialize → Serve requests → Cleanup
+    # CRITICAL: All initialization must complete before serving
+    # CLEANUP: Must stop file watcher, task coordinator, close DB
+    # ERROR_HANDLING: Continue on non-critical failures (e.g., embeddings)
+    """
     global \
         _database, \
         _embedding_manager, \
@@ -153,10 +173,14 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
         _initialization_complete, \
         _server_config
 
-    # Set MCP mode to suppress stderr output that interferes with JSON-RPC
+    # ENVIRONMENT: Set MCP mode flag for other components
+    # PURPOSE: Suppress any output that might break JSON-RPC
     os.environ["CHUNKHOUND_MCP_MODE"] = "1"
 
-    # Check debug flag from environment or config
+    # PATTERN: Debug mode with commented prints
+    # REASON: Even stderr output can interfere with some MCP clients
+    # USAGE: Uncomment specific prints when debugging issues
+    # ALTERNATIVE: Use debug_log() for structured logging
     debug_mode = os.getenv("CHUNKHOUND_DEBUG", "").lower() in ("true", "1", "yes")
     if debug_mode:
         # print("Server lifespan: Starting initialization", file=sys.stderr)
@@ -241,7 +265,8 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
             pass
         
         # CRITICAL: Check for existing MCP server instances BEFORE database connection
-        # This prevents the database lock conflict that causes TaskGroup errors
+        # BUG_FIX: Prevents database lock conflict causing TaskGroup errors
+        # PATTERN: Use ProcessDetector to enforce single-instance constraint
         try:
             from .process_detection import ProcessDetector
         except ImportError:
@@ -258,8 +283,9 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
                 f"Please stop the existing server first or use a different database path."
             )
         
-        # Register this MCP server instance BEFORE database connection
-        # This prevents race conditions where multiple servers try to start simultaneously
+        # RACE_CONDITION_FIX: Register PID before database connection
+        # PREVENTS: Multiple servers starting simultaneously
+        # CLEANUP: ProcessDetector handles cleanup on exit
         process_detector.register_mcp_server(os.getpid())
         if debug_mode:
             # print(f"Server lifespan: Registered MCP server PID {os.getpid()}", file=sys.stderr)
@@ -277,7 +303,9 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
             #     file=sys.stderr,
             # )
             pass
-        # Setup embedding provider (optional - continue if it fails)
+        # SECTION: Embedding_Provider_Setup (OPTIONAL)
+        # PATTERN: Continue without embeddings if setup fails
+        # COMMON_FAILURE: Missing API key - expected for search-only usage
         try:
             # Create provider using unified factory
             provider = EmbeddingProviderFactory.create_provider(
@@ -338,9 +366,10 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
             embedding_manager=_embedding_manager,
         )
         try:
-            # CRITICAL: Ensure thread-safe database initialization for MCP server
-            # The database connection must be established before any async tasks start
-            # to prevent concurrent database operations during initialization
+            # CRITICAL: Thread-safe database initialization
+            # CONSTRAINT: Must connect before any async tasks start
+            # PREVENTS: Concurrent operations during initialization
+            # USES: SerialDatabaseProvider for thread safety
             _database.connect()
             if debug_mode:
                 # print(
@@ -710,8 +739,10 @@ async def process_file_change(file_path: Path, event_type: str):
     """
     Process a file change event by updating the database.
 
-    This function is called by the filesystem watcher when files change.
-    Uses the task coordinator to ensure file processing doesn't block search operations.
+    # ENTRY_POINT: Called by FileWatcher on filesystem events
+    # PATTERN: Non-blocking via TaskCoordinator
+    # PRIORITY: File changes are LOW priority (search is HIGH)
+    # CONSTRAINT: Must wait for server initialization
     """
     # Wait for server initialization to complete
     try:
@@ -795,8 +826,9 @@ async def process_file_change(file_path: Path, event_type: str):
                     debug_log("file_completion_passed", file_path=str(file_path))
 
                     debug_log("calling_indexing_coordinator", file_path=str(file_path))
-                    # Process file through IndexingCoordinator for atomic transaction handling
-                    # This handles smart diff, chunk comparison, and embedding preservation
+                    # DELEGATION: IndexingCoordinator handles complex workflow
+                    # FEATURES: Smart diff, chunk comparison, embedding preservation
+                    # TRANSACTION: Atomic updates prevent partial states
                     result = await _database._indexing_coordinator.process_file(
                         file_path
                     )
