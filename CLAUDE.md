@@ -24,6 +24,8 @@ Purpose: Transform codebases into searchable knowledge bases for AI assistants
 - NEVER: Add concurrent file processing
 - NEVER: Use print() in MCP server
 - NEVER: Make single-row DB inserts in loops
+- NEVER: Use forward references (quotes) in type annotations unless needed
+- ALWAYS: Run smoke tests before committing (uv run pytest tests/test_smoke.py)
 - ALWAYS: Batch embeddings (min: 100, max: provider_limit)
 - ALWAYS: Drop HNSW indexes for bulk inserts > 50 rows
 - ALWAYS: Use uv for all Python operations
@@ -44,6 +46,7 @@ Purpose: Transform codebases into searchable knowledge bases for AI assistants
 lint: uv run ruff check chunkhound
 typecheck: uv run mypy chunkhound
 test: uv run pytest tests/
+smoke: uv run pytest tests/test_smoke.py -v  # ALWAYS run before commits
 format: uv run ruff format chunkhound
 
 # Version management
@@ -62,6 +65,7 @@ mcp_http: uv run chunkhound mcp http --port 5173
 - "Rate limit exceeded": Reduce embedding_batch_size or max_concurrent_batches
 - "Out of memory": Reduce chunk_batch_size or file_batch_size
 - JSON-RPC errors: Check for print() statements in mcp_server.py
+- "unsupported operand type(s) for |: 'str' and 'NoneType'": Forward reference with | operator (remove quotes)
 
 ## DIRECTORY_STRUCTURE
 ```
@@ -87,6 +91,10 @@ chunkhound/
 - Pydantic (configuration validation)
 
 ## TESTING_APPROACH
+- Smoke tests: MANDATORY before any commit (tests/test_smoke.py)
+  - Module imports: Catches syntax/type annotation errors at import time
+  - CLI commands: Ensures all commands at least show help
+  - Server startup: Verifies servers can start without crashes
 - Unit tests: Core logic (chunking, parsing)
 - Integration tests: Provider implementations
 - System tests: End-to-end workflows
@@ -103,3 +111,5 @@ NEVER manually edit version strings - use update_version.py
 - No human editing expected - optimize for LLM modification
 - All code patterns should be self-documenting with rationale
 - Performance numbers justify architectural decisions
+- Smoke tests: MANDATORY guardrails preventing import/startup failures
+- Testing philosophy: Fast feedback loops for AI development cycles

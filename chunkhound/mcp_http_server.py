@@ -52,7 +52,7 @@ _task_coordinator: TaskCoordinator | None = None
 _periodic_indexer: PeriodicIndexManager | None = None
 _signal_coordinator: SignalCoordinator | None = None
 _initialization_lock = None
-_server_config: "Config" | None = None  # Store initial config for consistency
+_server_config: Config | None = None  # Store initial config for consistency
 
 
 async def ensure_initialization():
