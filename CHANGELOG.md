@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.8.0] - 2025-07-20
+
+### Added
+- MCP HTTP transport support alongside stdio transport for flexible deployment options
+
+### Enhanced  
+- Configuration system unified across CLI and MCP components for consistent behavior
+- File change processing reliability improved in MCP servers with better debouncing and coordination
+- Database portability enhanced with relative path storage
+
+### Fixed
+- MCP server initialization deadlocks and startup crashes resolved with proper async coordination
+- File deletion handling improved using IndexingCoordinator for better reliability  
+- MCP server tool discovery enhanced with fallback logic for better error recovery
+- File path resolution improved in DuckDB provider for cross-platform consistency
+
 ## [2.7.0] - 2025-07-12
 
 ### Fixed
@@ -343,7 +359,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 For more information, visit: https://github.com/chunkhound/chunkhound
 
-[Unreleased]: https://github.com/chunkhound/chunkhound/compare/v2.7.0...HEAD
+[Unreleased]: https://github.com/chunkhound/chunkhound/compare/v2.8.0...HEAD
+[2.8.0]: https://github.com/chunkhound/chunkhound/compare/v2.7.0...v2.8.0
 [2.7.0]: https://github.com/chunkhound/chunkhound/compare/v2.6.3...v2.7.0
 [2.6.3]: https://github.com/chunkhound/chunkhound/compare/v2.6.2...v2.6.3
 [2.6.2]: https://github.com/chunkhound/chunkhound/compare/v2.6.1...v2.6.2
