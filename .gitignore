@@ -235,9 +235,13 @@ tmp_test/
 # Test artifacts
 test-*.db
 test.db
-test_*.py
 test_output.log
 *_hypothesis.py
+
+# Temporary test files (not permanent test suite)
+manual_test_*.py
+debug_test_*.py
+temp_test_*.py
 
 # CLI distribution artifacts
 chunkhound-cli-dist/
