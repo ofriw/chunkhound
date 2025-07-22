@@ -355,16 +355,8 @@ class Config(BaseModel):
                 embedding_missing = self.embedding.get_missing_config()
                 for item in embedding_missing:
                     missing.append(f"embedding.{item}")
-        else:
-            # If embedding is None, check what would be missing for default provider
-            try:
-                from .embedding_config import EmbeddingConfig
-                default_embedding = EmbeddingConfig(provider="openai")
-                embedding_missing = default_embedding.get_missing_config()
-                for item in embedding_missing:
-                    missing.append(f"embedding.{item}")
-            except Exception:
-                missing.append("embedding.provider")
+        # Note: If embedding is None, we don't assume a default provider
+        # Commands like index and search can work without embeddings
 
         return missing
 
