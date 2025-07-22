@@ -111,7 +111,7 @@ class SerialDatabaseExecutor:
 
             # Get thread-local state
             state = get_thread_local_state()
-            
+
             # Update last activity time for ALL operations
             state["last_activity_time"] = time.time()
 
@@ -150,7 +150,7 @@ class SerialDatabaseExecutor:
 
             # Get thread-local state
             state = get_thread_local_state()
-            
+
             # Update last activity time for ALL operations
             state["last_activity_time"] = time.time()
 
@@ -193,7 +193,7 @@ class SerialDatabaseExecutor:
         def get_activity_time():
             state = get_thread_local_state()
             return state.get("last_activity_time", None)
-        
+
         try:
             future = self._db_executor.submit(get_activity_time)
             return future.result(timeout=1.0)  # Quick operation, short timeout

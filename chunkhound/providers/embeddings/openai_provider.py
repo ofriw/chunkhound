@@ -1,7 +1,6 @@
 """OpenAI embedding provider implementation for ChunkHound - concrete embedding provider using OpenAI API."""
 
 import asyncio
-import os
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -99,7 +98,7 @@ class OpenAIEmbeddingProvider:
         """Ensure the OpenAI client is initialized (must be called from async context)."""
         if self._client is not None and self._client_initialized:
             return
-            
+
         if not OPENAI_AVAILABLE or openai is None:
             raise RuntimeError(
                 "OpenAI library is not available. Install with: pip install openai"
@@ -113,9 +112,9 @@ class OpenAIEmbeddingProvider:
 
         if self._base_url:
             client_kwargs["base_url"] = self._base_url
-            
+
             # Note: We intentionally do NOT create httpx.AsyncClient here
-            # Creating AsyncClient in __init__ (sync context) causes TaskGroup 
+            # Creating AsyncClient in __init__ (sync context) causes TaskGroup
             # errors on Ubuntu when running MCP server from different directories.
             # The OpenAI SDK will create its own httpx client internally when needed.
             # For local/dev environments with self-signed certs, users can set:

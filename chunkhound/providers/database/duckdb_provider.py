@@ -19,15 +19,22 @@ from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
-# Import existing components that will be used by the provider
-from chunkhound.embeddings import EmbeddingManager
 from chunkhound.core.models import Chunk, Embedding, File
 from chunkhound.core.types.common import ChunkType, Language
+
+# Import existing components that will be used by the provider
+from chunkhound.embeddings import EmbeddingManager
 from chunkhound.providers.database.duckdb.chunk_repository import DuckDBChunkRepository
-from chunkhound.providers.database.duckdb.connection_manager import DuckDBConnectionManager
-from chunkhound.providers.database.duckdb.embedding_repository import DuckDBEmbeddingRepository
+from chunkhound.providers.database.duckdb.connection_manager import (
+    DuckDBConnectionManager,
+)
+from chunkhound.providers.database.duckdb.embedding_repository import (
+    DuckDBEmbeddingRepository,
+)
 from chunkhound.providers.database.duckdb.file_repository import DuckDBFileRepository
-from chunkhound.providers.database.serial_database_provider import SerialDatabaseProvider
+from chunkhound.providers.database.serial_database_provider import (
+    SerialDatabaseProvider,
+)
 from chunkhound.providers.database.serial_executor import (
     _executor_local,
     track_operation,
@@ -65,7 +72,7 @@ class DuckDBProvider(SerialDatabaseProvider):
         super().__init__(db_path, embedding_manager, config)
 
         self.provider_type = "duckdb"  # Identify this as DuckDB provider
-        
+
         # Class-level synchronization for WAL cleanup
         self._wal_cleanup_lock = threading.Lock()
         self._wal_cleanup_done = False
@@ -95,16 +102,16 @@ class DuckDBProvider(SerialDatabaseProvider):
             DuckDB connection object
         """
         import duckdb
-        
+
         # Create a NEW connection for the executor thread
         # This ensures thread safety - only this thread will use this connection
         conn = duckdb.connect(str(self._connection_manager.db_path))
-        
+
         # Load required extensions
         conn.execute("INSTALL vss")
         conn.execute("LOAD vss")
         conn.execute("SET hnsw_enable_experimental_persistence = true")
-        
+
         logger.debug(f"Created new DuckDB connection in executor thread {threading.get_ident()}")
         return conn
 
@@ -165,7 +172,7 @@ class DuckDBProvider(SerialDatabaseProvider):
                 if not self._wal_cleanup_done:
                     self._perform_wal_cleanup_in_executor(conn)
                     self._wal_cleanup_done = True
-            
+
             # Create schema
             self._executor_create_schema(conn, state)
 
@@ -180,7 +187,7 @@ class DuckDBProvider(SerialDatabaseProvider):
         except Exception as e:
             logger.error(f"Database initialization failed: {e}")
             raise
-    
+
     def _perform_wal_cleanup_in_executor(self, conn: Any) -> None:
         """Perform WAL cleanup within the executor thread.
         
@@ -188,13 +195,13 @@ class DuckDBProvider(SerialDatabaseProvider):
         """
         if str(self._connection_manager.db_path) == ":memory:":
             return
-        
+
         db_path = Path(self._connection_manager.db_path)
         wal_file = db_path.with_suffix(db_path.suffix + ".wal")
-        
+
         if not wal_file.exists():
             return
-        
+
         # Check WAL file age
         try:
             wal_age = time.time() - wal_file.stat().st_mtime
@@ -204,7 +211,7 @@ class DuckDBProvider(SerialDatabaseProvider):
                 return
         except OSError:
             pass
-        
+
         # Test WAL validity by running a simple query
         try:
             conn.execute("SELECT 1").fetchone()
@@ -1085,7 +1092,7 @@ class DuckDBProvider(SerialDatabaseProvider):
     def delete_file_completely(self, file_path: str) -> bool:
         """Delete a file and all its chunks/embeddings completely - delegate to file repository."""
         return self._execute_in_db_thread_sync("delete_file_completely", file_path)
-    
+
     async def delete_file_completely_async(self, file_path: str) -> bool:
         """Async version of delete_file_completely for non-blocking operation."""
         return await self._execute_in_db_thread("delete_file_completely", file_path)
@@ -1096,17 +1103,17 @@ class DuckDBProvider(SerialDatabaseProvider):
         """Executor method for delete_file_completely - runs in DB thread."""
         # Track operation for checkpoint management
         track_operation(state)
-        
+
         # Get file ID first
         result = conn.execute(
             "SELECT id FROM files WHERE path = ?", [file_path]
         ).fetchone()
-        
+
         if not result:
             return False
-            
+
         file_id = result[0]
-        
+
         # Delete in correct order due to foreign key constraints
         # 1. Delete embeddings first from all embedding tables
         embedding_tables = self._executor_get_all_embedding_tables(conn, state)
@@ -1118,13 +1125,13 @@ class DuckDBProvider(SerialDatabaseProvider):
                 """,
                 [file_id],
             )
-        
+
         # 2. Delete chunks
         conn.execute("DELETE FROM chunks WHERE file_id = ?", [file_id])
-        
+
         # 3. Delete file
         conn.execute("DELETE FROM files WHERE id = ?", [file_id])
-        
+
         logger.debug(f"File {file_path} and all associated data deleted")
         return True
 

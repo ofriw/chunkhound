@@ -6,7 +6,6 @@ Provides background periodic indexing to maintain database consistency.
 
 import asyncio
 import os
-import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -134,7 +133,7 @@ class PeriodicIndexManager:
 
         # Start immediate background scan to catch changes since last offline index
         self._scanning_task = asyncio.create_task(self._periodic_scan_loop())
-        
+
         # Start optimization task to handle quiet period optimization
         self._optimization_task = asyncio.create_task(self._periodic_optimization_loop())
 
@@ -177,7 +176,7 @@ class PeriodicIndexManager:
                     await self._scanning_task
                 except asyncio.CancelledError:
                     pass
-        
+
         # Stop optimization task
         if self._optimization_task:
             try:
@@ -291,7 +290,7 @@ class PeriodicIndexManager:
                     if self._scan_start_counter == 0:
                         await self._queue_background_scan("periodic")
 
-            except Exception as e:
+            except Exception:
                 if "CHUNKHOUND_DEBUG" in os.environ:
                     # print(f"Error in periodic scan loop: {e}", file=sys.stderr)
                     pass
@@ -334,7 +333,7 @@ class PeriodicIndexManager:
                 # )
 
                 pass
-        except Exception as e:
+        except Exception:
             if "CHUNKHOUND_DEBUG" in os.environ:
                 # print(f"Failed to queue background scan: {e}", file=sys.stderr)
                 pass
@@ -449,7 +448,7 @@ class PeriodicIndexManager:
                         #     file=sys.stderr,
                         # )
                         pass
-            except Exception as checkpoint_error:
+            except Exception:
                 if "CHUNKHOUND_DEBUG" in os.environ:
                     # print(
                     #     f"Checkpoint after background scan failed: {checkpoint_error}",
@@ -469,7 +468,7 @@ class PeriodicIndexManager:
             self._scan_start_counter = 0
             self._current_scan_start_time = 0
             raise  # Re-raise to properly handle cancellation
-        except Exception as e:
+        except Exception:
             if "CHUNKHOUND_DEBUG" in os.environ:
                 # print(f"Background scan failed: {e}", file=sys.stderr)
                 pass
@@ -499,7 +498,7 @@ class PeriodicIndexManager:
                 elif result["status"] == "up_to_date":
                     self._stats["files_skipped"] += 1
 
-            except Exception as e:
+            except Exception:
                 if "CHUNKHOUND_DEBUG" in os.environ:
                     # print(
                     #     f"Error processing file {file_path} in background: {e}",
@@ -507,13 +506,13 @@ class PeriodicIndexManager:
                     # )
                     pass
                 # Continue with next file despite errors
-    
+
     async def _periodic_optimization_loop(self) -> None:
         """Periodic loop to check for quiet periods and run database optimization."""
         if "CHUNKHOUND_DEBUG" in os.environ:
             # print("PeriodicIndexManager optimization loop started", file=sys.stderr)
             pass
-        
+
         while self._running:
             try:
                 # Wait for 60 seconds between checks
@@ -526,29 +525,29 @@ class PeriodicIndexManager:
                 except asyncio.TimeoutError:
                     # Timeout - continue with quiet period check
                     pass
-                
+
                 # Get database provider from registry
                 try:
                     from .registry import get_registry
-                    
+
                     database_provider = get_registry().get_provider("database")
                     if not database_provider:
                         continue
-                        
+
                     # Check if we have the last_activity_time property
                     if not hasattr(database_provider, "last_activity_time"):
                         continue
-                    
+
                     # Get last activity time
                     last_activity = database_provider.last_activity_time
                     if last_activity is None:
                         continue
-                    
+
                     # Check if it's been quiet for the specified period
                     current_time = time.time()
                     quiet_duration = current_time - last_activity
                     quiet_period_seconds = self._quiet_period_minutes * 60
-                    
+
                     if quiet_duration >= quiet_period_seconds:
                         # Check if we haven't optimized recently (avoid repeated optimizations)
                         time_since_last_optimization = current_time - self._last_optimization_time
@@ -559,42 +558,42 @@ class PeriodicIndexManager:
                                 #     file=sys.stderr,
                                 # )
                                 pass
-                            
+
                             # Run optimization
                             try:
                                 database_provider.optimize_tables()
                                 self._last_optimization_time = current_time
                                 self._stats["optimizations_performed"] += 1
-                                
+
                                 if "CHUNKHOUND_DEBUG" in os.environ:
                                     # print(
                                     #     "Database optimization completed successfully",
                                     #     file=sys.stderr,
                                     # )
                                     pass
-                            except Exception as opt_error:
+                            except Exception:
                                 if "CHUNKHOUND_DEBUG" in os.environ:
                                     # print(
                                     #     f"Database optimization failed: {opt_error}",
                                     #     file=sys.stderr,
                                     # )
                                     pass
-                    
-                except Exception as e:
+
+                except Exception:
                     if "CHUNKHOUND_DEBUG" in os.environ:
                         # print(
                         #     f"Error in optimization check: {e}",
                         #     file=sys.stderr,
                         # )
                         pass
-                        
+
             except asyncio.CancelledError:
                 # Handle graceful cancellation
                 if "CHUNKHOUND_DEBUG" in os.environ:
                     # print("Optimization loop was cancelled", file=sys.stderr)
                     pass
                 break
-            except Exception as e:
+            except Exception:
                 if "CHUNKHOUND_DEBUG" in os.environ:
                     # print(f"Unexpected error in optimization loop: {e}", file=sys.stderr)
                     pass

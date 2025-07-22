@@ -48,7 +48,7 @@ class SignalCoordinator:
             self.coordination_dir.mkdir(parents=True, exist_ok=True)
             # Coordination directory ready (logging disabled for MCP/CLI compatibility)
             pass
-        except OSError as e:
+        except OSError:
             # Failed to create coordination directory (logging disabled for MCP/CLI compatibility)
             pass
             raise
@@ -76,7 +76,7 @@ class SignalCoordinator:
             # Signal handling setup (logging disabled for MCP/CLI compatibility)
             pass
 
-        except Exception as e:
+        except Exception:
             # Failed to setup signal handling (logging disabled for MCP/CLI compatibility)
             raise
 
@@ -101,7 +101,7 @@ class SignalCoordinator:
             # Signal handling setup (logging disabled for MCP/CLI compatibility)
             pass
 
-        except Exception as e:
+        except Exception:
             # Failed to setup signal handling (logging disabled for MCP/CLI compatibility)
             raise
 

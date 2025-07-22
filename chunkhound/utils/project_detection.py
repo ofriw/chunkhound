@@ -23,7 +23,7 @@ def find_project_root(start_path: Path | None = None) -> Path:
         SystemExit: If no valid project root can be determined
     """
     import sys
-    
+
     if start_path is not None:
         # CLI positional argument provided - use it directly
         project_root = Path(start_path).resolve()
@@ -34,18 +34,18 @@ def find_project_root(start_path: Path | None = None) -> Path:
             print(f"Error: Specified project path is not a directory: {project_root}", file=sys.stderr)
             sys.exit(1)
         return project_root
-    
+
     # No CLI argument - check for .chunkhound.json in current directory
     current_dir = Path.cwd()
     chunkhound_json = current_dir / ".chunkhound.json"
-    
+
     if chunkhound_json.exists():
         return current_dir
-    
+
     # No valid project root found - terminate with clear error
-    print(f"Error: No ChunkHound project found.", file=sys.stderr)
+    print("Error: No ChunkHound project found.", file=sys.stderr)
     print(f"Expected .chunkhound.json in current directory: {current_dir}", file=sys.stderr)
-    print(f"Or provide a project directory as a positional argument.", file=sys.stderr)
+    print("Or provide a project directory as a positional argument.", file=sys.stderr)
     sys.exit(1)
 
 

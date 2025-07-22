@@ -229,7 +229,7 @@ class Database:
         )
 
     # =============================================================================
-    # Search Methods - Delegate to SearchService  
+    # Search Methods - Delegate to SearchService
     # PATTERN: SearchService optimizes queries per provider:
     # - DuckDB: HNSW index with pre-filtering
     # - LanceDB: IVF index with post-filtering
@@ -385,7 +385,7 @@ class Database:
             True if deletion successful, False otherwise
         """
         return self._provider.delete_file_completely(file_path)
-    
+
 
     def get_chunks_by_file_id(self, file_id: int) -> list[dict[str, Any]]:
         """Get chunks for a specific file."""

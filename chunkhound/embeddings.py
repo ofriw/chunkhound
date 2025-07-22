@@ -406,7 +406,7 @@ def create_openai_provider(
     """
     # Import the new provider from the correct location
     from chunkhound.providers.embeddings.openai_provider import OpenAIEmbeddingProvider
-    
+
     return OpenAIEmbeddingProvider(
         api_key=api_key,
         base_url=base_url,

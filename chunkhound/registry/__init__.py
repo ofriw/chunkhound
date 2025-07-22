@@ -1,23 +1,23 @@
 """Provider registry and dependency injection container for ChunkHound."""
 
 import os
-from typing import Any, TypeVar, Optional
+from typing import Any, Optional, TypeVar
 
 from loguru import logger
+
+# Import centralized configuration
+from chunkhound.core.config.config import Config
+from chunkhound.core.config.embedding_config import EmbeddingConfig
+
+# Import embedding factory for unified provider creation
+from chunkhound.core.config.embedding_factory import EmbeddingProviderFactory
 
 # Import core types
 from chunkhound.core.types.common import Language
 
-# Import centralized configuration
-from chunkhound.core.config.config import Config
-
 # Import concrete providers
 from chunkhound.providers.database.duckdb_provider import DuckDBProvider
 from chunkhound.providers.embeddings.openai_provider import OpenAIEmbeddingProvider
-
-# Import embedding factory for unified provider creation
-from chunkhound.core.config.embedding_factory import EmbeddingProviderFactory
-from chunkhound.core.config.embedding_config import EmbeddingConfig
 from chunkhound.providers.parsing.bash_parser import BashParser
 from chunkhound.providers.parsing.c_parser import CParser
 from chunkhound.providers.parsing.cpp_parser import CppParser
@@ -34,7 +34,11 @@ from chunkhound.providers.parsing.matlab_parser import MatlabParser
 # Import language parsers
 from chunkhound.providers.parsing.python_parser import PythonParser
 from chunkhound.providers.parsing.rust_parser import RustParser
-from chunkhound.providers.parsing.text_parser import JsonParser, PlainTextParser, YamlParser
+from chunkhound.providers.parsing.text_parser import (
+    JsonParser,
+    PlainTextParser,
+    YamlParser,
+)
 from chunkhound.providers.parsing.toml_parser import TomlParser
 from chunkhound.providers.parsing.typescript_parser import TypeScriptParser
 
@@ -55,7 +59,7 @@ class ProviderRegistry:
         self._providers: dict[str, Any] = {}
         self._singletons: dict[str, Any] = {}
         self._language_parsers: dict[Language, Any] = {}
-        self._config: Optional[Config] = None
+        self._config: Config | None = None
 
         # Register default providers
         self._register_default_providers()
@@ -184,11 +188,11 @@ class ProviderRegistry:
 
         try:
             embedding_provider = self.get_provider("embedding")
-        except ValueError as e:
+        except ValueError:
             # No embedding provider configured (logging disabled for MCP/CLI compatibility)
             if not os.environ.get("CHUNKHOUND_MCP_MODE"):
                 pass  # Could enable logging here for non-MCP modes if needed
-        except Exception as e:
+        except Exception:
             # Failed to create embedding provider (logging disabled for MCP/CLI compatibility)
             if not os.environ.get("CHUNKHOUND_MCP_MODE"):
                 pass  # Could enable logging here for non-MCP modes if needed
@@ -365,7 +369,7 @@ class ProviderRegistry:
             # Default to DuckDB if no config
             self.register_provider("database", DuckDBProvider, singleton=True)
             return
-            
+
         provider_type = self._config.database.provider
 
         if provider_type == "duckdb":
@@ -386,9 +390,9 @@ class ProviderRegistry:
             # Skip embedding provider registration if no config or no embedding config
             # This allows the system to run without embeddings
             return
-            
+
         embedding_config = self._config.embedding
-        
+
         # Register a factory-based provider that creates the correct instance on demand
         class FactoryEmbeddingProvider:
             """Wrapper that uses factory to create correct provider type."""
@@ -396,7 +400,7 @@ class ProviderRegistry:
                 # Merge config with any runtime kwargs
                 merged_config = embedding_config.model_dump()
                 merged_config.update(kwargs)
-                
+
                 try:
                     # Create EmbeddingConfig from merged configuration
                     config = EmbeddingConfig(**merged_config)
@@ -407,9 +411,9 @@ class ProviderRegistry:
                     # Fallback to OpenAI with minimal config
                     fallback_config = EmbeddingConfig(provider="openai", api_key=merged_config.get("api_key"))
                     return EmbeddingProviderFactory.create_provider(fallback_config)
-        
+
         self.register_provider("embedding", FactoryEmbeddingProvider, singleton=True)
-        
+
         # Suppress logging during MCP mode initialization
         if not os.environ.get("CHUNKHOUND_MCP_MODE"):
             logger.info("Factory-based embedding provider registered")
@@ -436,7 +440,9 @@ class ProviderRegistry:
                         db_config = self._config.database
                     else:
                         # Default config if none provided
-                        from chunkhound.core.config.database_config import DatabaseConfig
+                        from chunkhound.core.config.database_config import (
+                            DatabaseConfig,
+                        )
                         db_config = DatabaseConfig()
                         db_path = str(db_config.path)
 
@@ -450,7 +456,7 @@ class ProviderRegistry:
                     # Factory-based embedding provider or legacy embedding provider
                     if cls.__name__ == "FactoryEmbeddingProvider":
                         if self._config:
-                            logger.debug(f"Creating factory-based embedding provider with config")
+                            logger.debug("Creating factory-based embedding provider with config")
                         return cls()
                     else:
                         # Legacy embedding provider - inject configuration

@@ -189,16 +189,52 @@ class ProcessDetector:
             logger.warning(f"Error validating process {process.pid}: {e}")
             return False
 
-    def register_mcp_server(self, pid: int) -> None:
-        """Register MCP server PID for coordination.
+    def register_mcp_server(self, pid: int) -> bool:
+        """Register MCP server PID atomically.
 
         Args:
             pid: Process ID to register
+            
+        Returns:
+            True if successfully registered (no other server running)
+            False if another server is already registered
+            
+        Raises:
+            RuntimeError: If trying to register a PID that's already registered (logic error)
         """
+        pid_file = self.coordination_dir / "mcp.pid"
+        
         try:
-            pid_file = self.coordination_dir / "mcp.pid"
-            pid_file.write_text(str(pid))
+            # Atomic create - fails if file exists
+            with open(pid_file, 'x') as f:
+                f.write(str(pid))
             logger.info(f"Registered MCP server PID {pid} in {pid_file}")
+            return True
+        except FileExistsError:
+            # File already exists - check if that process is still alive
+            existing_server = self.find_mcp_server()
+            if existing_server:
+                # SANITY CHECK: Detect if we're trying to acquire our own lock
+                if existing_server['pid'] == pid:
+                    logger.error(f"LOGIC ERROR: Process {pid} is trying to register twice!")
+                    raise RuntimeError(
+                        f"Process {pid} is already registered as MCP server. "
+                        f"This indicates a logic error - the same process is trying to "
+                        f"acquire the lock it already holds."
+                    )
+                return False  # Another server is running
+            else:
+                # Stale PID file, clean up and retry once
+                logger.info(f"Cleaning up stale PID file and retrying registration for PID {pid}")
+                self._cleanup_pid_file(pid_file)
+                try:
+                    with open(pid_file, 'x') as f:
+                        f.write(str(pid))
+                    logger.info(f"Successfully registered PID {pid} after cleanup")
+                    return True
+                except FileExistsError:
+                    logger.debug(f"Another process won the race for PID file")
+                    return False  # Another process won the race
         except OSError as e:
             logger.error(f"Failed to register PID {pid}: {e}")
             raise

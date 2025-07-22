@@ -8,7 +8,9 @@ from chunkhound.core.models import Chunk
 from chunkhound.core.types.common import ChunkType, Language
 
 if TYPE_CHECKING:
-    from chunkhound.providers.database.duckdb.connection_manager import DuckDBConnectionManager
+    from chunkhound.providers.database.duckdb.connection_manager import (
+        DuckDBConnectionManager,
+    )
 
 
 class DuckDBChunkRepository:

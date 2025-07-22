@@ -9,11 +9,14 @@ import numpy as np
 import pyarrow as pa
 from loguru import logger
 
-# Import existing components that will be used by the provider
-from chunkhound.embeddings import EmbeddingManager
 from chunkhound.core.models import Chunk, Embedding, File
 from chunkhound.core.types.common import ChunkType, Language
-from chunkhound.providers.database.serial_database_provider import SerialDatabaseProvider
+
+# Import existing components that will be used by the provider
+from chunkhound.embeddings import EmbeddingManager
+from chunkhound.providers.database.serial_database_provider import (
+    SerialDatabaseProvider,
+)
 
 # Type hinting only
 if TYPE_CHECKING:
@@ -332,7 +335,7 @@ class LanceDBProvider(SerialDatabaseProvider):
             # Normalize path to canonical absolute path for consistent lookups
             # Use resolve() to handle symlinks (e.g., /var -> /private/var on macOS)
             normalized_path = str(Path(path).resolve())
-            
+
             results = self._files_table.search().where(f"path = '{normalized_path}'").to_list()
             if not results:
                 return None
@@ -386,7 +389,7 @@ class LanceDBProvider(SerialDatabaseProvider):
     def update_file(self, file_id: int, **kwargs) -> None:
         """Update file record with new values."""
         return self._execute_in_db_thread_sync("update_file", file_id, **kwargs)
-    
+
     def _executor_update_file(
         self,
         conn: Any,
@@ -399,13 +402,13 @@ class LanceDBProvider(SerialDatabaseProvider):
         """Executor method for update_file - runs in DB thread."""
         if not self._files_table:
             return
-        
+
         try:
             # Get existing file record
             existing_file = self._executor_get_file_by_id(conn, state, file_id, False)
             if not existing_file:
                 return
-            
+
             # Update the relevant fields
             updated_file = dict(existing_file)
             if size_bytes is not None:
@@ -413,11 +416,11 @@ class LanceDBProvider(SerialDatabaseProvider):
             if mtime is not None:
                 updated_file["modified_time"] = mtime
             updated_file["indexed_time"] = time.time()
-            
+
             # LanceDB doesn't support in-place updates, so we use merge_insert
             # This updates the record by matching on the 'id' field
             self._files_table.merge_insert("id").when_matched_update_all().execute([updated_file])
-            
+
         except Exception as e:
             logger.error(f"Error updating file {file_id}: {e}")
 
@@ -1135,10 +1138,10 @@ class LanceDBProvider(SerialDatabaseProvider):
                             file_path = file_results[0].get("path", "")
                     except Exception:
                         pass
-                
+
                 # Convert _distance to similarity (1 - distance for cosine)
                 similarity = 1.0 - result.get("_distance", 0.0) if "_distance" in result else 1.0
-                
+
                 # Format the result to match DuckDB's output
                 formatted_result = {
                     "chunk_id": result["id"],
@@ -1218,7 +1221,7 @@ class LanceDBProvider(SerialDatabaseProvider):
                             file_path = file_results[0].get("path", "")
                     except Exception:
                         pass
-                
+
                 # Format the result to match DuckDB's output (no similarity for fuzzy search)
                 formatted_result = {
                     "chunk_id": result["id"],
@@ -1389,7 +1392,7 @@ class LanceDBProvider(SerialDatabaseProvider):
     def _executor_optimize_tables(self, conn: Any, state: dict[str, Any]) -> None:
         """Executor method for optimize_tables - runs in DB thread."""
         from datetime import timedelta
-        
+
         try:
             if self._chunks_table:
                 logger.debug("Optimizing chunks table - compacting fragments...")

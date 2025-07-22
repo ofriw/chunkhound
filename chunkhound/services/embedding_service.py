@@ -370,7 +370,7 @@ class EmbeddingService(BaseService):
         # Track batch count for periodic optimization
         completed_batch_count = 0
         should_optimize = (
-            hasattr(self._db, "optimize_tables") 
+            hasattr(self._db, "optimize_tables")
             and self._optimization_batch_frequency > 0
         )
 
@@ -506,11 +506,11 @@ class EmbeddingService(BaseService):
         # Update completed batch count and run optimization if needed
         if should_optimize and successful_batches > 0:
             completed_batch_count += successful_batches
-            
+
             # Check if we've reached the optimization threshold
             batches_since_last_optimize = completed_batch_count % self._optimization_batch_frequency
             if (
-                batches_since_last_optimize < successful_batches 
+                batches_since_last_optimize < successful_batches
                 or completed_batch_count == self._optimization_batch_frequency
             ):
                 logger.debug(
@@ -642,11 +642,11 @@ class EmbeddingService(BaseService):
 
         total_generated = 0
         BATCH_SIZE = 100  # Process 100 chunks at a time to avoid memory issues
-        
+
         # Track batch count for periodic optimization
         batch_count = 0
         should_optimize = (
-            hasattr(self._db, "optimize_tables") 
+            hasattr(self._db, "optimize_tables")
             and self._optimization_batch_frequency > 0
         )
 
@@ -672,15 +672,15 @@ class EmbeddingService(BaseService):
                     chunk_id_list, chunk_texts, show_progress=False
                 )
                 total_generated += generated_count
-                
+
                 # Increment batch counter
                 if generated_count > 0:
                     batch_count += 1
-                    
+
                     # Periodic optimization (provider-aware)
                     if (
-                        should_optimize 
-                        and batch_count > 0 
+                        should_optimize
+                        and batch_count > 0
                         and batch_count % self._optimization_batch_frequency == 0
                     ):
                         logger.debug(

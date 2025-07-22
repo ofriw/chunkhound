@@ -98,7 +98,7 @@ class SerialDatabaseProvider(ABC):
         # For serial providers, we consider it connected if executor exists
         return self._executor is not None
 
-    @property 
+    @property
     def last_activity_time(self) -> float | None:
         """Get the last database activity time.
         

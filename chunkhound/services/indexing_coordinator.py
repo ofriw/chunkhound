@@ -899,9 +899,9 @@ class IndexingCoordinator(BaseService):
                 optimization_batch_frequency = getattr(
                     self._db._config.embedding, "optimization_batch_frequency", 1000
                 )
-            
+
             embedding_service = EmbeddingService(
-                database_provider=self._db, 
+                database_provider=self._db,
                 embedding_provider=self._embedding_provider,
                 optimization_batch_frequency=optimization_batch_frequency
             )

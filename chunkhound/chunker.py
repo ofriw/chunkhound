@@ -29,8 +29,8 @@ class Chunker:
         # RATIONALE: Single-line functions are often getters/setters with low search value
         # EXCEPTION: Markdown headers can be 1 line (handled in _filter_chunks)
         self.min_chunk_lines = 3
-        
-        # MAGIC_NUMBER: max_chunk_lines = 500  
+
+        # MAGIC_NUMBER: max_chunk_lines = 500
         # RATIONALE: GitHub's diff view limit, reasonable context window
         # PREVENTS: Massive generated files from creating unwieldy chunks
         self.max_chunk_lines = 500

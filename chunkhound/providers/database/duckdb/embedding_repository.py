@@ -6,7 +6,9 @@ from typing import Any
 from loguru import logger
 
 from chunkhound.core.models import Embedding
-from chunkhound.providers.database.duckdb.connection_manager import DuckDBConnectionManager
+from chunkhound.providers.database.duckdb.connection_manager import (
+    DuckDBConnectionManager,
+)
 
 
 class DuckDBEmbeddingRepository:

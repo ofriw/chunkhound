@@ -90,7 +90,7 @@ class TaskCoordinator:
         self._worker_task: asyncio.Task | None = None
         self._shutdown_event = asyncio.Event()
         self._running = False
-        
+
         self._stats: dict[str, int] = {
             "tasks_queued": 0,
             "tasks_completed": 0,
