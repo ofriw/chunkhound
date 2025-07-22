@@ -2,26 +2,21 @@
 
 import argparse
 import asyncio
-import os
 import sys
 from pathlib import Path
 from typing import Any
 
 from loguru import logger
 
-from chunkhound.embeddings import EmbeddingManager
-from chunkhound.core.config.embedding_factory import EmbeddingProviderFactory
-from chunkhound.core.config.embedding_config import EmbeddingConfig
 from chunkhound.core.config.config import Config
+from chunkhound.core.config.embedding_config import EmbeddingConfig
+from chunkhound.core.config.embedding_factory import EmbeddingProviderFactory
+from chunkhound.embeddings import EmbeddingManager
+from chunkhound.registry import configure_registry, create_indexing_coordinator
 from chunkhound.signal_coordinator import CLICoordinator
 from chunkhound.version import __version__
-from chunkhound.registry import configure_registry, create_indexing_coordinator
 
 from ..parsers.run_parser import process_batch_arguments
-from ..utils.config_helpers import (
-    args_to_config,
-    validate_config_for_command,
-)
 from ..utils.output import OutputFormatter, format_stats
 from ..utils.validation import (
     ensure_database_directory,
@@ -41,12 +36,11 @@ async def run_command(args: argparse.Namespace) -> None:
     # Initialize output formatter
     formatter = OutputFormatter(verbose=args.verbose)
 
-    # Load configuration using CLI pattern with local .chunkhound.json detection
-    # This is the mandatory pattern for ALL CLI commands to respect local config
-    project_dir = Path(args.path) if hasattr(args, "path") else Path.cwd()
-    config = Config.from_cli_args(args, target_dir=project_dir)
-    
+    # Load configuration using unified pattern
+    config = Config(args=args)
+
     # Check if local config was found (for logging purposes)
+    project_dir = Path(args.path) if hasattr(args, "path") else Path.cwd()
     local_config_path = project_dir / ".chunkhound.json"
     if local_config_path.exists():
         formatter.info(f"Found local config: {local_config_path}")
@@ -164,7 +158,7 @@ def _validate_run_arguments(
             api_key = args.api_key
             base_url = args.base_url
             model = args.model
-            
+
         if not validate_provider_args(provider, api_key, base_url, model):
             return False
 
@@ -253,7 +247,7 @@ async def _setup_embedding_manager(
         config_dict = {
             "provider": args.provider,
         }
-        
+
         # Add optional parameters if provided
         if args.model:
             config_dict["model"] = args.model
@@ -264,11 +258,11 @@ async def _setup_embedding_manager(
 
         # Create EmbeddingConfig and validate
         config = EmbeddingConfig(**config_dict)
-        
+
         # Use factory to create provider
         provider = EmbeddingProviderFactory.create_provider(config)
         embedding_manager.register_provider(provider, set_default=True)
-        
+
         # Display success message with appropriate details
         if args.provider == "openai":
             model = config.get_model()

@@ -2,99 +2,72 @@
 
 import argparse
 import os
+import sys
 from pathlib import Path
 
 
-def mcp_command(args: argparse.Namespace) -> None:
+async def mcp_command(args: argparse.Namespace) -> None:
     """Execute the MCP server command.
 
     Args:
         args: Parsed command-line arguments containing database path
     """
-    import subprocess
-    import sys
+    # Set MCP mode environment early
+    os.environ["CHUNKHOUND_MCP_MODE"] = "1"
+    
+    # CRITICAL: Import numpy modules early for DuckDB threading safety in MCP mode
+    # Must happen before any DuckDB operations in async/threading context
+    # See: https://duckdb.org/docs/stable/clients/python/known_issues.html
+    try:
+        import numpy
+        import numpy.core.multiarray
+    except ImportError:
+        pass
 
-    # Use the standalone MCP launcher that sets environment before any imports
-    mcp_launcher_path = (
-        Path(__file__).parent.parent.parent.parent.parent / "mcp_launcher.py"
-    )
-    cmd = [sys.executable, str(mcp_launcher_path)]
-
-    # Handle positional path argument for complete project scope control
+    # Set database path environment variable if provided
+    if hasattr(args, 'db') and args.db:
+        os.environ["CHUNKHOUND_DATABASE__PATH"] = str(args.db)
+    elif hasattr(args, 'path') and args.path != Path("."):
+        # Set default database path based on project path
+        project_path = args.path.resolve()
+        db_path = project_path / ".chunkhound" / "db"
+        os.environ["CHUNKHOUND_DATABASE__PATH"] = str(db_path)
+    
+    # Set watch path environment variable
     if hasattr(args, 'path') and args.path != Path("."):
         project_path = args.path.resolve()
-
-        # Set database path to <path>/.chunkhound/db if not explicitly provided
-        if args.db is None:
-            db_path = project_path / ".chunkhound" / "db"
-            cmd.extend(["--db", str(db_path)])
-        else:
-            cmd.extend(["--db", str(args.db)])
-
-        # Set watch path to the project directory
-        cmd.extend(["--watch-path", str(project_path)])
-
-    else:
-        # Only pass --db if explicitly provided, let unified config handle defaults
-        if args.db is not None:
-            cmd.extend(["--db", str(args.db)])
+        os.environ["CHUNKHOUND_WATCH_PATHS"] = str(project_path)
 
     # Handle transport selection
     if hasattr(args, 'http') and args.http:
-        cmd.extend(["--transport", "http"])
+        # Use HTTP transport via subprocess to avoid event loop conflicts
+        import subprocess
         
-        # Add host and port for HTTP transport
-        if hasattr(args, 'host'):
-            cmd.extend(["--host", args.host])
-        if hasattr(args, 'port'):
-            cmd.extend(["--port", str(args.port)])
+        host = getattr(args, 'host', '127.0.0.1')
+        port = getattr(args, 'port', 8000)
+        
+        # Run HTTP server in subprocess
+        cmd = [
+            sys.executable, "-m", "chunkhound.mcp_http_server",
+            "--host", str(host),
+            "--port", str(port)
+        ]
+        
+        if hasattr(args, 'db') and args.db:
+            cmd.extend(["--db", str(args.db)])
+            
+        process = subprocess.run(
+            cmd,
+            stdin=sys.stdin,
+            stdout=sys.stdout, 
+            stderr=sys.stderr,
+            env=os.environ.copy()
+        )
+        sys.exit(process.returncode)
     else:
-        # Default to stdio transport
-        cmd.extend(["--transport", "stdio"])
-
-    # Inherit current environment - the centralized config will handle API keys
-    env = os.environ.copy()
-
-    # Preserve virtual environment context for Ubuntu/Linux compatibility
-    # This fixes the TaskGroup -32603 error when subprocess loses venv context
-
-    # 1. Preserve Python module search paths
-    env["PYTHONPATH"] = ":".join(sys.path)
-
-    # 2. Pass virtual environment information
-    if hasattr(sys, "prefix"):
-        env["VIRTUAL_ENV"] = sys.prefix
-
-    # 3. Ensure PATH includes venv bin directory
-    # Check if we're in a virtualenv
-    in_venv = hasattr(sys, "real_prefix") or (
-        hasattr(sys, "base_prefix") and sys.base_prefix != sys.prefix
-    )
-
-    if in_venv:
-        # Add venv bin to PATH to find correct Python and tools
-        venv_bin = Path(sys.prefix) / "bin"
-        current_path = env.get("PATH", "")
-        env["PATH"] = f"{venv_bin}:{current_path}"
-
-        # Also try to use venv Python directly if available
-        venv_python = venv_bin / "python"
-        if venv_python.exists():
-            cmd[0] = str(venv_python)
-
-    # Note: Project root detection is now handled internally by find_project_root()
-    # The MCP server will detect project root automatically based on CLI args or .chunkhound.json
-
-    # Use subprocess for both stdio and HTTP transports
-    process = subprocess.run(
-        cmd,
-        stdin=sys.stdin,
-        stdout=sys.stdout,
-        stderr=sys.stderr,  # Allow stderr for MCP SDK internal error handling
-        env=env,  # Pass environment variables to subprocess
-    )
-    # Exit with the same code as the subprocess
-    sys.exit(process.returncode)
+        # Use stdio transport (default)
+        from chunkhound.mcp_server import main
+        await main(args=args)
 
 
 __all__: list[str] = ["mcp_command"]

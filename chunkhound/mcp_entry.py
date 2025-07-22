@@ -45,11 +45,11 @@ async def main() -> None:
     # - Database path (from env var, config file, or defaults)
     # - API keys (from env vars or config)
     # - All other settings
-    
+
     # Now import and run the MCP server
     from chunkhound.mcp_server import main as run_mcp_server
 
-    await run_mcp_server()
+    await run_mcp_server(args=None)
 
 
 def main_sync() -> None:

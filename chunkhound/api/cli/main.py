@@ -10,83 +10,9 @@ from pathlib import Path
 # Required for PyInstaller multiprocessing support
 multiprocessing.freeze_support()
 
-
-# Check for MCP command early to avoid any imports that trigger logging
-def is_mcp_command() -> bool:
-    """Check if this is an MCP command before any imports."""
-    return len(sys.argv) >= 2 and sys.argv[1] == "mcp"
-
-
-# Handle MCP command immediately before any imports
-if is_mcp_command():
-    # Set MCP mode environment early
-    os.environ["CHUNKHOUND_MCP_MODE"] = "1"
-
-    # CRITICAL: Import numpy modules early for DuckDB threading safety in MCP mode
-    # Must happen before any DuckDB operations in async/threading context
-    # See: https://duckdb.org/docs/stable/clients/python/known_issues.html
-    try:
-        import numpy
-        import numpy.core.multiarray
-    except ImportError:
-        pass
-
-    # Import only what's needed for MCP
-    from pathlib import Path
-
-    # Parse MCP arguments minimally for database path and transport
-    # The centralized config will handle all other settings
-    if "--db" in sys.argv:
-        db_index = sys.argv.index("--db")
-        if db_index + 1 < len(sys.argv):
-            db_path = Path(sys.argv[db_index + 1])
-            # Only set if explicitly provided
-            os.environ["CHUNKHOUND_DB_PATH"] = str(db_path)
-
-    # Check for HTTP transport flag
-    use_http = "--http" in sys.argv
-    
-    if use_http:
-        # Extract host and port if provided
-        host = "127.0.0.1"
-        port = 8000
-        
-        if "--host" in sys.argv:
-            host_index = sys.argv.index("--host")
-            if host_index + 1 < len(sys.argv):
-                host = sys.argv[host_index + 1]
-                
-        if "--port" in sys.argv:
-            port_index = sys.argv.index("--port")
-            if port_index + 1 < len(sys.argv):
-                port = int(sys.argv[port_index + 1])
-        
-        # Launch HTTP MCP server
-        from chunkhound.mcp_http_server import main as http_main
-        
-        # Set up sys.argv for HTTP server
-        sys.argv = ["mcp_http_server", "--host", host, "--port", str(port)]
-        
-        http_main()
-    else:
-        # Launch stdio MCP server directly via import (fixes PyInstaller sys.executable recursion bug)
-        try:
-            from chunkhound.mcp_entry import main_sync
-
-            main_sync()
-        except ImportError as e:
-            print(f"Error: Could not import chunkhound.mcp_entry: {e}", file=sys.stderr)
-            sys.exit(1)
-        except Exception as e:
-            print(f"Error starting MCP server: {e}", file=sys.stderr)
-            sys.exit(1)
-
-    # This should not be reached, but added for safety
-    sys.exit(0)
-
 from loguru import logger
 
-# All imports deferred to avoid early module loading during MCP detection
+# Imports deferred for optimal module loading
 from .utils.validation import (
     ensure_database_directory,
     exit_on_validation_error,
@@ -127,13 +53,11 @@ def validate_args(args: argparse.Namespace) -> None:
         if not validate_path(args.path, must_exist=True, must_be_dir=True):
             exit_on_validation_error(f"Invalid path: {args.path}")
 
-        # Get correct database path from unified config if not explicitly provided
-        from .utils.config_helpers import args_to_config
+        # Get correct database path from unified config
+        from chunkhound.core.config.config import Config
 
-        project_dir = Path(args.path) if hasattr(args, "path") else Path.cwd()
-        
-        # Load config (will automatically detect .chunkhound.json in project_dir)
-        unified_config = args_to_config(args, project_dir)
+        # Load config using unified pattern
+        unified_config = Config(args=args)
         db_path = (
             Path(unified_config.database.path)
             if unified_config.database.path
@@ -149,24 +73,24 @@ def validate_args(args: argparse.Namespace) -> None:
             if not unified_config.embedding:
                 logger.error("No embedding configuration found")
                 exit_on_validation_error("Embedding configuration required")
-            
+
             # Use unified config values instead of CLI args
             provider = unified_config.embedding.provider if hasattr(unified_config.embedding, 'provider') else None
             api_key = unified_config.embedding.api_key.get_secret_value() if unified_config.embedding.api_key else None
             base_url = unified_config.embedding.base_url
             model = unified_config.embedding.model
-            
-            
+
+
             # Use the standard validation function with config values
             if not validate_provider_args(provider, api_key, base_url, model):
                 exit_on_validation_error("Provider validation failed")
 
     elif args.command == "mcp":
-        # Get correct database path from unified config if not explicitly provided
-        from .utils.config_helpers import args_to_config
+        # Get correct database path from unified config
+        from chunkhound.core.config.config import Config
 
-        project_dir = Path.cwd()  # MCP doesn't have a path argument
-        unified_config = args_to_config(args, project_dir)
+        # Load config using unified pattern
+        unified_config = Config(args=args)
         db_path = (
             Path(unified_config.database.path)
             if unified_config.database.path
@@ -219,6 +143,11 @@ async def async_main() -> None:
             from .commands.run import run_command
 
             await run_command(args)
+        elif args.command == "mcp":
+            # Dynamic import to avoid early chunkhound module loading
+            from .commands.mcp import mcp_command
+
+            await mcp_command(args)
         else:
             logger.error(f"Unknown command: {args.command}")
             sys.exit(1)

@@ -9,6 +9,7 @@ Provides code search capabilities via stdin/stdout JSON-RPC protocol
 # CONSTRAINT: Single instance per database (enforced via ProcessDetector)
 """
 
+import argparse
 import asyncio
 import json
 import logging
@@ -26,8 +27,9 @@ from mcp.server import Server
 from mcp.server.lowlevel import NotificationOptions
 from mcp.server.models import InitializationOptions
 
-from chunkhound.version import __version__
 from chunkhound.file_watcher import debug_log
+from chunkhound.mcp_shared import add_common_mcp_arguments
+from chunkhound.version import __version__
 
 # CRITICAL: Disable ALL logging to prevent JSON-RPC corruption
 # REASON: Any stdout output breaks the protocol
@@ -47,9 +49,9 @@ except ImportError:
     pass
 
 try:
+    from .api.cli.utils.config_helpers import validate_config_for_command
     from .core.config import EmbeddingProviderFactory
     from .core.config.config import Config
-    from .api.cli.utils.config_helpers import validate_config_for_command
     from .database import Database
     from .database_factory import create_database_with_dependencies
     from .embeddings import EmbeddingManager
@@ -62,7 +64,6 @@ except ImportError:
     # Handle running as standalone script or PyInstaller binary
     from chunkhound.core.config import EmbeddingProviderFactory
     from chunkhound.core.config.config import Config
-    from chunkhound.api.cli.utils.config_helpers import validate_config_for_command
     from chunkhound.database import Database
     from chunkhound.database_factory import create_database_with_dependencies
     from chunkhound.embeddings import EmbeddingManager
@@ -99,7 +100,7 @@ def _log_processing_error(e: Exception, event_type: str, file_path: Path) -> Non
     if debug_mode:
         print(f"[MCP-SERVER] Error processing {event_type} for {file_path}: {e}", file=sys.stderr)
         traceback.print_exc(file=sys.stderr)
-    
+
     # Also log to logger if available
     try:
         from loguru import logger
@@ -129,28 +130,28 @@ def log_environment_diagnostics():
     if os.environ.get("CHUNKHOUND_MCP_MODE"):
         return
     # print("=== MCP SERVER ENVIRONMENT DIAGNOSTICS ===", file=sys.stderr)
-    
+
     # Check for API key using config system
     from chunkhound.core.config.embedding_config import EmbeddingConfig
-    
+
     # Check config system
     try:
         temp_config = EmbeddingConfig(provider="openai")
         has_key = temp_config.api_key is not None
         # print(f"CHUNKHOUND_EMBEDDING_API_KEY configured: {has_key}", file=sys.stderr)
-        
+
         if has_key:
             key_value = temp_config.api_key.get_secret_value()
             # print(f"API key length: {len(key_value)}", file=sys.stderr)
             # print(f"API key prefix: {key_value[:7]}...", file=sys.stderr)
-    except Exception as e:
+    except Exception:
         has_key = False
         # print(f"CHUNKHOUND_EMBEDDING_API_KEY not configured: {e}", file=sys.stderr)
-    
+
     if not has_key:
         # print("WARNING: No API key found. Set CHUNKHOUND_EMBEDDING_API_KEY environment variable.", file=sys.stderr)
         pass
-        
+
     # print("===============================================", file=sys.stderr)
 
 
@@ -194,21 +195,13 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
         try:
             from .utils.project_detection import find_project_root
         except ImportError:
-            from chunkhound.utils.project_detection import find_project_root
-
-        # Always detect project root using unified logic
-        project_root = find_project_root()
-        
-        if debug_mode:
-            # print(
-            #     f"Server lifespan: Detected project root: {project_root}",
-            #     file=sys.stderr,
-            # )
-
             pass
-        # Load configuration with unified project detection
+
+        # Load configuration using unified pattern
         try:
-            config = Config(target_dir=project_root)  # Always use detected project root
+            # Use globally stored config
+            global _config
+            config = _config
             # Store config globally for file change processing consistency
             global _server_config
             _server_config = config
@@ -220,7 +213,7 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
                 #     file=sys.stderr,
                 # )
                 pass
-        except Exception as e:
+        except Exception:
             if debug_mode:
                 # print(
                 #     f"Server lifespan: Failed to load config, using defaults: {e}",
@@ -228,7 +221,7 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
                 # )
                 pass
             # Use default config if loading fails
-            config = Config(target_dir=project_root)
+            config = Config()
             # Store fallback config globally for file change processing consistency
             _server_config = config
 
@@ -245,7 +238,7 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
                     # )
                     pass
                 # Continue with config anyway for MCP servers (embedding provider optional)
-        except Exception as validation_error:
+        except Exception:
             if debug_mode:
                 # print(
                 #     f"Server lifespan: Configuration validation error: {validation_error}",
@@ -263,34 +256,32 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
             # print(f"Server lifespan: Using database at {db_path}", file=sys.stderr)
 
             pass
-        
-        # CRITICAL: Check for existing MCP server instances BEFORE database connection
-        # BUG_FIX: Prevents database lock conflict causing TaskGroup errors
-        # PATTERN: Use ProcessDetector to enforce single-instance constraint
+
+        # CRITICAL: Atomic registration prevents race conditions
+        # PATTERN: Single atomic operation instead of check-then-register
         try:
             from .process_detection import ProcessDetector
         except ImportError:
             from chunkhound.process_detection import ProcessDetector
-        
+
         process_detector = ProcessDetector(db_path)
-        existing_server = process_detector.find_mcp_server()
         
-        if existing_server:
-            # Another MCP server is already running for this database
+        # FIXED: Atomic registration - no separate check needed
+        if not process_detector.register_mcp_server(os.getpid()):
+            # Registration failed - another server is running
+            existing_server = process_detector.find_mcp_server()
             raise Exception(
                 f"Another ChunkHound MCP server is already running for database '{db_path}' "
-                f"(PID {existing_server['pid']}). Only one MCP server instance per database is allowed. "
+                f"(PID {existing_server['pid'] if existing_server else 'unknown'}). "
+                f"Only one MCP server instance per database is allowed. "
                 f"Please stop the existing server first or use a different database path."
             )
         
-        # RACE_CONDITION_FIX: Register PID before database connection
-        # PREVENTS: Multiple servers starting simultaneously
-        # CLEANUP: ProcessDetector handles cleanup on exit
-        process_detector.register_mcp_server(os.getpid())
+        # If we get here, we successfully registered as the only server
         if debug_mode:
             # print(f"Server lifespan: Registered MCP server PID {os.getpid()}", file=sys.stderr)
             pass
-        
+
         # Initialize embedding configuration BEFORE database creation
         _embedding_manager = EmbeddingManager()
         if debug_mode:
@@ -320,7 +311,7 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
                 # )
 
                 pass
-        except ValueError as e:
+        except ValueError:
             # API key or configuration issue - only log in non-MCP mode
             if debug_mode:
                 # print(
@@ -347,14 +338,14 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
                 #     file=sys.stderr,
                 # )
                 pass
-        except Exception as e:
+        except Exception:
             # Unexpected error - log for debugging but continue
             if debug_mode:
                 # print(
                 #     f"Server lifespan: Unexpected error setting up embedding provider: {e}",
                 #     file=sys.stderr,
                 # )
-                import traceback
+                pass
 
                 # traceback.print_exc(file=sys.stderr)
 
@@ -386,19 +377,19 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
                     #     f"Server lifespan: IndexingCoordinator embedding provider available: {has_embedding_provider}",
                     #     file=sys.stderr,
                     # )
-                except Exception as debug_error:
+                except Exception:
                     # print(
                     #     f"Server lifespan: Debug check failed: {debug_error}",
                     #     file=sys.stderr,
                     # )
                     pass
-        except Exception as db_error:
+        except Exception:
             if debug_mode:
                 # print(
                 #     f"Server lifespan: Database connection error: {db_error}",
                 #     file=sys.stderr,
                 # )
-                import traceback
+                pass
 
                 # traceback.print_exc(file=sys.stderr)
             raise
@@ -467,7 +458,7 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
             error_msg = f"FATAL: File watcher initialization failed: {fw_error}"
             # print(f"❌ MCP SERVER ERROR: {error_msg}", file=sys.stderr)
             if debug_mode:
-                import traceback
+                pass
 
                 # traceback.print_exc(file=sys.stderr)
             raise RuntimeError(error_msg)
@@ -500,14 +491,14 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
                 #     file=sys.stderr,
                 # )
                 pass
-        except Exception as pi_error:
+        except Exception:
             # Non-fatal error - log but continue without periodic indexing
             if debug_mode:
                 # print(
                 #     f"Server lifespan: Periodic indexer initialization failed (non-fatal): {pi_error}",
                 #     file=sys.stderr,
                 # )
-                import traceback
+                pass
 
                 # traceback.print_exc(file=sys.stderr)
             _periodic_indexer = None
@@ -519,10 +510,10 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
             # )
 
             pass
-        
+
         # Mark initialization as complete
         _initialization_complete.set()
-        
+
         # Return server context to the caller
         yield {
             "db": _database,
@@ -535,14 +526,14 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
     except Exception as e:
         if debug_mode:
             # print(f"Server lifespan: Initialization failed: {e}", file=sys.stderr)
-            import traceback
+            pass
 
             # traceback.print_exc(file=sys.stderr)
         raise Exception(f"Failed to initialize database and embeddings: {e}")
     finally:
         # Reset initialization flag
         _initialization_complete.clear()
-        
+
         if debug_mode:
             # print("Server lifespan: Entering cleanup phase", file=sys.stderr)
 
@@ -559,7 +550,7 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
                 if debug_mode:
                     # print("Server lifespan: Periodic indexer stopped", file=sys.stderr)
                     pass
-            except Exception as pi_cleanup_error:
+            except Exception:
                 if debug_mode:
                     # print(
                     #     f"Server lifespan: Error stopping periodic indexer: {pi_cleanup_error}",
@@ -579,7 +570,7 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
                 if debug_mode:
                     # print("Server lifespan: Task coordinator stopped", file=sys.stderr)
                     pass
-            except Exception as tc_cleanup_error:
+            except Exception:
                 if debug_mode:
                     # print(
                     #     f"Server lifespan: Error stopping task coordinator: {tc_cleanup_error}",
@@ -597,7 +588,7 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
                     #     file=sys.stderr,
                     # )
                     pass
-            except Exception as coord_error:
+            except Exception:
                 if debug_mode:
                     # print(
                     #     f"Server lifespan: Error cleaning up coordination files: {coord_error}",
@@ -605,7 +596,7 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
                     # )
 
                     pass
-        
+
         # Cleanup process detector PID file
         try:
             if 'process_detector' in locals():
@@ -613,7 +604,7 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
                 if debug_mode:
                     # print("Server lifespan: Process detector PID file cleaned up", file=sys.stderr)
                     pass
-        except Exception as pid_cleanup_error:
+        except Exception:
             if debug_mode:
                 # print(f"Server lifespan: Error cleaning up PID file: {pid_cleanup_error}", file=sys.stderr)
                 pass
@@ -632,7 +623,7 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
                     #     file=sys.stderr,
                     # )
                     pass
-            except Exception as fw_cleanup_error:
+            except Exception:
                 if debug_mode:
                     # print(
                     #     f"Server lifespan: Error cleaning up file watcher: {fw_cleanup_error}",
@@ -673,7 +664,7 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
                         #     file=sys.stderr,
                         # )
                         pass
-                except Exception as checkpoint_error:
+                except Exception:
                     if debug_mode:
                         # print(
                         #     f"Server lifespan: Final checkpoint failed: {checkpoint_error}",
@@ -689,7 +680,7 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
                     #     file=sys.stderr,
                     # )
                     pass
-            except Exception as db_close_error:
+            except Exception:
                 if debug_mode:
                     # print(
                     #     f"Server lifespan: Error closing database: {db_close_error}",
@@ -697,10 +688,10 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
                     # )
 
                     pass
-        
+
         # Reset stored config
         _server_config = None
-        
+
         if debug_mode:
             # print("Server lifespan: Cleanup complete", file=sys.stderr)
 
@@ -750,7 +741,7 @@ async def process_file_change(file_path: Path, event_type: str):
     except asyncio.TimeoutError:
         # Log initialization timeout but continue anyway
         pass
-    
+
     global _database, _embedding_manager, _task_coordinator, _server_config
 
     # DEBUG: Log entry point
@@ -769,9 +760,9 @@ async def process_file_change(file_path: Path, event_type: str):
                 # Remove file and its chunks using same approach as CLI indexer
                 # This ensures consistent transaction handling and prevents race conditions
                 removed_chunks = await _database._indexing_coordinator.remove_file(str(file_path))
-                
+
                 debug_log("deletion_complete", file_path=str(file_path), removed_chunks=removed_chunks)
-                
+
                 # Log deletion result for debugging
                 debug_mode = os.getenv("CHUNKHOUND_DEBUG", "").lower() in ("true", "1", "yes")
                 if debug_mode and removed_chunks > 0:
@@ -789,7 +780,7 @@ async def process_file_change(file_path: Path, event_type: str):
 
                     # Find project root for pattern matching
                     project_root = find_project_root()
-                    
+
                     # Use stored server config for consistency with initial indexing
                     # This ensures file change processing uses the same configuration as initial indexing
                     exclude_patterns = _server_config.indexing.exclude or []
@@ -822,7 +813,7 @@ async def process_file_change(file_path: Path, event_type: str):
                     if not await _wait_for_file_completion(file_path):
                         debug_log("file_completion_failed", file_path=str(file_path))
                         return  # Skip if file not ready
-                    
+
                     debug_log("file_completion_passed", file_path=str(file_path))
 
                     debug_log("calling_indexing_coordinator", file_path=str(file_path))
@@ -838,7 +829,7 @@ async def process_file_change(file_path: Path, event_type: str):
                     # Handle processing results with same logic as CLI indexer
                     if result["status"] in ["success", "up_to_date"]:
                         debug_log("processing_success", file_path=str(file_path), status=result["status"])
-                        # success: file was modified and re-indexed  
+                        # success: file was modified and re-indexed
                         # up_to_date: smart diff detected no changes (valid outcome)
                         pass
                     elif result["status"] in ["skipped", "no_content", "no_chunks"]:
@@ -849,8 +840,8 @@ async def process_file_change(file_path: Path, event_type: str):
                         debug_log("processing_error", file_path=str(file_path), result=result)
                         # Log processing errors for debugging
                         _log_processing_error(
-                            Exception(f"File processing returned: {result}"), 
-                            event_type, 
+                            Exception(f"File processing returned: {result}"),
+                            event_type,
                             file_path
                         )
                 else:
@@ -1042,17 +1033,17 @@ async def call_tool(
         page_size = max(1, min(arguments.get("page_size", 10), 100))
         offset = max(0, arguments.get("offset", 0))
         max_tokens = max(1000, min(arguments.get("max_response_tokens", 20000), 25000))
-        
+
         # Get provider and model from arguments or embedding manager configuration
         if not _embedding_manager or not _embedding_manager.list_providers():
             raise Exception(
                 "No embedding providers available. Set OPENAI_API_KEY to enable semantic search."
             )
-        
+
         # Use explicit provider/model from arguments, otherwise get from configured provider
         provider = arguments.get("provider")
         model = arguments.get("model")
-        
+
         if not provider or not model:
             try:
                 default_provider_obj = _embedding_manager.get_provider()
@@ -1264,7 +1255,7 @@ async def list_tools() -> list[types.Tool]:
         await asyncio.wait_for(_initialization_complete.wait(), timeout=30.0)
     except asyncio.TimeoutError:
         pass
-    
+
     tools = []
 
     # Always available tools
@@ -1548,30 +1539,30 @@ async def handle_mcp_with_validation():
                                 #     file=sys.stderr,
                                 # )
                                 pass
-                        except Exception as e:
+                        except Exception:
                             if "CHUNKHOUND_DEBUG" in os.environ:
                                 # print(
                                 #     f"MCP server unexpected error: {e}", file=sys.stderr
                                 # )
-                                import traceback
+                                pass
 
                                 # traceback.print_exc(file=sys.stderr)
-                    except Exception as server_run_error:
+                    except Exception:
                         if "CHUNKHOUND_DEBUG" in os.environ:
                             # print(
                             #     f"MCP server.run() error: {server_run_error}",
                             #     file=sys.stderr,
                             # )
-                            import traceback
+                            pass
 
                             # traceback.print_exc(file=sys.stderr)
                         raise
-            except Exception as lifespan_error:
+            except Exception:
                 if "CHUNKHOUND_DEBUG" in os.environ:
                     # print(
                     #     f"MCP server lifespan error: {lifespan_error}", file=sys.stderr
                     # )
-                    import traceback
+                    pass
 
                     # traceback.print_exc(file=sys.stderr)
                 raise
@@ -1580,7 +1571,7 @@ async def handle_mcp_with_validation():
         error_details = str(e)
         if "CHUNKHOUND_DEBUG" in os.environ:
             # print(f"MCP server top-level error: {e}", file=sys.stderr)
-            import traceback
+            pass
 
             # traceback.print_exc(file=sys.stderr)
 
@@ -1632,23 +1623,23 @@ async def handle_mcp_with_validation():
                 return []
 
             details = []
-            
+
             # Add current error details
             details.append(f"Level {depth}: {type(error).__name__}: {str(error)}")
-            
+
             # Check exception chain
             if hasattr(error, "__cause__") and error.__cause__:
                 details.extend(extract_taskgroup_details(error.__cause__, depth + 1))
-            
+
             if hasattr(error, "__context__") and error.__context__:
                 details.extend(extract_taskgroup_details(error.__context__, depth + 1))
-            
+
             # Check exception groups (anyio/asyncio task groups)
             if hasattr(error, "exceptions") and error.exceptions:
                 for i, exc in enumerate(error.exceptions):
                     details.append(f"TaskGroup exception {i+1}:")
                     details.extend(extract_taskgroup_details(exc, depth + 1))
-            
+
             return details
 
         is_validation_error, validation_details = find_validation_error(e)
@@ -1682,7 +1673,7 @@ async def handle_mcp_with_validation():
             # Handle other initialization or runtime errors
             # Extract detailed TaskGroup information for debugging
             taskgroup_details = extract_taskgroup_details(e)
-            
+
             send_error_response(
                 None,
                 -32603,
@@ -1696,9 +1687,36 @@ async def handle_mcp_with_validation():
             )
 
 
-async def main():
-    """Main entry point for the MCP server with robust error handling."""
+async def main(args: Optional[argparse.Namespace] = None):
+    """Main entry point for the MCP server with robust error handling.
+    
+    Args:
+        args: Pre-parsed arguments. If None, will parse from sys.argv.
+    """
+    import argparse
+
+    if args is None:
+        # Direct invocation - parse arguments
+        parser = argparse.ArgumentParser(
+            description="ChunkHound MCP stdio server",
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+        )
+
+        # Add common MCP arguments
+        add_common_mcp_arguments(parser)
+
+        # Parse arguments
+        args = parser.parse_args()
+
+    # Create and store Config globally for use in server_lifespan
+    global _config
+    _config = Config(args=args)
+
     await handle_mcp_with_validation()
+
+
+# Global to store Config for server_lifespan
+_config: Config | None = None
 
 
 if __name__ == "__main__":
