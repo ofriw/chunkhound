@@ -563,49 +563,6 @@ class BGEICLIntegrationTestSuite:
         }
 
 
-# Pytest integration
-@pytest.mark.asyncio
-@pytest.mark.skipif(SKIP_REAL_SERVER_TESTS, reason="Real server tests disabled")
-async def test_bge_icl_basic_functionality():
-    """Test basic BGE-IN-ICL functionality."""
-    suite = BGEICLIntegrationTestSuite()
-    await suite.setup()
-    result = await suite.test_basic_functionality()
-    assert result['status'] == 'pass', f"Basic functionality test failed: {result}"
-
-@pytest.mark.asyncio
-@pytest.mark.skipif(SKIP_REAL_SERVER_TESTS, reason="Real server tests disabled")
-async def test_bge_icl_language_optimization():
-    """Test language-specific optimization."""
-    suite = BGEICLIntegrationTestSuite()
-    await suite.setup()
-    results = await suite.test_language_specific_optimization()
-    
-    # Check that at least some languages passed
-    passed_languages = sum(1 for r in results.values() if r.get('status') == 'pass')
-    assert passed_languages > 0, f"No languages passed optimization test: {results}"
-
-@pytest.mark.asyncio
-@pytest.mark.skipif(SKIP_REAL_SERVER_TESTS, reason="Real server tests disabled")
-async def test_bge_icl_performance():
-    """Test performance characteristics."""
-    suite = BGEICLIntegrationTestSuite()
-    await suite.setup()
-    result = await suite.test_performance_characteristics()
-    
-    assert result['status'] == 'pass', f"Performance test failed: {result}"
-    assert result['best_throughput'] > 0, "No throughput measured"
-
-@pytest.mark.asyncio
-@pytest.mark.skipif(SKIP_REAL_SERVER_TESTS, reason="Real server tests disabled")
-async def test_bge_icl_cache_efficiency():
-    """Test cache efficiency."""
-    suite = BGEICLIntegrationTestSuite()
-    await suite.setup()
-    result = await suite.test_cache_efficiency()
-    
-    assert result['status'] == 'pass', f"Cache efficiency test failed: {result}"
-
 # Standalone execution
 async def main():
     """Run integration tests as standalone script."""

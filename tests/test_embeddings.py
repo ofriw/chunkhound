@@ -8,7 +8,9 @@ import sys
 # Add parent directory to path to import chunkhound modules
 sys.path.insert(0, str(Path(__file__).parent))
 
-from chunkhound.embeddings import EmbeddingManager, OpenAIEmbeddingProvider, OpenAICompatibleProvider, TEIProvider
+from chunkhound.embeddings import EmbeddingManager
+from chunkhound.providers.embeddings.openai_provider import OpenAIEmbeddingProvider
+from chunkhound.embeddings import OpenAICompatibleProvider, TEIProvider
 
 async def test_openai_provider_creation():
     """Test creating OpenAI provider without API calls."""
