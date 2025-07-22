@@ -89,7 +89,7 @@ class EmbeddingProviderFactory:
         api_key = config.get("api_key")
         base_url = config.get("base_url")
         model = config.get("model")
-        
+
         # Model should come from config, but handle None case safely
         if not model:
             raise ValueError("Model not specified in provider configuration")

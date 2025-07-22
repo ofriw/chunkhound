@@ -136,7 +136,7 @@ class EmbeddingConfig(BaseSettings):
                 "Set via --provider, CHUNKHOUND_EMBEDDING__PROVIDER, or in config file."
             )
         return self
-    
+
     @field_validator("model")
     def validate_model(cls, v: str | None, info) -> str | None:
         """Validate model name based on provider."""
@@ -255,7 +255,7 @@ class EmbeddingConfig(BaseSettings):
         """
         if not self.provider:
             raise ValueError("No embedding provider selected. Please specify a provider.")
-            
+
         defaults = {
             "openai": "text-embedding-3-small",
             "openai-compatible": "text-embedding-ada-002",
@@ -298,7 +298,7 @@ class EmbeddingConfig(BaseSettings):
             List of missing configuration parameter names
         """
         missing = []
-        
+
         # Check if provider is set first
         if not self.provider:
             missing.append("provider (--provider, CHUNKHOUND_EMBEDDING__PROVIDER, or in config file)")

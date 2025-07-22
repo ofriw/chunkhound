@@ -27,7 +27,6 @@ IF YOU NEED TO MODIFY THESE PATTERNS:
 """
 
 import argparse
-import os
 from pathlib import Path
 
 from chunkhound.core.config.config import Config
@@ -56,37 +55,14 @@ def args_to_config(
 
     Args:
         args: Parsed CLI arguments
-        project_dir: Project directory for config file loading
+        project_dir: Project directory for config file loading (ignored - now auto-detected from args)
 
     Returns:
         Config instance
     """
-    # <STEP_1>
-    # WHY: CLI commands may specify custom config file via --config
-    # HOW: Extract config file path from args if provided
-    # PROTECTED: This pattern must not be changed without user approval
-    config_file = getattr(args, "config", None)
-    if config_file:
-        config_file = Path(config_file)
-    
-    # <STEP_2>
-    # WHY: CLI commands must detect local .chunkhound.json files in project directories
-    # HOW: Use target_dir to enable local config detection
-    # PROTECTED: Removing target_dir breaks local config detection
-    target_dir = None
-    if hasattr(args, "path"):
-        target_dir = Path(args.path)
-    elif project_dir:
-        target_dir = Path(project_dir)
-    
-    # <STEP_3>
-    # WHY: Config.from_cli_args() handles the complex merging logic
-    # HOW: Pass CLI args + target_dir for local config detection
-    # PROTECTED: This is the single source of truth for CLI config creation
-    config = Config.from_cli_args(args, config_file=config_file, target_dir=target_dir)
-    
-    # Return config directly - no wrapper needed
-    return config
+    # The new unified Config class handles all the complexity internally
+    # It automatically detects project directories, config files, and applies precedence
+    return Config(args=args)
 
 
 def create_legacy_registry_config(
@@ -136,22 +112,6 @@ def create_legacy_registry_config(
     return registry_config
 
 
-def apply_legacy_env_vars(config: Config) -> Config:
-    """
-    Apply legacy environment variables to configuration.
-
-    This provides backward compatibility for existing environment variables
-    while the system transitions to the unified configuration.
-
-    Args:
-        config: Configuration to update
-
-    Returns:
-        Updated configuration
-    """
-    # Legacy environment variables are now handled by the Config class
-    # in its _load_env_vars method, so this is now a no-op
-    return config
 
 
 def validate_config_for_command(config: Config, command: str) -> list[str]:
@@ -192,7 +152,7 @@ def validate_config_for_command(config: Config, command: str) -> list[str]:
     # HOW: Use config.get_missing_config() to find missing required fields
     # PROTECTED: This catches fundamental config errors before they cause crashes
     errors = []
-    
+
     # Check for missing configuration
     missing_config = config.get_missing_config()
     if missing_config:
@@ -207,7 +167,7 @@ def validate_config_for_command(config: Config, command: str) -> list[str]:
     if command in ["index", "mcp"]:
         # Get embedding config
         embedding_config = config.embedding
-        
+
         # Validate embedding provider requirements if config exists
         if embedding_config:
             if (
