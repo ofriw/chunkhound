@@ -286,6 +286,19 @@ class Database:
         """Get database statistics."""
         return self._provider.get_stats()
 
+    def execute_database_operation_sync(self, operation_name: str, *args, **kwargs):
+        """Execute database operation synchronously in dedicated thread.
+        
+        Args:
+            operation_name: Name of operation to execute
+            *args: Operation arguments  
+            **kwargs: Operation keyword arguments
+            
+        Returns:
+            Operation result
+        """
+        return self._provider._execute_in_db_thread_sync(operation_name, *args, **kwargs)
+
     def get_file_by_path(self, file_path: str) -> dict[str, Any] | None:
         """Get file record by path."""
         result = self._provider.get_file_by_path(file_path, as_model=False)
