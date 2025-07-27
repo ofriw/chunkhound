@@ -43,7 +43,7 @@ Inside your project's root directory, create a `.chunkhound.json` configuration 
 }
 ```
 
-This configuration connects ChunkHound to ther local PDC LLM server for generating embeddings.
+This configuration connects ChunkHound to the local PDC LLM server for generating embeddings.
 
 ### 2. Run Initial Indexing
 
@@ -121,13 +121,3 @@ Once set up, you can use ChunkHound through your AI assistant with natural langu
 "Find all authentication functions and then show me regex matches for 'auth.*token'"
 "Search for database-related code semantically, then find specific SQL patterns"
 ```
-
-## Troubleshooting
-
-- **Indexing fails**: Ensure you have proper permissions and the PDC LLM server is accessible
-- **MCP connection issues**: Verify the server is running on port 8000 and VS Code MCP configuration is correct
-- **Search returns no results**: Try re-running the indexing process or check your query syntax
-
-## Next Steps
-
-After setup, you can search your codebase using natural language queries through yo
