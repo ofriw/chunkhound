@@ -255,7 +255,7 @@ graph TB
                     <h3 style="font-size: 1.3rem; margin-bottom: 25px; text-transform: uppercase; letter-spacing: 1px; text-align: center; font-weight: bold; color: #2d2d2d;">Semantic Search</h3>
                     <div class="mermaid" style="width: 100%; min-height: 350px; font-size: 1rem;">
 graph TB
-    A["Query: 'auth'"] --> B["AuthService 0.94<br/>loginUser() 0.87<br/>checkUser() 0.83<br/>[12 total matches]"]
+    A["Query: 'auth'"] --> B["AuthService<br/>loginUser()<br/>checkUser()<br/>[12 total matches]"]
     
     style A fill:#f7f5f3,stroke:#b8b8b8,color:#2d2d2d
     style B fill:#8fb89d,stroke:#5c5c5c,color:#2d2d2d
@@ -402,7 +402,7 @@ graph TB
 graph LR
     A["Query:<br/>'authentication logic'"] --> B["Convert to Vector<br/>[0.22, -0.40, 0.79, ...]"]
     B --> C["Vector Search in DB"]
-    C --> D["Ranked Results<br/>authenticate() 0.94<br/>loginUser() 0.87<br/>verifyToken() 0.83<br/>... 12 total matches"]
+    C --> D["Results:<br/>authenticate()<br/>loginUser()<br/>verifyToken()<br/>...<br/>12 total matches"]
     
     style A fill:#f7f5f3,stroke:#b8b8b8,color:#2d2d2d
     style B fill:#b8a884,stroke:#5c5c5c,color:#2d2d2d
