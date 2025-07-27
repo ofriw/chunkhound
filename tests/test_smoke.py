@@ -161,6 +161,68 @@ class TestServerStartup:
             await proc.wait()
 
     @pytest.mark.asyncio
+    async def test_mcp_http_server_respects_port_argument(self):
+        """Test that MCP HTTP server starts on the specified port."""
+        import socket
+
+        # Find a free port for testing
+        def find_free_port():
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.bind(("127.0.0.1", 0))
+                return s.getsockname()[1]
+
+        test_port = find_free_port()
+
+        # Start server with specific port
+        proc = await asyncio.create_subprocess_exec(
+            "uv",
+            "run",
+            "chunkhound",
+            "mcp",
+            "--http",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            str(test_port),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env={**os.environ, "CHUNKHOUND_MCP_MODE": "1"},
+        )
+
+        try:
+            # Wait for server startup
+            await asyncio.sleep(3)
+
+            # Verify server is running
+            if proc.returncode is not None:
+                stdout, stderr = await proc.communicate()
+                pytest.fail(
+                    f"MCP HTTP server crashed with code {proc.returncode}\n"
+                    f"stdout: {stdout.decode()}\n"
+                    f"stderr: {stderr.decode()}"
+                )
+
+            # Test that server is listening on correct port
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.settimeout(1)
+                result = s.connect_ex(("127.0.0.1", test_port))
+                assert result == 0, f"Server not listening on port {test_port}"
+
+            # Verify server is NOT listening on a different port
+            wrong_port = find_free_port()
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.settimeout(1)
+                result = s.connect_ex(("127.0.0.1", wrong_port))
+                assert result != 0, (
+                    f"Server unexpectedly listening on port {wrong_port}"
+                )
+
+        finally:
+            # Clean up
+            proc.terminate()
+            await proc.wait()
+
+    @pytest.mark.asyncio
     async def test_mcp_stdio_server_help(self):
         """Test that MCP stdio server responds to help."""
         proc = await asyncio.create_subprocess_exec(
