@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ChunkHound: Semantic Code Search</title>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
+            line-height: 1.6;
+            background: #faf9f7;
+            color: #2d2d2d;
+            font-size: 16px;
+        }
+        
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 40px 20px;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+            padding: 20px 0;
+        }
+        
+        .header h1 {
+            font-size: clamp(2rem, 5vw, 3.5rem);
+            margin-bottom: 20px;
+            font-weight: bold;
+            color: #2d2d2d;
+        }
+        
+        .header p {
+            font-size: clamp(1rem, 2.5vw, 1.3rem);
+            color: #5c5c5c;
+        }
+        
+        .section {
+            margin-bottom: 100px;
+        }
+        
+        .section h2 {
+            font-size: clamp(1.5rem, 3vw, 2rem);
+            margin-bottom: 40px;
+            font-weight: bold;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            text-align: center;
+            color: #2d2d2d;
+        }
+        
+        .mermaid {
+            font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
+            font-size: clamp(0.7rem, 2vw, 1rem);
+            line-height: 1.4;
+            overflow-x: auto;
+            background: #f7f5f3;
+            padding: 40px;
+            border: 2px solid #b8b8b8;
+            border-radius: 8px;
+            text-align: center;
+            margin: 40px 0;
+        }
+        
+        .solution-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 40px;
+            margin: 60px 0;
+        }
+        
+        .solution-box {
+            border: 2px solid #b8b8b8;
+            border-radius: 8px;
+            padding: 30px;
+            background: #f7f5f3;
+        }
+        
+        .solution-box:first-child {
+            border-color: #d4756b;
+        }
+        
+        .solution-box:last-child {
+            border-color: #8fb89d;
+        }
+        
+        .solution-box h3 {
+            font-size: 1.2rem;
+            margin-bottom: 20px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            text-align: center;
+            font-weight: bold;
+            color: #2d2d2d;
+        }
+        
+        .solution-content {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: clamp(0.7rem, 1.8vw, 0.9rem);
+            line-height: 1.4;
+            white-space: pre;
+        }
+        
+        .solution-box .mermaid {
+            background: #f7f5f3;
+            border: 2px solid #b8b8b8;
+            border-radius: 6px;
+            padding: 20px;
+            margin: 10px 0;
+        }
+        
+        .how-it-works {
+            font-family: 'JetBrains Mono', 'Courier New', monospace;
+            font-size: clamp(0.8rem, 2vw, 1.1rem);
+            line-height: 1.5;
+            overflow-x: auto;
+            white-space: pre;
+            background: #f3f2f0;
+            padding: 40px;
+            border: 1px solid #b8b8b8;
+            border-radius: 8px;
+            margin: 40px 0;
+        }
+        
+        .setup {
+            background: #f7f5f3;
+            border: 2px solid #b8b8b8;
+            border-radius: 8px;
+            padding: 30px;
+            margin: 60px 0;
+            text-align: center;
+        }
+        
+        .setup h3 {
+            font-size: 1.2rem;
+            margin-bottom: 20px;
+            text-transform: uppercase;
+        }
+        
+        .setup-code {
+            font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
+            font-size: clamp(0.8rem, 2vw, 1rem);
+            background: #fcfcfc;
+            border: 1px solid #b8b8b8;
+            border-radius: 6px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+        
+        /* Syntax highlighting - using softer terminal colors */
+        .keyword { color: #5a7ba8; font-weight: bold; }
+        .string { color: #8fb89d; }
+        .variable { color: #b8a884; }
+        .function { color: #b67bb3; }
+        .comment { color: #8a8a8a; font-style: italic; }
+        .type { color: #5a7ba8; }
+        
+        /* Content type styling */
+        h3 {
+            color: #2d2d2d;
+            font-weight: bold;
+        }
+        
+        /* Explanation boxes */
+        .explanation-box {
+            border-left: 4px solid #7eb3c7;
+            background: #f3f2f0;
+            border-radius: 4px;
+        }
+        
+        @media (max-width: 768px) {
+            .solution-grid {
+                grid-template-columns: 1fr;
+                gap: 30px;
+            }
+            
+            .container {
+                padding: 20px 10px;
+            }
+            
+            .problem-visual,
+            .how-it-works {
+                font-size: clamp(0.5rem, 2.5vw, 0.7rem);
+                padding: 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <h1>ChunkHound</h1>
+            <p>Semantic code search</p>
+        </header>
+
+        <section class="section">
+            <h2>The Problem</h2>
+            <div style="font-family: 'Monaco', 'Menlo', 'Consolas', monospace; background: #f3f2f0; padding: 40px; border: 2px solid #b8b8b8; border-radius: 8px; margin: 40px 0;">
+                <div style="text-align: center; margin-bottom: 30px; font-size: 1.1rem; font-weight: bold; color: #2d2d2d;">Stateless AI Agent: "Find authentication code"</div>
+                
+                <div style="display: grid; grid-template-columns: 1fr auto 1fr; gap: 30px; align-items: center; margin: 30px 0;">
+                    <div style="text-align: center;">
+                        <div style="background: #5a7ba8; color: #ffffff; padding: 15px; margin-bottom: 10px; font-weight: bold;">AI KNOWS</div>
+                        <div style="font-size: 0.9rem; line-height: 1.6;">
+                            authentication<br/>
+                            login<br/>
+                            user validation<br/>
+                            access control<br/>
+                            security
+                        </div>
+                    </div>
+                    
+                    <div style="font-size: 2rem; color: #d4756b; font-weight: bold;">≠</div>
+                    
+                    <div style="text-align: center;">
+                        <div style="background: #b67bb3; color: #ffffff; padding: 15px; margin-bottom: 10px; font-weight: bold;">CODEBASE HAS</div>
+                        <div style="font-size: 0.9rem; line-height: 1.6;">
+                            handleUserAuth()<br/>
+                            validateCredentials()<br/>
+                            AuthManager.verify()<br/>
+                            checkUserSession()<br/>
+                            verifyLoginToken()
+                        </div>
+                    </div>
+                </div>
+                
+                <div style="text-align: center; margin-top: 30px; padding: 15px; background: #b8a884; color: #2d2d2d; font-weight: bold;">
+                    Search is needed to bridge this gap
+                </div>
+            </div>
+
+            <div class="solution-grid">
+                <div style="width: 100%;">
+                    <h3 style="font-size: 1.3rem; margin-bottom: 25px; text-transform: uppercase; letter-spacing: 1px; text-align: center; font-weight: bold; color: #2d2d2d;">Traditional Search</h3>
+                    <div class="mermaid" style="width: 100%; height: 350px; font-size: 1rem;">
+graph TB
+    A["grep 'auth'"] --> B["AuthService<br/>[1 result]"]
+    
+    style A fill:#f7f5f3,stroke:#b8b8b8,color:#2d2d2d
+    style B fill:#d4756b,stroke:#ffffff,color:#ffffff
+</div>
+                </div>
+                
+                <div style="width: 100%;">
+                    <h3 style="font-size: 1.3rem; margin-bottom: 25px; text-transform: uppercase; letter-spacing: 1px; text-align: center; font-weight: bold; color: #2d2d2d;">Semantic Search</h3>
+                    <div class="mermaid" style="width: 100%; min-height: 350px; font-size: 1rem;">
+graph TB
+    A["Query: 'authentication logic'"] --> B["AuthService 0.94<br/>loginUser() 0.87<br/>verifyCredentials() 0.83<br/>[12 total matches]"]
+    
+    style A fill:#f7f5f3,stroke:#b8b8b8,color:#2d2d2d
+    style B fill:#8fb89d,stroke:#5c5c5c,color:#2d2d2d
+</div>
+                </div>
+            </div>
+
+            <div class="explanation-box" style="margin: 20px 0; padding: 20px; border: 1px solid #b8b8b8;">
+                <p style="font-family: 'Monaco', 'Menlo', 'Consolas', monospace; font-size: 0.9rem; line-height: 1.5; margin: 0;">
+                    • AI agents are stateless - they only retain general knowledge<br/>
+                    • Each codebase has unique naming conventions and terminology<br/>
+                    • Generic terms rarely match specific function/class names<br/>
+                    • Search enables AI to discover actual implementations in context
+                </p>
+            </div>
+        </section>
+
+        <section class="section">
+            <h2>How it Works</h2>
+            
+            <h3 style="font-size: 1.2rem; margin: 40px 0 20px 0; text-transform: uppercase; letter-spacing: 1px;">1. Intelligent Chunking</h3>
+            <div style="font-family: 'Monaco', 'Menlo', 'Consolas', monospace; font-size: clamp(0.8rem, 2vw, 1.1rem); line-height: 1.5; overflow-x: auto; white-space: pre; background: #f3f2f0; padding: 40px; border: 1px solid #b8b8b8; border-radius: 8px; margin: 40px 0;">user-service.js:
+ 1  <span style="color: #0066cc; font-weight: bold;">import</span> <span style="color: #cc6600;">bcrypt</span> <span style="color: #0066cc; font-weight: bold;">from</span> <span style="color: #009900;">'bcrypt'</span>;
+ 2  <span style="color: #0066cc; font-weight: bold;">import</span> { <span style="color: #9900cc;">generateToken</span> } <span style="color: #0066cc; font-weight: bold;">from</span> <span style="color: #009900;">'./utils'</span>;
+ 3  
+ 4  <span style="color: #0066cc; font-weight: bold;">class</span> <span style="color: #0066cc;">UserService</span> {
+ 5    <span style="color: #9900cc;">constructor</span>(<span style="color: #cc6600;">db</span>) { 
+ 6      <span style="color: #0066cc; font-weight: bold;">this</span>.<span style="color: #cc6600;">db</span> = <span style="color: #cc6600;">db</span>; 
+ 7    }
+ 8  
+ 9  ┌─ <span style="color: #0066cc; font-weight: bold;">async</span> <span style="color: #9900cc;">authenticate</span>(<span style="color: #cc6600;">user</span>, <span style="color: #cc6600;">password</span>) {    <-- CHUNK 1
+10  │    <span style="color: #0066cc; font-weight: bold;">if</span> (!<span style="color: #cc6600;">user</span> || !<span style="color: #cc6600;">password</span>) <span style="color: #0066cc; font-weight: bold;">return</span> <span style="color: #0066cc; font-weight: bold;">false</span>;
+11  │    <span style="color: #0066cc; font-weight: bold;">const</span> <span style="color: #cc6600;">hash</span> = <span style="color: #0066cc; font-weight: bold;">await</span> <span style="color: #cc6600;">bcrypt</span>.<span style="color: #9900cc;">hash</span>(<span style="color: #cc6600;">password</span>);
+12  │    <span style="color: #0066cc; font-weight: bold;">return</span> <span style="color: #0066cc; font-weight: bold;">this</span>.<span style="color: #cc6600;">db</span>.<span style="color: #9900cc;">verify</span>(<span style="color: #cc6600;">user</span>, <span style="color: #cc6600;">hash</span>);
+13  └─ }
+14  
+15  ┌─ <span style="color: #0066cc; font-weight: bold;">async</span> <span style="color: #9900cc;">resetPassword</span>(<span style="color: #cc6600;">email</span>) {            <-- CHUNK 2
+16  │    <span style="color: #0066cc; font-weight: bold;">const</span> <span style="color: #cc6600;">token</span> = <span style="color: #9900cc;">generateToken</span>();
+17  │    <span style="color: #0066cc; font-weight: bold;">await</span> <span style="color: #0066cc; font-weight: bold;">this</span>.<span style="color: #9900cc;">sendEmail</span>(<span style="color: #cc6600;">email</span>, <span style="color: #cc6600;">token</span>);
+18  │    <span style="color: #0066cc; font-weight: bold;">return</span> <span style="color: #cc6600;">token</span>;
+19  └─ }
+20  }</div>
+
+            <div class="explanation-box" style="margin: 20px 0; padding: 20px; border: 1px solid #b8b8b8;">
+                <p style="font-family: 'Monaco', 'Menlo', 'Consolas', monospace; font-size: 0.9rem; line-height: 1.5; margin: 0;">
+                    • Breaks code at meaningful boundaries (functions, classes, docstrings)<br/>
+                    • Uses Tree-Sitter parsers for 18+ languages (Python, JS, Go, Rust, etc.)<br/>
+                    • Includes DevOps languages (Bash, YAML, Dockerfile, etc.)<br/>
+                    • Preserves context and semantic meaning
+                </p>
+            </div>
+
+            <h3 style="font-size: 1.2rem; margin: 40px 0 20px 0; text-transform: uppercase; letter-spacing: 1px;">2. Vector Embeddings</h3>
+            <div class="mermaid">
+graph LR
+    A["function authenticate() {<br/>  verify(user);<br/>  return token;<br/>}"] --> B[Embedding Model]
+    B --> C["Vector:<br/>[0.23, -0.41, 0.78, 0.15,<br/> -0.92, 0.44, -0.67, 0.81,<br/> 0.33, -0.15, 0.91, -0.44,<br/> ... hundreds more]"]
+    
+    style A fill:#f7f5f3,stroke:#b8b8b8,color:#2d2d2d
+    style B fill:#b8a884,stroke:#5c5c5c,color:#2d2d2d
+    style C fill:#f7f5f3,stroke:#8fb89d,color:#8fb89d
+</div>
+
+            <div class="explanation-box" style="margin: 20px 0; padding: 20px; border: 1px solid #b8b8b8;">
+                <p style="font-family: 'Monaco', 'Menlo', 'Consolas', monospace; font-size: 0.9rem; line-height: 1.5; margin: 0;">
+                    • Embeddings model ≠ LLM (completely independent)<br/>
+                    • Converts text to mathematical vectors<br/>
+                    • Similar meaning → Similar vectors<br/>
+                    • Multiple providers: OpenAI, Ollama, local TEI server
+                </p>
+            </div>
+
+            <h3 style="font-size: 1.2rem; margin: 40px 0 20px 0; text-transform: uppercase; letter-spacing: 1px;">3. Vector Database Storage</h3>
+            <div style="font-family: 'Monaco', 'Menlo', 'Consolas', monospace; font-size: clamp(0.8rem, 2vw, 1rem); background: #f3f2f0; padding: 30px; border: 1px solid #b8b8b8; border-radius: 8px; margin: 40px 0; overflow-x: auto;">
+                <table style="width: 100%; border-collapse: collapse; font-size: inherit;">
+                    <thead>
+                        <tr style="background: #8a8a8a; color: #ffffff;">
+                            <th style="border: 1px solid #b8b8b8; padding: 8px; text-align: left;">Chunk</th>
+                            <th style="border: 1px solid #b8b8b8; padding: 8px; text-align: left;">Vector</th>
+                            <th style="border: 1px solid #b8b8b8; padding: 8px; text-align: left;">File</th>
+                            <th style="border: 1px solid #b8b8b8; padding: 8px; text-align: left;">Lines</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td style="border: 1px solid #b8b8b8; padding: 8px;">authenticate(user, password)</td>
+                            <td style="border: 1px solid #b8b8b8; padding: 8px;">[0.23, -0.41, 0.78, ...]</td>
+                            <td style="border: 1px solid #b8b8b8; padding: 8px;">user-service.js</td>
+                            <td style="border: 1px solid #b8b8b8; padding: 8px;">9-13</td>
+                        </tr>
+                        <tr style="background: #fafafa;">
+                            <td style="border: 1px solid #b8b8b8; padding: 8px;">resetPassword(email)</td>
+                            <td style="border: 1px solid #b8b8b8; padding: 8px;">[0.31, -0.52, 0.67, ...]</td>
+                            <td style="border: 1px solid #b8b8b8; padding: 8px;">user-service.js</td>
+                            <td style="border: 1px solid #b8b8b8; padding: 8px;">15-19</td>
+                        </tr>
+                        <tr>
+                            <td style="border: 1px solid #b8b8b8; padding: 8px;">class UserService</td>
+                            <td style="border: 1px solid #b8b8b8; padding: 8px;">[0.18, -0.29, 0.84, ...]</td>
+                            <td style="border: 1px solid #b8b8b8; padding: 8px;">user-service.js</td>
+                            <td style="border: 1px solid #b8b8b8; padding: 8px;">4-20</td>
+                        </tr>
+                        <tr style="background: #fafafa;">
+                            <td style="border: 1px solid #b8b8b8; padding: 8px;">validateInput(data)</td>
+                            <td style="border: 1px solid #b8b8b8; padding: 8px;">[0.45, -0.61, 0.72, ...]</td>
+                            <td style="border: 1px solid #b8b8b8; padding: 8px;">validators.js</td>
+                            <td style="border: 1px solid #b8b8b8; padding: 8px;">12-18</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="explanation-box" style="margin: 20px 0; padding: 20px; border: 1px solid #b8b8b8;">
+                <p style="font-family: 'Monaco', 'Menlo', 'Consolas', monospace; font-size: 0.9rem; line-height: 1.5; margin: 0;">
+                    • Privacy-first: Everything stored locally<br/>
+                    • DuckDB (default) or LanceDB (experimental)<br/>
+                    • Enables both vector search AND regex search<br/>
+                    • Combines fuzzy semantic + exact pattern matching
+                </p>
+            </div>
+
+            <h3 style="font-size: 1.2rem; margin: 40px 0 20px 0; text-transform: uppercase; letter-spacing: 1px;">4. Search Process</h3>
+            <div class="mermaid">
+graph LR
+    A["Query:<br/>'authentication logic'"] --> B["Convert to Vector<br/>[0.22, -0.40, 0.79, ...]"]
+    B --> C["Vector Search in DB"]
+    C --> D["Ranked Results<br/>authenticate() 0.94<br/>loginUser() 0.87<br/>verifyToken() 0.83<br/>... 12 total matches"]
+    
+    style A fill:#f7f5f3,stroke:#b8b8b8,color:#2d2d2d
+    style B fill:#b8a884,stroke:#5c5c5c,color:#2d2d2d
+    style C fill:#5a7ba8,stroke:#ffffff,color:#ffffff
+    style D fill:#8fb89d,stroke:#5c5c5c,color:#2d2d2d
+</div>
+        </section>
+
+        <section class="section">
+            <div style="padding: 40px 0; margin: 60px 0;">
+                <h3 style="font-size: 1.6rem; margin-bottom: 30px; text-transform: uppercase; letter-spacing: 2px; color: #2d2d2d; font-weight: bold; text-align: left;">🤖 Built by AI, for AI 🤖</h3>
+                <div style="font-family: 'Monaco', 'Menlo', 'Consolas', monospace; font-size: 1.3rem; line-height: 1.6;">
+                    <p style="margin-bottom: 20px; color: #2d2d2d; font-weight: bold;">🚀 ChunkHound was built <strong style="color: #2d2d2d;">100% by AI agents 🧠✨</strong> using ChunkHound itself for code understanding and navigation</p>
+                    <p style="margin-bottom: 20px; color: #2d2d2d; font-weight: bold;">✋ Not a single line of code was written by human hands</p>
+                    <p style="margin-bottom: 20px; color: #2d2d2d; font-weight: bold;">🎯 Even the name "ChunkHound" was generated by AI</p>
+                    <p style="font-style: italic; color: #2d2d2d; font-weight: bold;">🌟 A tool that enables AI to understand code, built entirely by AI understanding code</p>
+                </div>
+            </div>
+        </section>
+    </div>
+    <script>
+        mermaid.initialize({
+            startOnLoad: true,
+            theme: 'base',
+            themeVariables: {
+                primaryColor: '#f7f5f3',
+                primaryTextColor: '#2d2d2d',
+                primaryBorderColor: '#b8b8b8',
+                lineColor: '#b8b8b8',
+                sectionBkgColor: '#f7f5f3',
+                altSectionBkgColor: '#f3f2f0',
+                gridColor: '#c9c9c9',
+                secondaryColor: '#f7f5f3',
+                tertiaryColor: '#c9c9c9',
+                background: '#f7f5f3',
+                mainBkg: '#f7f5f3',
+                secondaryBorderColor: '#b8b8b8',
+                tertiaryBorderColor: '#8a8a8a'
+            },
+            fontFamily: 'Monaco, Menlo, Consolas, monospace',
+            fontSize: 16
+        });
+    </script>
+</body>
+</html>
