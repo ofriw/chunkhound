@@ -27,7 +27,6 @@ from mcp.server import Server
 from mcp.server.lowlevel import NotificationOptions
 from mcp.server.models import InitializationOptions
 
-from chunkhound.file_watcher import debug_log
 from chunkhound.mcp_shared import add_common_mcp_arguments
 from chunkhound.version import __version__
 
@@ -55,11 +54,7 @@ try:
     from .database import Database
     from .database_factory import create_database_with_dependencies
     from .embeddings import EmbeddingManager
-    from .file_watcher import FileWatcherManager
-    from .periodic_indexer import PeriodicIndexManager
     from .registry import configure_registry, get_registry
-    from .signal_coordinator import SignalCoordinator
-    from .task_coordinator import TaskCoordinator, TaskPriority
 except ImportError:
     # Handle running as standalone script or PyInstaller binary
     from chunkhound.core.config import EmbeddingProviderFactory
@@ -67,10 +62,6 @@ except ImportError:
     from chunkhound.database import Database
     from chunkhound.database_factory import create_database_with_dependencies
     from chunkhound.embeddings import EmbeddingManager
-    from chunkhound.file_watcher import FileWatcherManager
-    from chunkhound.periodic_indexer import PeriodicIndexManager
-    from chunkhound.signal_coordinator import SignalCoordinator
-    from chunkhound.task_coordinator import TaskCoordinator, TaskPriority
 
 # SECTION: Global_State_Management
 # RATIONALE: MCP stdio protocol requires persistent state across requests
@@ -78,12 +69,7 @@ except ImportError:
 # PATTERN: Initialize once in lifespan, reuse for all operations
 _database: Database | None = None
 _embedding_manager: EmbeddingManager | None = None
-_file_watcher: FileWatcherManager | None = None
-_signal_coordinator: SignalCoordinator | None = None
-_task_coordinator: TaskCoordinator | None = None
-_periodic_indexer: PeriodicIndexManager | None = None
 _initialization_complete: asyncio.Event = asyncio.Event()
-_server_config: Optional["Config"] = None  # Store initial config for file change processing
 
 # Initialize MCP server with explicit stdio
 server = Server("ChunkHound Code Search")
@@ -109,17 +95,6 @@ def _log_processing_error(e: Exception, event_type: str, file_path: Path) -> Non
         pass
 
 
-def setup_signal_coordination(db_path: Path, database: Database):
-    """Setup signal coordination for process coordination."""
-    global _signal_coordinator
-
-    try:
-        _signal_coordinator = SignalCoordinator(db_path, database)
-        _signal_coordinator.setup_mcp_signal_handling()
-        # Signal coordination initialized (logging disabled for MCP server)
-    except Exception:
-        # Failed to setup signal coordination (logging disabled for MCP server)
-        raise
 
 
 def log_environment_diagnostics():
@@ -167,12 +142,7 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
     global \
         _database, \
         _embedding_manager, \
-        _file_watcher, \
-        _signal_coordinator, \
-        _task_coordinator, \
-        _periodic_indexer, \
-        _initialization_complete, \
-        _server_config
+        _initialization_complete
 
     # ENVIRONMENT: Set MCP mode flag for other components
     # PURPOSE: Suppress any output that might break JSON-RPC
@@ -257,30 +227,6 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
 
             pass
 
-        # CRITICAL: Atomic registration prevents race conditions
-        # PATTERN: Single atomic operation instead of check-then-register
-        try:
-            from .process_detection import ProcessDetector
-        except ImportError:
-            from chunkhound.process_detection import ProcessDetector
-
-        process_detector = ProcessDetector(db_path)
-        
-        # FIXED: Atomic registration - no separate check needed
-        if not process_detector.register_mcp_server(os.getpid()):
-            # Registration failed - another server is running
-            existing_server = process_detector.find_mcp_server()
-            raise Exception(
-                f"Another ChunkHound MCP server is already running for database '{db_path}' "
-                f"(PID {existing_server['pid'] if existing_server else 'unknown'}). "
-                f"Only one MCP server instance per database is allowed. "
-                f"Please stop the existing server first or use a different database path."
-            )
-        
-        # If we get here, we successfully registered as the only server
-        if debug_mode:
-            # print(f"Server lifespan: Registered MCP server PID {os.getpid()}", file=sys.stderr)
-            pass
 
         # Initialize embedding configuration BEFORE database creation
         _embedding_manager = EmbeddingManager()
@@ -394,114 +340,6 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
                 # traceback.print_exc(file=sys.stderr)
             raise
 
-        # Setup signal coordination for process coordination (skip duplicate registration)
-        global _signal_coordinator
-        _signal_coordinator = SignalCoordinator(db_path, _database)
-        _signal_coordinator.setup_mcp_signal_handling_no_register()
-        if debug_mode:
-            # print(
-            #     "Server lifespan: Signal coordination setup complete", file=sys.stderr
-            # )
-
-            pass
-        # Initialize task coordinator for priority-based operation processing
-        _task_coordinator = TaskCoordinator(max_queue_size=1000)
-        await _task_coordinator.start()
-        if debug_mode:
-            # print("Server lifespan: Task coordinator initialized", file=sys.stderr)
-
-            pass
-        # Initialize filesystem watcher with offline catch-up
-        _file_watcher = FileWatcherManager()
-        try:
-            if debug_mode:
-                # print("Server lifespan: Initializing file watcher...", file=sys.stderr)
-
-                pass
-            # Check if watchdog is available before initializing
-            try:
-                from .file_watcher import WATCHDOG_AVAILABLE
-            except ImportError:
-                from chunkhound.file_watcher import WATCHDOG_AVAILABLE
-
-            if not WATCHDOG_AVAILABLE:
-                # FAIL FAST: watchdog is required for real-time file watching
-                error_msg = (
-                    "FATAL: watchdog library not available - real-time file watching disabled.\n"
-                    "This causes silent failures where file modifications are missed.\n"
-                    "Install watchdog: pip install watchdog>=4.0.0"
-                )
-                # print(f"❌ MCP SERVER ERROR: {error_msg}", file=sys.stderr)
-                raise ImportError(error_msg)
-
-            debug_log("mcp_server_initializing_watcher")
-            watcher_success = await _file_watcher.initialize(process_file_change)
-            debug_log("mcp_server_watcher_initialized", success=watcher_success)
-            if not watcher_success:
-                # FAIL FAST: file watcher initialization failed
-                error_msg = (
-                    "FATAL: File watcher initialization failed - real-time monitoring disabled.\n"
-                    "This causes silent failures where file modifications are missed.\n"
-                    "Check watch paths configuration and filesystem permissions."
-                )
-                # print(f"❌ MCP SERVER ERROR: {error_msg}", file=sys.stderr)
-                raise RuntimeError(error_msg)
-
-            if debug_mode:
-                # print(
-                #     "Server lifespan: File watcher initialized successfully",
-                #     file=sys.stderr,
-                # )
-                pass
-        except Exception as fw_error:
-            # FAIL FAST: Any file watcher error should crash the server
-            error_msg = f"FATAL: File watcher initialization failed: {fw_error}"
-            # print(f"❌ MCP SERVER ERROR: {error_msg}", file=sys.stderr)
-            if debug_mode:
-                pass
-
-                # traceback.print_exc(file=sys.stderr)
-            raise RuntimeError(error_msg)
-
-        # Initialize periodic indexer for background scanning
-        try:
-            if debug_mode:
-                # print(
-                #     "Server lifespan: Initializing periodic indexer...", file=sys.stderr
-                # )
-
-                pass
-            # Use the SAME IndexingCoordinator instance from _database to ensure deduplication
-            # This prevents duplicate entries by sharing the same ChunkCacheService state
-            indexing_coordinator = _database._indexing_coordinator
-
-            # Create periodic indexer with environment configuration
-            # Let from_environment() handle path resolution using the same logic as FileWatcherManager
-            _periodic_indexer = PeriodicIndexManager.from_environment(
-                indexing_coordinator=indexing_coordinator,
-                task_coordinator=_task_coordinator,
-            )
-
-            # Start periodic indexer (immediate startup scan + periodic scans)
-            await _periodic_indexer.start()
-
-            if debug_mode:
-                # print(
-                #     "Server lifespan: Periodic indexer initialized successfully",
-                #     file=sys.stderr,
-                # )
-                pass
-        except Exception:
-            # Non-fatal error - log but continue without periodic indexing
-            if debug_mode:
-                # print(
-                #     f"Server lifespan: Periodic indexer initialization failed (non-fatal): {pi_error}",
-                #     file=sys.stderr,
-                # )
-                pass
-
-                # traceback.print_exc(file=sys.stderr)
-            _periodic_indexer = None
 
         if debug_mode:
             # print(
@@ -518,9 +356,6 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
         yield {
             "db": _database,
             "embeddings": _embedding_manager,
-            "watcher": _file_watcher,
-            "task_coordinator": _task_coordinator,
-            "periodic_indexer": _periodic_indexer,
         }
 
     except Exception as e:
@@ -538,99 +373,6 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
             # print("Server lifespan: Entering cleanup phase", file=sys.stderr)
 
             pass
-        # Cleanup periodic indexer
-        if _periodic_indexer:
-            try:
-                if debug_mode:
-                    # print(
-                    #     "Server lifespan: Stopping periodic indexer...", file=sys.stderr
-                    # )
-                    pass
-                await _periodic_indexer.stop()
-                if debug_mode:
-                    # print("Server lifespan: Periodic indexer stopped", file=sys.stderr)
-                    pass
-            except Exception:
-                if debug_mode:
-                    # print(
-                    #     f"Server lifespan: Error stopping periodic indexer: {pi_cleanup_error}",
-                    #     file=sys.stderr,
-                    # )
-
-                    pass
-        # Cleanup task coordinator
-        if _task_coordinator:
-            try:
-                if debug_mode:
-                    # print(
-                    #     "Server lifespan: Stopping task coordinator...", file=sys.stderr
-                    # )
-                    pass
-                await _task_coordinator.stop()
-                if debug_mode:
-                    # print("Server lifespan: Task coordinator stopped", file=sys.stderr)
-                    pass
-            except Exception:
-                if debug_mode:
-                    # print(
-                    #     f"Server lifespan: Error stopping task coordinator: {tc_cleanup_error}",
-                    #     file=sys.stderr,
-                    # )
-
-                    pass
-        # Cleanup coordination files
-        if _signal_coordinator:
-            try:
-                _signal_coordinator.cleanup_coordination_files()
-                if debug_mode:
-                    # print(
-                    #     "Server lifespan: Signal coordination files cleaned up",
-                    #     file=sys.stderr,
-                    # )
-                    pass
-            except Exception:
-                if debug_mode:
-                    # print(
-                    #     f"Server lifespan: Error cleaning up coordination files: {coord_error}",
-                    #     file=sys.stderr,
-                    # )
-
-                    pass
-
-        # Cleanup process detector PID file
-        try:
-            if 'process_detector' in locals():
-                process_detector.remove_pid_file()
-                if debug_mode:
-                    # print("Server lifespan: Process detector PID file cleaned up", file=sys.stderr)
-                    pass
-        except Exception:
-            if debug_mode:
-                # print(f"Server lifespan: Error cleaning up PID file: {pid_cleanup_error}", file=sys.stderr)
-                pass
-        # Cleanup filesystem watcher
-        if _file_watcher:
-            try:
-                if debug_mode:
-                    # print(
-                    #     "Server lifespan: Cleaning up file watcher...", file=sys.stderr
-                    # )
-                    pass
-                await _file_watcher.cleanup()
-                if debug_mode:
-                    # print(
-                    #     "Server lifespan: File watcher cleaned up successfully",
-                    #     file=sys.stderr,
-                    # )
-                    pass
-            except Exception:
-                if debug_mode:
-                    # print(
-                    #     f"Server lifespan: Error cleaning up file watcher: {fw_cleanup_error}",
-                    #     file=sys.stderr,
-                    # )
-
-                    pass
         # Cleanup database
         if _database:
             try:
@@ -641,20 +383,6 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
                     # )
 
                     pass
-                # Ensure all pending operations complete
-                if _task_coordinator:
-                    try:
-                        await asyncio.wait_for(
-                            _task_coordinator.stop(), timeout=10.0
-                        )
-                    except asyncio.TimeoutError:
-                        if debug_mode:
-                            # print(
-                            #     "Server lifespan: Task coordinator cleanup timeout",
-                            #     file=sys.stderr,
-                            # )
-
-                            pass
                 # Force final checkpoint before closing to minimize WAL size
                 try:
                     _database.execute_database_operation_sync("maybe_checkpoint", True)
@@ -689,183 +417,12 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
 
                     pass
 
-        # Reset stored config
-        _server_config = None
 
         if debug_mode:
             # print("Server lifespan: Cleanup complete", file=sys.stderr)
 
 
             pass
-async def _wait_for_file_completion(file_path: Path, max_retries: int = 10) -> bool:
-    """Wait for file to be fully written (not locked by editor)"""
-    # Increased retries and wait time for new files
-    for attempt in range(max_retries):
-        try:
-            # Check if file exists first
-            if not file_path.exists():
-                await asyncio.sleep(0.1)
-                continue
-
-            # Try to read the file
-            with open(file_path, "rb") as f:
-                f.read(1)  # Test read access
-
-            # Additional check: ensure file size is stable
-            if attempt == 0:
-                initial_size = file_path.stat().st_size
-                await asyncio.sleep(0.05)  # Brief wait
-                if file_path.stat().st_size != initial_size:
-                    continue  # File still being written
-
-            return True
-        except (OSError, PermissionError, FileNotFoundError):
-            # Increase wait time for later attempts
-            wait_time = 0.1 if attempt < 5 else 0.2
-            await asyncio.sleep(wait_time)
-    return False
-
-
-async def process_file_change(file_path: Path, event_type: str):
-    """
-    Process a file change event by updating the database.
-
-    # ENTRY_POINT: Called by FileWatcher on filesystem events
-    # PATTERN: Non-blocking via TaskCoordinator
-    # PRIORITY: File changes are LOW priority (search is HIGH)
-    # CONSTRAINT: Must wait for server initialization
-    """
-    # Wait for server initialization to complete
-    try:
-        await asyncio.wait_for(_initialization_complete.wait(), timeout=30.0)
-    except asyncio.TimeoutError:
-        # Log initialization timeout but continue anyway
-        pass
-
-    global _database, _embedding_manager, _task_coordinator, _server_config
-
-    # DEBUG: Log entry point
-    debug_log("process_file_change_entry", file_path=str(file_path), file_event_type=event_type)
-
-    if not _database or not _server_config:
-        debug_log("process_file_change_abort", reason="missing_database_or_config")
-        return
-
-    async def _execute_file_processing():
-        """Execute the actual file processing logic."""
-        debug_log("execute_file_processing_start", file_path=str(file_path), file_event_type=event_type)
-        try:
-            if event_type == "deleted":
-                debug_log("processing_deletion", file_path=str(file_path))
-                # Remove file and its chunks using same approach as CLI indexer
-                # This ensures consistent transaction handling and prevents race conditions
-                removed_chunks = await _database._indexing_coordinator.remove_file(str(file_path))
-
-                debug_log("deletion_complete", file_path=str(file_path), removed_chunks=removed_chunks)
-
-                # Log deletion result for debugging
-                debug_mode = os.getenv("CHUNKHOUND_DEBUG", "").lower() in ("true", "1", "yes")
-                if debug_mode and removed_chunks > 0:
-                    print(f"[MCP-SERVER] Removed {removed_chunks} chunks from deleted file: {file_path}", file=sys.stderr)
-            else:
-                debug_log("processing_file_change", file_path=str(file_path), file_event_type=event_type)
-                # Process file (created, modified, moved)
-                if file_path.exists() and file_path.is_file():
-                    debug_log("file_exists_check_passed", file_path=str(file_path))
-                    # Check if file should be excluded before processing with .gitignore support
-                    try:
-                        from .utils.project_detection import find_project_root
-                    except ImportError:
-                        from chunkhound.utils.project_detection import find_project_root
-
-                    # Find project root for pattern matching
-                    project_root = find_project_root()
-
-                    # Use stored server config for consistency with initial indexing
-                    # This ensures file change processing uses the same configuration as initial indexing
-                    exclude_patterns = _server_config.indexing.exclude or []
-
-                    from fnmatch import fnmatch
-
-                    should_exclude = False
-
-                    # Get relative path from project root for pattern matching
-                    try:
-                        rel_path = file_path.relative_to(project_root)
-                    except ValueError:
-                        # File is not under base directory, use absolute path
-                        rel_path = file_path
-
-                    for exclude_pattern in exclude_patterns:
-                        # Check both relative and absolute paths
-                        if fnmatch(str(rel_path), exclude_pattern) or fnmatch(
-                            str(file_path), exclude_pattern
-                        ):
-                            should_exclude = True
-                            break
-
-                    if should_exclude:
-                        debug_log("file_excluded", file_path=str(file_path), exclude_patterns=exclude_patterns)
-                        return
-
-                    debug_log("checking_file_completion", file_path=str(file_path))
-                    # Verify file is fully written before processing to avoid partial content
-                    if not await _wait_for_file_completion(file_path):
-                        debug_log("file_completion_failed", file_path=str(file_path))
-                        return  # Skip if file not ready
-
-                    debug_log("file_completion_passed", file_path=str(file_path))
-
-                    debug_log("calling_indexing_coordinator", file_path=str(file_path))
-                    # DELEGATION: IndexingCoordinator handles complex workflow
-                    # FEATURES: Smart diff, chunk comparison, embedding preservation
-                    # TRANSACTION: Atomic updates prevent partial states
-                    result = await _database._indexing_coordinator.process_file(
-                        file_path
-                    )
-
-                    debug_log("indexing_coordinator_result", file_path=str(file_path), result=result)
-
-                    # Handle processing results with same logic as CLI indexer
-                    if result["status"] in ["success", "up_to_date"]:
-                        debug_log("processing_success", file_path=str(file_path), status=result["status"])
-                        # success: file was modified and re-indexed
-                        # up_to_date: smart diff detected no changes (valid outcome)
-                        pass
-                    elif result["status"] in ["skipped", "no_content", "no_chunks"]:
-                        debug_log("processing_skipped", file_path=str(file_path), status=result["status"])
-                        # File skipped for valid reasons (empty file, unsupported type, etc.)
-                        pass
-                    else:
-                        debug_log("processing_error", file_path=str(file_path), result=result)
-                        # Log processing errors for debugging
-                        _log_processing_error(
-                            Exception(f"File processing returned: {result}"),
-                            event_type,
-                            file_path
-                        )
-                else:
-                    debug_log("file_not_found", file_path=str(file_path), exists=file_path.exists(), is_file=file_path.is_file() if file_path.exists() else False)
-        except Exception as e:
-            debug_log("execute_file_processing_exception", file_path=str(file_path), error=str(e))
-            _log_processing_error(e, event_type, file_path)
-
-    # Queue file processing as low-priority task to avoid blocking searches
-    debug_log("queuing_task", file_path=str(file_path), has_coordinator=bool(_task_coordinator))
-    if _task_coordinator:
-        try:
-            await _task_coordinator.queue_task(
-                TaskPriority.LOW, _execute_file_processing
-            )
-            debug_log("task_queued_success", file_path=str(file_path))
-        except Exception as e:
-            debug_log("task_queue_failed", file_path=str(file_path), error=str(e))
-            # Fallback to direct processing if queue is full or coordinator is down
-            await _execute_file_processing()
-    else:
-        debug_log("no_task_coordinator_direct_processing", file_path=str(file_path))
-        # Fallback to direct processing if no task coordinator
-        await _execute_file_processing()
 
 
 def estimate_tokens(text: str) -> int:
@@ -965,10 +522,7 @@ async def call_tool(
         # Continue anyway - individual resource checks will handle missing resources
         pass
     if not _database:
-        if _signal_coordinator and _signal_coordinator.is_coordination_active():
-            raise Exception("Database temporarily unavailable during coordination")
-        else:
-            raise Exception("Database not initialized")
+        raise Exception("Database not initialized")
 
     if name == "search_regex":
         pattern = arguments.get("pattern", "")
@@ -977,56 +531,45 @@ async def call_tool(
         max_tokens = max(1000, min(arguments.get("max_response_tokens", 20000), 25000))
         path_filter = arguments.get("path")
 
-        async def _execute_regex_search():
-            # Check connection instead of forcing reconnection (fixes race condition)
-            if _database and not _database.is_connected():
-                if "CHUNKHOUND_DEBUG" in os.environ:
-                    # print(
-                    #     "Database not connected, reconnecting before regex search",
-                    #     file=sys.stderr,
-                    # )
-                    pass
-                _database.reconnect()
+        # Check connection instead of forcing reconnection (fixes race condition)
+        if _database and not _database.is_connected():
+            if "CHUNKHOUND_DEBUG" in os.environ:
+                # print(
+                #     "Database not connected, reconnecting before regex search",
+                #     file=sys.stderr,
+                # )
+                pass
+            _database.reconnect()
 
-            results, pagination = _database.search_regex(
-                pattern=pattern,
-                page_size=page_size,
-                offset=offset,
-                path_filter=path_filter,
-            )
+        results, pagination = _database.search_regex(
+            pattern=pattern,
+            page_size=page_size,
+            offset=offset,
+            path_filter=path_filter,
+        )
 
-            # Format response with pagination metadata
-            response_data = {"results": results, "pagination": pagination}
+        # Format response with pagination metadata
+        response_data = {"results": results, "pagination": pagination}
 
-            # Apply response size limiting
-            limited_response = limit_response_size(response_data, max_tokens)
-            response_text = json.dumps(limited_response, default=str)
+        # Apply response size limiting
+        limited_response = limit_response_size(response_data, max_tokens)
+        response_text = json.dumps(limited_response, default=str)
 
-            # Final safety check - ensure we never exceed MCP limit
-            if estimate_tokens(response_text) > 25000:
-                # Emergency fallback - return minimal response
-                emergency_response = {
-                    "results": [],
-                    "pagination": {
-                        "offset": offset,
-                        "page_size": 0,
-                        "has_more": True,
-                        "total": limited_response["pagination"].get("total", 0),
-                    },
-                }
-                response_text = json.dumps(emergency_response, default=str)
+        # Final safety check - ensure we never exceed MCP limit
+        if estimate_tokens(response_text) > 25000:
+            # Emergency fallback - return minimal response
+            emergency_response = {
+                "results": [],
+                "pagination": {
+                    "offset": offset,
+                    "page_size": 0,
+                    "has_more": True,
+                    "total": limited_response["pagination"].get("total", 0),
+                },
+            }
+            response_text = json.dumps(emergency_response, default=str)
 
-            return [types.TextContent(type="text", text=response_text)]
-
-        try:
-            if _task_coordinator:
-                return await _task_coordinator.queue_task(
-                    TaskPriority.HIGH, _execute_regex_search
-                )
-            else:
-                return await _execute_regex_search()
-        except Exception as e:
-            raise Exception(f"Search failed: {str(e)}")
+        return [types.TextContent(type="text", text=response_text)]
 
     elif name == "search_semantic":
         query = arguments.get("query", "")
@@ -1059,102 +602,34 @@ async def call_tool(
         threshold = arguments.get("threshold")
         path_filter = arguments.get("path")
 
-        async def _execute_semantic_search():
-            # Check connection instead of forcing reconnection (fixes race condition)
-            if _database and not _database.is_connected():
-                if "CHUNKHOUND_DEBUG" in os.environ:
-                    # print(
-                    #     "Database not connected, reconnecting before semantic search",
-                    #     file=sys.stderr,
-                    # )
-                    pass
-                _database.reconnect()
+        # Check connection instead of forcing reconnection (fixes race condition)
+        if _database and not _database.is_connected():
+            if "CHUNKHOUND_DEBUG" in os.environ:
+                # print(
+                #     "Database not connected, reconnecting before semantic search",
+                #     file=sys.stderr,
+                # )
+                pass
+            _database.reconnect()
 
-            # Implement timeout coordination for MCP-OpenAI API latency mismatch
-            # MCP client timeout is typically 5-15s, but OpenAI API can take up to 30s
-            try:
-                # Use asyncio.wait_for with MCP-safe timeout (12 seconds)
-                # This is shorter than OpenAI's 30s timeout but allows most requests to complete
-                result = await asyncio.wait_for(
-                    _embedding_manager.embed_texts([query], provider), timeout=12.0
-                )
-                query_vector = result.embeddings[0]
-
-                results, pagination = _database.search_semantic(
-                    query_vector=query_vector,
-                    provider=provider,
-                    model=model,
-                    page_size=page_size,
-                    offset=offset,
-                    threshold=threshold,
-                    path_filter=path_filter,
-                )
-
-                # Format response with pagination metadata
-                response_data = {"results": results, "pagination": pagination}
-
-                # Apply response size limiting
-                limited_response = limit_response_size(response_data, max_tokens)
-                response_text = json.dumps(limited_response, default=str)
-
-                # Final safety check - ensure we never exceed MCP limit
-                if estimate_tokens(response_text) > 25000:
-                    # Emergency fallback - return minimal response
-                    emergency_response = {
-                        "results": [],
-                        "pagination": {
-                            "offset": offset,
-                            "page_size": 0,
-                            "has_more": True,
-                            "total": limited_response["pagination"].get("total", 0),
-                        },
-                    }
-                    response_text = json.dumps(emergency_response, default=str)
-
-                return [types.TextContent(type="text", text=response_text)]
-
-            except asyncio.TimeoutError:
-                # Handle MCP timeout gracefully with informative error
-                raise Exception(
-                    "Semantic search timed out. This can happen when OpenAI API is experiencing high latency. Please try again."
-                )
-
+        # Implement timeout coordination for MCP-OpenAI API latency mismatch
+        # MCP client timeout is typically 5-15s, but OpenAI API can take up to 30s
         try:
-            if _task_coordinator:
-                return await _task_coordinator.queue_task(
-                    TaskPriority.HIGH, _execute_semantic_search
-                )
-            else:
-                return await _execute_semantic_search()
-        except Exception as e:
-            raise Exception(f"Semantic search failed: {str(e)}")
+            # Use asyncio.wait_for with MCP-safe timeout (12 seconds)
+            # This is shorter than OpenAI's 30s timeout but allows most requests to complete
+            result = await asyncio.wait_for(
+                _embedding_manager.embed_texts([query], provider), timeout=12.0
+            )
+            query_vector = result.embeddings[0]
 
-    elif name == "search_fuzzy":
-        query = arguments.get("query", "")
-        page_size = max(1, min(arguments.get("page_size", 10), 100))
-        offset = max(0, arguments.get("offset", 0))
-        max_tokens = max(1000, min(arguments.get("max_response_tokens", 20000), 25000))
-        path_filter = arguments.get("path")
-
-        async def _execute_fuzzy_search():
-            # Check connection instead of forcing reconnection (fixes race condition)
-            if _database and not _database.is_connected():
-                if "CHUNKHOUND_DEBUG" in os.environ:
-                    # print(
-                    #     "Database not connected, reconnecting before fuzzy search",
-                    #     file=sys.stderr,
-                    # )
-                    pass
-                _database.reconnect()
-
-            # Check if provider supports fuzzy search
-            if not hasattr(_database._provider, "search_fuzzy"):
-                raise Exception(
-                    "Fuzzy search not supported by current database provider"
-                )
-
-            results, pagination = _database._provider.search_fuzzy(
-                query=query, page_size=page_size, offset=offset, path_filter=path_filter
+            results, pagination = _database.search_semantic(
+                query_vector=query_vector,
+                provider=provider,
+                model=model,
+                page_size=page_size,
+                offset=offset,
+                threshold=threshold,
+                path_filter=path_filter,
             )
 
             # Format response with pagination metadata
@@ -1180,68 +655,86 @@ async def call_tool(
 
             return [types.TextContent(type="text", text=response_text)]
 
-        try:
-            if _task_coordinator:
-                return await _task_coordinator.queue_task(
-                    TaskPriority.HIGH, _execute_fuzzy_search
-                )
-            else:
-                return await _execute_fuzzy_search()
-        except Exception as e:
-            raise Exception(f"Fuzzy search failed: {str(e)}")
+        except asyncio.TimeoutError:
+            # Handle MCP timeout gracefully with informative error
+            raise Exception(
+                "Semantic search timed out. This can happen when OpenAI API is experiencing high latency. Please try again."
+            )
+
+    elif name == "search_fuzzy":
+        query = arguments.get("query", "")
+        page_size = max(1, min(arguments.get("page_size", 10), 100))
+        offset = max(0, arguments.get("offset", 0))
+        max_tokens = max(1000, min(arguments.get("max_response_tokens", 20000), 25000))
+        path_filter = arguments.get("path")
+
+        # Check connection instead of forcing reconnection (fixes race condition)
+        if _database and not _database.is_connected():
+            if "CHUNKHOUND_DEBUG" in os.environ:
+                # print(
+                #     "Database not connected, reconnecting before fuzzy search",
+                #     file=sys.stderr,
+                # )
+                pass
+            _database.reconnect()
+
+        # Check if provider supports fuzzy search
+        if not hasattr(_database._provider, "search_fuzzy"):
+            raise Exception(
+                "Fuzzy search not supported by current database provider"
+            )
+
+        results, pagination = _database._provider.search_fuzzy(
+            query=query, page_size=page_size, offset=offset, path_filter=path_filter
+        )
+
+        # Format response with pagination metadata
+        response_data = {"results": results, "pagination": pagination}
+
+        # Apply response size limiting
+        limited_response = limit_response_size(response_data, max_tokens)
+        response_text = json.dumps(limited_response, default=str)
+
+        # Final safety check - ensure we never exceed MCP limit
+        if estimate_tokens(response_text) > 25000:
+            # Emergency fallback - return minimal response
+            emergency_response = {
+                "results": [],
+                "pagination": {
+                    "offset": offset,
+                    "page_size": 0,
+                    "has_more": True,
+                    "total": limited_response["pagination"].get("total", 0),
+                },
+            }
+            response_text = json.dumps(emergency_response, default=str)
+
+        return [types.TextContent(type="text", text=response_text)]
 
     elif name == "get_stats":
 
-        async def _execute_get_stats():
-            stats = _database.get_stats()
-            if _task_coordinator:
-                # Add task coordinator stats
-                stats["task_coordinator"] = _task_coordinator.get_stats()
-            return [
-                types.TextContent(
-                    type="text", text=json.dumps(stats, ensure_ascii=False)
-                )
-            ]
-
-        try:
-            if _task_coordinator:
-                return await _task_coordinator.queue_task(
-                    TaskPriority.MEDIUM, _execute_get_stats
-                )
-            else:
-                return await _execute_get_stats()
-        except Exception as e:
-            raise Exception(f"Failed to get stats: {str(e)}")
+        stats = _database.get_stats()
+        return [
+            types.TextContent(
+                type="text", text=json.dumps(stats, ensure_ascii=False)
+            )
+        ]
 
     elif name == "health_check":
 
-        async def _execute_health_check():
-            health_status = {
-                "status": "healthy",
-                "version": __version__,
-                "database_connected": _database is not None,
-                "embedding_providers": _embedding_manager.list_providers()
-                if _embedding_manager
-                else [],
-                "task_coordinator_running": _task_coordinator.get_stats()["is_running"]
-                if _task_coordinator
-                else False,
-            }
-            return [
-                types.TextContent(
-                    type="text", text=json.dumps(health_status, ensure_ascii=False)
-                )
-            ]
-
-        try:
-            if _task_coordinator:
-                return await _task_coordinator.queue_task(
-                    TaskPriority.MEDIUM, _execute_health_check
-                )
-            else:
-                return await _execute_health_check()
-        except Exception as e:
-            raise Exception(f"Failed to perform health check: {str(e)}")
+        health_status = {
+            "status": "healthy",
+            "version": __version__,
+            "database_connected": _database is not None,
+            "embedding_providers": _embedding_manager.list_providers()
+            if _embedding_manager
+            else [],
+        }
+        return [
+            types.TextContent(
+                type="text", text=json.dumps(health_status, ensure_ascii=False)
+            )
+        ]
 
     else:
         raise ValueError(f"Tool not found: {name}")

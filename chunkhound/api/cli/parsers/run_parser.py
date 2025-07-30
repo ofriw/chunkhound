@@ -116,8 +116,8 @@ def add_run_subparser(subparsers: Any) -> argparse.ArgumentParser:
     """
     run_parser = subparsers.add_parser(
         "index",
-        help="Index directory and optionally watch for changes",
-        description="Scan and index a directory for code search, generating embeddings for semantic search. Optionally watch for file changes and update the index automatically.",
+        help="Index directory for code search",
+        description="Scan and index a directory for code search, generating embeddings for semantic search.",
     )
 
     # Optional positional argument with default to current directory
@@ -138,25 +138,8 @@ def add_run_subparser(subparsers: Any) -> argparse.ArgumentParser:
     add_mcp_arguments(run_parser)
 
     # Run-specific arguments (only those not covered by the new functions)
-    # Keep legacy arguments for backwards compatibility but map to new names
-    run_parser.add_argument(
-        "--debounce-ms",
-        type=int,
-        default=500,
-        help="File change debounce time in milliseconds (default: 500)",
-    )
 
-    run_parser.add_argument(
-        "--watch",
-        action="store_true",
-        help="Enable continuous file watching mode",
-    )
-
-    run_parser.add_argument(
-        "--initial-scan-only",
-        action="store_true",
-        help="Perform initial scan only, do not watch for changes",
-    )
+    # Watch mode arguments removed - filesystem events module has been removed
 
     run_parser.add_argument(
         "--force-reindex",

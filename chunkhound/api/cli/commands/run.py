@@ -13,7 +13,6 @@ from chunkhound.core.config.embedding_config import EmbeddingConfig
 from chunkhound.core.config.embedding_factory import EmbeddingProviderFactory
 from chunkhound.embeddings import EmbeddingManager
 from chunkhound.registry import configure_registry, create_indexing_coordinator
-from chunkhound.signal_coordinator import CLICoordinator
 from chunkhound.version import __version__
 
 from ..parsers.run_parser import process_batch_arguments
@@ -61,12 +60,7 @@ async def run_command(args: argparse.Namespace) -> None:
     if not _validate_run_arguments(args, formatter, config):
         sys.exit(1)
 
-    # Initialize CLI coordinator for database access coordination
-    cli_coordinator = CLICoordinator(db_path)
-
     try:
-        # Check for running MCP server and coordinate if needed
-        await _handle_mcp_coordination(cli_coordinator, formatter)
 
         # Set up file patterns using unified config (already loaded)
         include_patterns, exclude_patterns = _setup_file_patterns_from_config(
@@ -104,12 +98,10 @@ async def run_command(args: argparse.Namespace) -> None:
                 indexing_coordinator, formatter, exclude_patterns
             )
 
-        # Start watch mode if enabled
+        # Watch mode removed - filesystem events module has been removed
         if args.watch:
-            formatter.info("Initial indexing complete. Starting watch mode...")
-            await _start_watch_mode(
-                args, indexing_coordinator, formatter, exclude_patterns
-            )
+            formatter.error("❌ Watch mode is no longer available - filesystem events module has been removed")
+            sys.exit(1)
         formatter.success("Run command completed successfully")
 
     except KeyboardInterrupt:
@@ -120,8 +112,8 @@ async def run_command(args: argparse.Namespace) -> None:
         logger.exception("Run command error details")
         sys.exit(1)
     finally:
-        # Restore database access to MCP server if coordination was active
-        cli_coordinator.release_database_access()
+        # Database coordination functionality has been removed
+        pass
 
 
 def _validate_run_arguments(
@@ -166,33 +158,11 @@ def _validate_run_arguments(
     if not validate_file_patterns(args.include, args.exclude):
         return False
 
-    # Validate numeric arguments (batch validation now handled in process_batch_arguments)
-    if not validate_numeric_args(
-        args.debounce_ms, getattr(args, "embedding_batch_size", 100)
-    ):
-        return False
+    # Debounce validation removed - file watching functionality has been removed
 
     return True
 
 
-async def _handle_mcp_coordination(
-    cli_coordinator: CLICoordinator, formatter: OutputFormatter
-) -> None:
-    """Handle MCP server coordination for database access.
-
-    Args:
-        cli_coordinator: CLI coordinator instance
-        formatter: Output formatter
-    """
-    if cli_coordinator.signal_coordinator.is_mcp_server_running():
-        mcp_pid = cli_coordinator.signal_coordinator.process_detector.get_server_pid()
-        formatter.info(f"🔍 Detected running MCP server (PID {mcp_pid})")
-
-        if not cli_coordinator.request_database_access():
-            formatter.error(
-                "❌ Failed to coordinate database access. Please stop the MCP server or use a different database file."
-            )
-            sys.exit(1)
 
 
 
@@ -361,122 +331,6 @@ async def _generate_missing_embeddings(
         formatter.warning(f"Embedding generation failed: {embed_result}")
 
 
-async def _start_watch_mode(
-    args: argparse.Namespace,
-    indexing_coordinator,
-    formatter: OutputFormatter,
-    exclude_patterns: list[str],
-) -> None:
-    """Start file watching mode.
-
-    Args:
-        args: Parsed arguments
-        indexing_coordinator: Indexing coordinator service
-        formatter: Output formatter
-        exclude_patterns: File patterns to exclude from processing
-    """
-    formatter.info("🔍 Starting file watching mode...")
-
-    try:
-        # Import file watcher components
-        from chunkhound.file_watcher import WATCHDOG_AVAILABLE, FileWatcherManager
-
-        if not WATCHDOG_AVAILABLE:
-            formatter.error(
-                "❌ File watching requires the 'watchdog' package. Install with: pip install watchdog"
-            )
-            return
-
-        # Initialize file watcher
-        file_watcher_manager = FileWatcherManager()
-
-        # Create callback for file changes
-        async def process_cli_file_change(file_path: Path, event_type: str):
-            """Process file changes in CLI mode."""
-            try:
-                if event_type == "deleted":
-                    removed_chunks = await indexing_coordinator.remove_file(
-                        str(file_path)
-                    )
-                    if removed_chunks > 0:
-                        formatter.info(
-                            f"🗑️  Removed {removed_chunks} chunks from deleted file: {file_path}"
-                        )
-                else:
-                    # Process file (created, modified, moved)
-                    if file_path.exists() and file_path.is_file():
-                        # Check if file should be excluded before processing
-                        from fnmatch import fnmatch
-
-                        should_exclude = False
-
-                        # Get relative path from watch directory for pattern matching
-                        watch_dir = (
-                            Path(args.path) if hasattr(args, "path") else Path.cwd()
-                        )
-                        try:
-                            rel_path = file_path.relative_to(watch_dir)
-                        except ValueError:
-                            # File is not under watch directory, use absolute path
-                            rel_path = file_path
-
-                        for exclude_pattern in exclude_patterns:
-                            # Check both relative and absolute paths
-                            if fnmatch(str(rel_path), exclude_pattern) or fnmatch(
-                                str(file_path), exclude_pattern
-                            ):
-                                should_exclude = True
-                                break
-
-                        if should_exclude:
-                            formatter.verbose_info(
-                                f"🚫 Skipped excluded file: {file_path}"
-                            )
-                            return
-
-                        result = await indexing_coordinator.process_file(file_path)
-                        if result["status"] == "success":
-                            formatter.info(
-                                f"📝 Processed {event_type} file: {file_path} ({result['chunks']} chunks)"
-                            )
-                        elif result["status"] not in [
-                            "skipped",
-                            "no_content",
-                            "no_chunks",
-                        ]:
-                            formatter.warning(
-                                f"⚠️  Failed to process {event_type} file: {file_path} - {result.get('error', 'unknown error')}"
-                            )
-            except Exception as e:
-                formatter.error(
-                    f"❌ Error processing {event_type} for {file_path}: {e}"
-                )
-
-        # Initialize file watcher with callback
-        watch_paths = [args.path] if args.path.is_dir() else [args.path.parent]
-        watcher_success = await file_watcher_manager.initialize(
-            process_cli_file_change, watch_paths=watch_paths
-        )
-
-        if not watcher_success:
-            formatter.error("❌ Failed to initialize file watcher")
-            return
-
-        formatter.success("✅ File watching started. Press Ctrl+C to stop.")
-
-        # Keep watching until interrupted
-        try:
-            while True:
-                await asyncio.sleep(1.0)
-        except KeyboardInterrupt:
-            formatter.info("🛑 File watching stopped by user")
-        finally:
-            await file_watcher_manager.cleanup()
-
-    except ImportError as e:
-        formatter.error(f"❌ Failed to import file watching components: {e}")
-    except Exception as e:
-        formatter.error(f"❌ File watching failed: {e}")
 
 
 

@@ -24,40 +24,23 @@ try:
     from .database import Database
     from .database_factory import create_database_with_dependencies
     from .embeddings import EmbeddingManager
-    from .file_watcher import FileWatcherManager
-    from .periodic_indexer import PeriodicIndexManager
-    from .process_detection import ProcessDetector
-    from .signal_coordinator import SignalCoordinator
-    from .task_coordinator import TaskCoordinator
-    from .utils.project_detection import find_project_root
 except ImportError:
     from chunkhound.core.config import EmbeddingProviderFactory
     from chunkhound.core.config.config import Config
     from chunkhound.database import Database
     from chunkhound.database_factory import create_database_with_dependencies
     from chunkhound.embeddings import EmbeddingManager
-    from chunkhound.file_watcher import FileWatcherManager
-    from chunkhound.periodic_indexer import PeriodicIndexManager
-    from chunkhound.process_detection import ProcessDetector
-    from chunkhound.signal_coordinator import SignalCoordinator
-    from chunkhound.task_coordinator import TaskCoordinator
-    from chunkhound.utils.project_detection import find_project_root
 
 # Global components - initialized lazily
 _database: Database | None = None
 _embedding_manager: EmbeddingManager | None = None
-_file_watcher: FileWatcherManager | None = None
-_task_coordinator: TaskCoordinator | None = None
-_periodic_indexer: PeriodicIndexManager | None = None
-_signal_coordinator: SignalCoordinator | None = None
 _initialization_lock = None
-_server_config: Config | None = None  # Store initial config for consistency
 _config: Config | None = None  # Global to store Config
 
 
 async def ensure_initialization():
     """Ensure components are initialized (lazy initialization)"""
-    global _database, _embedding_manager, _file_watcher, _task_coordinator, _periodic_indexer, _signal_coordinator, _initialization_lock, _server_config
+    global _database, _embedding_manager, _initialization_lock
 
     if _database is not None and _embedding_manager is not None:
         return
@@ -81,8 +64,6 @@ async def ensure_initialization():
             # Must match stdio server pattern for consistency
             global _config
             config = _config
-            # Store config globally for file change processing consistency
-            _server_config = config
             debug_mode = config.debug or debug_mode
 
             # Validate configuration for MCP HTTP server
@@ -102,18 +83,6 @@ async def ensure_initialization():
             db_path = Path(config.database.path)
             db_path.parent.mkdir(parents=True, exist_ok=True)
 
-            # FIXED: Use same atomic registration pattern as stdio server
-            process_detector = ProcessDetector(db_path)
-            
-            if not process_detector.register_mcp_server(os.getpid()):
-                # Registration failed - another server is running
-                existing_server = process_detector.find_mcp_server()
-                raise Exception(
-                    f"Another ChunkHound MCP server is already running for database '{db_path}' "
-                    f"(PID {existing_server['pid'] if existing_server else 'unknown'}). "
-                    f"Only one MCP server instance per database is allowed. "
-                    f"Please stop the existing server first or use a different database path."
-                )
 
             # Initialize embedding manager
             _embedding_manager = EmbeddingManager()
@@ -138,116 +107,8 @@ async def ensure_initialization():
             # Connect to database
             _database.connect()
 
-            # Setup signal coordination
-            _signal_coordinator = SignalCoordinator(db_path, _database)
-            _signal_coordinator.setup_mcp_signal_handling_no_register()
-
-            # Initialize task coordinator
-            _task_coordinator = TaskCoordinator(max_queue_size=1000)
-            await _task_coordinator.start()
-
-            # Initialize file watcher for HTTP server
-            try:
-                _file_watcher = FileWatcherManager()
-                # Enable file watcher for HTTP server to support real-time updates
-                watcher_success = await _file_watcher.initialize(process_file_change)
-            except Exception as fw_error:
-                # Non-fatal for HTTP server
-                if debug_mode:
-                    print(f"File watcher initialization skipped: {fw_error}", file=sys.stderr)
-                _file_watcher = None
-
-            # Initialize periodic indexer (optional)
-            try:
-                indexing_coordinator = _database._indexing_coordinator
-                _periodic_indexer = PeriodicIndexManager.from_environment(
-                    indexing_coordinator=indexing_coordinator,
-                    task_coordinator=_task_coordinator,
-                )
-                await _periodic_indexer.start()
-            except Exception as pi_error:
-                # Non-fatal error - continue without periodic indexing
-                if debug_mode:
-                    print(f"Periodic indexer initialization failed: {pi_error}", file=sys.stderr)
-                _periodic_indexer = None
-
         except Exception as e:
             raise Exception(f"Failed to initialize database and embeddings: {e}")
-
-
-async def process_file_change(file_path: Path, event_type: str):
-    """
-    Process a file change event by updating the database.
-    
-    This function is called by the filesystem watcher when files change.
-    Uses the task coordinator to ensure file processing doesn't block search operations.
-    """
-    from chunkhound.file_watcher import debug_log
-
-    debug_log("http_process_file_change_entry", file_path=str(file_path), event_type=event_type)
-
-    global _database, _embedding_manager, _task_coordinator
-
-    if not _database:
-        return
-
-    async def _execute_file_processing():
-        """Execute the actual file processing logic."""
-        try:
-            if event_type == "deleted":
-                # Remove file and its chunks using same approach as CLI indexer
-                # This ensures consistent transaction handling and prevents race conditions
-                removed_chunks = await _database._indexing_coordinator.remove_file(str(file_path))
-
-                # Log deletion result for debugging
-                debug_mode = os.getenv("CHUNKHOUND_DEBUG", "").lower() in ("true", "1", "yes")
-                if debug_mode and removed_chunks > 0:
-                    print(f"[MCP-HTTP-SERVER] Removed {removed_chunks} chunks from deleted file: {file_path}", file=sys.stderr)
-            else:
-                # Process file (created, modified, moved)
-                if file_path.exists() and file_path.is_file():
-                    # Check if file should be excluded before processing
-                    # Use stored server config for consistency
-                    exclude_patterns = _server_config.indexing.exclude or []
-
-                    from fnmatch import fnmatch
-
-                    should_exclude = False
-
-                    # Get relative path for pattern matching
-                    try:
-                        project_root = find_project_root()
-                        rel_path = file_path.relative_to(project_root)
-                    except ValueError:
-                        rel_path = file_path
-
-                    # Check exclude patterns
-                    for pattern in exclude_patterns:
-                        if fnmatch(str(rel_path), pattern):
-                            should_exclude = True
-                            break
-
-                    if not should_exclude:
-                        # Process file through IndexingCoordinator for atomic transaction handling
-                        result = await _database._indexing_coordinator.process_file(file_path)
-
-                        # Handle processing results with same logic as CLI indexer
-                        if result["status"] not in ["success", "up_to_date", "skipped", "no_content", "no_chunks"]:
-                            # Log processing errors for debugging
-                            debug_mode = os.getenv("CHUNKHOUND_DEBUG", "").lower() in ("true", "1", "yes")
-                            if debug_mode:
-                                print(f"[MCP-HTTP-SERVER] File processing failed: {result}", file=sys.stderr)
-        except Exception as e:
-            # Log error but don't crash the server
-            debug_mode = os.getenv("CHUNKHOUND_DEBUG", "").lower() in ("true", "1", "yes")
-            if debug_mode:
-                print(f"Error processing file {file_path}: {e}", file=sys.stderr)
-
-    # Execute file processing
-    if _task_coordinator:
-        await _task_coordinator.add_task(_execute_file_processing())
-    else:
-        await _execute_file_processing()
 
 
 # Initialize FastMCP 2.0 server
@@ -275,9 +136,6 @@ async def health_check() -> dict[str, Any]:
         "version": __version__,
         "database_connected": _database is not None,
         "embedding_providers": [],
-        "task_coordinator_running": _task_coordinator is not None,
-        "file_watcher_active": _file_watcher is not None,
-        "periodic_indexer_running": _periodic_indexer is not None,
     }
 
     if _embedding_manager:
@@ -450,10 +308,7 @@ def main():
             "version": __version__,
             "database_connected": _database is not None,
             "embedding_providers": [],
-            "task_coordinator_running": _task_coordinator is not None,
-            "file_watcher_active": _file_watcher is not None,
-            "periodic_indexer_running": _periodic_indexer is not None,
-        }
+            }
 
         if _embedding_manager:
             health_status["embedding_providers"] = _embedding_manager.list_providers()

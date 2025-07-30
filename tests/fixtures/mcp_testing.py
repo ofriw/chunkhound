@@ -36,8 +36,6 @@ class MCPServerTestFixture:
             {
                 "CHUNKHOUND_DATABASE__PATH": str(self.db_path),
                 "CHUNKHOUND_MCP_MODE": "1",
-                "CHUNKHOUND_WATCH_ENABLED": "true",
-                "CHUNKHOUND_WATCH_PATHS": str(self.project_dir),
                 "CHUNKHOUND_DEBUG": "1",
             }
         )
@@ -170,10 +168,6 @@ def database_with_change_tracking(temp_project_with_monitoring):
     db.close()
 
 
-@pytest.fixture
-def mock_file_watcher():
-    """Controllable file watcher for testing."""
-    return MockFileWatcher()
 
 
 @asynccontextmanager

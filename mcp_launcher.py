@@ -87,28 +87,7 @@ def find_project_root(start_path: Path = None) -> Path:
     return start_path.resolve()
 
 
-def setup_watch_paths(args) -> None:
-    """Set up watch paths for filesystem monitoring.
-
-    Args:
-        args: Parsed command line arguments
-    """
-    if args.watch_path:
-        # Use explicitly provided watch path
-        watch_path = Path(args.watch_path).resolve()
-        if watch_path.exists() and watch_path.is_dir():
-            os.environ["CHUNKHOUND_WATCH_PATHS"] = str(watch_path)
-        else:
-            # Log warning but don't fail - fall back to auto-detection
-            # print(
-            #     f"Warning: Specified watch path does not exist: {watch_path}",
-            #     file=sys.stderr,
-            # )
-            os.environ["CHUNKHOUND_WATCH_PATHS"] = str(find_project_root())
-    else:
-        # Auto-detect project root
-        project_root = find_project_root()
-        os.environ["CHUNKHOUND_WATCH_PATHS"] = str(project_root)
+# File watching functionality has been removed
 
 
 def main():

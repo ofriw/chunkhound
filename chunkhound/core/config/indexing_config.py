@@ -31,17 +31,7 @@ class IndexingConfig(BaseModel):
     """
 
     # File watching
-    watch: bool = Field(
-        default=False,
-        description="Enable file watching for automatic re-indexing"
-    )
-
-    debounce_ms: int = Field(
-        default=300,
-        ge=0,
-        le=10000,
-        description="Debounce time in milliseconds for file changes"
-    )
+    # File watching functionality has been removed
 
     # Batch processing
     batch_size: int = Field(
@@ -168,16 +158,6 @@ class IndexingConfig(BaseModel):
 
         return unique
 
-    @field_validator("debounce_ms")
-    def validate_debounce(cls, v: int, info) -> int:
-        """Validate debounce time when watching is enabled."""
-        watch = info.data.get("watch", False) if info.data else False
-
-        if watch and v < 100:
-            # Increase debounce time for file watching to avoid excessive re-indexing
-            return 100
-
-        return v
 
     def get_max_file_size_bytes(self) -> int:
         """Get maximum file size in bytes."""

@@ -69,16 +69,4 @@ def get_project_database_path() -> Path:
     return project_root / ".chunkhound" / "db"
 
 
-def get_project_watch_paths() -> list[Path]:
-    """
-    Get watch paths for the current project.
-
-    Returns:
-        List of paths to watch (defaults to project root)
-    """
-    # Check environment variable first
-    if env_paths := os.environ.get("CHUNKHOUND_WATCH_PATHS"):
-        return [Path(p.strip()) for p in env_paths.split(",") if p.strip()]
-
-    # Default to project root
-    return [find_project_root()]
+# File watching functionality has been removed

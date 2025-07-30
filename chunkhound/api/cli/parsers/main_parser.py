@@ -235,17 +235,7 @@ def add_indexing_arguments(parser: argparse.ArgumentParser) -> None:
     Args:
         parser: Parser to add arguments to
     """
-    parser.add_argument(
-        "--indexing-watch",
-        action="store_true",
-        help="Enable file watching for automatic reindexing",
-    )
-
-    parser.add_argument(
-        "--indexing-debounce-ms",
-        type=int,
-        help="Debounce time in milliseconds for file watching",
-    )
+    # File watching arguments removed - filesystem events module has been removed
 
     parser.add_argument(
         "--indexing-batch-size",

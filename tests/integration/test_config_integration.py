@@ -263,24 +263,6 @@ class TestFileWatcherConfigIntegration:
 
         shutil.rmtree(self.temp_dir, ignore_errors=True)
 
-    @pytest.mark.asyncio
-    async def test_file_watcher_uses_consistent_config(self):
-        """Test file watcher uses same config as main process."""
-        # Create config
-        config = Config(
-            database={"path": str(self.temp_dir / "watch.db")},
-            indexing={"watch": True, "exclude": ["*.log", "*.tmp"], "debounce_ms": 100},
-        )
-
-        # Create file watcher with config
-        from chunkhound.file_watcher import FileWatcher
-
-        # In real scenario, file watcher would be created with same config
-        # Verify it respects exclusion patterns and debounce settings
-
-        assert config.indexing.watch is True
-        assert "*.log" in config.indexing.exclude
-        assert config.indexing.debounce_ms == 100
 
     @pytest.mark.asyncio
     async def test_indexing_config_options(self):
