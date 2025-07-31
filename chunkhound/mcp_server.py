@@ -57,6 +57,10 @@ except ImportError:
     pass
 
 try:
+    from .api.cli.utils.config_factory import (
+        create_default_config,
+        create_validated_config,
+    )
     from .api.cli.utils.config_helpers import validate_config_for_command
     from .core.config import EmbeddingProviderFactory
     from .core.config.config import Config
@@ -66,6 +70,10 @@ try:
     from .registry import configure_registry, get_registry
 except ImportError:
     # Handle running as standalone script or PyInstaller binary
+    from chunkhound.api.cli.utils.config_factory import (
+        create_default_config,
+        create_validated_config,
+    )
     from chunkhound.core.config import EmbeddingProviderFactory
     from chunkhound.core.config.config import Config
     from chunkhound.database import Database
@@ -176,59 +184,23 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
         except ImportError:
             pass
 
-        # Load configuration using unified pattern
-        try:
-            # Use globally stored config
-            global _config
-            config = _config
-            # Store config globally for file change processing consistency
-            global _server_config
-            _server_config = config
-            # Update debug mode from config
-            if config:
-                debug_mode = config.debug or debug_mode
-            if debug_mode:
-                # print(
-                #     f"Server lifespan: Loaded configuration with database path: {config.database.path}",
-                #     file=sys.stderr,
-                # )
-                pass
-        except Exception:
-            if debug_mode:
-                # print(
-                #     f"Server lifespan: Failed to load config, using defaults: {e}",
-                #     file=sys.stderr,
-                # )
-                pass
-            # Use default config if loading fails
-            config = Config()
-            # Store fallback config globally for file change processing consistency
-            _server_config = config
+        # Use pre-created and validated config from main()
+        global _config, _server_config
+        config = _config
+        _server_config = config
 
-        # Validate configuration for MCP server
-        # This ensures same validation as CLI commands and prevents silent failures
-        try:
-            # Validate configuration for MCP server
-            if config:
-                validation_errors = config.validate_for_command("mcp")
-            else:
-                validation_errors = ["Configuration not loaded"]
-            if validation_errors:
-                if debug_mode:
-                    # print(
-                    #     f"Server lifespan: Configuration validation failed: {validation_errors}",
-                    #     file=sys.stderr,
-                    # )
-                    pass
-                # Continue with config anyway for MCP servers (embedding provider optional)
-        except Exception:
+        if config:
+            debug_mode = config.debug or debug_mode
             if debug_mode:
                 # print(
-                #     f"Server lifespan: Configuration validation error: {validation_error}",
+                #     f"Server lifespan: Using pre-validated config with database path: {config.database.path}",
                 #     file=sys.stderr,
                 # )
                 pass
-            # Continue with config anyway for MCP servers
+        else:
+            # Fallback to default config
+            config = create_default_config()
+            _server_config = config
 
         # Get database path from config (always set by validation)
         if not config:
@@ -526,7 +498,7 @@ async def call_tool(
                 raise Exception("Database not initialized")
             if not _embedding_manager:
                 raise Exception("No embedding providers available")
-            
+
             response_data = await search_semantic_impl(
                 database=_database,
                 embedding_manager=_embedding_manager,
@@ -617,7 +589,7 @@ async def call_tool(
         # Use shared implementation
         if not _database:
             raise Exception("Database not initialized")
-        
+
         stats = await get_stats_impl(_database)
         return [
             types.TextContent(type="text", text=json.dumps(stats, ensure_ascii=False))
@@ -629,7 +601,7 @@ async def call_tool(
             raise Exception("Database not initialized")
         if not _embedding_manager:
             raise Exception("No embedding providers available")
-        
+
         health_status = await health_check_impl(_database, _embedding_manager)
         return [
             types.TextContent(
@@ -1104,7 +1076,17 @@ async def main(args: argparse.Namespace | None = None) -> None:
 
     # Create and store Config globally for use in server_lifespan
     global _config
-    _config = Config(args=args)
+    if args:
+        config, validation_errors = create_validated_config(args, "mcp")
+        if validation_errors:
+            # Log validation errors but continue (MCP server can work with partial config)
+            debug_mode = os.getenv("CHUNKHOUND_DEBUG", "").lower() in ("true", "1", "yes")
+            if debug_mode:
+                for error in validation_errors:
+                    print(f"[MCP-SERVER] Config validation warning: {error}", file=sys.stderr)
+        _config = config
+    else:
+        _config = create_default_config()
 
     await handle_mcp_with_validation()
 

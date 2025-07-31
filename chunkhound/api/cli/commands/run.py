@@ -24,17 +24,15 @@ from ..utils.validation import (
 )
 
 
-async def run_command(args: argparse.Namespace) -> None:
+async def run_command(args: argparse.Namespace, config: Config) -> None:
     """Execute the run command using the service layer.
 
     Args:
         args: Parsed command-line arguments
+        config: Pre-validated configuration instance
     """
     # Initialize output formatter
     formatter = OutputFormatter(verbose=args.verbose)
-
-    # Load configuration using unified pattern
-    config = Config(args=args)
 
     # Check if local config was found (for logging purposes)
     project_dir = Path(args.path) if hasattr(args, "path") else Path.cwd()
@@ -66,13 +64,7 @@ async def run_command(args: argparse.Namespace) -> None:
         formatter.info(f"Include patterns: {include_patterns}")
         formatter.info(f"Exclude patterns: {exclude_patterns}")
 
-        # Validate configuration before use to prevent runtime errors
-        # This is mandatory for all config usage and prevents security issues
-        validation_errors = config.validate_for_command("index")
-        if validation_errors:
-            for error in validation_errors:
-                logger.error(f"Configuration error: {error}")
-            raise ValueError("Invalid configuration")
+        # Configuration already validated in main.py
 
         # Configure registry with the Config object
         configure_registry(config)

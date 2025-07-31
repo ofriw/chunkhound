@@ -6,11 +6,12 @@ import sys
 from pathlib import Path
 
 
-async def mcp_command(args: argparse.Namespace) -> None:
+async def mcp_command(args: argparse.Namespace, config) -> None:
     """Execute the MCP server command.
 
     Args:
         args: Parsed command-line arguments containing database path
+        config: Pre-validated configuration instance
     """
     # Set MCP mode environment early
     os.environ["CHUNKHOUND_MCP_MODE"] = "1"

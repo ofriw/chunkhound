@@ -151,7 +151,7 @@ async def health_check() -> dict[str, Any]:
     # Use shared implementation
     if not _database or not _embedding_manager:
         raise Exception("Server components not properly initialized")
-    
+
     result = await health_check_impl(_database, _embedding_manager)
     return dict(result)
 
