@@ -33,7 +33,6 @@ async def mcp_command(args: argparse.Namespace) -> None:
         db_path = project_path / ".chunkhound" / "db"
         os.environ["CHUNKHOUND_DATABASE__PATH"] = str(db_path)
     
-    # File watching functionality has been removed
 
     # Handle transport selection
     if hasattr(args, 'http') and args.http:

@@ -1,7 +1,7 @@
 """Indexing configuration for ChunkHound.
 
 This module provides configuration for the file indexing process including
-file watching, batch processing, and pattern matching.
+batch processing, and pattern matching.
 """
 
 
@@ -27,11 +27,9 @@ def _get_default_include_patterns() -> list[str]:
 class IndexingConfig(BaseModel):
     """Configuration for file indexing behavior.
     
-    Controls how files are discovered, indexed, and monitored for changes.
+    Controls how files are discovered and indexed.
     """
 
-    # File watching
-    # File watching functionality has been removed
 
     # Batch processing
     batch_size: int = Field(
@@ -177,7 +175,6 @@ class IndexingConfig(BaseModel):
         """String representation of indexing configuration."""
         return (
             f"IndexingConfig("
-            f"watch={self.watch}, "
             f"batch_size={self.batch_size}, "
             f"max_concurrent={self.max_concurrent}, "
             f"patterns={len(self.include)} includes, {len(self.exclude)} excludes)"

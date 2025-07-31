@@ -235,7 +235,6 @@ def add_indexing_arguments(parser: argparse.ArgumentParser) -> None:
     Args:
         parser: Parser to add arguments to
     """
-    # File watching arguments removed - filesystem events module has been removed
 
     parser.add_argument(
         "--indexing-batch-size",

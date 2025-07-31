@@ -41,8 +41,6 @@ All new environment variables use the `CHUNKHOUND_` prefix with `__` delimiter f
 - `CHUNKHOUND_MCP__PORT` - Port for HTTP transport
 - `CHUNKHOUND_MCP__HOST` - Host for HTTP transport
 - `CHUNKHOUND_MCP__CORS` - Enable CORS for HTTP
-- `CHUNKHOUND_INDEXING__WATCH` - Enable file watching
-- `CHUNKHOUND_INDEXING__DEBOUNCE_MS` - Debounce milliseconds
 - `CHUNKHOUND_INDEXING__BATCH_SIZE` - Indexing batch size
 - `CHUNKHOUND_INDEXING__DB_BATCH_SIZE` - Database batch size
 - `CHUNKHOUND_INDEXING__MAX_CONCURRENT` - Max concurrent operations
@@ -67,7 +65,7 @@ chunkhound index . --embedding-provider openai --embedding-model text-embedding-
 chunkhound mcp --mcp-transport http --mcp-port 3000 --mcp-cors
 
 # Indexing configuration
-chunkhound index . --indexing-watch --indexing-batch-size 1000
+chunkhound index . --indexing-batch-size 1000
 ```
 
 ### 5. Configuration File Format
@@ -90,7 +88,6 @@ The configuration file format remains the same JSON structure:
     "transport": "stdio"
   },
   "indexing": {
-    "watch": true,
     "batch_size": 100,
     "db_batch_size": 5000,
     "include": ["**/*.py", "**/*.js"],

@@ -136,7 +136,7 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
     
     # LIFECYCLE: Initialize → Serve requests → Cleanup
     # CRITICAL: All initialization must complete before serving
-    # CLEANUP: Must stop file watcher, task coordinator, close DB
+    # CLEANUP: Must close DB
     # ERROR_HANDLING: Continue on non-critical failures (e.g., embeddings)
     """
     global \

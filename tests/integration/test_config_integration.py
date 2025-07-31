@@ -4,7 +4,7 @@ Integration tests for configuration system in real-world scenarios.
 These tests verify that the configuration system works correctly when:
 - Running actual CLI commands
 - Starting MCP servers
-- Processing files with watchers
+- Processing files
 - Handling complex project structures
 """
 
@@ -247,41 +247,6 @@ class TestMCPServerConfigIntegration:
         # MCP servers work without embeddings
         assert isinstance(errors, list)
 
-
-class TestFileWatcherConfigIntegration:
-    """Test configuration with file watchers and indexers."""
-
-    def setup_method(self):
-        """Create test environment."""
-        self.temp_dir = Path(tempfile.mkdtemp())
-        self.project_dir = self.temp_dir / "watched_project"
-        self.project_dir.mkdir()
-
-    def teardown_method(self):
-        """Clean up."""
-        import shutil
-
-        shutil.rmtree(self.temp_dir, ignore_errors=True)
-
-
-    @pytest.mark.asyncio
-    async def test_indexing_config_options(self):
-        """Test indexing configuration options."""
-        # Create config with indexing options
-        config = Config(
-            indexing={
-                "watch": True,
-                "debounce_ms": 500,
-                "batch_size": 100,
-                "force_reindex": True,
-            }
-        )
-
-        # Verify indexing settings
-        assert config.indexing.watch is True
-        assert config.indexing.debounce_ms == 500
-        assert config.indexing.batch_size == 100
-        assert config.indexing.force_reindex is True
 
 
 class TestComplexProjectStructures:

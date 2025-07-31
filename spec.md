@@ -8,7 +8,6 @@ A local-first “code-grep on steroids”: watches any directory, slices code in
 | Core language | Python 3.12                          | Fastest prototyping path; giant ML ecosystem.                |
 | Storage & ANN | DuckDB 0.10.x + vss extension (HNSW) | Embedded, zero-config, ~Postgres-speed; HNSW index built-in. |
 | Code parsing  | tree-sitter-languages wheels         | Pre-built grammars; no C toolchain hassle.                   |
-| File watching | watchfiles 1.x                       | Rust-powered, cross-platform, async.                         |
 | MCP Protocol  | FastMCP + stdin/stdout               | Model Context Protocol for AI assistant integration.          |
 # Runtime topology
   ```mermaid
@@ -23,7 +22,6 @@ A local-first “code-grep on steroids”: watches any directory, slices code in
     subgraph "Runtime Processes"
         direction TB
         CLI["mcp CLI<br/>(entry point)"]
-        Watcher["FS Watcher"]
         Parser["Parser<br/>(tree-sitter)"]
         Chunker["Chunker<br/>(funcs / classes / blocks)"]
         Embedder["Embedder<br/>(dynamic provider)"]
@@ -32,10 +30,8 @@ A local-first “code-grep on steroids”: watches any directory, slices code in
         Query["Query Engine<br/>(vector &amp; regex)"]
     end
 
-    %% ---------- data/event flow ----------
-    dir -. file events .-> Watcher
-    CLI -->|boot| Watcher
-    Watcher -->|new / changed&nbsp;file| Parser
+    %% ---------- data flow ----------
+    CLI -->|index| Parser
     Parser --> Chunker
     Chunker --> Embedder
     Embedder --> DB

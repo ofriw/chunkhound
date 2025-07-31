@@ -1,5 +1,5 @@
 """
-Test fixtures for MCP server file watching functionality.
+Test fixtures for MCP server functionality.
 """
 
 import asyncio
@@ -19,7 +19,7 @@ from chunkhound.embeddings import EmbeddingManager
 
 
 class MCPServerTestFixture:
-    """Test fixture for MCP server with file watching capabilities."""
+    """Test fixture for MCP server."""
 
     def __init__(self, project_dir: Path, config: Config):
         self.project_dir = project_dir
@@ -70,135 +70,6 @@ class MCPServerTestFixture:
             await asyncio.sleep(0.1)
 
 
-class MockFileWatcher:
-    """Mock file watcher for controlled testing."""
-
-    def __init__(self):
-        self.events: List[Dict] = []
-        self.handlers = []
-        self.started = False
-
-    def add_handler(self, handler):
-        """Add event handler."""
-        self.handlers.append(handler)
-
-    def start_watching(self):
-        """Start watching (mock)."""
-        self.started = True
-
-    def stop_watching(self):
-        """Stop watching (mock)."""
-        self.started = False
-
-    async def simulate_file_event(
-        self, event_type: str, file_path: Path, delay: float = 0
-    ):
-        """Simulate a file system event."""
-        if delay > 0:
-            await asyncio.sleep(delay)
-
-        event = {
-            "event_type": event_type,
-            "file_path": str(file_path),
-            "timestamp": time.time(),
-        }
-
-        self.events.append(event)
-
-        # Call handlers
-        for handler in self.handlers:
-            try:
-                await handler.on_file_event(event_type, file_path)
-            except Exception as e:
-                print(f"Handler error: {e}")
-
-
-@pytest.fixture
-async def temp_project_with_monitoring():
-    """Create a temporary project with file monitoring setup."""
-    temp_dir = Path(tempfile.mkdtemp())
-    project_dir = temp_dir / "test_project"
-    project_dir.mkdir(parents=True)
-
-    # Create some initial test files
-    (project_dir / "test.py").write_text("print('hello')")
-    (project_dir / "test.js").write_text("console.log('hello');")
-
-    db_path = project_dir / ".chunkhound" / "test.db"
-    db_path.parent.mkdir(exist_ok=True)
-
-    # Create config
-    config = Config(
-        database={"path": str(db_path), "provider": "duckdb"},
-        embedding={"provider": "openai", "model": "text-embedding-3-small"},
-        indexing={
-            "watch": True,
-            "debounce_ms": 100,
-            "include": ["*.py", "*.js"],
-            "exclude": ["*.log"],
-        },
-    )
-
-    fixture = MCPServerTestFixture(project_dir, config)
-
-    yield fixture
-
-    # Cleanup
-    await fixture.stop_mcp_server()
-    import shutil
-
-    shutil.rmtree(temp_dir, ignore_errors=True)
-
-
-@pytest.fixture
-def database_with_change_tracking(temp_project_with_monitoring):
-    """Database configured to track file change operations."""
-    fixture = temp_project_with_monitoring
-
-    # Create database with dependencies
-    embedding_manager = EmbeddingManager()
-    db = create_database_with_dependencies(
-        db_path=fixture.db_path,
-        config=fixture.config.to_dict(),
-        embedding_manager=embedding_manager,
-    )
-
-    yield db
-
-    db.close()
-
-
-
-
-@asynccontextmanager
-async def with_mcp_server(
-    project_dir: Path, config: Config
-) -> AsyncGenerator[MCPServerTestFixture, None]:
-    """Context manager for MCP server testing."""
-    fixture = MCPServerTestFixture(project_dir, config)
-
-    try:
-        started = await fixture.start_mcp_server()
-        if not started:
-            raise RuntimeError("Failed to start MCP server")
-        yield fixture
-    finally:
-        await fixture.stop_mcp_server()
-
-
-@pytest.fixture
-async def mcp_server_with_watcher(temp_project_with_monitoring):
-    """MCP server with file watcher in test mode."""
-    fixture = temp_project_with_monitoring
-
-    # Start server
-    started = await fixture.start_mcp_server()
-    if not started:
-        pytest.skip("Failed to start MCP server for testing")
-
-    yield fixture
-
-    # Cleanup handled by temp_project_with_monitoring fixture
 
 
 class FileOperationSimulator:

@@ -215,7 +215,7 @@ class IndexingCoordinator(BaseService):
             )
 
             # DESIGN_DECISION: No timestamp checking here
-            # RATIONALE: Caller (FileWatcher) handles change detection
+            # RATIONALE: Change detection handled externally
             # BENEFIT: Simpler logic, single responsibility
 
             # SECTION: Parse_Phase (CPU_BOUND)

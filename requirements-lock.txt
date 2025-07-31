@@ -30,5 +30,4 @@ typing-inspection==0.4.1
 typing_extensions==4.14.0
 uvicorn==0.34.3
 uvloop==0.21.0
-watchfiles==1.0.5
 websockets==15.0.1

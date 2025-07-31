@@ -409,7 +409,7 @@ class Database:
     # =============================================================================
     # Process Coordination Methods - Legacy Support
     # PATTERN: Connection management for multi-process scenarios
-    # USE_CASE: File watcher needs to detach/reattach for child processes
+    # USE_CASE: Allow database detach/reattach for child processes
     # CRITICAL: Must use connection_lock to prevent race conditions
     # =============================================================================
 

@@ -137,25 +137,16 @@ def validate_file_patterns(
 
 
 def validate_numeric_args(
-    debounce_ms: int | None = None, batch_size: int | None = None
+    batch_size: int | None = None
 ) -> bool:
     """Validate numeric arguments.
 
     Args:
-        debounce_ms: Optional debounce time in milliseconds
         batch_size: Optional batch size
 
     Returns:
         True if valid, False otherwise
     """
-    if debounce_ms is not None:
-        if debounce_ms < 0:
-            logger.error("Debounce time cannot be negative")
-            return False
-        if debounce_ms > 10000:  # 10 seconds max
-            logger.error("Debounce time cannot exceed 10 seconds")
-            return False
-
     if batch_size is not None:
         if batch_size < 1:
             logger.error("Batch size must be at least 1")

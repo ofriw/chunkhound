@@ -42,14 +42,14 @@ uv tool install chunkhound
 uv run chunkhound index
 # ChunkHound automatically detects and uses .chunkhound.json in the current directory
 
-# 2. Start MCP server for AI assistants (auto-watches for changes)
+# 2. Start MCP server for AI assistants
 uv run chunkhound mcp
 
 # Work with any project directory - complete project scope control
 uv run chunkhound mcp /path/to/your/project
 # This sets database to /path/to/your/project/.chunkhound/db
 # Searches for config at /path/to/your/project/.chunkhound.json
-# Watches /path/to/your/project for changes
+# Uses database at /path/to/your/project/.chunkhound/db
 
 # 3. Optional: Use HTTP transport for enhanced VS Code compatibility
 uv run chunkhound mcp --http              # HTTP on 127.0.0.1:8000
@@ -77,7 +77,7 @@ uv run chunkhound index     # Automatically uses /my/project/.chunkhound.json
 uv run chunkhound mcp /my/project
 # Automatically uses /my/project/.chunkhound.json
 # Sets database to /my/project/.chunkhound/db
-# Watches /my/project for changes
+# Uses database at /my/project/.chunkhound/db
 ```
 
 **For `mcp` command without path:**
@@ -92,7 +92,7 @@ uv run chunkhound mcp       # Automatically uses /my/project/.chunkhound.json
 - **Regex search** - Find exact patterns like `class.*Error` (no API key needed)
 - **Code context** - AI assistants understand your codebase structure
 - **Multi-language** - 20+ languages supported
-- **Real-time updates** - Automatically watches for file changes
+- **Semantic search** - Natural language code queries
 - **Dual transport** - Both stdio and HTTP transport support
 
 **With API Key:**
@@ -412,8 +412,6 @@ Create `.chunkhound.json` in your project root for automatic loading:
     "provider": "duckdb"
   },
   "indexing": {
-    "watch": true,
-    "debounce_ms": 500,
     "batch_size": 100,
     "db_batch_size": 500,
     "max_concurrent": 4,
@@ -532,8 +530,6 @@ chunkhound.json
   - `provider`: Database type (`duckdb` or `lancedb`)
 
 - **`indexing`**: File indexing behavior
-  - `watch`: Enable file watching in standalone mode
-  - `debounce_ms`: Delay before processing file changes
   - `batch_size`: Files to process per batch
   - `db_batch_size`: Database records per transaction
   - `max_concurrent`: Parallel file processing limit
@@ -670,15 +666,14 @@ Your code never leaves your environment unless you explicitly configure external
 
 ## How It Works
 
-ChunkHound indexes your codebase in three layers:
-1. **Pre-index** - Run `chunkhound index` to sync database with current code (automatically uses `.chunkhound.json` if present)
-2. **Background scan** - MCP server checks for changes every 5 minutes  
-3. **Real-time updates** - File system events trigger immediate updates
+ChunkHound indexes your codebase:
+1. **Index** - Run `chunkhound index` to sync database with current code (automatically uses `.chunkhound.json` if present)
+2. **Search** - MCP server provides search capabilities to AI assistants
 
 **Project Scope Control:**
 - `chunkhound mcp` - Uses current directory as project root
 - `chunkhound mcp /path/to/project` - Uses specified path as project root
-- Database, config, and watch paths all scoped to project root
+- Database and config paths all scoped to project root
 
 **Processing pipeline:**
 Scan → Parse → Index → Embed → Search

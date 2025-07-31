@@ -139,7 +139,6 @@ def add_run_subparser(subparsers: Any) -> argparse.ArgumentParser:
 
     # Run-specific arguments (only those not covered by the new functions)
 
-    # Watch mode arguments removed - filesystem events module has been removed
 
     run_parser.add_argument(
         "--force-reindex",

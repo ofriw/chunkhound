@@ -187,7 +187,6 @@ class Config(BaseModel):
 
         # Indexing configuration
         indexing_config: Dict[str, Any] = {}
-        # File watching environment variables removed
         if batch_size := os.getenv("CHUNKHOUND_INDEXING__BATCH_SIZE"):
             indexing_config["batch_size"] = int(batch_size)
         if db_batch_size := os.getenv("CHUNKHOUND_INDEXING__DB_BATCH_SIZE"):
@@ -258,7 +257,6 @@ class Config(BaseModel):
             overrides.setdefault("mcp", {})["cors"] = args.cors
 
         # Indexing arguments
-        # File watching arguments removed
         if hasattr(args, "batch_size") and args.batch_size:
             overrides.setdefault("indexing", {})["batch_size"] = args.batch_size
         if hasattr(args, "db_batch_size") and args.db_batch_size:

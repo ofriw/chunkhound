@@ -1,4 +1,4 @@
-"""Run command module - handles directory indexing and file watching operations."""
+"""Run command module - handles directory indexing operations."""
 
 import argparse
 import asyncio
@@ -98,10 +98,6 @@ async def run_command(args: argparse.Namespace) -> None:
                 indexing_coordinator, formatter, exclude_patterns
             )
 
-        # Watch mode removed - filesystem events module has been removed
-        if args.watch:
-            formatter.error("❌ Watch mode is no longer available - filesystem events module has been removed")
-            sys.exit(1)
         formatter.success("Run command completed successfully")
 
     except KeyboardInterrupt:
@@ -112,7 +108,6 @@ async def run_command(args: argparse.Namespace) -> None:
         logger.exception("Run command error details")
         sys.exit(1)
     finally:
-        # Database coordination functionality has been removed
         pass
 
 
@@ -158,7 +153,6 @@ def _validate_run_arguments(
     if not validate_file_patterns(args.include, args.exclude):
         return False
 
-    # Debounce validation removed - file watching functionality has been removed
 
     return True
 

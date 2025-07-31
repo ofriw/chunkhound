@@ -27,12 +27,6 @@ def parse_arguments():
         "--db", type=str, help="Path to DuckDB database file", default="chunkhound.db"
     )
     parser.add_argument(
-        "--watch-path",
-        type=str,
-        help="Directory to watch for file changes (overrides auto-detection)",
-        default=None,
-    )
-    parser.add_argument(
         "--transport",
         choices=["stdio", "http"],
         default="stdio",
@@ -87,7 +81,6 @@ def find_project_root(start_path: Path = None) -> Path:
     return start_path.resolve()
 
 
-# File watching functionality has been removed
 
 
 def main():
@@ -105,12 +98,7 @@ def main():
         # This includes paths like "/test-project/.chunkhound/db"
         os.environ["CHUNKHOUND_DATABASE__PATH"] = args.db
 
-    # Set up watch paths for filesystem monitoring
-    setup_watch_paths(args)
 
-    # Note: Removed os.chdir() to avoid breaking imports and permissions issues
-    # The watch path is already handled via CHUNKHOUND_WATCH_PATHS environment variable
-    # and all path operations should use absolute paths
 
     # Import and run the appropriate MCP server based on transport
     try:

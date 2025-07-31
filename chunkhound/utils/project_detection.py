@@ -69,4 +69,3 @@ def get_project_database_path() -> Path:
     return project_root / ".chunkhound" / "db"
 
 
-# File watching functionality has been removed
