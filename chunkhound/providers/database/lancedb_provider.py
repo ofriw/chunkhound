@@ -96,7 +96,9 @@ class LanceDBProvider(SerialDatabaseProvider):
         super().__init__(absolute_db_path, embedding_manager, config)
 
         self.index_type = config.lancedb_index_type if config else None
-        self.connection: Any | None = None  # For backward compatibility only - do not use directly
+        self.connection: Any | None = (
+            None  # For backward compatibility only - do not use directly
+        )
 
         # Table references
         self._files_table = None
@@ -303,19 +305,22 @@ class LanceDBProvider(SerialDatabaseProvider):
         # Use merge_insert for atomic upsert based on path
         # This eliminates the TOCTOU race condition by making the
         # check-and-insert/update operation atomic at the database level
-        self._files_table.merge_insert("path") \
-            .when_matched_update_all() \
-            .when_not_matched_insert_all() \
-            .execute([file_data])
+        self._files_table.merge_insert(
+            "path"
+        ).when_matched_update_all().when_not_matched_insert_all().execute([file_data])
 
         # Get the file ID (either newly inserted or existing)
         # We need to query back because merge_insert doesn't return the ID
-        result = self._files_table.search().where(f"path = '{normalized_path}'").to_list()
+        result = (
+            self._files_table.search().where(f"path = '{normalized_path}'").to_list()
+        )
         if result:
             return result[0]["id"]
         else:
             # This should not happen, but handle gracefully
-            logger.error(f"Failed to retrieve file ID after merge_insert for path: {normalized_path}")
+            logger.error(
+                f"Failed to retrieve file ID after merge_insert for path: {normalized_path}"
+            )
             return file_data["id"]
 
     def get_file_by_path(
@@ -336,7 +341,11 @@ class LanceDBProvider(SerialDatabaseProvider):
             # Use resolve() to handle symlinks (e.g., /var -> /private/var on macOS)
             normalized_path = str(Path(path).resolve())
 
-            results = self._files_table.search().where(f"path = '{normalized_path}'").to_list()
+            results = (
+                self._files_table.search()
+                .where(f"path = '{normalized_path}'")
+                .to_list()
+            )
             if not results:
                 return None
 
@@ -397,7 +406,7 @@ class LanceDBProvider(SerialDatabaseProvider):
         file_id: int,
         size_bytes: int | None = None,
         mtime: float | None = None,
-        **kwargs
+        **kwargs,
     ) -> None:
         """Executor method for update_file - runs in DB thread."""
         if not self._files_table:
@@ -419,7 +428,9 @@ class LanceDBProvider(SerialDatabaseProvider):
 
             # LanceDB doesn't support in-place updates, so we use merge_insert
             # This updates the record by matching on the 'id' field
-            self._files_table.merge_insert("id").when_matched_update_all().execute([updated_file])
+            self._files_table.merge_insert("id").when_matched_update_all().execute(
+                [updated_file]
+            )
 
         except Exception as e:
             logger.error(f"Error updating file {file_id}: {e}")
@@ -1133,14 +1144,20 @@ class LanceDBProvider(SerialDatabaseProvider):
                 file_path = ""
                 if self._files_table and "file_id" in result:
                     try:
-                        file_results = self._files_table.search().where(f"id = {result['file_id']}").to_list()
+                        file_results = (
+                            self._files_table.search()
+                            .where(f"id = {result['file_id']}")
+                            .to_list()
+                        )
                         if file_results:
                             file_path = file_results[0].get("path", "")
                     except Exception:
                         pass
 
                 # Convert _distance to similarity (1 - distance for cosine)
-                similarity = 1.0 - result.get("_distance", 0.0) if "_distance" in result else 1.0
+                similarity = (
+                    1.0 - result.get("_distance", 0.0) if "_distance" in result else 1.0
+                )
 
                 # Format the result to match DuckDB's output
                 formatted_result = {
@@ -1152,7 +1169,7 @@ class LanceDBProvider(SerialDatabaseProvider):
                     "end_line": result.get("end_line", 0),
                     "file_path": file_path,
                     "language": result.get("language", ""),
-                    "similarity": similarity
+                    "similarity": similarity,
                 }
                 formatted_results.append(formatted_result)
 
@@ -1216,7 +1233,11 @@ class LanceDBProvider(SerialDatabaseProvider):
                 file_path = ""
                 if self._files_table and "file_id" in result:
                     try:
-                        file_results = self._files_table.search().where(f"id = {result['file_id']}").to_list()
+                        file_results = (
+                            self._files_table.search()
+                            .where(f"id = {result['file_id']}")
+                            .to_list()
+                        )
                         if file_results:
                             file_path = file_results[0].get("path", "")
                     except Exception:
@@ -1231,7 +1252,7 @@ class LanceDBProvider(SerialDatabaseProvider):
                     "start_line": result.get("start_line", 0),
                     "end_line": result.get("end_line", 0),
                     "file_path": file_path,
-                    "language": result.get("language", "")
+                    "language": result.get("language", ""),
                 }
                 formatted_results.append(formatted_result)
 
@@ -1400,10 +1421,11 @@ class LanceDBProvider(SerialDatabaseProvider):
                 logger.debug("Cleaning up old versions for chunks table...")
                 # Clean up versions older than 1 hour aggressively
                 stats = self._chunks_table.cleanup_old_versions(
-                    older_than=timedelta(hours=1),
-                    delete_unverified=True
+                    older_than=timedelta(hours=1), delete_unverified=True
                 )
-                logger.debug(f"Chunks table cleanup freed {stats.bytes_removed / 1024 / 1024:.2f} MB")
+                logger.debug(
+                    f"Chunks table cleanup freed {stats.bytes_removed / 1024 / 1024:.2f} MB"
+                )
                 logger.debug("Chunks table optimization complete")
 
             if self._files_table:
@@ -1412,10 +1434,11 @@ class LanceDBProvider(SerialDatabaseProvider):
                 logger.debug("Cleaning up old versions for files table...")
                 # Clean up versions older than 1 hour aggressively
                 stats = self._files_table.cleanup_old_versions(
-                    older_than=timedelta(hours=1),
-                    delete_unverified=True
+                    older_than=timedelta(hours=1), delete_unverified=True
                 )
-                logger.debug(f"Files table cleanup freed {stats.bytes_removed / 1024 / 1024:.2f} MB")
+                logger.debug(
+                    f"Files table cleanup freed {stats.bytes_removed / 1024 / 1024:.2f} MB"
+                )
                 logger.debug("Files table optimization complete")
 
         except Exception as e:

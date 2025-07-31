@@ -76,7 +76,7 @@ class Database:
         # INITIALIZATION_PATHS:
         # 1. PREFERRED: Pass pre-configured services (dependency injection)
         # 2. LEGACY: Auto-configure from registry (triggers warning)
-        
+
         # CRITICAL: Services must be properly configured with:
         # - SerialDatabaseProvider wrapper (thread safety)
         # - Correct batch sizes per provider
@@ -288,16 +288,18 @@ class Database:
 
     def execute_database_operation_sync(self, operation_name: str, *args, **kwargs):
         """Execute database operation synchronously in dedicated thread.
-        
+
         Args:
             operation_name: Name of operation to execute
-            *args: Operation arguments  
+            *args: Operation arguments
             **kwargs: Operation keyword arguments
-            
+
         Returns:
             Operation result
         """
-        return self._provider._execute_in_db_thread_sync(operation_name, *args, **kwargs)
+        return self._provider._execute_in_db_thread_sync(
+            operation_name, *args, **kwargs
+        )
 
     def get_file_by_path(self, file_path: str) -> dict[str, Any] | None:
         """Get file record by path."""
@@ -398,7 +400,6 @@ class Database:
             True if deletion successful, False otherwise
         """
         return self._provider.delete_file_completely(file_path)
-
 
     def get_chunks_by_file_id(self, file_id: int) -> list[dict[str, Any]]:
         """Get chunks for a specific file."""

@@ -24,11 +24,11 @@ if TYPE_CHECKING:
 
 class SerialDatabaseProvider(ABC):
     """Base class for database providers requiring single-threaded execution.
-    
+
     This class provides the common serial execution pattern for databases like
     DuckDB and LanceDB that require all operations to be serialized through
     a single connection.
-    
+
     Subclasses must implement:
     - _create_connection(): Create and return a database connection
     - _get_schema_sql(): Return SQL for creating the schema (if applicable)
@@ -69,10 +69,10 @@ class SerialDatabaseProvider(ABC):
     @abstractmethod
     def _create_connection(self) -> Any:
         """Create and return a database connection.
-        
+
         This method is called from within the executor thread to create
         a thread-local connection.
-        
+
         Returns:
             Database connection object
         """
@@ -81,7 +81,7 @@ class SerialDatabaseProvider(ABC):
     @abstractmethod
     def _get_schema_sql(self) -> list[str] | None:
         """Get SQL statements for creating the database schema.
-        
+
         Returns:
             List of SQL statements, or None if not applicable
         """
@@ -101,7 +101,7 @@ class SerialDatabaseProvider(ABC):
     @property
     def last_activity_time(self) -> float | None:
         """Get the last database activity time.
-        
+
         Returns:
             Unix timestamp of last activity, or None if no activity yet
         """
@@ -154,6 +154,7 @@ class SerialDatabaseProvider(ABC):
 
             # Lazy import from registry to avoid circular dependency
             import importlib
+
             registry_module = importlib.import_module("chunkhound.registry")
             get_registry = getattr(registry_module, "get_registry")
             create_indexing_coordinator = getattr(
@@ -192,7 +193,7 @@ class SerialDatabaseProvider(ABC):
 
     def _executor_connect(self, conn: Any, state: dict[str, Any]) -> None:
         """Default executor method for connect - runs in DB thread.
-        
+
         Subclasses can override to add provider-specific initialization.
         """
         logger.info("Database connection established in executor thread")
@@ -201,7 +202,7 @@ class SerialDatabaseProvider(ABC):
         self, conn: Any, state: dict[str, Any], skip_checkpoint: bool
     ) -> None:
         """Default executor method for disconnect - runs in DB thread.
-        
+
         Subclasses should override to add provider-specific cleanup.
         """
         try:
@@ -324,7 +325,7 @@ class SerialDatabaseProvider(ABC):
         self, file_path: Path, skip_embeddings: bool = False
     ) -> dict[str, Any]:
         """Process a file end-to-end: parse, chunk, and store in database.
-        
+
         Delegates to IndexingCoordinator for actual processing.
         """
         try:
@@ -453,19 +454,27 @@ class SerialDatabaseProvider(ABC):
 
     def create_schema(self) -> None:
         """Create database schema for files, chunks, and embeddings."""
-        raise NotImplementedError(f"{self.__class__.__name__} must implement create_schema")
+        raise NotImplementedError(
+            f"{self.__class__.__name__} must implement create_schema"
+        )
 
     def create_indexes(self) -> None:
         """Create database indexes for performance optimization."""
-        raise NotImplementedError(f"{self.__class__.__name__} must implement create_indexes")
+        raise NotImplementedError(
+            f"{self.__class__.__name__} must implement create_indexes"
+        )
 
     def health_check(self) -> dict[str, Any]:
         """Perform health check and return status information."""
-        raise NotImplementedError(f"{self.__class__.__name__} must implement health_check")
+        raise NotImplementedError(
+            f"{self.__class__.__name__} must implement health_check"
+        )
 
     def get_connection_info(self) -> dict[str, Any]:
         """Get information about the database connection."""
-        raise NotImplementedError(f"{self.__class__.__name__} must implement get_connection_info")
+        raise NotImplementedError(
+            f"{self.__class__.__name__} must implement get_connection_info"
+        )
 
     def optimize_tables(self) -> None:
         """Optimize tables by compacting fragments and rebuilding indexes."""

@@ -46,22 +46,22 @@ def create_database_with_dependencies(
     BEHAVIOR: Single source of truth for database creation across all execution paths
     PURPOSE: Eliminates duplicate initialization logic between CLI and MCP paths
     GUARANTEE: Ensures all database instances have proper dependency injection
-    
+
     INITIALIZATION SEQUENCE:
     1. Configure registry before creating any components
     2. Create all service components through registry
     3. Inject all dependencies into Database constructor
     4. Return fully configured Database instance
-    
+
     USED BY:
     - CLI commands (via args_to_config -> this factory)
     - MCP stdio server (via Config -> this factory)
     - MCP HTTP server (via Config -> this factory)
     - File change processing (indirectly via MCP server)
-    
+
     CRITICAL REQUIREMENT:
     NEVER create Database() directly - always use this factory to ensure consistency
-    
+
     COMMON ERRORS:
     - Direct Database() instantiation bypasses dependency injection
     - Registry not configured before component creation

@@ -10,7 +10,7 @@ This module provides a unified configuration system with clear precedence:
 
 import os
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -26,30 +26,26 @@ class Config(BaseModel):
     model_config = ConfigDict(validate_assignment=True)
 
     database: DatabaseConfig = Field(default_factory=DatabaseConfig)
-    embedding: Optional[EmbeddingConfig] = Field(default=None)
+    embedding: EmbeddingConfig | None = Field(default=None)
     mcp: MCPConfig = Field(default_factory=MCPConfig)
     indexing: IndexingConfig = Field(default_factory=IndexingConfig)
     debug: bool = Field(default=False)
 
-    def __init__(
-        self,
-        args: Optional[Any] = None,
-        **kwargs: Any
-    ) -> None:
+    def __init__(self, args: Any | None = None, **kwargs: Any) -> None:
         """Universal configuration initialization that handles all contexts.
-        
+
         Automatically applies correct precedence order:
         1. CLI arguments (highest priority)
         2. Environment variables
         3. Config file (via --config path, env var, or local .chunkhound.json)
         4. Default values (lowest priority)
-        
+
         Args:
             args: Optional argparse.Namespace from command line parsing
             **kwargs: Direct overrides for testing or special cases
         """
         # Start with defaults
-        config_data: Dict[str, Any] = {}
+        config_data: dict[str, Any] = {}
 
         # 1. Smart config file resolution (before env vars)
         config_file = None
@@ -74,6 +70,7 @@ class Config(BaseModel):
         # Always detect project root for local config detection
         if target_dir is None:
             from chunkhound.utils.project_detection import find_project_root
+
             target_dir = find_project_root()
 
         # Store target_dir for use in validation
@@ -82,6 +79,7 @@ class Config(BaseModel):
         # 2. Load config file if found
         if config_file and config_file.exists():
             import json
+
             try:
                 with open(config_file) as f:
                     file_config = json.load(f)
@@ -97,6 +95,7 @@ class Config(BaseModel):
             local_config_path = target_dir / ".chunkhound.json"
             if local_config_path.exists() and local_config_path != config_file:
                 import json
+
                 try:
                     with open(local_config_path) as f:
                         local_config = json.load(f)
@@ -121,28 +120,34 @@ class Config(BaseModel):
             self._deep_merge(config_data, kwargs)
 
         # Special handling for EmbeddingConfig
-        if 'embedding' in config_data and isinstance(config_data['embedding'], dict):
+        if "embedding" in config_data and isinstance(config_data["embedding"], dict):
             # Create EmbeddingConfig instance with the data
-            config_data['embedding'] = EmbeddingConfig(**config_data['embedding'])
+            config_data["embedding"] = EmbeddingConfig(**config_data["embedding"])
 
         # Initialize the model
         super().__init__(**config_data)
 
-    def _load_env_vars(self) -> Dict[str, Any]:
+    def _load_env_vars(self) -> dict[str, Any]:
         """Load configuration from environment variables.
-        
+
         Supports both legacy and new environment variable names.
         Uses CHUNKHOUND_ prefix with __ delimiter for nested values.
         """
-        config: Dict[str, Any] = {}
+        config: dict[str, Any] = {}
 
         # Debug mode
         if os.getenv("CHUNKHOUND_DEBUG"):
-            config["debug"] = os.getenv("CHUNKHOUND_DEBUG", "").lower() in ("true", "1", "yes")
+            config["debug"] = os.getenv("CHUNKHOUND_DEBUG", "").lower() in (
+                "true",
+                "1",
+                "yes",
+            )
 
         # Database configuration
         # Support both old and new environment variable names
-        if db_path := (os.getenv("CHUNKHOUND_DATABASE__PATH") or os.getenv("CHUNKHOUND_DB_PATH")):
+        if db_path := (
+            os.getenv("CHUNKHOUND_DATABASE__PATH") or os.getenv("CHUNKHOUND_DB_PATH")
+        ):
             config.setdefault("database", {})["path"] = db_path
         if db_provider := os.getenv("CHUNKHOUND_DATABASE__PROVIDER"):
             config.setdefault("database", {})["provider"] = db_provider
@@ -150,7 +155,7 @@ class Config(BaseModel):
             config.setdefault("database", {})["lancedb_index_type"] = index_type
 
         # Embedding configuration
-        embedding_config: Dict[str, Any] = {}
+        embedding_config: dict[str, Any] = {}
 
         # New embedding env vars
         if api_key := os.getenv("CHUNKHOUND_EMBEDDING__API_KEY"):
@@ -172,7 +177,7 @@ class Config(BaseModel):
             config["embedding"] = embedding_config
 
         # MCP configuration
-        mcp_config: Dict[str, Any] = {}
+        mcp_config: dict[str, Any] = {}
         if transport := os.getenv("CHUNKHOUND_MCP__TRANSPORT"):
             mcp_config["transport"] = transport
         if port := os.getenv("CHUNKHOUND_MCP__PORT"):
@@ -186,7 +191,7 @@ class Config(BaseModel):
             config["mcp"] = mcp_config
 
         # Indexing configuration
-        indexing_config: Dict[str, Any] = {}
+        indexing_config: dict[str, Any] = {}
         if batch_size := os.getenv("CHUNKHOUND_INDEXING__BATCH_SIZE"):
             indexing_config["batch_size"] = int(batch_size)
         if db_batch_size := os.getenv("CHUNKHOUND_INDEXING__DB_BATCH_SIZE"):
@@ -194,11 +199,19 @@ class Config(BaseModel):
         if max_concurrent := os.getenv("CHUNKHOUND_INDEXING__MAX_CONCURRENT"):
             indexing_config["max_concurrent"] = int(max_concurrent)
         if force_reindex := os.getenv("CHUNKHOUND_INDEXING__FORCE_REINDEX"):
-            indexing_config["force_reindex"] = force_reindex.lower() in ("true", "1", "yes")
+            indexing_config["force_reindex"] = force_reindex.lower() in (
+                "true",
+                "1",
+                "yes",
+            )
         if cleanup := os.getenv("CHUNKHOUND_INDEXING__CLEANUP"):
             indexing_config["cleanup"] = cleanup.lower() in ("true", "1", "yes")
         if ignore_gitignore := os.getenv("CHUNKHOUND_INDEXING__IGNORE_GITIGNORE"):
-            indexing_config["ignore_gitignore"] = ignore_gitignore.lower() in ("true", "1", "yes")
+            indexing_config["ignore_gitignore"] = ignore_gitignore.lower() in (
+                "true",
+                "1",
+                "yes",
+            )
 
         # Include/exclude patterns
         if include := os.getenv("CHUNKHOUND_INDEXING__INCLUDE"):
@@ -211,24 +224,29 @@ class Config(BaseModel):
 
         return config
 
-    def _extract_cli_overrides(self, args: Any) -> Dict[str, Any]:
+    def _extract_cli_overrides(self, args: Any) -> dict[str, Any]:
         """Extract configuration overrides from CLI arguments.
-        
+
         Args:
             args: Parsed command line arguments
-            
+
         Returns:
             Dictionary of configuration overrides
         """
-        overrides: Dict[str, Any] = {}
+        overrides: dict[str, Any] = {}
 
         # Database arguments
         if hasattr(args, "db") and args.db:
             overrides.setdefault("database", {})["path"] = args.db
         if hasattr(args, "database_provider") and args.database_provider:
             overrides.setdefault("database", {})["provider"] = args.database_provider
-        if hasattr(args, "database_lancedb_index_type") and args.database_lancedb_index_type:
-            overrides.setdefault("database", {})["lancedb_index_type"] = args.database_lancedb_index_type
+        if (
+            hasattr(args, "database_lancedb_index_type")
+            and args.database_lancedb_index_type
+        ):
+            overrides.setdefault("database", {})["lancedb_index_type"] = (
+                args.database_lancedb_index_type
+            )
 
         # Embedding arguments
         if hasattr(args, "provider") and args.provider:
@@ -240,9 +258,13 @@ class Config(BaseModel):
         if hasattr(args, "base_url") and args.base_url:
             overrides.setdefault("embedding", {})["base_url"] = args.base_url
         if hasattr(args, "embedding_batch_size") and args.embedding_batch_size:
-            overrides.setdefault("embedding", {})["batch_size"] = args.embedding_batch_size
+            overrides.setdefault("embedding", {})["batch_size"] = (
+                args.embedding_batch_size
+            )
         if hasattr(args, "embedding_max_concurrent") and args.embedding_max_concurrent:
-            overrides.setdefault("embedding", {})["max_concurrent"] = args.embedding_max_concurrent
+            overrides.setdefault("embedding", {})["max_concurrent"] = (
+                args.embedding_max_concurrent
+            )
 
         # MCP arguments
         if hasattr(args, "http") and args.http:
@@ -267,8 +289,13 @@ class Config(BaseModel):
             overrides.setdefault("indexing", {})["force_reindex"] = args.force_reindex
         if hasattr(args, "cleanup") and args.cleanup:
             overrides.setdefault("indexing", {})["cleanup"] = args.cleanup
-        if hasattr(args, "indexing_ignore_gitignore") and args.indexing_ignore_gitignore:
-            overrides.setdefault("indexing", {})["ignore_gitignore"] = args.indexing_ignore_gitignore
+        if (
+            hasattr(args, "indexing_ignore_gitignore")
+            and args.indexing_ignore_gitignore
+        ):
+            overrides.setdefault("indexing", {})["ignore_gitignore"] = (
+                args.indexing_ignore_gitignore
+            )
 
         # Include/exclude patterns
         if hasattr(args, "include") and args.include:
@@ -284,7 +311,7 @@ class Config(BaseModel):
 
         return overrides
 
-    def _deep_merge(self, base: Dict[str, Any], update: Dict[str, Any]) -> None:
+    def _deep_merge(self, base: dict[str, Any], update: dict[str, Any]) -> None:
         """Deep merge update dictionary into base dictionary."""
         for key, value in update.items():
             if key in base and isinstance(base[key], dict) and isinstance(value, dict):
@@ -299,8 +326,9 @@ class Config(BaseModel):
         if not self.database.path:
             # Try to detect project root from target_dir or auto-detect
             from chunkhound.utils.project_detection import find_project_root
+
             # Use the target_dir if it was provided during initialization
-            start_path = getattr(self, '_target_dir', None)
+            start_path = getattr(self, "_target_dir", None)
             project_root = find_project_root(start_path)
 
             # Set default database path in project root
@@ -312,30 +340,29 @@ class Config(BaseModel):
 
         return self
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert configuration to dictionary."""
         return self.model_dump(exclude_none=True)
-
-
 
     def validate_for_command(self, command: str) -> list[str]:
         """
         Validate configuration for a specific command.
-        
+
         Args:
             command: Command name ('index', 'mcp', etc.)
-            
+
         Returns:
             List of validation errors (empty if valid)
         """
         # Import here to avoid circular imports
         from chunkhound.api.cli.utils.config_helpers import validate_config_for_command
+
         return validate_config_for_command(self, command)
 
     def get_missing_config(self) -> list[str]:
         """
         Get list of missing required configuration parameters.
-        
+
         Returns:
             List of missing configuration parameter names
         """
@@ -343,7 +370,7 @@ class Config(BaseModel):
 
         # Check embedding configuration if it exists
         if self.embedding:
-            if hasattr(self.embedding, 'get_missing_config'):
+            if hasattr(self.embedding, "get_missing_config"):
                 embedding_missing = self.embedding.get_missing_config()
                 for item in embedding_missing:
                     missing.append(f"embedding.{item}")
@@ -355,16 +382,15 @@ class Config(BaseModel):
     def is_fully_configured(self) -> bool:
         """
         Check if all required configuration is present.
-        
+
         Returns:
             True if fully configured, False otherwise
         """
         return self.embedding is not None and self.embedding.is_provider_configured()
 
 
-
 # Global configuration instance
-_global_config: Optional[Config] = None
+_global_config: Config | None = None
 
 
 def get_config() -> Config:

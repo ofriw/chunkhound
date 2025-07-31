@@ -69,6 +69,7 @@ class LocalEmbeddingResult:
 # The old implementation has been removed to avoid duplication and confusion.
 # Use create_openai_provider() function below which imports from the new location.
 
+
 class OpenAICompatibleProvider:
     """Generic OpenAI-compatible embedding provider for any server implementing OpenAI embeddings API."""
 

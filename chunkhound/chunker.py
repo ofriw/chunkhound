@@ -16,7 +16,7 @@ from loguru import logger
 
 class Chunker:
     """Chunker for extracting semantic units from parsed code.
-    
+
     # CLASS_CONTEXT: Stateful chunker with configurable size limits
     # PATTERN: Each file gets fresh chunk IDs (counter resets)
     # OPTIMIZATION: Filters noise (generated code, empty chunks)
@@ -226,7 +226,7 @@ class Chunker:
 
     def _is_generated_code(self, code: str) -> bool:
         """Check if code appears to be generated using basic heuristics.
-        
+
         # PATTERN: Common markers in auto-generated files
         # PURPOSE: Reduce noise in search results
         # LIMITATION: Simple string matching, may miss sophisticated generators
@@ -271,7 +271,7 @@ class Chunker:
 @dataclass
 class ChunkDiff:
     """Represents the difference between old and new chunks for incremental updates.
-    
+
     # DATA_STRUCTURE: Minimal set of operations for chunk updates
     # PATTERN: Delete+Insert instead of Update (simpler, atomic)
     # OPTIMIZATION: unchanged_count tracks preserved embeddings
@@ -285,7 +285,7 @@ class ChunkDiff:
 
 class IncrementalChunker:
     """Chunker that processes only modified regions for efficient incremental updates.
-    
+
     # CLASS_CONTEXT: Optimizes file updates by processing only changes
     # ALGORITHM: Diff-based chunking preserves unchanged regions
     # BENEFIT: 10x faster updates, preserves embeddings

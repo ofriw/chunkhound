@@ -14,7 +14,9 @@ def create_main_parser() -> argparse.ArgumentParser:
     """
     parser = argparse.ArgumentParser(
         prog="chunkhound",
-        description="Local-first semantic code search with vector and regex capabilities",
+        description=(
+            "Local-first semantic code search with vector and regex capabilities"
+        ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -125,7 +127,10 @@ def add_embedding_arguments(parser: argparse.ArgumentParser) -> None:
 
     parser.add_argument(
         "--model",
-        help="Embedding model to use (defaults: openai=text-embedding-3-small, bge-in-icl=bge-in-icl, tei=auto-detect, openai-compatible=required)",
+        help=(
+            "Embedding model to use (defaults: openai=text-embedding-3-small, "
+            "bge-in-icl=bge-in-icl, tei=auto-detect, openai-compatible=required)"
+        ),
     )
 
     parser.add_argument(
@@ -201,7 +206,7 @@ def add_file_pattern_arguments(parser: argparse.ArgumentParser) -> None:
 
 def add_mcp_arguments(parser: argparse.ArgumentParser) -> None:
     """Add MCP server arguments to a parser.
-    
+
     Args:
         parser: Parser to add arguments to
     """
@@ -231,7 +236,7 @@ def add_mcp_arguments(parser: argparse.ArgumentParser) -> None:
 
 def add_indexing_arguments(parser: argparse.ArgumentParser) -> None:
     """Add indexing configuration arguments to a parser.
-    
+
     Args:
         parser: Parser to add arguments to
     """

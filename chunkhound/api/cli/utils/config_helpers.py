@@ -32,24 +32,22 @@ from pathlib import Path
 from chunkhound.core.config.config import Config
 
 
-def args_to_config(
-    args: argparse.Namespace, project_dir: Path | None = None
-) -> Config:
+def args_to_config(args: argparse.Namespace, project_dir: Path | None = None) -> Config:
     """
     Convert CLI arguments to unified configuration.
 
     <AI_AGENT_PROTECTED_FUNCTION>
     🛡️ CRITICAL SYSTEM FUNCTION - EXPLICIT USER APPROVAL REQUIRED FOR CHANGES
-    
+
     PURPOSE: This function is the SINGLE SOURCE OF TRUTH for CLI configuration
     REASONING: CLI commands need local .chunkhound.json detection + argument merging
     SECURITY: Bypassing this function breaks local config detection
-    
+
     PROTECTED BEHAVIORS:
     1. Must detect local .chunkhound.json files in project directories
     2. Must merge CLI args with local config (CLI args take precedence)
     3. Must return Config instance directly
-    
+
     DO NOT MODIFY WITHOUT USER APPROVAL
     </AI_AGENT_PROTECTED_FUNCTION>
 
@@ -65,9 +63,7 @@ def args_to_config(
     return Config(args=args)
 
 
-def create_legacy_registry_config(
-    config: Config, no_embeddings: bool = False
-) -> dict:
+def create_legacy_registry_config(config: Config, no_embeddings: bool = False) -> dict:
     """
     Create legacy registry configuration format from unified config.
 
@@ -112,31 +108,29 @@ def create_legacy_registry_config(
     return registry_config
 
 
-
-
 def validate_config_for_command(config: Config, command: str) -> list[str]:
     """
     Validate configuration for a specific command.
 
     <AI_AGENT_PROTECTED_FUNCTION>
     🛡️ CRITICAL SECURITY FUNCTION - EXPLICIT USER APPROVAL REQUIRED FOR CHANGES
-    
+
     PURPOSE: This function is the MANDATORY validation gateway for all config
     REASONING: Prevents runtime errors, security issues, and silent failures
     SECURITY: Bypassing this function creates production vulnerabilities
-    
+
     PROTECTED BEHAVIORS:
     1. Must validate ALL config before any system component uses it
     2. Must return list of specific error messages (not just True/False)
     3. Must check provider-specific requirements (API keys, URLs, etc.)
     4. Must be called by BOTH CLI and MCP code paths
-    
+
     NEVER SKIP THIS VALIDATION - IT PREVENTS:
     - Missing API key runtime errors
     - Invalid provider configurations
     - Database connection failures
     - Silent system failures
-    
+
     DO NOT MODIFY WITHOUT USER APPROVAL
     </AI_AGENT_PROTECTED_FUNCTION>
 

@@ -4,7 +4,6 @@ This module provides configuration for the file indexing process including
 batch processing, and pattern matching.
 """
 
-
 from pydantic import BaseModel, Field, field_validator
 
 
@@ -26,53 +25,46 @@ def _get_default_include_patterns() -> list[str]:
 
 class IndexingConfig(BaseModel):
     """Configuration for file indexing behavior.
-    
+
     Controls how files are discovered and indexed.
     """
-
 
     # Batch processing
     batch_size: int = Field(
         default=50,
         ge=1,
         le=1000,
-        description="Number of files to process in a single batch"
+        description="Number of files to process in a single batch",
     )
 
     db_batch_size: int = Field(
         default=100,
         ge=1,
         le=5000,
-        description="Number of chunks to insert in a single database batch"
+        description="Number of chunks to insert in a single database batch",
     )
 
     max_concurrent: int = Field(
-        default=5,
-        ge=1,
-        le=20,
-        description="Maximum concurrent file processing tasks"
+        default=5, ge=1, le=20, description="Maximum concurrent file processing tasks"
     )
 
     # Indexing behavior
     force_reindex: bool = Field(
-        default=False,
-        description="Force re-indexing of all files"
+        default=False, description="Force re-indexing of all files"
     )
 
     cleanup: bool = Field(
-        default=True,
-        description="Remove chunks from deleted files during indexing"
+        default=True, description="Remove chunks from deleted files during indexing"
     )
 
     ignore_gitignore: bool = Field(
-        default=False,
-        description="Ignore .gitignore patterns when discovering files"
+        default=False, description="Ignore .gitignore patterns when discovering files"
     )
 
     # File patterns
     include: list[str] = Field(
         default_factory=lambda: _get_default_include_patterns(),
-        description="Glob patterns for files to include (all supported languages)"
+        description="Glob patterns for files to include (all supported languages)",
     )
 
     exclude: list[str] = Field(
@@ -108,36 +100,27 @@ class IndexingConfig(BaseModel):
             "**/bundle.js",
             "**/vendor.js",
         ],
-        description="Glob patterns for files to exclude"
+        description="Glob patterns for files to exclude",
     )
 
     # Performance tuning
     max_file_size_mb: int = Field(
-        default=10,
-        ge=1,
-        le=100,
-        description="Maximum file size in MB to index"
+        default=10, ge=1, le=100, description="Maximum file size in MB to index"
     )
 
     chunk_overlap: int = Field(
         default=50,
         ge=0,
         le=500,
-        description="Number of characters to overlap between chunks"
+        description="Number of characters to overlap between chunks",
     )
 
     min_chunk_size: int = Field(
-        default=50,
-        ge=10,
-        le=1000,
-        description="Minimum chunk size in characters"
+        default=50, ge=10, le=1000, description="Minimum chunk size in characters"
     )
 
     max_chunk_size: int = Field(
-        default=2000,
-        ge=100,
-        le=10000,
-        description="Maximum chunk size in characters"
+        default=2000, ge=100, le=10000, description="Maximum chunk size in characters"
     )
 
     @field_validator("include", "exclude")
@@ -156,14 +139,13 @@ class IndexingConfig(BaseModel):
 
         return unique
 
-
     def get_max_file_size_bytes(self) -> int:
         """Get maximum file size in bytes."""
         return self.max_file_size_mb * 1024 * 1024
 
     def should_index_file(self, file_path: str) -> bool:
         """Check if a file should be indexed based on patterns.
-        
+
         Note: This is a simplified check. The actual implementation
         should use proper glob matching.
         """

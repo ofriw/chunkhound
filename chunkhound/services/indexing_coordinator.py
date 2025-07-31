@@ -26,7 +26,7 @@ from .chunk_cache_service import ChunkCacheService
 
 class IndexingCoordinator(BaseService):
     """Coordinates file indexing workflows with parsing, chunking, and embeddings.
-    
+
     # CLASS_CONTEXT: Orchestrates the three-phase indexing process
     # RELATIONSHIP: Uses -> LanguageParser, ChunkCacheService, DatabaseProvider
     # CONCURRENCY_MODEL:
@@ -903,7 +903,7 @@ class IndexingCoordinator(BaseService):
             embedding_service = EmbeddingService(
                 database_provider=self._db,
                 embedding_provider=self._embedding_provider,
-                optimization_batch_frequency=optimization_batch_frequency
+                optimization_batch_frequency=optimization_batch_frequency,
             )
 
             return await embedding_service.generate_missing_embeddings(

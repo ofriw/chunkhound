@@ -136,9 +136,7 @@ def validate_file_patterns(
     return True
 
 
-def validate_numeric_args(
-    batch_size: int | None = None
-) -> bool:
+def validate_numeric_args(batch_size: int | None = None) -> bool:
     """Validate numeric arguments.
 
     Args:

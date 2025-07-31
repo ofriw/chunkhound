@@ -14,7 +14,13 @@ from typing import Any
 from fastmcp import FastMCP
 
 from chunkhound.mcp_shared import add_common_mcp_arguments
-from chunkhound.version import __version__
+from chunkhound.mcp_tools import (
+    get_stats_impl,
+    health_check_impl,
+    limit_response_size,
+    search_regex_impl,
+    search_semantic_impl,
+)
 
 # Import dependencies (with relative imports fallback)
 try:
@@ -38,7 +44,7 @@ _initialization_lock = None
 _config: Config | None = None  # Global to store Config
 
 
-async def ensure_initialization():
+async def ensure_initialization() -> None:
     """Ensure components are initialized (lazy initialization)"""
     global _database, _embedding_manager, _initialization_lock
 
@@ -64,13 +70,17 @@ async def ensure_initialization():
             # Must match stdio server pattern for consistency
             global _config
             config = _config
-            debug_mode = config.debug or debug_mode
+            if config:
+                debug_mode = config.debug or debug_mode
 
             # Validate configuration for MCP HTTP server
             # This ensures same validation as stdio server and CLI
             try:
                 # Validate configuration for MCP server
-                validation_errors = config.validate_for_command("mcp")
+                if config:
+                    validation_errors = config.validate_for_command("mcp")
+                else:
+                    validation_errors = []
                 if validation_errors and debug_mode:
                     # Non-fatal for HTTP server - continue with config anyway
                     pass
@@ -80,16 +90,22 @@ async def ensure_initialization():
                     pass
 
             # Get database path from config
+            if not config:
+                raise ValueError("Configuration not initialized")
+            if not config or not config.database:
+                raise ValueError("Database configuration not initialized")
             db_path = Path(config.database.path)
             db_path.parent.mkdir(parents=True, exist_ok=True)
-
 
             # Initialize embedding manager
             _embedding_manager = EmbeddingManager()
 
             # Setup embedding provider (optional - continue if it fails)
             try:
-                provider = EmbeddingProviderFactory.create_provider(config.embedding)
+                if config.embedding:
+                    provider = EmbeddingProviderFactory.create_provider(config.embedding)
+                else:
+                    raise ValueError("No embedding configuration available")
                 _embedding_manager.register_provider(provider, set_default=True)
             except (ValueError, Exception) as e:
                 # API key or configuration issue - continue without embedding provider
@@ -100,7 +116,7 @@ async def ensure_initialization():
             # This ensures same initialization across all MCP servers
             _database = create_database_with_dependencies(
                 db_path=db_path,
-                config=config,
+                config=config.to_dict(),
                 embedding_manager=_embedding_manager,
             )
 
@@ -112,7 +128,7 @@ async def ensure_initialization():
 
 
 # Initialize FastMCP 2.0 server
-mcp = FastMCP("ChunkHound Code Search")
+mcp: FastMCP = FastMCP("ChunkHound Code Search")
 
 
 @mcp.tool()
@@ -123,7 +139,8 @@ async def get_stats() -> dict[str, Any]:
     if not _database:
         raise Exception("Database not initialized")
 
-    return _database.get_stats()
+    # Use shared implementation
+    return await get_stats_impl(_database)
 
 
 @mcp.tool()
@@ -131,17 +148,12 @@ async def health_check() -> dict[str, Any]:
     """Check server health status"""
     await ensure_initialization()
 
-    health_status = {
-        "status": "healthy",
-        "version": __version__,
-        "database_connected": _database is not None,
-        "embedding_providers": [],
-    }
-
-    if _embedding_manager:
-        health_status["embedding_providers"] = _embedding_manager.list_providers()
-
-    return health_status
+    # Use shared implementation
+    if not _database or not _embedding_manager:
+        raise Exception("Server components not properly initialized")
+    
+    result = await health_check_impl(_database, _embedding_manager)
+    return dict(result)
 
 
 @mcp.tool()
@@ -158,20 +170,18 @@ async def search_regex(
     if not _database:
         raise Exception("Database not initialized")
 
-    # Validate and constrain parameters
-    page_size = max(1, min(page_size, 100))
-    offset = max(0, offset)
-    max_response_tokens = max(1000, min(max_response_tokens, 25000))
-
-    # Perform search
-    results, pagination = _database.search_regex(
+    # Use shared implementation
+    response_data = await search_regex_impl(
+        database=_database,
         pattern=pattern,
         page_size=page_size,
         offset=offset,
         path_filter=path,
     )
 
-    return {"results": results, "pagination": pagination}
+    # Apply response size limiting
+    limited_response = limit_response_size(response_data)
+    return dict(limited_response)
 
 
 @mcp.tool()
@@ -191,53 +201,22 @@ async def search_semantic(
     if not _database or not _embedding_manager:
         raise Exception("Database or embedding manager not initialized")
 
-    if not _embedding_manager.list_providers():
-        raise Exception(
-            "No embedding providers available. Set OPENAI_API_KEY to enable semantic search."
-        )
-
-    # Use explicit provider/model from arguments, otherwise get from configured provider
-    if not provider or not model:
-        try:
-            default_provider_obj = _embedding_manager.get_provider()
-            if not provider:
-                provider = default_provider_obj.name
-            if not model:
-                model = default_provider_obj.model
-        except ValueError:
-            raise Exception(
-                "No default embedding provider configured. "
-                "Either specify provider and model explicitly, or configure a default provider."
-            )
-
-    # Validate and constrain parameters
-    page_size = max(1, min(page_size, 100))
-    offset = max(0, offset)
-    max_response_tokens = max(1000, min(max_response_tokens, 25000))
-
-    # Get embedding for query
-    try:
-        result = await asyncio.wait_for(
-            _embedding_manager.embed_texts([query], provider), timeout=12.0
-        )
-        query_vector = result.embeddings[0]
-    except asyncio.TimeoutError:
-        raise Exception(
-            "Semantic search timed out. This can happen when OpenAI API is experiencing high latency. Please try again."
-        )
-
-    # Perform search
-    results, pagination = _database.search_semantic(
-        query_vector=query_vector,
-        provider=provider,
-        model=model,
+    # Use shared implementation
+    response_data = await search_semantic_impl(
+        database=_database,
+        embedding_manager=_embedding_manager,
+        query=query,
         page_size=page_size,
         offset=offset,
+        provider=provider,
+        model=model,
         threshold=threshold,
         path_filter=path,
     )
 
-    return {"results": results, "pagination": pagination}
+    # Apply response size limiting
+    limited_response = limit_response_size(response_data)
+    return dict(limited_response)
 
 
 def is_main_thread() -> bool:
@@ -284,146 +263,16 @@ def main():
     # Create HTTP app with proper JSON response configuration
     print(f"About to start FastMCP server on {args.host}:{args.port}", file=sys.stderr)
 
-    # Create a new MCP instance for the HTTP app to avoid conflicts with module-level instance
-    local_mcp = FastMCP("ChunkHound Code Search")
-
-    # Register the same tools on the new instance
-    @local_mcp.tool()
-    async def get_stats_local() -> dict[str, Any]:
-        """Get database statistics including file, chunk, and embedding counts"""
-        await ensure_initialization()
-
-        if not _database:
-            raise Exception("Database not initialized")
-
-        return _database.get_stats()
-
-    @local_mcp.tool()
-    async def health_check_local() -> dict[str, Any]:
-        """Check server health status"""
-        await ensure_initialization()
-
-        health_status = {
-            "status": "healthy",
-            "version": __version__,
-            "database_connected": _database is not None,
-            "embedding_providers": [],
-            }
-
-        if _embedding_manager:
-            health_status["embedding_providers"] = _embedding_manager.list_providers()
-
-        return health_status
-
-    @local_mcp.tool()
-    async def search_regex_local(
-        pattern: str,
-        page_size: int = 10,
-        offset: int = 0,
-        max_response_tokens: int = 20000,
-        path: str | None = None,
-    ) -> dict[str, Any]:
-        """Search code chunks using regex patterns with pagination support."""
-        await ensure_initialization()
-
-        if not _database:
-            raise Exception("Database not initialized")
-
-        # Validate and constrain parameters
-        page_size = max(1, min(page_size, 100))
-        offset = max(0, offset)
-        max_response_tokens = max(1000, min(max_response_tokens, 25000))
-
-        # Perform search
-        results, pagination = _database.search_regex(
-            pattern=pattern,
-            page_size=page_size,
-            offset=offset,
-            path_filter=path,
-        )
-
-        return {"results": results, "pagination": pagination}
-
-    @local_mcp.tool()
-    async def search_semantic_local(
-        query: str,
-        page_size: int = 10,
-        offset: int = 0,
-        max_response_tokens: int = 20000,
-        provider: str | None = None,
-        model: str | None = None,
-        threshold: float | None = None,
-        path: str | None = None,
-    ) -> dict[str, Any]:
-        """Search code using semantic similarity with pagination support."""
-        await ensure_initialization()
-
-        if not _database or not _embedding_manager:
-            raise Exception("Database or embedding manager not initialized")
-
-        if not _embedding_manager.list_providers():
-            raise Exception(
-                "No embedding providers available. Set OPENAI_API_KEY to enable semantic search."
-            )
-
-        # Use explicit provider/model from arguments, otherwise get from configured provider
-        if not provider or not model:
-            try:
-                default_provider_obj = _embedding_manager.get_provider()
-                if not provider:
-                    provider = default_provider_obj.name
-                if not model:
-                    model = default_provider_obj.model
-            except ValueError:
-                raise Exception(
-                    "No default embedding provider configured. "
-                    "Either specify provider and model explicitly, or configure a default provider."
-                )
-
-        # Validate and constrain parameters
-        page_size = max(1, min(page_size, 100))
-        offset = max(0, offset)
-        max_response_tokens = max(1000, min(max_response_tokens, 25000))
-
-        # Get embedding for query
-        try:
-            result = await asyncio.wait_for(
-                _embedding_manager.embed_texts([query], provider), timeout=12.0
-            )
-            query_vector = result.embeddings[0]
-        except asyncio.TimeoutError:
-            raise Exception(
-                "Semantic search timed out. This can happen when OpenAI API is experiencing high latency. Please try again."
-            )
-
-        # Perform search
-        results, pagination = _database.search_semantic(
-            query_vector=query_vector,
-            provider=provider,
-            model=model,
-            page_size=page_size,
-            offset=offset,
-            threshold=threshold,
-            path_filter=path,
-        )
-
-        return {"results": results, "pagination": pagination}
-
     # Use the correct FastMCP configuration for JSON responses
-    app = local_mcp.http_app(
+    app = mcp.http_app(
         path="/mcp",
-        json_response=True,      # Force JSON responses instead of SSE
-        stateless_http=True,     # Enable stateless HTTP for proper JSON-RPC
-        transport="http"         # Use HTTP transport
+        json_response=True,  # Force JSON responses instead of SSE
+        stateless_http=True,  # Enable stateless HTTP for proper JSON-RPC
+        transport="http",  # Use HTTP transport
     )
 
     # Run with uvicorn
-    uvicorn.run(
-        app,
-        host=args.host,
-        port=args.port,
-        log_level="info"
-    )
+    uvicorn.run(app, host=args.host, port=args.port, log_level="info")
 
 
 if __name__ == "__main__":

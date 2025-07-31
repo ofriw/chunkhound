@@ -508,7 +508,9 @@ class EmbeddingService(BaseService):
             completed_batch_count += successful_batches
 
             # Check if we've reached the optimization threshold
-            batches_since_last_optimize = completed_batch_count % self._optimization_batch_frequency
+            batches_since_last_optimize = (
+                completed_batch_count % self._optimization_batch_frequency
+            )
             if (
                 batches_since_last_optimize < successful_batches
                 or completed_batch_count == self._optimization_batch_frequency

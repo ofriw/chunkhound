@@ -249,12 +249,14 @@ class EmbeddingConfig(BaseSettings):
 
         Returns:
             Default model name for the provider
-        
+
         Raises:
             ValueError: If no provider is selected
         """
         if not self.provider:
-            raise ValueError("No embedding provider selected. Please specify a provider.")
+            raise ValueError(
+                "No embedding provider selected. Please specify a provider."
+            )
 
         defaults = {
             "openai": "text-embedding-3-small",
@@ -301,7 +303,9 @@ class EmbeddingConfig(BaseSettings):
 
         # Check if provider is set first
         if not self.provider:
-            missing.append("provider (--provider, CHUNKHOUND_EMBEDDING__PROVIDER, or in config file)")
+            missing.append(
+                "provider (--provider, CHUNKHOUND_EMBEDDING__PROVIDER, or in config file)"
+            )
             return missing  # Return early as other checks depend on provider
 
         if self.provider == "openai" and not self.api_key:

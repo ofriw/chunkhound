@@ -1,7 +1,6 @@
 """Run command module - handles directory indexing operations."""
 
 import argparse
-import asyncio
 import sys
 from pathlib import Path
 from typing import Any
@@ -20,7 +19,6 @@ from ..utils.output import OutputFormatter, format_stats
 from ..utils.validation import (
     ensure_database_directory,
     validate_file_patterns,
-    validate_numeric_args,
     validate_path,
     validate_provider_args,
 )
@@ -61,7 +59,6 @@ async def run_command(args: argparse.Namespace) -> None:
         sys.exit(1)
 
     try:
-
         # Set up file patterns using unified config (already loaded)
         include_patterns, exclude_patterns = _setup_file_patterns_from_config(
             config, args
@@ -137,7 +134,11 @@ def _validate_run_arguments(
         # Use unified config values if available, fall back to CLI args
         if config:
             provider = config.embedding.provider
-            api_key = config.embedding.api_key.get_secret_value() if config.embedding.api_key else None
+            api_key = (
+                config.embedding.api_key.get_secret_value()
+                if config.embedding.api_key
+                else None
+            )
             base_url = config.embedding.base_url
             model = config.embedding.model
         else:
@@ -153,11 +154,7 @@ def _validate_run_arguments(
     if not validate_file_patterns(args.include, args.exclude):
         return False
 
-
     return True
-
-
-
 
 
 def _setup_file_patterns_from_config(
@@ -176,9 +173,7 @@ def _setup_file_patterns_from_config(
     if hasattr(args, "include") and args.include:
         include_patterns = args.include  # CLI override
     else:
-        include_patterns = (
-            config.indexing.include
-        )  # Config layer (now complete)
+        include_patterns = config.indexing.include  # Config layer (now complete)
 
     # Use exclude patterns from config
     exclude_patterns = list(config.indexing.exclude)
@@ -275,9 +270,8 @@ async def _process_directory(
 
     if result["status"] in ["complete", "success"]:
         formatter.success("Processing complete:")
-        formatter.info(
-            f"   • Processed: {result.get('files_processed', result.get('processed', 0))} files"
-        )
+        processed_count = result.get('files_processed', result.get('processed', 0))
+        formatter.info(f"   • Processed: {processed_count} files")
         formatter.info(f"   • Skipped: {result.get('skipped', 0)} files")
         formatter.info(f"   • Errors: {result.get('errors', 0)} files")
         formatter.info(f"   • Total chunks: {result.get('total_chunks', 0)}")
@@ -323,10 +317,6 @@ async def _generate_missing_embeddings(
             formatter.info("All embeddings up to date")
     else:
         formatter.warning(f"Embedding generation failed: {embed_result}")
-
-
-
-
 
 
 __all__ = ["run_command"]

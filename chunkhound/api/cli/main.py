@@ -3,22 +3,20 @@
 import argparse
 import asyncio
 import multiprocessing
-import os
 import sys
 from pathlib import Path
 
-# Required for PyInstaller multiprocessing support
-multiprocessing.freeze_support()
-
 from loguru import logger
 
-# Imports deferred for optimal module loading
 from .utils.validation import (
     ensure_database_directory,
     exit_on_validation_error,
     validate_path,
     validate_provider_args,
 )
+
+# Required for PyInstaller multiprocessing support
+multiprocessing.freeze_support()
 
 
 def setup_logging(verbose: bool = False) -> None:
@@ -33,13 +31,21 @@ def setup_logging(verbose: bool = False) -> None:
         logger.add(
             sys.stderr,
             level="DEBUG",
-            format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
+            format=(
+                "<green>{time:YYYY-MM-DD HH:mm:ss}</green> | "
+                "<level>{level: <8}</level> | "
+                "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - "
+                "<level>{message}</level>"
+            ),
         )
     else:
         logger.add(
             sys.stderr,
             level="INFO",
-            format="<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | <level>{message}</level>",
+            format=(
+                "<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | "
+                "<level>{message}</level>"
+            ),
         )
 
 
@@ -75,11 +81,18 @@ def validate_args(args: argparse.Namespace) -> None:
                 exit_on_validation_error("Embedding configuration required")
 
             # Use unified config values instead of CLI args
-            provider = unified_config.embedding.provider if hasattr(unified_config.embedding, 'provider') else None
-            api_key = unified_config.embedding.api_key.get_secret_value() if unified_config.embedding.api_key else None
+            provider = (
+                unified_config.embedding.provider
+                if hasattr(unified_config.embedding, "provider")
+                else None
+            )
+            api_key = (
+                unified_config.embedding.api_key.get_secret_value()
+                if unified_config.embedding.api_key
+                else None
+            )
             base_url = unified_config.embedding.base_url
             model = unified_config.embedding.model
-
 
             # Use the standard validation function with config values
             if not validate_provider_args(provider, api_key, base_url, model):
@@ -171,15 +184,21 @@ def main() -> None:
         # More specific handling for import errors
         logger.error(f"Import error: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
     except Exception as e:
         # Check if this is a Pydantic validation error for missing provider
         error_str = str(e)
-        if "validation error for EmbeddingConfig" in error_str and "provider" in error_str:
+        if (
+            "validation error for EmbeddingConfig" in error_str
+            and "provider" in error_str
+        ):
             logger.error(
-                "Embedding provider must be specified. Choose from: openai, openai-compatible, tei, bge-in-icl\n"
-                "Set via --provider, CHUNKHOUND_EMBEDDING__PROVIDER environment variable, or in config file."
+                "Embedding provider must be specified. "
+                "Choose from: openai, openai-compatible, tei, bge-in-icl\n"
+                "Set via --provider, CHUNKHOUND_EMBEDDING__PROVIDER environment "
+                "variable, or in config file."
             )
         else:
             logger.error(f"Unexpected error: {e}")

@@ -20,7 +20,8 @@ def validate_batch_sizes(
     """Validate batch size arguments against provider limits and system constraints.
 
     Args:
-        embedding_batch_size: Number of texts per embedding API request (None uses default)
+        embedding_batch_size: Number of texts per embedding API request
+            (None uses default)
         db_batch_size: Number of records per database transaction (None uses default)
         provider: Embedding provider name
 
@@ -49,14 +50,16 @@ def validate_batch_sizes(
         if not (min_emb <= embedding_batch_size <= max_emb):
             return (
                 False,
-                f"Embedding batch size {embedding_batch_size} invalid for provider '{provider}'. Must be between {min_emb} and {max_emb}.",
+                f"Embedding batch size {embedding_batch_size} invalid for provider "
+                f"'{provider}'. Must be between {min_emb} and {max_emb}.",
             )
     else:
         # Default limits for unknown providers
         if not (1 <= embedding_batch_size <= 1000):
             return (
                 False,
-                f"Embedding batch size {embedding_batch_size} invalid. Must be between 1 and 1000.",
+                f"Embedding batch size {embedding_batch_size} invalid. "
+                f"Must be between 1 and 1000.",
             )
 
     # Validate database batch size
@@ -64,7 +67,8 @@ def validate_batch_sizes(
     if not (min_db <= db_batch_size <= max_db):
         return (
             False,
-            f"Database batch size {db_batch_size} invalid. Must be between {min_db} and {max_db}.",
+            f"Database batch size {db_batch_size} invalid. "
+            f"Must be between {min_db} and {max_db}.",
         )
 
     return True, ""
@@ -85,7 +89,8 @@ def process_batch_arguments(args: argparse.Namespace) -> None:
     if args.batch_size is not None:
         print(
             f"WARNING: --batch-size is deprecated. Use --embedding-batch-size instead.\n"
-            f"         Using --embedding-batch-size {args.batch_size} based on your --batch-size {args.batch_size}\n"
+            f"         Using --embedding-batch-size {args.batch_size} based on "
+            f"your --batch-size {args.batch_size}\n"
             f"         Consider also setting --db-batch-size for optimal performance",
             file=sys.stderr,
         )
@@ -117,7 +122,10 @@ def add_run_subparser(subparsers: Any) -> argparse.ArgumentParser:
     run_parser = subparsers.add_parser(
         "index",
         help="Index directory for code search",
-        description="Scan and index a directory for code search, generating embeddings for semantic search.",
+        description=(
+            "Scan and index a directory for code search, "
+            "generating embeddings for semantic search."
+        ),
     )
 
     # Optional positional argument with default to current directory
@@ -139,7 +147,6 @@ def add_run_subparser(subparsers: Any) -> argparse.ArgumentParser:
 
     # Run-specific arguments (only those not covered by the new functions)
 
-
     run_parser.add_argument(
         "--force-reindex",
         action="store_true",
@@ -151,7 +158,10 @@ def add_run_subparser(subparsers: Any) -> argparse.ArgumentParser:
         "--db-batch-size",
         type=int,
         default=500,
-        help="Number of records per database transaction (default: 500, range: 1-10000)",
+        help=(
+            "Number of records per database transaction "
+            "(default: 500, range: 1-10000)"
+        ),
     )
 
     # Legacy arguments - deprecated but maintained for backward compatibility

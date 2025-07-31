@@ -396,6 +396,7 @@ class ProviderRegistry:
         # Register a factory-based provider that creates the correct instance on demand
         class FactoryEmbeddingProvider:
             """Wrapper that uses factory to create correct provider type."""
+
             def __new__(cls, **kwargs):
                 # Merge config with any runtime kwargs
                 merged_config = embedding_config.model_dump()
@@ -407,9 +408,13 @@ class ProviderRegistry:
                     # Use factory to create the correct provider
                     return EmbeddingProviderFactory.create_provider(config)
                 except Exception as e:
-                    logger.warning(f"Failed to create configured embedding provider: {e}. Falling back to OpenAI.")
+                    logger.warning(
+                        f"Failed to create configured embedding provider: {e}. Falling back to OpenAI."
+                    )
                     # Fallback to OpenAI with minimal config
-                    fallback_config = EmbeddingConfig(provider="openai", api_key=merged_config.get("api_key"))
+                    fallback_config = EmbeddingConfig(
+                        provider="openai", api_key=merged_config.get("api_key")
+                    )
                     return EmbeddingProviderFactory.create_provider(fallback_config)
 
         self.register_provider("embedding", FactoryEmbeddingProvider, singleton=True)
@@ -443,6 +448,7 @@ class ProviderRegistry:
                         from chunkhound.core.config.database_config import (
                             DatabaseConfig,
                         )
+
                         db_config = DatabaseConfig()
                         db_path = str(db_config.path)
 
@@ -452,11 +458,16 @@ class ProviderRegistry:
                 elif "Database" in cls.__name__:
                     # Other database providers - use default path
                     return cls()
-                elif "Embedding" in cls.__name__ or cls.__name__ == "FactoryEmbeddingProvider":
+                elif (
+                    "Embedding" in cls.__name__
+                    or cls.__name__ == "FactoryEmbeddingProvider"
+                ):
                     # Factory-based embedding provider or legacy embedding provider
                     if cls.__name__ == "FactoryEmbeddingProvider":
                         if self._config:
-                            logger.debug("Creating factory-based embedding provider with config")
+                            logger.debug(
+                                "Creating factory-based embedding provider with config"
+                            )
                         return cls()
                     else:
                         # Legacy embedding provider - inject configuration
@@ -470,7 +481,9 @@ class ProviderRegistry:
                             if embedding_config.model:
                                 config_params["model"] = embedding_config.model
                             if embedding_config.batch_size:
-                                config_params["batch_size"] = embedding_config.batch_size
+                                config_params["batch_size"] = (
+                                    embedding_config.batch_size
+                                )
 
                             logger.debug(
                                 f"Creating legacy embedding provider with config: {config_params}"
@@ -548,6 +561,7 @@ def configure_registry(config: Config | dict[str, Any]) -> None:
     if isinstance(config, dict):
         # Backward compatibility - convert dict to Config object
         from chunkhound.core.config.config import Config as ConfigClass
+
         config_obj = ConfigClass(**config)
         get_registry().configure(config_obj)
     else:

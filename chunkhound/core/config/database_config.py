@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field, field_validator
 
 class DatabaseConfig(BaseModel):
     """Database configuration with support for multiple providers.
-    
+
     Configuration can be provided via:
     - Environment variables (CHUNKHOUND_DATABASE_*)
     - Configuration files
@@ -21,50 +21,38 @@ class DatabaseConfig(BaseModel):
     """
 
     # Database location
-    path: Path | None = Field(
-        default=None,
-        description="Path to database directory"
-    )
+    path: Path | None = Field(default=None, description="Path to database directory")
 
     # Provider selection
     provider: Literal["duckdb", "lancedb"] = Field(
-        default="duckdb",
-        description="Database provider to use"
+        default="duckdb", description="Database provider to use"
     )
 
     # LanceDB specific configuration
     lancedb_index_type: Literal["IVF_PQ", "IVF_HNSW_SQ"] = Field(
         default="IVF_PQ",
-        description="Index type for LanceDB (IVF_PQ for efficiency, IVF_HNSW_SQ for quality)"
+        description="Index type for LanceDB (IVF_PQ for efficiency, IVF_HNSW_SQ for quality)",
     )
 
     # Connection pool settings
     pool_size: int = Field(
-        default=5,
-        ge=1,
-        le=50,
-        description="Database connection pool size"
+        default=5, ge=1, le=50, description="Database connection pool size"
     )
 
     max_overflow: int = Field(
         default=10,
         ge=0,
         le=100,
-        description="Maximum overflow connections above pool_size"
+        description="Maximum overflow connections above pool_size",
     )
 
     # Performance settings
     cache_size: int = Field(
-        default=1000,
-        ge=0,
-        description="Query cache size (0 to disable)"
+        default=1000, ge=0, description="Query cache size (0 to disable)"
     )
 
     timeout: int = Field(
-        default=30,
-        ge=1,
-        le=300,
-        description="Database operation timeout in seconds"
+        default=30, ge=1, le=300, description="Database operation timeout in seconds"
     )
 
     @field_validator("path")

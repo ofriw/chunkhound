@@ -21,13 +21,13 @@ def get_thread_local_connection(provider: Any) -> Any:
     """Get thread-local database connection for executor thread.
 
     This function should ONLY be called from within the executor thread.
-    
+
     Args:
         provider: Database provider instance that has _create_connection method
-    
+
     Returns:
         Thread-local database connection
-    
+
     Raises:
         RuntimeError: If connection creation fails
     """
@@ -46,7 +46,7 @@ def get_thread_local_state() -> dict[str, Any]:
     """Get thread-local state for executor thread.
 
     This function should ONLY be called from within the executor thread.
-    
+
     Returns:
         Thread-local state dictionary
     """
@@ -66,7 +66,7 @@ def track_operation(state: dict[str, Any]) -> None:
     """Track a database operation for checkpoint management.
 
     This function should ONLY be called from within the executor thread.
-    
+
     Args:
         state: Thread-local state dictionary
     """
@@ -75,7 +75,7 @@ def track_operation(state: dict[str, Any]) -> None:
 
 class SerialDatabaseExecutor:
     """Thread-safe executor for database operations requiring single-threaded execution.
-    
+
     This executor ensures all database operations are serialized through a single thread,
     which is required for databases like DuckDB and LanceDB that don't support concurrent
     access from multiple threads.
@@ -87,7 +87,7 @@ class SerialDatabaseExecutor:
         # This ensures complete serialization and prevents concurrent access issues
         self._db_executor = ThreadPoolExecutor(
             max_workers=1,  # Hardcoded - not configurable
-            thread_name_prefix="serial-db"
+            thread_name_prefix="serial-db",
         )
 
     def execute_sync(self, provider: Any, operation_name: str, *args, **kwargs) -> Any:
@@ -105,6 +105,7 @@ class SerialDatabaseExecutor:
         Returns:
             The result of the operation, fully materialized
         """
+
         def executor_operation():
             # Get thread-local connection (created on first access)
             conn = get_thread_local_connection(provider)
@@ -124,10 +125,14 @@ class SerialDatabaseExecutor:
         try:
             return future.result(timeout=30.0)  # 30 second timeout
         except concurrent.futures.TimeoutError:
-            logger.error(f"Database operation '{operation_name}' timed out after 30 seconds")
+            logger.error(
+                f"Database operation '{operation_name}' timed out after 30 seconds"
+            )
             raise TimeoutError(f"Operation '{operation_name}' timed out")
 
-    async def execute_async(self, provider: Any, operation_name: str, *args, **kwargs) -> Any:
+    async def execute_async(
+        self, provider: Any, operation_name: str, *args, **kwargs
+    ) -> Any:
         """Execute named operation asynchronously in DB thread.
 
         All database operations MUST go through this method to ensure serialization.
@@ -168,7 +173,7 @@ class SerialDatabaseExecutor:
 
     def shutdown(self, wait: bool = True) -> None:
         """Shutdown the executor.
-        
+
         Args:
             wait: Whether to wait for pending operations to complete
         """
@@ -176,7 +181,7 @@ class SerialDatabaseExecutor:
 
     def clear_thread_local(self) -> None:
         """Clear thread-local storage (for cleanup).
-        
+
         This should be called when disconnecting to ensure clean state.
         """
         if hasattr(_executor_local, "connection"):
@@ -186,10 +191,11 @@ class SerialDatabaseExecutor:
 
     def get_last_activity_time(self) -> float | None:
         """Get the last activity time from the executor thread.
-        
+
         Returns:
             Last activity timestamp, or None if no activity yet
         """
+
         def get_activity_time():
             state = get_thread_local_state()
             return state.get("last_activity_time", None)

@@ -45,11 +45,9 @@ if TYPE_CHECKING:
     from chunkhound.core.config.database_config import DatabaseConfig
 
 
-
-
 class DuckDBProvider(SerialDatabaseProvider):
     """DuckDB implementation of DatabaseProvider protocol.
-    
+
     # CLASS_CONTEXT: Analytical database optimized for bulk operations
     # CONSTRAINT: Inherits from SerialDatabaseProvider for thread safety
     # PERFORMANCE: Uses column-store format, vectorized execution
@@ -94,10 +92,10 @@ class DuckDBProvider(SerialDatabaseProvider):
 
     def _create_connection(self) -> Any:
         """Create and return a DuckDB connection.
-        
+
         This method is called from within the executor thread to create
         a thread-local connection.
-        
+
         Returns:
             DuckDB connection object
         """
@@ -112,12 +110,14 @@ class DuckDBProvider(SerialDatabaseProvider):
         conn.execute("LOAD vss")
         conn.execute("SET hnsw_enable_experimental_persistence = true")
 
-        logger.debug(f"Created new DuckDB connection in executor thread {threading.get_ident()}")
+        logger.debug(
+            f"Created new DuckDB connection in executor thread {threading.get_ident()}"
+        )
         return conn
 
     def _get_schema_sql(self) -> list[str] | None:
         """Get SQL statements for creating the DuckDB schema.
-        
+
         Returns:
             List of SQL statements
         """
@@ -190,7 +190,7 @@ class DuckDBProvider(SerialDatabaseProvider):
 
     def _perform_wal_cleanup_in_executor(self, conn: Any) -> None:
         """Perform WAL cleanup within the executor thread.
-        
+
         This ensures all DuckDB operations happen in the same thread.
         """
         if str(self._connection_manager.db_path) == ":memory:":
@@ -206,7 +206,9 @@ class DuckDBProvider(SerialDatabaseProvider):
         try:
             wal_age = time.time() - wal_file.stat().st_mtime
             if wal_age > 86400:  # 24 hours
-                logger.warning(f"Found stale WAL file (age: {wal_age / 3600:.1f}h), removing")
+                logger.warning(
+                    f"Found stale WAL file (age: {wal_age / 3600:.1f}h), removing"
+                )
                 wal_file.unlink(missing_ok=True)
                 return
         except OSError:
@@ -384,7 +386,6 @@ class DuckDBProvider(SerialDatabaseProvider):
             except Exception as e:
                 if not os.environ.get("CHUNKHOUND_MCP_MODE"):
                     logger.warning(f"Checkpoint failed: {e}")
-
 
     def create_schema(self) -> None:
         """Create database schema for files, chunks, and embeddings - delegate to connection manager."""
@@ -658,7 +659,7 @@ class DuckDBProvider(SerialDatabaseProvider):
         self, provider: str, model: str, dims: int, metric: str = "cosine"
     ) -> None:
         """Create HNSW vector index for specific provider/model/dims combination.
-        
+
         # INDEX_TYPE: HNSW (Hierarchical Navigable Small World)
         # METRIC: Cosine similarity (normalized vectors)
         # BUILD_TIME: ~10s for 100k vectors
@@ -821,7 +822,7 @@ class DuckDBProvider(SerialDatabaseProvider):
 
     def bulk_operation_with_index_management(self, operation_func, *args, **kwargs):
         """Execute bulk operation with automatic HNSW index management and transaction safety.
-        
+
         # PATTERN: Drop indexes → Bulk operation → Recreate indexes
         # THRESHOLD: Operations with >50 rows benefit
         # PERFORMANCE: 10-20x speedup for large batches
@@ -1141,7 +1142,7 @@ class DuckDBProvider(SerialDatabaseProvider):
 
     def insert_chunks_batch(self, chunks: list[Chunk]) -> list[int]:
         """Insert multiple chunks in batch using optimized DuckDB bulk loading - delegate to chunk repository.
-        
+
         # PERFORMANCE: 250x faster than single inserts
         # OPTIMAL_BATCH: 5000 chunks (benchmarked)
         # PATTERN: Uses VALUES clause for bulk insert
@@ -1440,7 +1441,7 @@ class DuckDBProvider(SerialDatabaseProvider):
         connection=None,
     ) -> int:
         """Insert multiple embedding vectors with HNSW index optimization - delegate to embedding repository.
-        
+
         # OPTIMIZATION: Drops HNSW indexes for batches >50
         # PERFORMANCE: 60s → 5s for 10k embeddings (12x speedup)
         # RECOVERY: Indexes recreated after bulk insert
@@ -1674,7 +1675,7 @@ class DuckDBProvider(SerialDatabaseProvider):
         path_filter: str | None = None,
     ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         """Perform semantic vector search using HNSW index with multi-dimension support.
-        
+
         # PERFORMANCE: HNSW index provides ~5ms query time
         # ACCURACY: Cosine similarity metric
         # OPTIMIZATION: Dimension-specific tables (1536D, 3072D, etc.)
@@ -2117,13 +2118,11 @@ class DuckDBProvider(SerialDatabaseProvider):
             logger.error(f"Failed to execute query: {e}")
             raise
 
-
     def _executor_begin_transaction(self, conn: Any, state: dict[str, Any]) -> None:
         """Executor method for begin_transaction - runs in DB thread."""
         # Mark transaction state in executor thread
         state["transaction_active"] = True
         conn.execute("BEGIN TRANSACTION")
-
 
     def _executor_commit_transaction(
         self, conn: Any, state: dict[str, Any], force_checkpoint: bool
@@ -2151,7 +2150,6 @@ class DuckDBProvider(SerialDatabaseProvider):
             # Re-raise to be handled by caller
             raise
 
-
     def _executor_rollback_transaction(self, conn: Any, state: dict[str, Any]) -> None:
         """Executor method for rollback_transaction - runs in DB thread."""
         conn.execute("ROLLBACK")
@@ -2159,10 +2157,9 @@ class DuckDBProvider(SerialDatabaseProvider):
         state["transaction_active"] = False
         state["deferred_checkpoint"] = False
 
-
     def optimize_tables(self) -> None:
         """Optimize tables by compacting fragments and rebuilding indexes (provider-specific).
-        
+
         # DUCKDB_OPTIMIZATION: Automatic via WAL and MVCC
         # CHECKPOINT: Happens at 1GB WAL size
         # MANUAL: Not needed - DuckDB self-optimizes
