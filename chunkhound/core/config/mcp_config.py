@@ -4,7 +4,9 @@ This module provides configuration for the MCP server including
 transport type, network settings, and server behavior.
 """
 
-from typing import Literal
+import argparse
+import os
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -25,8 +27,17 @@ class MCPConfig(BaseModel):
     host: str = Field(default="localhost", description="Host to bind HTTP server to")
 
     port: int = Field(
-        default=3000, ge=1024, le=65535, description="Port for HTTP server"
+        default=3000, description="Port for HTTP server (0 for OS-assigned port)"
     )
+
+    @field_validator("port")
+    def validate_port(cls, v: int) -> int:
+        """Validate port number - allow 0 for OS-assigned port."""
+        if v == 0:
+            return v  # Special case: 0 means OS-assigned port
+        if v < 1024 or v > 65535:
+            raise ValueError("Port must be 0 (OS-assigned) or between 1024-65535")
+        return v
 
     cors: bool = Field(default=False, description="Enable CORS for HTTP transport")
 
@@ -115,6 +126,74 @@ class MCPConfig(BaseModel):
             return {
                 "max_concurrent_requests": 1,  # stdio is inherently sequential
             }
+
+    @classmethod
+    def add_cli_arguments(cls, parser: argparse.ArgumentParser) -> None:
+        """Add MCP-related CLI arguments."""
+        parser.add_argument(
+            "--stdio",
+            action="store_true",
+            help="Use stdio transport (default)",
+        )
+
+        parser.add_argument(
+            "--http",
+            action="store_true",
+            help="Use HTTP transport instead of stdio",
+        )
+
+        parser.add_argument(
+            "--port",
+            type=int,
+            help="Port for HTTP transport",
+        )
+
+        parser.add_argument(
+            "--host",
+            help="Host for HTTP transport",
+        )
+
+        parser.add_argument(
+            "--cors",
+            action="store_true",
+            help="Enable CORS for HTTP transport",
+        )
+
+    @classmethod
+    def load_from_env(cls) -> dict[str, Any]:
+        """Load MCP config from environment variables."""
+        config = {}
+
+        if transport := os.getenv("CHUNKHOUND_MCP__TRANSPORT"):
+            config["transport"] = transport
+        if port := os.getenv("CHUNKHOUND_MCP__PORT"):
+            config["port"] = int(port)
+        if host := os.getenv("CHUNKHOUND_MCP__HOST"):
+            config["host"] = host
+        if cors := os.getenv("CHUNKHOUND_MCP__CORS"):
+            config["cors"] = cors.lower() in ("true", "1", "yes")
+
+        return config
+
+    @classmethod
+    def extract_cli_overrides(cls, args: Any) -> dict[str, Any]:
+        """Extract MCP config from CLI arguments."""
+        overrides = {}
+
+        # Handle transport boolean flags mapping to transport string
+        if hasattr(args, "http") and args.http:
+            overrides["transport"] = "http"
+        elif hasattr(args, "stdio") and args.stdio:
+            overrides["transport"] = "stdio"
+
+        if hasattr(args, "port") and args.port is not None:
+            overrides["port"] = args.port
+        if hasattr(args, "host") and args.host is not None:
+            overrides["host"] = args.host
+        if hasattr(args, "cors") and args.cors:
+            overrides["cors"] = args.cors
+
+        return overrides
 
     def __repr__(self) -> str:
         """String representation of MCP configuration."""

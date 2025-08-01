@@ -4,14 +4,10 @@ import argparse
 from pathlib import Path
 from typing import Any, cast
 
-from .main_parser import (
-    add_common_arguments,
-    add_database_argument,
-    add_embedding_arguments,
-    add_file_pattern_arguments,
-    add_indexing_arguments,
-    add_mcp_arguments,
-)
+from chunkhound.core.config.database_config import DatabaseConfig
+from chunkhound.core.config.embedding_config import EmbeddingConfig
+from chunkhound.core.config.indexing_config import IndexingConfig
+from chunkhound.core.config.mcp_config import MCPConfig
 
 
 def validate_batch_sizes(
@@ -88,7 +84,8 @@ def process_batch_arguments(args: argparse.Namespace) -> None:
     # Handle backward compatibility - --batch-size maps to --embedding-batch-size
     if args.batch_size is not None:
         print(
-            f"WARNING: --batch-size is deprecated. Use --embedding-batch-size instead.\n"
+            f"WARNING: --batch-size is deprecated. "
+            f"Use --embedding-batch-size instead.\n"
             f"         Using --embedding-batch-size {args.batch_size} based on "
             f"your --batch-size {args.batch_size}\n"
             f"         Consider also setting --db-batch-size for optimal performance",
@@ -137,53 +134,29 @@ def add_run_subparser(subparsers: Any) -> argparse.ArgumentParser:
         help="Directory path to index (default: current directory)",
     )
 
-    # Add common argument groups
-    add_common_arguments(run_parser)
-    add_database_argument(run_parser)
-    add_embedding_arguments(run_parser)
-    add_file_pattern_arguments(run_parser)
-    add_indexing_arguments(run_parser)
-    add_mcp_arguments(run_parser)
-
-    # Run-specific arguments (only those not covered by the new functions)
-
+    # Add common arguments
     run_parser.add_argument(
-        "--force-reindex",
+        "--verbose",
+        "-v",
         action="store_true",
-        help="Force reindexing of all files, even if they haven't changed",
+        help="Enable verbose logging",
     )
-
-    # Database batch size (not covered by other functions)
     run_parser.add_argument(
-        "--db-batch-size",
-        type=int,
-        default=500,
-        help=(
-            "Number of records per database transaction "
-            "(default: 500, range: 1-10000)"
-        ),
+        "--config",
+        type=Path,
+        help="Configuration file path",
     )
-
-    # Legacy arguments - deprecated but maintained for backward compatibility
     run_parser.add_argument(
-        "--batch-size",
-        type=int,
-        default=None,
-        help="[DEPRECATED] Use --embedding-batch-size instead. Batch size for embedding generation",
-    )
-
-    run_parser.add_argument(
-        "--max-concurrent",
-        type=int,
-        default=3,
-        help="Maximum concurrent embedding batches (default: 3)",
-    )
-
-    run_parser.add_argument(
-        "--cleanup",
+        "--debug",
         action="store_true",
-        help="Clean up orphaned chunks from deleted files",
+        help="Enable debug mode",
     )
+
+    # Add config-specific arguments
+    DatabaseConfig.add_cli_arguments(run_parser)
+    EmbeddingConfig.add_cli_arguments(run_parser)
+    IndexingConfig.add_cli_arguments(run_parser)
+    MCPConfig.add_cli_arguments(run_parser)
 
     return cast(argparse.ArgumentParser, run_parser)
 

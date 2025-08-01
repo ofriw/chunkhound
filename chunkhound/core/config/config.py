@@ -143,83 +143,14 @@ class Config(BaseModel):
                 "yes",
             )
 
-        # Database configuration
-        # Support both old and new environment variable names
-        if db_path := (
-            os.getenv("CHUNKHOUND_DATABASE__PATH") or os.getenv("CHUNKHOUND_DB_PATH")
-        ):
-            config.setdefault("database", {})["path"] = db_path
-        if db_provider := os.getenv("CHUNKHOUND_DATABASE__PROVIDER"):
-            config.setdefault("database", {})["provider"] = db_provider
-        if index_type := os.getenv("CHUNKHOUND_DATABASE__LANCEDB_INDEX_TYPE"):
-            config.setdefault("database", {})["lancedb_index_type"] = index_type
-
-        # Embedding configuration
-        embedding_config: dict[str, Any] = {}
-
-        # New embedding env vars
-        if api_key := os.getenv("CHUNKHOUND_EMBEDDING__API_KEY"):
-            embedding_config["api_key"] = api_key
-        if base_url := os.getenv("CHUNKHOUND_EMBEDDING__BASE_URL"):
-            embedding_config["base_url"] = base_url
-
-        # New embedding env vars
-        if provider := os.getenv("CHUNKHOUND_EMBEDDING__PROVIDER"):
-            embedding_config["provider"] = provider
-        if model := os.getenv("CHUNKHOUND_EMBEDDING__MODEL"):
-            embedding_config["model"] = model
-        if batch_size := os.getenv("CHUNKHOUND_EMBEDDING__BATCH_SIZE"):
-            embedding_config["batch_size"] = int(batch_size)
-        if max_concurrent := os.getenv("CHUNKHOUND_EMBEDDING__MAX_CONCURRENT_BATCHES"):
-            embedding_config["max_concurrent_batches"] = int(max_concurrent)
-
-        if embedding_config:
+        # Delegate to each config class
+        if db_config := DatabaseConfig.load_from_env():
+            config["database"] = db_config
+        if embedding_config := EmbeddingConfig.load_from_env():
             config["embedding"] = embedding_config
-
-        # MCP configuration
-        mcp_config: dict[str, Any] = {}
-        if transport := os.getenv("CHUNKHOUND_MCP__TRANSPORT"):
-            mcp_config["transport"] = transport
-        if port := os.getenv("CHUNKHOUND_MCP__PORT"):
-            mcp_config["port"] = int(port)
-        if host := os.getenv("CHUNKHOUND_MCP__HOST"):
-            mcp_config["host"] = host
-        if cors := os.getenv("CHUNKHOUND_MCP__CORS"):
-            mcp_config["cors"] = cors.lower() in ("true", "1", "yes")
-
-        if mcp_config:
+        if mcp_config := MCPConfig.load_from_env():
             config["mcp"] = mcp_config
-
-        # Indexing configuration
-        indexing_config: dict[str, Any] = {}
-        if batch_size := os.getenv("CHUNKHOUND_INDEXING__BATCH_SIZE"):
-            indexing_config["batch_size"] = int(batch_size)
-        if db_batch_size := os.getenv("CHUNKHOUND_INDEXING__DB_BATCH_SIZE"):
-            indexing_config["db_batch_size"] = int(db_batch_size)
-        if max_concurrent := os.getenv("CHUNKHOUND_INDEXING__MAX_CONCURRENT"):
-            indexing_config["max_concurrent"] = int(max_concurrent)
-        if force_reindex := os.getenv("CHUNKHOUND_INDEXING__FORCE_REINDEX"):
-            indexing_config["force_reindex"] = force_reindex.lower() in (
-                "true",
-                "1",
-                "yes",
-            )
-        if cleanup := os.getenv("CHUNKHOUND_INDEXING__CLEANUP"):
-            indexing_config["cleanup"] = cleanup.lower() in ("true", "1", "yes")
-        if ignore_gitignore := os.getenv("CHUNKHOUND_INDEXING__IGNORE_GITIGNORE"):
-            indexing_config["ignore_gitignore"] = ignore_gitignore.lower() in (
-                "true",
-                "1",
-                "yes",
-            )
-
-        # Include/exclude patterns
-        if include := os.getenv("CHUNKHOUND_INDEXING__INCLUDE"):
-            indexing_config["include"] = include.split(",")
-        if exclude := os.getenv("CHUNKHOUND_INDEXING__EXCLUDE"):
-            indexing_config["exclude"] = exclude.split(",")
-
-        if indexing_config:
+        if indexing_config := IndexingConfig.load_from_env():
             config["indexing"] = indexing_config
 
         return config
@@ -235,79 +166,25 @@ class Config(BaseModel):
         """
         overrides: dict[str, Any] = {}
 
-        # Database arguments
-        if hasattr(args, "db") and args.db:
-            overrides.setdefault("database", {})["path"] = args.db
-        if hasattr(args, "database_provider") and args.database_provider:
-            overrides.setdefault("database", {})["provider"] = args.database_provider
-        if (
-            hasattr(args, "database_lancedb_index_type")
-            and args.database_lancedb_index_type
-        ):
-            overrides.setdefault("database", {})["lancedb_index_type"] = (
-                args.database_lancedb_index_type
-            )
-
-        # Embedding arguments
-        if hasattr(args, "provider") and args.provider:
-            overrides.setdefault("embedding", {})["provider"] = args.provider
-        if hasattr(args, "model") and args.model:
-            overrides.setdefault("embedding", {})["model"] = args.model
-        if hasattr(args, "api_key") and args.api_key:
-            overrides.setdefault("embedding", {})["api_key"] = args.api_key
-        if hasattr(args, "base_url") and args.base_url:
-            overrides.setdefault("embedding", {})["base_url"] = args.base_url
-        if hasattr(args, "embedding_batch_size") and args.embedding_batch_size:
-            overrides.setdefault("embedding", {})["batch_size"] = (
-                args.embedding_batch_size
-            )
-        if hasattr(args, "embedding_max_concurrent") and args.embedding_max_concurrent:
-            overrides.setdefault("embedding", {})["max_concurrent"] = (
-                args.embedding_max_concurrent
-            )
-
-        # MCP arguments
-        if hasattr(args, "http") and args.http:
-            overrides.setdefault("mcp", {})["transport"] = "http"
-        elif hasattr(args, "stdio") and hasattr(args, "http") and not args.http:
-            overrides.setdefault("mcp", {})["transport"] = "stdio"
-        if hasattr(args, "port") and args.port:
-            overrides.setdefault("mcp", {})["port"] = args.port
-        if hasattr(args, "host") and args.host:
-            overrides.setdefault("mcp", {})["host"] = args.host
-        if hasattr(args, "cors") and args.cors:
-            overrides.setdefault("mcp", {})["cors"] = args.cors
-
-        # Indexing arguments
-        if hasattr(args, "batch_size") and args.batch_size:
-            overrides.setdefault("indexing", {})["batch_size"] = args.batch_size
-        if hasattr(args, "db_batch_size") and args.db_batch_size:
-            overrides.setdefault("indexing", {})["db_batch_size"] = args.db_batch_size
-        if hasattr(args, "max_concurrent") and args.max_concurrent:
-            overrides.setdefault("indexing", {})["max_concurrent"] = args.max_concurrent
-        if hasattr(args, "force_reindex") and args.force_reindex:
-            overrides.setdefault("indexing", {})["force_reindex"] = args.force_reindex
-        if hasattr(args, "cleanup") and args.cleanup:
-            overrides.setdefault("indexing", {})["cleanup"] = args.cleanup
-        if (
-            hasattr(args, "indexing_ignore_gitignore")
-            and args.indexing_ignore_gitignore
-        ):
-            overrides.setdefault("indexing", {})["ignore_gitignore"] = (
-                args.indexing_ignore_gitignore
-            )
-
-        # Include/exclude patterns
-        if hasattr(args, "include") and args.include:
-            overrides.setdefault("indexing", {})["include"] = args.include
-        if hasattr(args, "exclude") and args.exclude:
-            overrides.setdefault("indexing", {})["exclude"] = args.exclude
-
-        # Debug flag
+        # Common CLI args
         if hasattr(args, "debug") and args.debug:
             overrides["debug"] = args.debug
         elif hasattr(args, "verbose") and args.verbose:
             overrides["debug"] = args.verbose
+
+        # Delegate to each config class
+        if db_overrides := DatabaseConfig.extract_cli_overrides(args):
+            overrides["database"] = db_overrides
+        if embedding_overrides := EmbeddingConfig.extract_cli_overrides(args):
+            # Handle special case for --no-embeddings
+            if embedding_overrides.get("disabled"):
+                overrides["embedding"] = None
+            else:
+                overrides["embedding"] = embedding_overrides
+        if mcp_overrides := MCPConfig.extract_cli_overrides(args):
+            overrides["mcp"] = mcp_overrides
+        if indexing_overrides := IndexingConfig.extract_cli_overrides(args):
+            overrides["indexing"] = indexing_overrides
 
         return overrides
 

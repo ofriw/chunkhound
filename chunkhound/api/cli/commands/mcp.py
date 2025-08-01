@@ -38,8 +38,9 @@ async def mcp_command(args: argparse.Namespace, config) -> None:
         # Use HTTP transport via subprocess to avoid event loop conflicts
         import subprocess
 
-        host = getattr(args, "host", "127.0.0.1")
-        port = getattr(args, "port", 8000)
+        # Use config values instead of hardcoded fallbacks
+        host = config.mcp.host
+        port = config.mcp.port
 
         # Run HTTP server in subprocess
         cmd = [

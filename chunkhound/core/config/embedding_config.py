@@ -7,6 +7,8 @@ config files, CLI arguments) with consistent behavior across MCP server and
 indexing flows.
 """
 
+import argparse
+import os
 from typing import Any, Literal
 
 from pydantic import Field, SecretStr, field_validator, model_validator
@@ -84,7 +86,9 @@ class EmbeddingConfig(BaseSettings):
         default=1000,
         ge=0,
         le=10000,
-        description="Optimize database every N batches during embedding generation (0 to disable)",
+        description=(
+            "Optimize database every N batches during embedding generation (0 to disable)"
+        ),
     )
 
     # Provider-Specific Configuration
@@ -210,7 +214,8 @@ class EmbeddingConfig(BaseSettings):
         """
         base_config = {
             "provider": self.provider,
-            "model": self.get_default_model(),  # Always provide resolved model to factory
+            # Always provide resolved model to factory
+            "model": self.get_default_model(),
             "batch_size": self.batch_size,
             "timeout": self.timeout,
             "max_retries": self.max_retries,
@@ -304,7 +309,8 @@ class EmbeddingConfig(BaseSettings):
         # Check if provider is set first
         if not self.provider:
             missing.append(
-                "provider (--provider, CHUNKHOUND_EMBEDDING__PROVIDER, or in config file)"
+                "provider (--provider, CHUNKHOUND_EMBEDDING__PROVIDER, "
+                "or in config file)"
             )
             return missing  # Return early as other checks depend on provider
 
@@ -318,6 +324,116 @@ class EmbeddingConfig(BaseSettings):
             missing.append("base_url (CHUNKHOUND_EMBEDDING_BASE_URL)")
 
         return missing
+
+    @classmethod
+    def add_cli_arguments(cls, parser: argparse.ArgumentParser) -> None:
+        """Add embedding-related CLI arguments."""
+        parser.add_argument(
+            "--provider",
+            "--embedding-provider",
+            choices=["openai", "openai-compatible", "tei", "bge-in-icl"],
+            help="Embedding provider to use (required - no default)",
+        )
+
+        parser.add_argument(
+            "--model",
+            "--embedding-model",
+            help=(
+                "Embedding model to use (defaults: openai=text-embedding-3-small, "
+                "bge-in-icl=bge-in-icl, tei=auto-detect, openai-compatible=required)"
+            ),
+        )
+
+        parser.add_argument(
+            "--api-key",
+            "--embedding-api-key",
+            help="API key for embedding provider (uses env var if not specified)",
+        )
+
+        parser.add_argument(
+            "--base-url",
+            "--embedding-base-url",
+            help="Base URL for embedding API (uses env var if not specified)",
+        )
+
+        parser.add_argument(
+            "--no-embeddings",
+            action="store_true",
+            help="Skip embedding generation (index code only)",
+        )
+
+        parser.add_argument(
+            "--batch-size",
+            type=int,
+            help="Batch size for embedding generation",
+        )
+
+        parser.add_argument(
+            "--max-concurrent",
+            type=int,
+            help="Maximum concurrent embedding batches",
+        )
+
+    @classmethod
+    def load_from_env(cls) -> dict[str, Any]:
+        """Load embedding config from environment variables."""
+        config = {}
+
+        if api_key := os.getenv("CHUNKHOUND_EMBEDDING__API_KEY"):
+            config["api_key"] = api_key
+        if base_url := os.getenv("CHUNKHOUND_EMBEDDING__BASE_URL"):
+            config["base_url"] = base_url
+        if provider := os.getenv("CHUNKHOUND_EMBEDDING__PROVIDER"):
+            config["provider"] = provider
+        if model := os.getenv("CHUNKHOUND_EMBEDDING__MODEL"):
+            config["model"] = model
+        if batch_size := os.getenv("CHUNKHOUND_EMBEDDING__BATCH_SIZE"):
+            config["batch_size"] = int(batch_size)
+        if max_concurrent := os.getenv("CHUNKHOUND_EMBEDDING__MAX_CONCURRENT_BATCHES"):
+            config["max_concurrent_batches"] = int(max_concurrent)
+
+        return config
+
+    @classmethod
+    def extract_cli_overrides(cls, args: Any) -> dict[str, Any]:
+        """Extract embedding config from CLI arguments."""
+        overrides = {}
+
+        # Handle provider arguments (both variations)
+        if hasattr(args, "provider") and args.provider:
+            overrides["provider"] = args.provider
+        if hasattr(args, "embedding_provider") and args.embedding_provider:
+            overrides["provider"] = args.embedding_provider
+
+        # Handle model arguments (both variations)
+        if hasattr(args, "model") and args.model:
+            overrides["model"] = args.model
+        if hasattr(args, "embedding_model") and args.embedding_model:
+            overrides["model"] = args.embedding_model
+
+        # Handle API key arguments (both variations)
+        if hasattr(args, "api_key") and args.api_key:
+            overrides["api_key"] = args.api_key
+        if hasattr(args, "embedding_api_key") and args.embedding_api_key:
+            overrides["api_key"] = args.embedding_api_key
+
+        # Handle base URL arguments (both variations)
+        if hasattr(args, "base_url") and args.base_url:
+            overrides["base_url"] = args.base_url
+        if hasattr(args, "embedding_base_url") and args.embedding_base_url:
+            overrides["base_url"] = args.embedding_base_url
+
+        # Handle batch size and concurrency
+        if hasattr(args, "batch_size") and args.batch_size:
+            overrides["batch_size"] = args.batch_size
+        if hasattr(args, "max_concurrent") and args.max_concurrent:
+            overrides["max_concurrent_batches"] = args.max_concurrent
+
+        # Handle no-embeddings flag (special case - disables embeddings)
+        if hasattr(args, "no_embeddings") and args.no_embeddings:
+            return {"disabled": True}  # This will be handled specially in main Config
+
+        return overrides
 
     def __repr__(self) -> str:
         """String representation hiding sensitive information."""

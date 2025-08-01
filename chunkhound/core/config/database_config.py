@@ -4,8 +4,10 @@ This module provides database-specific configuration with support for
 multiple database providers and storage backends.
 """
 
+import argparse
+import os
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -31,7 +33,9 @@ class DatabaseConfig(BaseModel):
     # LanceDB specific configuration
     lancedb_index_type: Literal["IVF_PQ", "IVF_HNSW_SQ"] = Field(
         default="IVF_PQ",
-        description="Index type for LanceDB (IVF_PQ for efficiency, IVF_HNSW_SQ for quality)",
+        description=(
+            "Index type for LanceDB (IVF_PQ for efficiency, IVF_HNSW_SQ for quality)"
+        ),
     )
 
     # Connection pool settings
@@ -88,6 +92,63 @@ class DatabaseConfig(BaseModel):
     def is_configured(self) -> bool:
         """Check if database is properly configured."""
         return self.path is not None
+
+    @classmethod
+    def add_cli_arguments(
+        cls, parser: argparse.ArgumentParser, required_path: bool = False
+    ) -> None:
+        """Add database-related CLI arguments."""
+        parser.add_argument(
+            "--db",
+            "--database-path",
+            type=Path,
+            help="Database file path (default: from config file or .chunkhound.db)",
+            required=required_path,
+        )
+
+        parser.add_argument(
+            "--database-provider",
+            choices=["duckdb", "lancedb"],
+            help="Database provider to use",
+        )
+
+        parser.add_argument(
+            "--database-lancedb-index-type",
+            choices=["ivf-pq", "ivf", "flat"],
+            help="LanceDB index type for vector search",
+        )
+
+    @classmethod
+    def load_from_env(cls) -> dict[str, Any]:
+        """Load database config from environment variables."""
+        config = {}
+        # Support both new and legacy env var names
+        if db_path := (
+            os.getenv("CHUNKHOUND_DATABASE__PATH") or os.getenv("CHUNKHOUND_DB_PATH")
+        ):
+            config["path"] = Path(db_path)
+        if provider := os.getenv("CHUNKHOUND_DATABASE__PROVIDER"):
+            config["provider"] = provider
+        if index_type := os.getenv("CHUNKHOUND_DATABASE__LANCEDB_INDEX_TYPE"):
+            config["lancedb_index_type"] = index_type
+        return config
+
+    @classmethod
+    def extract_cli_overrides(cls, args: Any) -> dict[str, Any]:
+        """Extract database config from CLI arguments."""
+        overrides = {}
+        if hasattr(args, "db") and args.db:
+            overrides["path"] = args.db
+        if hasattr(args, "database_path") and args.database_path:
+            overrides["path"] = args.database_path
+        if hasattr(args, "database_provider") and args.database_provider:
+            overrides["provider"] = args.database_provider
+        if (
+            hasattr(args, "database_lancedb_index_type")
+            and args.database_lancedb_index_type
+        ):
+            overrides["lancedb_index_type"] = args.database_lancedb_index_type
+        return overrides
 
     def __repr__(self) -> str:
         """String representation of database configuration."""

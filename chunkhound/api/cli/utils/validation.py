@@ -113,25 +113,27 @@ def validate_config_args(
 
 
 def validate_file_patterns(
-    include_patterns: list[str], exclude_patterns: list[str]
+    include_patterns: list[str] | None, exclude_patterns: list[str] | None
 ) -> bool:
     """Validate file inclusion and exclusion patterns.
 
     Args:
-        include_patterns: List of inclusion patterns
-        exclude_patterns: List of exclusion patterns
+        include_patterns: List of inclusion patterns (None if not provided via CLI)
+        exclude_patterns: List of exclusion patterns (None if not provided via CLI)
 
     Returns:
         True if valid, False otherwise
     """
-    # Basic validation - patterns should not be empty strings
-    if any(not pattern.strip() for pattern in include_patterns):
-        logger.error("Include patterns cannot be empty")
-        return False
+    # Only validate patterns that were actually provided via CLI
+    if include_patterns is not None:
+        if any(not pattern.strip() for pattern in include_patterns):
+            logger.error("Include patterns cannot be empty")
+            return False
 
-    if any(not pattern.strip() for pattern in exclude_patterns):
-        logger.error("Exclude patterns cannot be empty")
-        return False
+    if exclude_patterns is not None:
+        if any(not pattern.strip() for pattern in exclude_patterns):
+            logger.error("Exclude patterns cannot be empty")
+            return False
 
     return True
 

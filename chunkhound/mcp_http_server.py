@@ -261,7 +261,7 @@ def main():
         pass
 
     # Create HTTP app with proper JSON response configuration
-    print(f"About to start FastMCP server on {args.host}:{args.port}", file=sys.stderr)
+    print(f"About to start FastMCP server on {_config.mcp.host}:{_config.mcp.port}", file=sys.stderr)
 
     # Use the correct FastMCP configuration for JSON responses
     app = mcp.http_app(
@@ -271,8 +271,8 @@ def main():
         transport="http",  # Use HTTP transport
     )
 
-    # Run with uvicorn
-    uvicorn.run(app, host=args.host, port=args.port, log_level="info")
+    # Run with uvicorn using config values instead of raw args
+    uvicorn.run(app, host=_config.mcp.host, port=_config.mcp.port, log_level="info")
 
 
 if __name__ == "__main__":

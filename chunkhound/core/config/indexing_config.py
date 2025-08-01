@@ -4,6 +4,10 @@ This module provides configuration for the file indexing process including
 batch processing, and pattern matching.
 """
 
+import argparse
+import os
+from typing import Any
+
 from pydantic import BaseModel, Field, field_validator
 
 
@@ -152,6 +156,116 @@ class IndexingConfig(BaseModel):
         # This is a placeholder - actual implementation would use
         # pathlib and fnmatch for proper pattern matching
         return True
+
+    @classmethod
+    def add_cli_arguments(cls, parser: argparse.ArgumentParser) -> None:
+        """Add indexing-related CLI arguments."""
+        parser.add_argument(
+            "--indexing-batch-size",
+            type=int,
+            help="Number of files to process per batch",
+        )
+
+        parser.add_argument(
+            "--db-batch-size",
+            type=int,
+            help="Number of records per database transaction",
+        )
+
+        parser.add_argument(
+            "--indexing-max-concurrent",
+            type=int,
+            help="Maximum concurrent file processing tasks",
+        )
+
+        parser.add_argument(
+            "--force-reindex",
+            action="store_true",
+            help="Force reindexing of all files, even if they haven't changed",
+        )
+
+        parser.add_argument(
+            "--cleanup",
+            action="store_true",
+            help="Clean up orphaned chunks from deleted files",
+        )
+
+        parser.add_argument(
+            "--indexing-ignore-gitignore",
+            action="store_true",
+            help="Ignore .gitignore files when scanning",
+        )
+
+        parser.add_argument(
+            "--include",
+            action="append",
+            help="File patterns to include (can be specified multiple times)",
+        )
+
+        parser.add_argument(
+            "--exclude",
+            action="append",
+            help="File patterns to exclude (can be specified multiple times)",
+        )
+
+    @classmethod
+    def load_from_env(cls) -> dict[str, Any]:
+        """Load indexing config from environment variables."""
+        config = {}
+
+        if batch_size := os.getenv("CHUNKHOUND_INDEXING__BATCH_SIZE"):
+            config["batch_size"] = int(batch_size)
+        if db_batch_size := os.getenv("CHUNKHOUND_INDEXING__DB_BATCH_SIZE"):
+            config["db_batch_size"] = int(db_batch_size)
+        if max_concurrent := os.getenv("CHUNKHOUND_INDEXING__MAX_CONCURRENT"):
+            config["max_concurrent"] = int(max_concurrent)
+        if force_reindex := os.getenv("CHUNKHOUND_INDEXING__FORCE_REINDEX"):
+            config["force_reindex"] = force_reindex.lower() in ("true", "1", "yes")
+        if cleanup := os.getenv("CHUNKHOUND_INDEXING__CLEANUP"):
+            config["cleanup"] = cleanup.lower() in ("true", "1", "yes")
+        if ignore_gitignore := os.getenv("CHUNKHOUND_INDEXING__IGNORE_GITIGNORE"):
+            config["ignore_gitignore"] = ignore_gitignore.lower() in (
+                "true",
+                "1",
+                "yes",
+            )
+
+        # Handle comma-separated include/exclude patterns
+        if include := os.getenv("CHUNKHOUND_INDEXING__INCLUDE"):
+            config["include"] = include.split(",")
+        if exclude := os.getenv("CHUNKHOUND_INDEXING__EXCLUDE"):
+            config["exclude"] = exclude.split(",")
+
+        return config
+
+    @classmethod
+    def extract_cli_overrides(cls, args: Any) -> dict[str, Any]:
+        """Extract indexing config from CLI arguments."""
+        overrides = {}
+
+        if hasattr(args, "indexing_batch_size") and args.indexing_batch_size:
+            overrides["batch_size"] = args.indexing_batch_size
+        if hasattr(args, "db_batch_size") and args.db_batch_size:
+            overrides["db_batch_size"] = args.db_batch_size
+        if hasattr(args, "indexing_max_concurrent") and args.indexing_max_concurrent:
+            overrides["max_concurrent"] = args.indexing_max_concurrent
+        if hasattr(args, "force_reindex") and args.force_reindex:
+            overrides["force_reindex"] = args.force_reindex
+        if hasattr(args, "cleanup") and args.cleanup:
+            overrides["cleanup"] = args.cleanup
+        if (
+            hasattr(args, "indexing_ignore_gitignore")
+            and args.indexing_ignore_gitignore
+        ):
+            overrides["ignore_gitignore"] = args.indexing_ignore_gitignore
+
+        # Include/exclude patterns
+        if hasattr(args, "include") and args.include:
+            overrides["include"] = args.include
+        if hasattr(args, "exclude") and args.exclude:
+            overrides["exclude"] = args.exclude
+
+        return overrides
 
     def __repr__(self) -> str:
         """String representation of indexing configuration."""
