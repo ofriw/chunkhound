@@ -50,59 +50,6 @@ def setup_logging(verbose: bool = False) -> None:
         )
 
 
-def validate_args_and_config(args: argparse.Namespace) -> tuple[Any, list[str]]:
-    """Validate command-line arguments and create config.
-
-    Args:
-        args: Parsed arguments to validate
-
-    Returns:
-        tuple: (config, validation_errors)
-    """
-    # Import here to avoid circular imports
-
-    # Create and validate config using factory
-    config, validation_errors = create_validated_config(args, args.command)
-
-    # Additional validation for specific commands
-    if args.command == "index":
-        if not validate_path(args.path, must_exist=True, must_be_dir=True):
-            validation_errors.append(f"Invalid path: {args.path}")
-
-        # Validate database directory
-        db_path = Path(config.database.path)
-        if not ensure_database_directory(db_path):
-            validation_errors.append("Cannot access database directory")
-
-        # Validate provider-specific arguments for index command
-        if not args.no_embeddings:
-            if not config.embedding:
-                validation_errors.append("Embedding configuration required")
-            else:
-                # Use unified config values for validation
-                provider = (
-                    config.embedding.provider
-                    if hasattr(config.embedding, "provider")
-                    else None
-                )
-                api_key = (
-                    config.embedding.api_key.get_secret_value()
-                    if config.embedding.api_key
-                    else None
-                )
-                base_url = config.embedding.base_url
-                model = config.embedding.model
-
-                if not validate_provider_args(provider, api_key, base_url, model):
-                    validation_errors.append("Provider validation failed")
-
-    elif args.command == "mcp":
-        # Validate database directory for MCP server
-        db_path = Path(config.database.path)
-        if not ensure_database_directory(db_path):
-            validation_errors.append("Cannot access database directory")
-
-    return config, validation_errors
 
 
 def create_parser() -> argparse.ArgumentParser:
@@ -139,7 +86,7 @@ async def async_main() -> None:
     setup_logging(getattr(args, "verbose", False))
 
     # Validate args and create config
-    config, validation_errors = validate_args_and_config(args)
+    config, validation_errors = create_validated_config(args, args.command)
 
     if validation_errors:
         for error in validation_errors:
