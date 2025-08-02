@@ -4,10 +4,7 @@ import argparse
 from pathlib import Path
 from typing import Any, cast
 
-from chunkhound.core.config.database_config import DatabaseConfig
-from chunkhound.core.config.embedding_config import EmbeddingConfig
-from chunkhound.core.config.indexing_config import IndexingConfig
-from chunkhound.core.config.mcp_config import MCPConfig
+from .common_arguments import add_common_arguments, add_config_arguments
 
 
 def validate_batch_sizes(
@@ -81,30 +78,36 @@ def process_batch_arguments(args: argparse.Namespace) -> None:
     """
     import sys
 
+    # Only process batch arguments if embedding config is present
+    if not hasattr(args, 'embedding_batch_size'):
+        return
+
     # Handle backward compatibility - --batch-size maps to --embedding-batch-size
-    if args.batch_size is not None:
+    batch_size = getattr(args, 'batch_size', None)
+    if batch_size is not None:
         print(
             f"WARNING: --batch-size is deprecated. "
             f"Use --embedding-batch-size instead.\n"
-            f"         Using --embedding-batch-size {args.batch_size} based on "
-            f"your --batch-size {args.batch_size}\n"
+            f"         Using --embedding-batch-size {batch_size} based on "
+            f"your --batch-size {batch_size}\n"
             f"         Consider also setting --db-batch-size for optimal performance",
             file=sys.stderr,
         )
         # Only override if embedding_batch_size is still default
         if args.embedding_batch_size == 100:  # Default value
-            args.embedding_batch_size = args.batch_size
+            args.embedding_batch_size = batch_size
 
-    # Validate batch sizes
-    is_valid, error_msg = validate_batch_sizes(
-        args.embedding_batch_size,
-        args.db_batch_size,
-        getattr(args, "provider", "openai"),
-    )
+    # Validate batch sizes if all required arguments are present
+    if hasattr(args, 'db_batch_size'):
+        is_valid, error_msg = validate_batch_sizes(
+            args.embedding_batch_size,
+            args.db_batch_size,
+            getattr(args, "provider", "openai"),
+        )
 
-    if not is_valid:
-        print(f"Error: {error_msg}", file=sys.stderr)
-        sys.exit(1)
+        if not is_valid:
+            print(f"Error: {error_msg}", file=sys.stderr)
+            sys.exit(1)
 
 
 def add_run_subparser(subparsers: Any) -> argparse.ArgumentParser:
@@ -135,28 +138,10 @@ def add_run_subparser(subparsers: Any) -> argparse.ArgumentParser:
     )
 
     # Add common arguments
-    run_parser.add_argument(
-        "--verbose",
-        "-v",
-        action="store_true",
-        help="Enable verbose logging",
-    )
-    run_parser.add_argument(
-        "--config",
-        type=Path,
-        help="Configuration file path",
-    )
-    run_parser.add_argument(
-        "--debug",
-        action="store_true",
-        help="Enable debug mode",
-    )
+    add_common_arguments(run_parser)
 
     # Add config-specific arguments
-    DatabaseConfig.add_cli_arguments(run_parser)
-    EmbeddingConfig.add_cli_arguments(run_parser)
-    IndexingConfig.add_cli_arguments(run_parser)
-    MCPConfig.add_cli_arguments(run_parser)
+    add_config_arguments(run_parser, ["database", "embedding", "indexing", "mcp"])
 
     return cast(argparse.ArgumentParser, run_parser)
 

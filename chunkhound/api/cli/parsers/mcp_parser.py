@@ -4,8 +4,7 @@ import argparse
 from pathlib import Path
 from typing import Any, cast
 
-from chunkhound.core.config.database_config import DatabaseConfig
-from chunkhound.core.config.mcp_config import MCPConfig
+from .common_arguments import add_common_arguments, add_config_arguments
 
 
 def add_mcp_subparser(subparsers: Any) -> argparse.ArgumentParser:
@@ -33,26 +32,10 @@ def add_mcp_subparser(subparsers: Any) -> argparse.ArgumentParser:
     )
 
     # Add common arguments
-    mcp_parser.add_argument(
-        "--verbose",
-        "-v",
-        action="store_true",
-        help="Enable verbose logging",
-    )
-    mcp_parser.add_argument(
-        "--config",
-        type=Path,
-        help="Configuration file path",
-    )
-    mcp_parser.add_argument(
-        "--debug",
-        action="store_true",
-        help="Enable debug mode",
-    )
+    add_common_arguments(mcp_parser)
 
     # Add config-specific arguments
-    DatabaseConfig.add_cli_arguments(mcp_parser)
-    MCPConfig.add_cli_arguments(mcp_parser)
+    add_config_arguments(mcp_parser, ["database", "mcp"])
 
     return cast(argparse.ArgumentParser, mcp_parser)
 
