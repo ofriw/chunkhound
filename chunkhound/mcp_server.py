@@ -61,13 +61,10 @@ try:
         create_default_config,
         create_validated_config,
     )
-    from .api.cli.utils.config_helpers import validate_config_for_command
     from .core.config import EmbeddingProviderFactory
     from .core.config.config import Config
-    from .database import Database
-    from .database_factory import create_database_with_dependencies
+    from .database_factory import create_services
     from .embeddings import EmbeddingManager
-    from .registry import configure_registry, get_registry
 except ImportError:
     # Handle running as standalone script or PyInstaller binary
     from chunkhound.api.cli.utils.config_factory import (
@@ -76,15 +73,14 @@ except ImportError:
     )
     from chunkhound.core.config import EmbeddingProviderFactory
     from chunkhound.core.config.config import Config
-    from chunkhound.database import Database
-    from chunkhound.database_factory import create_database_with_dependencies
+    from chunkhound.database_factory import create_services
     from chunkhound.embeddings import EmbeddingManager
 
 # SECTION: Global_State_Management
 # RATIONALE: MCP stdio protocol requires persistent state across requests
 # CONSTRAINT: Cannot use dependency injection - no request context in stdio
 # PATTERN: Initialize once in lifespan, reuse for all operations
-_database: Database | None = None
+_services = None
 _embedding_manager: EmbeddingManager | None = None
 _server_config: Config | None = None
 _initialization_complete: asyncio.Event = asyncio.Event()
@@ -159,7 +155,7 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
     # CLEANUP: Must close DB
     # ERROR_HANDLING: Continue on non-critical failures (e.g., embeddings)
     """
-    global _database, _embedding_manager, _initialization_complete
+    global _services, _embedding_manager, _initialization_complete
 
     # ENVIRONMENT: Set MCP mode flag for other components
     # PURPOSE: Suppress any output that might break JSON-RPC
@@ -280,9 +276,9 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
 
                 # traceback.print_exc(file=sys.stderr)
 
-        # Create database using unified factory for consistency with CLI commands
+        # Create services using clean factory for consistency with CLI commands
         # This ensures same initialization across all execution paths
-        _database = create_database_with_dependencies(
+        _services = create_services(
             db_path=db_path,
             config=config.to_dict(),
             embedding_manager=_embedding_manager,
@@ -292,17 +288,15 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
             # CONSTRAINT: Must connect before any async tasks start
             # PREVENTS: Concurrent operations during initialization
             # USES: SerialDatabaseProvider for thread safety
-            _database.connect()
+            _services.provider.connect()
             if debug_mode:
                 # print(
                 #     "Server lifespan: Database connected successfully", file=sys.stderr
                 # )
                 # Verify IndexingCoordinator has embedding provider
                 try:
-                    # Use the same instance from _database to avoid creating duplicates
-                    indexing_coordinator = _database._indexing_coordinator
                     has_embedding_provider = (
-                        indexing_coordinator._embedding_provider is not None
+                        _services.indexing_coordinator._embedding_provider is not None
                     )
                     # print(
                     #     f"Server lifespan: IndexingCoordinator embedding provider available: {has_embedding_provider}",
@@ -338,7 +332,7 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
 
         # Return server context to the caller
         yield {
-            "db": _database,
+            "services": _services,
             "embeddings": _embedding_manager,
         }
 
@@ -358,7 +352,7 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
 
             pass
         # Cleanup database
-        if _database:
+        if _services:
             try:
                 if debug_mode:
                     # print(
@@ -369,7 +363,7 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
                     pass
                 # Force final checkpoint before closing to minimize WAL size
                 try:
-                    _database.execute_database_operation_sync("maybe_checkpoint", True)
+                    _services.provider._execute_in_db_thread_sync("maybe_checkpoint", True)
                     if debug_mode:
                         # print(
                         #     "Server lifespan: Final checkpoint completed",
@@ -385,7 +379,7 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
 
                         pass
                 # Close database (skip built-in checkpoint as we just did it)
-                _database.disconnect()
+                _services.provider.disconnect()
                 if debug_mode:
                     # print(
                     #     "Server lifespan: Database connection closed successfully",
@@ -445,8 +439,8 @@ async def call_tool(
     except asyncio.TimeoutError:
         # Continue anyway - individual resource checks will handle missing resources
         pass
-    if not _database:
-        raise Exception("Database not initialized")
+    if not _services:
+        raise Exception("Services not initialized")
 
     if name == "search_regex":
         pattern = arguments.get("pattern", "")
@@ -456,7 +450,7 @@ async def call_tool(
 
         # Use shared implementation
         response_data = await search_regex_impl(
-            database=_database,
+            services=_services,
             pattern=pattern,
             page_size=page_size,
             offset=offset,
@@ -494,13 +488,13 @@ async def call_tool(
 
         # Use shared implementation
         try:
-            if not _database:
-                raise Exception("Database not initialized")
+            if not _services:
+                raise Exception("Services not initialized")
             if not _embedding_manager:
                 raise Exception("No embedding providers available")
 
             response_data = await search_semantic_impl(
-                database=_database,
+                services=_services,
                 embedding_manager=_embedding_manager,
                 query=query,
                 page_size=page_size,
@@ -545,20 +539,20 @@ async def call_tool(
         path_filter = arguments.get("path")
 
         # Check connection instead of forcing reconnection (fixes race condition)
-        if _database and not _database.is_connected():
+        if _services and not _services.provider.is_connected:
             if "CHUNKHOUND_DEBUG" in os.environ:
                 # print(
                 #     "Database not connected, reconnecting before fuzzy search",
                 #     file=sys.stderr,
                 # )
                 pass
-            _database.reconnect()
+            _services.provider.connect()
 
         # Check if provider supports fuzzy search
-        if not hasattr(_database._provider, "search_fuzzy"):
+        if not hasattr(_services.provider, "search_fuzzy"):
             raise Exception("Fuzzy search not supported by current database provider")
 
-        results, pagination = _database._provider.search_fuzzy(
+        results, pagination = _services.provider.search_fuzzy(
             query=query, page_size=page_size, offset=offset, path_filter=path_filter
         )
 
@@ -587,22 +581,22 @@ async def call_tool(
 
     elif name == "get_stats":
         # Use shared implementation
-        if not _database:
-            raise Exception("Database not initialized")
+        if not _services:
+            raise Exception("Services not initialized")
 
-        stats = await get_stats_impl(_database)
+        stats = await get_stats_impl(_services)
         return [
             types.TextContent(type="text", text=json.dumps(stats, ensure_ascii=False))
         ]
 
     elif name == "health_check":
         # Use shared implementation
-        if not _database:
-            raise Exception("Database not initialized")
+        if not _services:
+            raise Exception("Services not initialized")
         if not _embedding_manager:
             raise Exception("No embedding providers available")
 
-        health_status = await health_check_impl(_database, _embedding_manager)
+        health_status = await health_check_impl(_services, _embedding_manager)
         return [
             types.TextContent(
                 type="text", text=json.dumps(health_status, ensure_ascii=False)
@@ -641,8 +635,8 @@ async def list_tools() -> list[types.Tool]:
     )
 
     # Check provider capabilities and add supported tools
-    if _database and hasattr(_database, "_provider"):
-        provider = _database._provider
+    if _services and _services.provider:
+        provider = _services.provider
 
         # Check semantic search support
         if provider.supports_semantic_search():

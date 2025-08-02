@@ -14,7 +14,7 @@ try:
 except (ImportError, AttributeError):
     from typing_extensions import NotRequired
 
-from chunkhound.database import Database
+from chunkhound.database_factory import DatabaseServices
 from chunkhound.embeddings import EmbeddingManager
 from chunkhound.version import __version__
 
@@ -108,7 +108,7 @@ def limit_response_size(
 
 
 async def search_regex_impl(
-    database: Database,
+    services: DatabaseServices,
     pattern: str,
     page_size: int = 10,
     offset: int = 0,
@@ -117,7 +117,7 @@ async def search_regex_impl(
     """Core regex search implementation.
 
     Args:
-        database: Database provider instance
+        services: Database services bundle
         pattern: Regex pattern to search for
         page_size: Number of results per page (1-100)
         offset: Starting offset for pagination
@@ -131,11 +131,11 @@ async def search_regex_impl(
     offset = max(0, offset)
 
     # Check database connection
-    if database and not database.is_connected():
-        database.reconnect()
+    if services and not services.provider.is_connected:
+        services.provider.connect()
 
     # Perform search
-    results, pagination = database.search_regex(
+    results, pagination = services.provider.search_regex(
         pattern=pattern,
         page_size=page_size,
         offset=offset,
@@ -146,7 +146,7 @@ async def search_regex_impl(
 
 
 async def search_semantic_impl(
-    database: Database,
+    services: DatabaseServices,
     embedding_manager: EmbeddingManager,
     query: str,
     page_size: int = 10,
@@ -159,7 +159,7 @@ async def search_semantic_impl(
     """Core semantic search implementation.
 
     Args:
-        database: Database provider instance
+        services: Database services bundle
         embedding_manager: Embedding manager instance
         query: Search query text
         page_size: Number of results per page (1-100)
@@ -201,8 +201,8 @@ async def search_semantic_impl(
     offset = max(0, offset)
 
     # Check database connection
-    if database and not database.is_connected():
-        database.reconnect()
+    if services and not services.provider.is_connected:
+        services.provider.connect()
 
     # Get embedding for query with timeout
     try:
@@ -216,8 +216,8 @@ async def search_semantic_impl(
         )
 
     # Perform search
-    results, pagination = database.search_semantic(
-        query_vector=query_vector,
+    results, pagination = services.provider.search_semantic(
+        query_embedding=query_vector,
         provider=provider,
         model=model,
         page_size=page_size,
@@ -229,24 +229,24 @@ async def search_semantic_impl(
     return cast(SearchResponse, {"results": results, "pagination": pagination})
 
 
-async def get_stats_impl(database: Database) -> dict[str, Any]:
+async def get_stats_impl(services: DatabaseServices) -> dict[str, Any]:
     """Core stats implementation.
 
     Args:
-        database: Database provider instance
+        services: Database services bundle
 
     Returns:
         Dict with database statistics
     """
-    stats: dict[str, Any] = database.get_stats()
+    stats: dict[str, Any] = services.provider.get_stats()
     return stats
 
 
-async def health_check_impl(database: Database, embedding_manager: EmbeddingManager) -> HealthStatus:
+async def health_check_impl(services: DatabaseServices, embedding_manager: EmbeddingManager) -> HealthStatus:
     """Core health check implementation.
 
     Args:
-        database: Database provider instance
+        services: Database services bundle
         embedding_manager: Embedding manager instance
 
     Returns:
@@ -255,7 +255,7 @@ async def health_check_impl(database: Database, embedding_manager: EmbeddingMana
     health_status = {
         "status": "healthy",
         "version": __version__,
-        "database_connected": database is not None,
+        "database_connected": services is not None and services.provider.is_connected,
         "embedding_providers": embedding_manager.list_providers()
         if embedding_manager
         else [],

@@ -24,21 +24,20 @@ from chunkhound.mcp_tools import (
 
 # Import dependencies (with relative imports fallback)
 try:
-    from .api.cli.utils.config_helpers import validate_config_for_command
+    from .api.cli.utils.config_factory import create_validated_config
     from .core.config import EmbeddingProviderFactory
     from .core.config.config import Config
-    from .database import Database
-    from .database_factory import create_database_with_dependencies
+    from .database_factory import create_services
     from .embeddings import EmbeddingManager
 except ImportError:
+    from chunkhound.api.cli.utils.config_factory import create_validated_config
     from chunkhound.core.config import EmbeddingProviderFactory
     from chunkhound.core.config.config import Config
-    from chunkhound.database import Database
-    from chunkhound.database_factory import create_database_with_dependencies
+    from chunkhound.database_factory import create_services
     from chunkhound.embeddings import EmbeddingManager
 
 # Global components - initialized lazily
-_database: Database | None = None
+_services = None
 _embedding_manager: EmbeddingManager | None = None
 _initialization_lock = None
 _config: Config | None = None  # Global to store Config
@@ -46,9 +45,9 @@ _config: Config | None = None  # Global to store Config
 
 async def ensure_initialization() -> None:
     """Ensure components are initialized (lazy initialization)"""
-    global _database, _embedding_manager, _initialization_lock
+    global _services, _embedding_manager, _initialization_lock
 
-    if _database is not None and _embedding_manager is not None:
+    if _services is not None and _embedding_manager is not None:
         return
 
     # Create lock on first use
@@ -56,7 +55,7 @@ async def ensure_initialization() -> None:
         _initialization_lock = asyncio.Lock()
 
     async with _initialization_lock:
-        if _database is not None and _embedding_manager is not None:
+        if _services is not None and _embedding_manager is not None:
             return
 
         # Set MCP mode to suppress stderr output that interferes with JSON-RPC
@@ -112,16 +111,16 @@ async def ensure_initialization() -> None:
                 if debug_mode:
                     print(f"Embedding provider setup failed: {e}", file=sys.stderr)
 
-            # Create database using unified factory for consistency with stdio server
+            # Create services using clean factory for consistency with stdio server
             # This ensures same initialization across all MCP servers
-            _database = create_database_with_dependencies(
+            _services = create_services(
                 db_path=db_path,
                 config=config.to_dict(),
                 embedding_manager=_embedding_manager,
             )
 
             # Connect to database
-            _database.connect()
+            _services.provider.connect()
 
         except Exception as e:
             raise Exception(f"Failed to initialize database and embeddings: {e}")
@@ -136,11 +135,11 @@ async def get_stats() -> dict[str, Any]:
     """Get database statistics including file, chunk, and embedding counts"""
     await ensure_initialization()
 
-    if not _database:
-        raise Exception("Database not initialized")
+    if not _services:
+        raise Exception("Services not initialized")
 
     # Use shared implementation
-    return await get_stats_impl(_database)
+    return await get_stats_impl(_services)
 
 
 @mcp.tool()
@@ -149,10 +148,10 @@ async def health_check() -> dict[str, Any]:
     await ensure_initialization()
 
     # Use shared implementation
-    if not _database or not _embedding_manager:
+    if not _services or not _embedding_manager:
         raise Exception("Server components not properly initialized")
 
-    result = await health_check_impl(_database, _embedding_manager)
+    result = await health_check_impl(_services, _embedding_manager)
     return dict(result)
 
 
@@ -167,12 +166,12 @@ async def search_regex(
     """Search code chunks using regex patterns with pagination support."""
     await ensure_initialization()
 
-    if not _database:
-        raise Exception("Database not initialized")
+    if not _services:
+        raise Exception("Services not initialized")
 
     # Use shared implementation
     response_data = await search_regex_impl(
-        database=_database,
+        services=_services,
         pattern=pattern,
         page_size=page_size,
         offset=offset,
@@ -198,12 +197,12 @@ async def search_semantic(
     """Search code using semantic similarity with pagination support."""
     await ensure_initialization()
 
-    if not _database or not _embedding_manager:
-        raise Exception("Database or embedding manager not initialized")
+    if not _services or not _embedding_manager:
+        raise Exception("Services or embedding manager not initialized")
 
     # Use shared implementation
     response_data = await search_semantic_impl(
-        database=_database,
+        services=_services,
         embedding_manager=_embedding_manager,
         query=query,
         page_size=page_size,
