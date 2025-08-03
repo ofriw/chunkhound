@@ -4,17 +4,10 @@ import argparse
 import asyncio
 import multiprocessing
 import sys
-from pathlib import Path
-from typing import Any
 
 from loguru import logger
 
 from .utils.config_factory import create_validated_config
-from .utils.validation import (
-    ensure_database_directory,
-    validate_path,
-    validate_provider_args,
-)
 
 # Required for PyInstaller multiprocessing support
 multiprocessing.freeze_support()

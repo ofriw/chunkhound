@@ -61,20 +61,20 @@ try:
         create_default_config,
         create_validated_config,
     )
-    from .core.config import EmbeddingProviderFactory
+    from .api.cli.utils.config_helpers import validate_config_for_command
     from .core.config.config import Config
-    from .database_factory import create_services
     from .embeddings import EmbeddingManager
+    from .mcp_common import debug_log, initialize_mcp_services
 except ImportError:
     # Handle running as standalone script or PyInstaller binary
     from chunkhound.api.cli.utils.config_factory import (
         create_default_config,
         create_validated_config,
     )
-    from chunkhound.core.config import EmbeddingProviderFactory
+    from chunkhound.api.cli.utils.config_helpers import validate_config_for_command
     from chunkhound.core.config.config import Config
-    from chunkhound.database_factory import create_services
     from chunkhound.embeddings import EmbeddingManager
+    from chunkhound.mcp_common import debug_log, initialize_mcp_services
 
 # SECTION: Global_State_Management
 # RATIONALE: MCP stdio protocol requires persistent state across requests
@@ -113,37 +113,6 @@ def _log_processing_error(e: Exception, event_type: str, file_path: Path) -> Non
         pass
 
 
-def log_environment_diagnostics() -> None:
-    """Log environment diagnostics for API key debugging - only in non-MCP mode."""
-    import os
-
-    # Skip diagnostics in MCP mode to maintain clean JSON-RPC communication
-    if os.environ.get("CHUNKHOUND_MCP_MODE"):
-        return
-    # print("=== MCP SERVER ENVIRONMENT DIAGNOSTICS ===", file=sys.stderr)
-
-    # Check for API key using config system
-    from chunkhound.core.config.embedding_config import EmbeddingConfig
-
-    # Check config system
-    try:
-        temp_config = EmbeddingConfig(provider="openai")
-        has_key = temp_config.api_key is not None
-        # print(f"CHUNKHOUND_EMBEDDING_API_KEY configured: {has_key}", file=sys.stderr)
-
-        if has_key:
-            key_value = temp_config.api_key.get_secret_value()
-            # print(f"API key length: {len(key_value)}", file=sys.stderr)
-            # print(f"API key prefix: {key_value[:7]}...", file=sys.stderr)
-    except Exception:
-        has_key = False
-        # print(f"CHUNKHOUND_EMBEDDING_API_KEY not configured: {e}", file=sys.stderr)
-
-    if not has_key:
-        # print("WARNING: No API key found. Set CHUNKHOUND_EMBEDDING_API_KEY environment variable.", file=sys.stderr)
-        pass
-
-    # print("===============================================", file=sys.stderr)
 
 
 @asynccontextmanager
@@ -166,166 +135,60 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
     # USAGE: Uncomment specific prints when debugging issues
     # ALTERNATIVE: Use debug_log() for structured logging
     debug_mode = os.getenv("CHUNKHOUND_DEBUG", "").lower() in ("true", "1", "yes")
-    if debug_mode:
-        # print("Server lifespan: Starting initialization", file=sys.stderr)
-        pass
+    debug_log("Server lifespan: Starting initialization")
 
     try:
-        # Log environment diagnostics for API key debugging
-        log_environment_diagnostics()
 
-        # Import project detection utilities
-        try:
-            from .utils.project_detection import find_project_root
-        except ImportError:
-            pass
+        # Set MCP mode to suppress stderr output that interferes with JSON-RPC
+        os.environ["CHUNKHOUND_MCP_MODE"] = "1"
 
         # Use pre-created and validated config from main()
-        global _config, _server_config
+        global _config, _server_config, _services, _embedding_manager
         config = _config
         _server_config = config
 
         if config:
             debug_mode = config.debug or debug_mode
-            if debug_mode:
-                # print(
-                #     f"Server lifespan: Using pre-validated config with database path: {config.database.path}",
-                #     file=sys.stderr,
-                # )
-                pass
         else:
             # Fallback to default config
             config = create_default_config()
             _server_config = config
 
-        # Get database path from config (always set by validation)
-        if not config:
-            raise ValueError("Configuration not initialized")
-        db_path = Path(config.database.path)
+        # Validate config for MCP usage
+        validation_errors = validate_config_for_command(config, "mcp")
+        if validation_errors and debug_mode:
+            # Log validation errors in debug mode but continue
+            # (MCP can work with partial config)
+            for error in validation_errors:
+                print(
+                    f"[MCP-SERVER] Config validation warning: {error}",
+                    file=sys.stderr
+                )
 
-        db_path.parent.mkdir(parents=True, exist_ok=True)
-
-        if debug_mode:
-            # print(f"Server lifespan: Using database at {db_path}", file=sys.stderr)
-
-            pass
-
-        # Initialize embedding configuration BEFORE database creation
-        _embedding_manager = EmbeddingManager()
-        if debug_mode:
-            # print("Server lifespan: Embedding manager initialized", file=sys.stderr)
-
-            pass
-        if debug_mode:
-            # print(
-            #     "Server lifespan: Using Config object directly for unified factory",
-            #     file=sys.stderr,
-            # )
-            pass
-        # SECTION: Embedding_Provider_Setup (OPTIONAL)
-        # PATTERN: Continue without embeddings if setup fails
-        # COMMON_FAILURE: Missing API key - expected for search-only usage
-        try:
-            # Create provider using unified factory
-            if config.embedding:
-                provider = EmbeddingProviderFactory.create_provider(config.embedding)
-            else:
-                raise ValueError("No embedding configuration available")
-            _embedding_manager.register_provider(provider, set_default=True)
-
-            if debug_mode:
-                # print(
-                #     f"Server lifespan: Embedding provider registered successfully: {config.embedding.provider} with model {config.embedding.model}",
-                #     file=sys.stderr,
-                # )
-
-                pass
-        except ValueError:
-            # API key or configuration issue - only log in non-MCP mode
-            if debug_mode:
-                # print(
-                #     f"Server lifespan: Embedding provider setup failed (expected): {e}",
-                #     file=sys.stderr,
-                # )
-                pass
-            if debug_mode and not os.environ.get("CHUNKHOUND_MCP_MODE"):
-                # print(f"Embedding provider setup failed: {e}", file=sys.stderr)
-                # print("Configuration help:", file=sys.stderr)
-                # print(
-                #     "- Set CHUNKHOUND_EMBEDDING__PROVIDER (openai|openai-compatible|tei|bge-in-icl)",
-                #     file=sys.stderr,
-                # )
-                # print(
-                #     "- Set CHUNKHOUND_EMBEDDING__API_KEY or legacy OPENAI_API_KEY",
-                #     file=sys.stderr,
-                # )
-                # print("- Set CHUNKHOUND_EMBEDDING__MODEL (optional)", file=sys.stderr)
-                # print(
-                #     "- For OpenAI-compatible: Set CHUNKHOUND_EMBEDDING__BASE_URL",
-                #     file=sys.stderr,
-                # )
-                pass
-        except Exception:
-            # Unexpected error - log for debugging but continue
-            if debug_mode:
-                # print(
-                #     f"Server lifespan: Unexpected error setting up embedding provider: {e}",
-                #     file=sys.stderr,
-                # )
-                pass
-
-                # traceback.print_exc(file=sys.stderr)
-
-        # Create services using clean factory for consistency with CLI commands
-        # This ensures same initialization across all execution paths
-        _services = create_services(
-            db_path=db_path,
-            config=config.to_dict(),
-            embedding_manager=_embedding_manager,
+        # Initialize MCP services with validated config
+        _services, _embedding_manager, _server_config = await initialize_mcp_services(
+            config, debug_mode
         )
-        try:
-            # CRITICAL: Thread-safe database initialization
-            # CONSTRAINT: Must connect before any async tasks start
-            # PREVENTS: Concurrent operations during initialization
-            # USES: SerialDatabaseProvider for thread safety
-            _services.provider.connect()
-            if debug_mode:
-                # print(
-                #     "Server lifespan: Database connected successfully", file=sys.stderr
-                # )
-                # Verify IndexingCoordinator has embedding provider
-                try:
-                    has_embedding_provider = (
-                        _services.indexing_coordinator._embedding_provider is not None
-                    )
-                    # print(
-                    #     f"Server lifespan: IndexingCoordinator embedding provider available: {has_embedding_provider}",
-                    #     file=sys.stderr,
-                    # )
-                except Exception:
-                    # print(
-                    #     f"Server lifespan: Debug check failed: {debug_error}",
-                    #     file=sys.stderr,
-                    # )
-                    pass
-        except Exception:
-            if debug_mode:
-                # print(
-                #     f"Server lifespan: Database connection error: {db_error}",
-                #     file=sys.stderr,
-                # )
-                pass
 
-                # traceback.print_exc(file=sys.stderr)
+        try:
+            debug_log("Server lifespan: Database connected successfully")
+            # Verify IndexingCoordinator has embedding provider
+            try:
+                has_embedding_provider = (
+                    _services.indexing_coordinator._embedding_provider is not None
+                )
+                debug_log(
+                    f"Server lifespan: IndexingCoordinator embedding provider available: {has_embedding_provider}"
+                )
+            except Exception as debug_error:
+                debug_log(f"Server lifespan: Debug check failed: {debug_error}")
+        except Exception as db_error:
+            debug_log(f"Server lifespan: Database connection error: {db_error}")
+            if debug_mode:
+                traceback.print_exc(file=sys.stderr)
             raise
 
-        if debug_mode:
-            # print(
-            #     "Server lifespan: All components initialized successfully",
-            #     file=sys.stderr,
-            # )
-
-            pass
+        debug_log("Server lifespan: All components initialized successfully")
 
         # Mark initialization as complete
         _initialization_complete.set()
@@ -337,68 +200,32 @@ async def server_lifespan(server: Server) -> AsyncIterator[dict]:
         }
 
     except Exception as e:
+        debug_log(f"Server lifespan: Initialization failed: {e}")
         if debug_mode:
-            # print(f"Server lifespan: Initialization failed: {e}", file=sys.stderr)
-            pass
-
-            # traceback.print_exc(file=sys.stderr)
+            traceback.print_exc(file=sys.stderr)
         raise Exception(f"Failed to initialize database and embeddings: {e}")
     finally:
         # Reset initialization flag
         _initialization_complete.clear()
 
-        if debug_mode:
-            # print("Server lifespan: Entering cleanup phase", file=sys.stderr)
-
-            pass
+        debug_log("Server lifespan: Entering cleanup phase")
         # Cleanup database
         if _services:
             try:
-                if debug_mode:
-                    # print(
-                    #     "Server lifespan: Closing database connection...",
-                    #     file=sys.stderr,
-                    # )
-
-                    pass
+                debug_log("Server lifespan: Closing database connection...")
                 # Force final checkpoint before closing to minimize WAL size
                 try:
                     _services.provider._execute_in_db_thread_sync("maybe_checkpoint", True)
-                    if debug_mode:
-                        # print(
-                        #     "Server lifespan: Final checkpoint completed",
-                        #     file=sys.stderr,
-                        # )
-                        pass
-                except Exception:
-                    if debug_mode:
-                        # print(
-                        #     f"Server lifespan: Final checkpoint failed: {checkpoint_error}",
-                        #     file=sys.stderr,
-                        # )
-
-                        pass
+                    debug_log("Server lifespan: Final checkpoint completed")
+                except Exception as checkpoint_error:
+                    debug_log(f"Server lifespan: Final checkpoint failed: {checkpoint_error}")
                 # Close database (skip built-in checkpoint as we just did it)
                 _services.provider.disconnect()
-                if debug_mode:
-                    # print(
-                    #     "Server lifespan: Database connection closed successfully",
-                    #     file=sys.stderr,
-                    # )
-                    pass
-            except Exception:
-                if debug_mode:
-                    # print(
-                    #     f"Server lifespan: Error closing database: {db_close_error}",
-                    #     file=sys.stderr,
-                    # )
+                debug_log("Server lifespan: Database connection closed successfully")
+            except Exception as db_close_error:
+                debug_log(f"Server lifespan: Error closing database: {db_close_error}")
 
-                    pass
-
-        if debug_mode:
-            # print("Server lifespan: Cleanup complete", file=sys.stderr)
-
-            pass
+        debug_log("Server lifespan: Cleanup complete")
 
 
 def truncate_code(code: str, max_chars: int = 1000) -> tuple[str, bool]:
@@ -540,12 +367,7 @@ async def call_tool(
 
         # Check connection instead of forcing reconnection (fixes race condition)
         if _services and not _services.provider.is_connected:
-            if "CHUNKHOUND_DEBUG" in os.environ:
-                # print(
-                #     "Database not connected, reconnecting before fuzzy search",
-                #     file=sys.stderr,
-                # )
-                pass
+            debug_log("Database not connected, reconnecting before fuzzy search")
             _services.provider.connect()
 
         # Check if provider supports fuzzy search
@@ -852,19 +674,10 @@ async def handle_mcp_with_validation() -> None:
             # Initialize with lifespan context
             try:
                 # Debug output to help diagnose initialization issues
-                if "CHUNKHOUND_DEBUG" in os.environ:
-                    # print("MCP server: Starting server initialization", file=sys.stderr)
-
-                    pass
+                debug_log("MCP server: Starting server initialization")
                 async with server_lifespan(server) as server_context:
                     # Initialize the server
-                    if "CHUNKHOUND_DEBUG" in os.environ:
-                        # print(
-                        #     "MCP server: Server lifespan established, running server...",
-                        #     file=sys.stderr,
-                        # )
-
-                        pass
+                    debug_log("MCP server: Server lifespan established, running server...")
                     try:
                         await server.run(
                             read_stream,
@@ -879,13 +692,7 @@ async def handle_mcp_with_validation() -> None:
                             ),
                         )
 
-                        if "CHUNKHOUND_DEBUG" in os.environ:
-                            # print(
-                            #     "MCP server: Server.run() completed, entering keepalive mode",
-                            #     file=sys.stderr,
-                            # )
-
-                            pass
+                        debug_log("MCP server: Server.run() completed, entering keepalive mode")
                         # Keep the process alive until client disconnects
                         # The MCP SDK handles the connection lifecycle, so we just need to wait
                         # for the server to be terminated by the client or signal
@@ -893,47 +700,27 @@ async def handle_mcp_with_validation() -> None:
                             # Wait indefinitely - the MCP SDK will handle cleanup when client disconnects
                             await asyncio.Event().wait()
                         except (asyncio.CancelledError, KeyboardInterrupt):
-                            if "CHUNKHOUND_DEBUG" in os.environ:
-                                # print(
-                                #     "MCP server: Received shutdown signal",
-                                #     file=sys.stderr,
-                                # )
-                                pass
-                        except Exception:
-                            if "CHUNKHOUND_DEBUG" in os.environ:
-                                # print(
-                                #     f"MCP server unexpected error: {e}", file=sys.stderr
-                                # )
-                                pass
-
-                                # traceback.print_exc(file=sys.stderr)
-                    except Exception:
-                        if "CHUNKHOUND_DEBUG" in os.environ:
-                            # print(
-                            #     f"MCP server.run() error: {server_run_error}",
-                            #     file=sys.stderr,
-                            # )
-                            pass
-
-                            # traceback.print_exc(file=sys.stderr)
+                            debug_log("MCP server: Received shutdown signal")
+                        except Exception as e:
+                            debug_log(f"MCP server unexpected error: {e}")
+                            if os.getenv("CHUNKHOUND_DEBUG"):
+                                traceback.print_exc(file=sys.stderr)
+                    except Exception as server_run_error:
+                        debug_log(f"MCP server.run() error: {server_run_error}")
+                        if os.getenv("CHUNKHOUND_DEBUG"):
+                            traceback.print_exc(file=sys.stderr)
                         raise
-            except Exception:
-                if "CHUNKHOUND_DEBUG" in os.environ:
-                    # print(
-                    #     f"MCP server lifespan error: {lifespan_error}", file=sys.stderr
-                    # )
-                    pass
-
-                    # traceback.print_exc(file=sys.stderr)
+            except Exception as lifespan_error:
+                debug_log(f"MCP server lifespan error: {lifespan_error}")
+                if os.getenv("CHUNKHOUND_DEBUG"):
+                    traceback.print_exc(file=sys.stderr)
                 raise
     except Exception as e:
         # Analyze error for common protocol issues with recursive search
         error_details = str(e)
-        if "CHUNKHOUND_DEBUG" in os.environ:
-            # print(f"MCP server top-level error: {e}", file=sys.stderr)
-            pass
-
-            # traceback.print_exc(file=sys.stderr)
+        debug_log(f"MCP server top-level error: {e}")
+        if os.getenv("CHUNKHOUND_DEBUG"):
+            traceback.print_exc(file=sys.stderr)
 
         def find_validation_error(error: Exception, depth: int = 0) -> tuple[bool, str]:
             """Recursively search for ValidationError in exception chain."""

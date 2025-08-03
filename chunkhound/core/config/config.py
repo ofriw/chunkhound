@@ -234,7 +234,7 @@ class Config(BaseModel):
         # Use unified validation through factory (avoids circular imports)
         # Note: This method is legacy - prefer create_validated_config() directly
         from chunkhound.api.cli.utils.config_helpers import validate_config_for_command
-        
+
         return validate_config_for_command(self, command)
 
     def get_missing_config(self) -> list[str]:

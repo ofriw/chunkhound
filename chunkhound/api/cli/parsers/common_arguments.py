@@ -38,15 +38,15 @@ def add_config_arguments(parser: argparse.ArgumentParser, configs: list[str]) ->
     if "database" in configs:
         from chunkhound.core.config.database_config import DatabaseConfig
         DatabaseConfig.add_cli_arguments(parser)
-    
+
     if "embedding" in configs:
         from chunkhound.core.config.embedding_config import EmbeddingConfig
         EmbeddingConfig.add_cli_arguments(parser)
-    
+
     if "indexing" in configs:
         from chunkhound.core.config.indexing_config import IndexingConfig
         IndexingConfig.add_cli_arguments(parser)
-    
+
     if "mcp" in configs:
         from chunkhound.core.config.mcp_config import MCPConfig
         MCPConfig.add_cli_arguments(parser)

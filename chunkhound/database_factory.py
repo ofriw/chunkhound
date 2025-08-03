@@ -61,7 +61,7 @@ def create_services(
     """
     configure_registry(config)
     registry = get_registry()
-    
+
     return DatabaseServices(
         provider=registry.get_provider("database"),
         indexing_coordinator=registry.create_indexing_coordinator(),
@@ -81,7 +81,7 @@ def create_database_with_dependencies(
     """
     from chunkhound.database import Database
     services = create_services(db_path, config, embedding_manager)
-    
+
     return Database(
         db_path=db_path,
         embedding_manager=embedding_manager,

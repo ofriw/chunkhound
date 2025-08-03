@@ -8,7 +8,6 @@ import asyncio
 import os
 import sys
 import threading
-from pathlib import Path
 from typing import Any
 
 from fastmcp import FastMCP
@@ -24,17 +23,15 @@ from chunkhound.mcp_tools import (
 
 # Import dependencies (with relative imports fallback)
 try:
-    from .api.cli.utils.config_factory import create_validated_config
-    from .core.config import EmbeddingProviderFactory
+    from .api.cli.utils.config_helpers import validate_config_for_command
     from .core.config.config import Config
-    from .database_factory import create_services
     from .embeddings import EmbeddingManager
+    from .mcp_common import initialize_mcp_services
 except ImportError:
-    from chunkhound.api.cli.utils.config_factory import create_validated_config
-    from chunkhound.core.config import EmbeddingProviderFactory
+    from chunkhound.api.cli.utils.config_helpers import validate_config_for_command
     from chunkhound.core.config.config import Config
-    from chunkhound.database_factory import create_services
     from chunkhound.embeddings import EmbeddingManager
+    from chunkhound.mcp_common import initialize_mcp_services
 
 # Global components - initialized lazily
 _services = None
@@ -72,55 +69,24 @@ async def ensure_initialization() -> None:
             if config:
                 debug_mode = config.debug or debug_mode
 
-            # Validate configuration for MCP HTTP server
-            # This ensures same validation as stdio server and CLI
-            try:
-                # Validate configuration for MCP server
-                if config:
-                    validation_errors = config.validate_for_command("mcp")
-                else:
-                    validation_errors = []
+            # Validate config for MCP usage
+            if config:
+                validation_errors = validate_config_for_command(config, "mcp")
                 if validation_errors and debug_mode:
-                    # Non-fatal for HTTP server - continue with config anyway
-                    pass
-            except Exception:
-                if debug_mode:
-                    # Non-fatal for HTTP server - continue with config anyway
-                    pass
+                    # Log validation errors in debug mode but continue
+                    # (HTTP server can work with partial config)
+                    for error in validation_errors:
+                        print(
+                            f"[MCP-HTTP-SERVER] Config validation warning: {error}",
+                            file=sys.stderr
+                        )
 
-            # Get database path from config
+            # Initialize MCP services with validated config
             if not config:
                 raise ValueError("Configuration not initialized")
-            if not config or not config.database:
-                raise ValueError("Database configuration not initialized")
-            db_path = Path(config.database.path)
-            db_path.parent.mkdir(parents=True, exist_ok=True)
-
-            # Initialize embedding manager
-            _embedding_manager = EmbeddingManager()
-
-            # Setup embedding provider (optional - continue if it fails)
-            try:
-                if config.embedding:
-                    provider = EmbeddingProviderFactory.create_provider(config.embedding)
-                else:
-                    raise ValueError("No embedding configuration available")
-                _embedding_manager.register_provider(provider, set_default=True)
-            except (ValueError, Exception) as e:
-                # API key or configuration issue - continue without embedding provider
-                if debug_mode:
-                    print(f"Embedding provider setup failed: {e}", file=sys.stderr)
-
-            # Create services using clean factory for consistency with stdio server
-            # This ensures same initialization across all MCP servers
-            _services = create_services(
-                db_path=db_path,
-                config=config.to_dict(),
-                embedding_manager=_embedding_manager,
+            _services, _embedding_manager, _ = await initialize_mcp_services(
+                config, debug_mode
             )
-
-            # Connect to database
-            _services.provider.connect()
 
         except Exception as e:
             raise Exception(f"Failed to initialize database and embeddings: {e}")
@@ -260,7 +226,12 @@ def main():
         pass
 
     # Create HTTP app with proper JSON response configuration
-    print(f"About to start FastMCP server on {_config.mcp.host}:{_config.mcp.port}", file=sys.stderr)
+    # Safely access MCP config with defaults
+    mcp_config = _config.mcp if _config and hasattr(_config, 'mcp') else None
+    host = getattr(mcp_config, 'host', "127.0.0.1")
+    port = getattr(mcp_config, 'port', 8000)
+
+    print(f"About to start FastMCP server on {host}:{port}", file=sys.stderr)
 
     # Use the correct FastMCP configuration for JSON responses
     app = mcp.http_app(
@@ -270,8 +241,8 @@ def main():
         transport="http",  # Use HTTP transport
     )
 
-    # Run with uvicorn using config values instead of raw args
-    uvicorn.run(app, host=_config.mcp.host, port=_config.mcp.port, log_level="info")
+    # Run with uvicorn using config values
+    uvicorn.run(app, host=host, port=port, log_level="info")
 
 
 if __name__ == "__main__":
