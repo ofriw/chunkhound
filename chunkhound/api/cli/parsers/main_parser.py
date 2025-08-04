@@ -48,8 +48,6 @@ def setup_subparsers(parser: argparse.ArgumentParser) -> argparse._SubParsersAct
     return parser.add_subparsers(dest="command", help="Available commands")
 
 
-
-
 __all__ = [
     "create_main_parser",
     "setup_subparsers",

@@ -43,8 +43,6 @@ def setup_logging(verbose: bool = False) -> None:
         )
 
 
-
-
 def create_parser() -> argparse.ArgumentParser:
     """Create and configure the complete argument parser.
 

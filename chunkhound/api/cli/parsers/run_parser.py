@@ -79,11 +79,11 @@ def process_batch_arguments(args: argparse.Namespace) -> None:
     import sys
 
     # Only process batch arguments if embedding config is present
-    if not hasattr(args, 'embedding_batch_size'):
+    if not hasattr(args, "embedding_batch_size"):
         return
 
     # Handle backward compatibility - --batch-size maps to --embedding-batch-size
-    batch_size = getattr(args, 'batch_size', None)
+    batch_size = getattr(args, "batch_size", None)
     if batch_size is not None:
         print(
             f"WARNING: --batch-size is deprecated. "
@@ -98,7 +98,7 @@ def process_batch_arguments(args: argparse.Namespace) -> None:
             args.embedding_batch_size = batch_size
 
     # Validate batch sizes if all required arguments are present
-    if hasattr(args, 'db_batch_size'):
+    if hasattr(args, "db_batch_size"):
         is_valid, error_msg = validate_batch_sizes(
             args.embedding_batch_size,
             args.db_batch_size,

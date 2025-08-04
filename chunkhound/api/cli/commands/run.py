@@ -262,7 +262,7 @@ async def _process_directory(
 
     if result["status"] in ["complete", "success"]:
         formatter.success("Processing complete:")
-        processed_count = result.get('files_processed', result.get('processed', 0))
+        processed_count = result.get("files_processed", result.get("processed", 0))
         formatter.info(f"   • Processed: {processed_count} files")
         formatter.info(f"   • Skipped: {result.get('skipped', 0)} files")
         formatter.info(f"   • Errors: {result.get('errors', 0)} files")

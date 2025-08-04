@@ -39,8 +39,9 @@ async def mcp_command(args: argparse.Namespace, config) -> None:
         import subprocess
 
         # Use config values instead of hardcoded fallbacks
-        host = config.mcp.host
-        port = config.mcp.port
+        # CLI args override config values
+        host = getattr(args, "host", None) or config.mcp.host
+        port = getattr(args, "port", None) or config.mcp.port
 
         # Run HTTP server in subprocess
         cmd = [
