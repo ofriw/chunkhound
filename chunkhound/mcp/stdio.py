@@ -1,0 +1,195 @@
+"""Stdio MCP server implementation using the base class pattern.
+
+This module implements the stdio (stdin/stdout) JSON-RPC protocol for MCP,
+inheriting common initialization and lifecycle management from MCPServerBase.
+
+CRITICAL: NO stdout output allowed - breaks JSON-RPC protocol
+ARCHITECTURE: Global state required for stdio communication model
+"""
+
+import asyncio
+import json
+import logging
+import sys
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
+import mcp.server.stdio
+import mcp.types as types
+from mcp.server import Server
+from mcp.server.models import InitializationOptions
+
+from chunkhound.core.config.config import Config
+from chunkhound.version import __version__
+
+from .base import MCPServerBase
+from .common import format_error_response, format_tool_response, parse_mcp_arguments
+from .tools import TOOL_REGISTRY, execute_tool
+
+# CRITICAL: Disable ALL logging to prevent JSON-RPC corruption
+logging.disable(logging.CRITICAL)
+for logger_name in ["", "mcp", "server", "fastmcp"]:
+    logging.getLogger(logger_name).setLevel(logging.CRITICAL + 1)
+
+# Disable loguru logger
+try:
+    from loguru import logger as loguru_logger
+
+    loguru_logger.remove()
+    loguru_logger.add(lambda _: None, level="CRITICAL")
+except ImportError:
+    pass
+
+
+class StdioMCPServer(MCPServerBase):
+    """MCP server implementation for stdio protocol.
+
+    Uses global state as required by the stdio protocol's persistent
+    connection model. All initialization happens eagerly during startup.
+    """
+
+    def __init__(self, config: Config):
+        """Initialize stdio MCP server.
+
+        Args:
+            config: Validated configuration object
+        """
+        super().__init__(config)
+
+        # Create MCP server instance
+        self.server = Server("ChunkHound Code Search")
+
+        # Event to signal initialization completion
+        self._initialization_complete = asyncio.Event()
+
+        # Register tools with the server
+        self._register_tools()
+
+    def _register_tools(self) -> None:
+        """Register all tools from the registry with the stdio server."""
+
+        # Register the unified tool handler
+        @self.server.call_tool()
+        async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
+            """Handle all tool calls through the registry."""
+            # Wait for initialization to complete
+            try:
+                await asyncio.wait_for(
+                    self._initialization_complete.wait(), timeout=30.0
+                )
+            except asyncio.TimeoutError:
+                error_response = format_error_response(
+                    Exception("Server initialization timed out"),
+                    include_traceback=self.debug_mode,
+                )
+                return [types.TextContent(type="text", text=json.dumps(error_response))]
+
+            try:
+                # Validate tool exists
+                if name not in TOOL_REGISTRY:
+                    raise ValueError(f"Unknown tool: {name}")
+
+                # Parse and validate arguments
+                parsed_args = parse_mcp_arguments(arguments)
+
+                # Execute tool from registry
+                result = await execute_tool(
+                    tool_name=name,
+                    services=self.ensure_services(),
+                    embedding_manager=self.embedding_manager,
+                    arguments=parsed_args,
+                )
+
+                # Format response for stdio protocol
+                response_text = format_tool_response(result, format_type="json")
+                return [types.TextContent(type="text", text=response_text)]
+
+            except Exception as e:
+                # Format error response
+                error_response = format_error_response(
+                    e, include_traceback=self.debug_mode
+                )
+                return [types.TextContent(type="text", text=json.dumps(error_response))]
+
+        # Register list_tools handler
+        @self.server.list_tools()
+        async def list_tools() -> list[types.Tool]:
+            """List available tools."""
+            # Wait for initialization
+            try:
+                await asyncio.wait_for(
+                    self._initialization_complete.wait(), timeout=5.0
+                )
+            except asyncio.TimeoutError:
+                # Return basic tools even if not fully initialized
+                pass
+
+            tools = []
+            for tool_name, tool in TOOL_REGISTRY.items():
+                # Skip embedding-dependent tools if no providers available
+                if tool.requires_embeddings and (
+                    not self.embedding_manager
+                    or not self.embedding_manager.list_providers()
+                ):
+                    continue
+
+                tools.append(
+                    types.Tool(
+                        name=tool_name,
+                        description=tool.description,
+                        inputSchema=tool.parameters,
+                    )
+                )
+
+            return tools
+
+    @asynccontextmanager
+    async def server_lifespan(self) -> AsyncIterator[dict]:
+        """Manage server lifecycle with proper initialization and cleanup."""
+        try:
+            # Initialize services
+            await self.initialize()
+            self._initialization_complete.set()
+            self.debug_log("Server initialization complete")
+
+            # Yield control to server
+            yield {"services": self.services, "embeddings": self.embedding_manager}
+
+        finally:
+            # Cleanup on shutdown
+            await self.cleanup()
+
+    async def run(self) -> None:
+        """Run the stdio server with proper lifecycle management."""
+        try:
+            # Set initialization options with capabilities
+            from mcp.server.lowlevel import NotificationOptions
+            
+            init_options = InitializationOptions(
+                server_name="ChunkHound Code Search",
+                server_version=__version__,
+                capabilities=self.server.get_capabilities(
+                    notification_options=NotificationOptions(),
+                    experimental_capabilities={},
+                ),
+            )
+
+            # Run with lifespan management
+            async with self.server_lifespan():
+                # Run the stdio server
+                async with mcp.server.stdio.stdio_server() as streams:
+                    self.debug_log("Stdio server started, awaiting requests")
+                    await self.server.run(
+                        streams[0],  # stdin
+                        streams[1],  # stdout
+                        init_options,
+                    )
+
+        except KeyboardInterrupt:
+            self.debug_log("Server interrupted by user")
+        except Exception as e:
+            self.debug_log(f"Server error: {e}")
+            if self.debug_mode:
+                import traceback
+
+                traceback.print_exc(file=sys.stderr)
