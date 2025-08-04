@@ -231,11 +231,39 @@ class Config(BaseModel):
         Returns:
             List of validation errors (empty if valid)
         """
-        # Use unified validation through factory (avoids circular imports)
-        # Note: This method is legacy - prefer create_validated_config() directly
-        from chunkhound.api.cli.utils.config_helpers import validate_config_for_command
+        errors = []
 
-        return validate_config_for_command(self, command)
+        # Check for missing configuration
+        missing_config = self.get_missing_config()
+        if missing_config:
+            errors.extend(
+                f"Missing required configuration: {item}" for item in missing_config
+            )
+
+        # Validate embedding provider requirements for index and MCP commands
+        if command in ["index", "mcp"]:
+            embedding_config = self.embedding
+
+            if embedding_config:
+                if (
+                    embedding_config.provider in ["tei", "bge-in-icl"]
+                    and not embedding_config.base_url
+                ):
+                    errors.append(
+                        f"--base-url required for {embedding_config.provider} provider"
+                    )
+
+                if embedding_config.provider == "openai-compatible":
+                    if not embedding_config.model:
+                        errors.append(
+                            f"--model required for {embedding_config.provider} provider"
+                        )
+                    if not embedding_config.base_url:
+                        errors.append(
+                            f"--base-url required for {embedding_config.provider} provider"
+                        )
+
+        return errors
 
     def get_missing_config(self) -> list[str]:
         """
