@@ -235,13 +235,11 @@ class TestMCPServerConfigIntegration:
 
     def test_mcp_server_config_validation(self):
         """Test MCP server config validation."""
-        from chunkhound.api.cli.utils.config_helpers import validate_config_for_command
-
         # Create config missing API key
         os.environ.pop("CHUNKHOUND_EMBEDDING__API_KEY", None)
 
         config = Config()
-        errors = validate_config_for_command(config, "mcp")
+        errors = config.validate_for_command("mcp")
 
         # Should have validation errors but not fail
         # MCP servers work without embeddings

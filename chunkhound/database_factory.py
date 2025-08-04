@@ -38,6 +38,7 @@ if TYPE_CHECKING:
 
 class DatabaseServices(NamedTuple):
     """Clean service bundle for modern internal architecture."""
+
     provider: "DatabaseProvider"
     indexing_coordinator: "IndexingCoordinator"
     search_service: "SearchService"
@@ -50,12 +51,12 @@ def create_services(
     embedding_manager: EmbeddingManager | None = None,
 ) -> DatabaseServices:
     """Create clean service bundle for modern internal architecture.
-    
+
     Args:
         db_path: Path to database file
         config: Registry configuration dictionary
         embedding_manager: Optional embedding manager
-        
+
     Returns:
         DatabaseServices bundle with all components
     """
@@ -76,10 +77,11 @@ def create_database_with_dependencies(
     embedding_manager: EmbeddingManager | None = None,
 ) -> "Database":
     """Legacy wrapper - use create_services() for clean internal architecture.
-    
+
     Maintained for external compatibility only.
     """
     from chunkhound.database import Database
+
     services = create_services(db_path, config, embedding_manager)
 
     return Database(

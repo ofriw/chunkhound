@@ -27,6 +27,7 @@ MAX_ALLOWED_TOKENS = 25000
 # Type definitions for return values
 class PaginationInfo(TypedDict):
     """Pagination metadata for search results."""
+
     offset: int
     page_size: int
     has_more: bool
@@ -36,12 +37,14 @@ class PaginationInfo(TypedDict):
 
 class SearchResponse(TypedDict):
     """Response structure for search operations."""
+
     results: list[dict[str, Any]]
     pagination: PaginationInfo
 
 
 class HealthStatus(TypedDict):
     """Health check response structure."""
+
     status: str
     version: str
     database_connected: bool
@@ -242,7 +245,9 @@ async def get_stats_impl(services: DatabaseServices) -> dict[str, Any]:
     return stats
 
 
-async def health_check_impl(services: DatabaseServices, embedding_manager: EmbeddingManager) -> HealthStatus:
+async def health_check_impl(
+    services: DatabaseServices, embedding_manager: EmbeddingManager
+) -> HealthStatus:
     """Core health check implementation.
 
     Args:

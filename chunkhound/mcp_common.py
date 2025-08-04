@@ -29,9 +29,19 @@ except ImportError:
 
 
 def debug_log(message: str) -> None:
-    """Log debug message to stderr if debug mode is enabled."""
+    """Log debug message to file if debug mode is enabled."""
     if os.getenv("CHUNKHOUND_DEBUG", "").lower() in ("true", "1", "yes"):
-        print(f"[MCP] {message}", file=sys.stderr)
+        # Write to debug file instead of stderr to preserve JSON-RPC protocol
+        debug_file = os.getenv("CHUNKHOUND_DEBUG_FILE", "/tmp/chunkhound_mcp_debug.log")
+        try:
+            with open(debug_file, "a") as f:
+                from datetime import datetime
+                timestamp = datetime.now().isoformat()
+                f.write(f"[{timestamp}] [MCP] {message}\n")
+                f.flush()
+        except Exception:
+            # Silently fail if we can't write to debug file
+            pass
 
 
 async def initialize_mcp_services(
@@ -90,4 +100,3 @@ async def initialize_mcp_services(
     services.provider.connect()
 
     return services, embedding_manager, config
-

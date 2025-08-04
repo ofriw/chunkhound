@@ -12,6 +12,17 @@ def add_common_mcp_arguments(parser: argparse.ArgumentParser) -> None:
     Args:
         parser: ArgumentParser to add arguments to
     """
+    # Positional path argument
+    from pathlib import Path
+    
+    parser.add_argument(
+        "path",
+        type=Path,
+        nargs="?",
+        default=Path("."),
+        help="Directory path to index (default: current directory)",
+    )
+    
     # Config file argument
     parser.add_argument("--config", type=str, help="Path to configuration file")
 

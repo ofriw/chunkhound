@@ -123,7 +123,13 @@ class TestServerStartup:
     @pytest.mark.asyncio
     async def test_mcp_http_server_starts(self):
         """Test that MCP HTTP server can start without immediate crash."""
-        # Use port 0 to let the OS assign a free port
+        import socket
+        
+        # Find a free port
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.bind(("127.0.0.1", 0))
+            free_port = s.getsockname()[1]
+        
         proc = await asyncio.create_subprocess_exec(
             "uv",
             "run",
@@ -131,7 +137,7 @@ class TestServerStartup:
             "mcp",
             "--http",
             "--port",
-            "0",
+            str(free_port),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             env={**os.environ, "CHUNKHOUND_MCP_MODE": "1"},  # Suppress logs
