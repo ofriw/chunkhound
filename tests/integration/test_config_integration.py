@@ -181,7 +181,7 @@ class TestMCPServerConfigIntegration:
         os.environ["CHUNKHOUND_EMBEDDING__API_KEY"] = "test-key"
 
         # Import server components
-        from chunkhound.mcp_server import _server_config
+        # Note: _server_config no longer exists in new architecture
 
         # Simulate server lifespan initialization
         class MockArgs:

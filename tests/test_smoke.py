@@ -49,8 +49,8 @@ class TestModuleImports:
     def test_critical_imports(self):
         """Test critical modules that have caused issues before."""
         critical_modules = [
-            "chunkhound.mcp_server",
-            "chunkhound.mcp_http_server",  # This would have caught the bug!
+            "chunkhound.mcp.stdio",
+            "chunkhound.mcp.http",  # This would have caught the bug!
             "chunkhound.api.cli.main",
             "chunkhound.database",
             "chunkhound.embeddings",
@@ -104,7 +104,7 @@ class TestCLICommands:
                 "run",
                 "python",
                 "-c",
-                "import chunkhound.mcp_http_server; print('OK')",
+                "import chunkhound.mcp.http; print('OK')",
             ],
             capture_output=True,
             text=True,

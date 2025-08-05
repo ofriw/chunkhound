@@ -35,7 +35,7 @@ class TestMCPServerStdioConfigPattern:
         """
         MCP server lifespan must use environment-based config with validation.
 
-        This test will initially fail until mcp_server.py is updated.
+        This test will initially fail until MCP stdio server is updated.
         """
         # Set environment variables like MCP launcher would
         os.environ["CHUNKHOUND_PROJECT_ROOT"] = str(self.project_dir)
@@ -103,18 +103,19 @@ class TestMCPServerStdioConfigPattern:
 
         This test will initially fail until imports are added.
         """
-        # Check if mcp_server.py imports the required helpers
+        # Check if MCP stdio server imports the required helpers
         try:
-            from chunkhound.mcp_server import create_validated_config
+            # Note: create_validated_config is now in api.cli.utils.config_factory
+            from chunkhound.api.cli.utils.config_factory import create_validated_config
 
             # Should be able to import config factory function
             assert create_validated_config is not None
         except ImportError:
             # This will fail initially - config factory not imported
-            pytest.fail("mcp_server.py must import create_validated_config")
+            pytest.fail("mcp stdio server must import create_validated_config")
 
-    @patch("chunkhound.mcp_server._services")
-    @patch("chunkhound.mcp_server._embedding_manager")
+    @patch("chunkhound.mcp.stdio._services", new=None)
+    @patch("chunkhound.mcp.stdio._embedding_manager", new=None)
     def test_mcp_server_uses_database_factory(
         self, mock_embedding_manager, mock_services
     ):
@@ -246,14 +247,14 @@ class TestMCPServerCodeAnalysis:
         Tests clean internal architecture using unified config creation.
         """
         # Check mcp_server.py source code
-        from chunkhound import mcp_server
+        from chunkhound.mcp import stdio as mcp_server
         import inspect
 
         source = inspect.getsource(mcp_server)
 
         # Should import unified config factory
         assert "create_validated_config" in source, (
-            "mcp_server.py must import create_validated_config from config_factory"
+            "mcp stdio server must import create_validated_config from config_factory"
         )
 
     def test_mcp_server_stdio_has_services_factory_usage(self):
@@ -262,14 +263,14 @@ class TestMCPServerCodeAnalysis:
 
         Tests modern service-oriented architecture.
         """
-        from chunkhound import mcp_server
+        from chunkhound.mcp import stdio as mcp_server
         import inspect
 
         source = inspect.getsource(mcp_server)
 
         # Should use clean services factory
         assert "create_services" in source, (
-            "mcp_server.py must use create_services for clean architecture"
+            "mcp stdio server must use create_services for clean architecture"
         )
 
     def test_mcp_server_http_has_config_factory_import(self):
@@ -278,14 +279,14 @@ class TestMCPServerCodeAnalysis:
 
         Tests clean internal architecture using unified config creation.
         """
-        from chunkhound import mcp_http_server
+        from chunkhound.mcp import http as mcp_http_server
         import inspect
 
         source = inspect.getsource(mcp_http_server)
 
         # Should import unified config factory
         assert "create_validated_config" in source, (
-            "mcp_http_server.py must import create_validated_config from config_factory"
+            "mcp http server must import create_validated_config from config_factory"
         )
 
     def test_mcp_server_http_has_services_factory_usage(self):
@@ -294,14 +295,14 @@ class TestMCPServerCodeAnalysis:
 
         Tests modern service-oriented architecture.
         """
-        from chunkhound import mcp_http_server
+        from chunkhound.mcp import http as mcp_http_server
         import inspect
 
         source = inspect.getsource(mcp_http_server)
 
         # Should use clean services factory
         assert "create_services" in source, (
-            "mcp_http_server.py must use create_services for clean architecture"
+            "mcp http server must use create_services for clean architecture"
         )
 
     def test_mcp_servers_no_target_dir_in_config(self):
@@ -311,7 +312,7 @@ class TestMCPServerCodeAnalysis:
         This test will initially fail until Config() calls are fixed.
         """
         # Check both server files
-        from chunkhound import mcp_server, mcp_http_server
+        from chunkhound.mcp import stdio as mcp_server, http as mcp_http_server
         import inspect
 
         for module in [mcp_server, mcp_http_server]:
@@ -337,7 +338,7 @@ class TestMCPServerCodeAnalysis:
 
         Tests modern unified config creation pattern.
         """
-        from chunkhound import mcp_server, mcp_http_server
+        from chunkhound.mcp import stdio as mcp_server, http as mcp_http_server
         import inspect
 
         for module in [mcp_server, mcp_http_server]:
