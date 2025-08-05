@@ -218,6 +218,7 @@ mcp.json
 
 # Backup directories
 chunkhound-backup-*/
+.chunkhound.backup/
 
 # Debug and temporary development files
 cli_minimal.py
