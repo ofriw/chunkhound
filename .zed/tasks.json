@@ -1,8 +1,0 @@
-[
-  {
-    "label": "Run ChunkHound CLI",
-    "command": "venv/bin/python",
-    "args": ["-m", "chunkhound.cli", "run", ".", "--verbose"],
-    "cwd": "${ZED_WORKTREE_ROOT}"
-  }
-]
