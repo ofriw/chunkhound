@@ -37,7 +37,7 @@ class HttpMCPServer(MCPServerBase):
         self.port = port
 
         # Create FastMCP instance
-        self.app = FastMCP("ChunkHound Code Search")
+        self.app: FastMCP = FastMCP("ChunkHound Code Search")
 
         # Register tools with the server
         self._register_tools()
@@ -160,3 +160,43 @@ class HttpMCPServer(MCPServerBase):
             # Cleanup resources
             await self.cleanup()
             self.debug_log("Server shutdown complete")
+
+
+async def main() -> None:
+    """Main entry point for HTTP server"""
+    import argparse
+    import asyncio
+    import sys
+    from chunkhound.api.cli.utils.config_factory import create_validated_config
+    from chunkhound.mcp.common import add_common_mcp_arguments
+    
+    parser = argparse.ArgumentParser(
+        description="ChunkHound MCP HTTP server (FastMCP 2.0)",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+
+    # Add common MCP arguments
+    add_common_mcp_arguments(parser)
+
+    # HTTP-specific arguments
+    parser.add_argument("--host", default="localhost", help="Host to bind to")
+    parser.add_argument("--port", type=int, default=5173, help="Port to bind to")
+
+    args = parser.parse_args()
+
+    # Create and validate configuration
+    config, validation_errors = create_validated_config(args, "mcp")
+
+    if validation_errors:
+        for error in validation_errors:
+            print(f"Error: {error}", file=sys.stderr)
+        sys.exit(1)
+
+    # Create and run the HTTP server
+    server = HttpMCPServer(config, port=args.port)
+    await server.run()
+
+
+if __name__ == "__main__":
+    import asyncio
+    asyncio.run(main())

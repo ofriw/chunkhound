@@ -13,6 +13,7 @@ import logging
 import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import Any
 
 import mcp.server.stdio
 import mcp.types as types
@@ -57,7 +58,7 @@ class StdioMCPServer(MCPServerBase):
         super().__init__(config)
 
         # Create MCP server instance
-        self.server = Server("ChunkHound Code Search")
+        self.server: Server = Server("ChunkHound Code Search")
 
         # Event to signal initialization completion
         self._initialization_complete = asyncio.Event()
@@ -193,3 +194,46 @@ class StdioMCPServer(MCPServerBase):
                 import traceback
 
                 traceback.print_exc(file=sys.stderr)
+
+
+async def main(args: Any = None) -> None:
+    """Main entry point for the MCP stdio server.
+    
+    Args:
+        args: Pre-parsed arguments. If None, will parse from sys.argv.
+    """
+    import argparse
+    from chunkhound.api.cli.utils.config_factory import create_validated_config
+    from chunkhound.mcp.common import add_common_mcp_arguments
+    
+    if args is None:
+        # Direct invocation - parse arguments
+        parser = argparse.ArgumentParser(
+            description="ChunkHound MCP stdio server",
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+        )
+        # Add common MCP arguments
+        add_common_mcp_arguments(parser)
+        # Parse arguments
+        args = parser.parse_args()
+
+    # Create and validate configuration
+    config, validation_errors = create_validated_config(args, "mcp")
+
+    if validation_errors:
+        # CRITICAL: Cannot print to stderr in MCP mode - breaks JSON-RPC protocol
+        # Exit silently with error code
+        sys.exit(1)
+
+    # Create and run the stdio server
+    server = StdioMCPServer(config)
+    await server.run()
+
+
+def main_sync() -> None:
+    """Synchronous wrapper for CLI entry point."""
+    asyncio.run(main())
+
+
+if __name__ == "__main__":
+    main_sync()

@@ -47,7 +47,7 @@ async def mcp_command(args: argparse.Namespace, config) -> None:
         cmd = [
             sys.executable,
             "-m",
-            "chunkhound.mcp_http_server",
+            "chunkhound.mcp.http",
             "--host",
             str(host),
             "--port",
@@ -67,7 +67,7 @@ async def mcp_command(args: argparse.Namespace, config) -> None:
         sys.exit(process.returncode)
     else:
         # Use stdio transport (default)
-        from chunkhound.mcp_server import main
+        from chunkhound.mcp.stdio import main
 
         await main(args=args)
 

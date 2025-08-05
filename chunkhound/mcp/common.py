@@ -6,7 +6,7 @@ including error handling, response formatting, and validation helpers.
 
 import asyncio
 import json
-from typing import Any, TypeVar
+from typing import Any, Coroutine, TypeVar
 
 T = TypeVar("T")
 
@@ -36,8 +36,8 @@ class EmbeddingProviderError(MCPError):
 
 
 async def with_timeout(
-    coro, timeout_seconds: float, error_message: str = "Operation timed out"
-) -> Any:
+    coro: Coroutine[Any, Any, T], timeout_seconds: float, error_message: str = "Operation timed out"
+) -> T:
     """Execute coroutine with timeout and custom error message.
 
     Args:
@@ -166,3 +166,46 @@ def parse_mcp_arguments(args: dict[str, Any]) -> dict[str, Any]:
         parsed["threshold"] = float(parsed["threshold"])
 
     return parsed
+
+
+def add_common_mcp_arguments(parser: Any) -> None:
+    """Add common MCP server arguments to a parser.
+
+    This function adds all the configuration arguments that both
+    stdio and HTTP MCP servers support.
+
+    Args:
+        parser: ArgumentParser to add arguments to
+    """
+    # Positional path argument
+    from pathlib import Path
+    
+    parser.add_argument(
+        "path",
+        type=Path,
+        nargs="?",
+        default=Path("."),
+        help="Directory path to index (default: current directory)",
+    )
+    
+    # Config file argument
+    parser.add_argument("--config", type=str, help="Path to configuration file")
+
+    # Database arguments
+    parser.add_argument("--db", type=str, help="Database path")
+    parser.add_argument(
+        "--database-provider", choices=["duckdb", "lancedb"], help="Database provider"
+    )
+
+    # Embedding arguments
+    parser.add_argument(
+        "--provider",
+        choices=["openai", "ollama", "tei", "bge-icl", "openai-compatible"],
+        help="Embedding provider",
+    )
+    parser.add_argument("--model", type=str, help="Embedding model")
+    parser.add_argument("--api-key", type=str, help="API key for embedding provider")
+    parser.add_argument("--base-url", type=str, help="Base URL for embedding provider")
+
+    # Debug flag
+    parser.add_argument("--debug", action="store_true", help="Enable debug mode")
