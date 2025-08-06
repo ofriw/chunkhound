@@ -48,6 +48,7 @@ dependencies = [
     "tree-sitter-groovy>=0.1.2",
     "tree-sitter-kotlin>=0.3.0",
     "tree-sitter-make>=0.1.0",
+    "watchdog>=4.0.0",
     "tree-sitter-bash>=0.21.0",
     "tree-sitter-c>=0.21.0,<0.23.0",
     "tree-sitter-cpp>=0.21.0,<0.24.0",
