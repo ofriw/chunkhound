@@ -6,6 +6,7 @@ from loguru import logger
 
 from chunkhound.core.models import File
 from chunkhound.core.types.common import Language
+from pathlib import Path
 
 if TYPE_CHECKING:
     from chunkhound.providers.database.duckdb.connection_manager import (
@@ -73,7 +74,7 @@ class DuckDBFileRepository:
                     RETURNING id
                 """,
                     [
-                        str(file.path),
+                        str(Path(file.path).resolve()),
                         file.name,
                         file.extension,
                         file.size_bytes,
@@ -109,12 +110,15 @@ class DuckDBFileRepository:
                 )
             else:
                 # Fallback for tests
+                # Resolve path to handle symlinks and ensure consistent lookups
+                from pathlib import Path
+                resolved_path = str(Path(path).resolve())
                 result = self.connection_manager.connection.execute(
                     """
                     SELECT id, path, name, extension, size, modified_time, language, created_at, updated_at
                     FROM files WHERE path = ?
                 """,
-                    [path],
+                    [resolved_path],
                 ).fetchone()
 
             if not result:

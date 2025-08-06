@@ -255,6 +255,17 @@ class SerialDatabaseProvider(ABC):
             "search_regex", pattern, page_size, offset, path_filter
         )
 
+    def search_chunks_regex(
+        self, pattern: str, file_path: str | None = None
+    ) -> list[dict[str, Any]]:
+        """Backward compatibility wrapper for legacy search_chunks_regex calls."""
+        results, _ = self.search_regex(
+            pattern=pattern,
+            path_filter=file_path,
+            page_size=1000  # Large page for legacy behavior
+        )
+        return results
+
     def search_text(
         self, query: str, page_size: int = 10, offset: int = 0
     ) -> tuple[list[dict[str, Any]], dict[str, Any]]:

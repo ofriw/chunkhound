@@ -113,7 +113,7 @@ class Chunker:
             "end_line": end_line,
             "code": cleaned_code,
             "chunk_type": chunk_type,
-            "file_path": str(file_path),
+            "file_path": str(file_path.resolve()),
             "line_count": line_count,
             "char_count": len(cleaned_code),
             "relative_path": self._get_relative_path(file_path),

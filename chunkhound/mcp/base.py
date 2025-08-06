@@ -20,6 +20,7 @@ from chunkhound.core.config import EmbeddingProviderFactory
 from chunkhound.core.config.config import Config
 from chunkhound.database_factory import DatabaseServices, create_services
 from chunkhound.embeddings import EmbeddingManager
+from chunkhound.services.realtime_indexing_service import RealtimeIndexingService
 
 
 class MCPServerBase(ABC):
@@ -50,6 +51,7 @@ class MCPServerBase(ABC):
         # Service components - initialized lazily or eagerly based on subclass
         self.services: DatabaseServices | None = None
         self.embedding_manager: EmbeddingManager | None = None
+        self.realtime_indexing: RealtimeIndexingService | None = None
 
         # Initialization state
         self._initialized = False
@@ -125,6 +127,16 @@ class MCPServerBase(ABC):
 
             # Connect to database
             self.services.provider.connect()
+            
+            # Start real-time indexing service
+            self.debug_log("Starting real-time indexing service")
+            self.realtime_indexing = RealtimeIndexingService(self.services, self.config)
+            
+            # Use parent directory of database for watching
+            # This allows watching the project root while DB is in .chunkhound/
+            watch_path = db_path.parent.parent
+            await self.realtime_indexing.start(watch_path)
+            
             self._initialized = True
 
             self.debug_log("Service initialization complete")
@@ -134,6 +146,11 @@ class MCPServerBase(ABC):
 
         This method is idempotent - safe to call multiple times.
         """
+        # Stop real-time indexing first
+        if self.realtime_indexing:
+            self.debug_log("Stopping real-time indexing service")
+            await self.realtime_indexing.stop()
+            
         if self.services and self.services.provider.is_connected:
             self.debug_log("Closing database connection")
             self.services.provider.disconnect()
