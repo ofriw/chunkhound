@@ -93,6 +93,23 @@ class IndexingConfig(BaseModel):
             "**/.cache/**",
             "**/tmp/**",
             "**/temp/**",
+            # Editor temporary file patterns
+            # Vim patterns
+            "**/*.swp",
+            "**/*.swo",
+            "**/.*.swp",
+            "**/.*.swo",
+            # VS Code / general patterns
+            "**/*.tmp.*",
+            "**/*.*.tmp",
+            "**/*~.tmp",
+            # Emacs patterns
+            "**/.*#",
+            "**/#*#",
+            "**/.*~",
+            # Generic temp patterns
+            "**/*.tmp???",
+            "**/*.???tmp",
             # Backup and old files
             "**/*.backup",
             "**/*.bak",
