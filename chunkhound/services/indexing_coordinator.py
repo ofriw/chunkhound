@@ -126,7 +126,8 @@ class IndexingCoordinator(BaseService):
         if self._locks_lock is None:
             self._locks_lock = asyncio.Lock()
 
-        file_key = str(file_path.absolute())
+        # Use resolve() instead of absolute() to handle symlinks consistently
+        file_key = str(file_path.resolve())
 
         # Use the locks lock to ensure thread-safe access to the locks dictionary
         async with self._locks_lock:
@@ -141,7 +142,8 @@ class IndexingCoordinator(BaseService):
         Args:
             file_path: Path to the file
         """
-        file_key = str(file_path.absolute())
+        # Use resolve() instead of absolute() to handle symlinks consistently
+        file_key = str(file_path.resolve())
         if file_key in self._file_locks:
             del self._file_locks[file_key]
             logger.debug(f"Cleaned up lock for deleted file: {file_key}")
@@ -441,6 +443,7 @@ class IndexingCoordinator(BaseService):
                 "chunks": len(chunks),
                 "chunk_ids": chunk_ids,
                 "embeddings": embeddings_generated,
+                "embeddings_skipped": skip_embeddings,
             }
 
             # Include chunk data for batch processing
@@ -1018,7 +1021,7 @@ class IndexingCoordinator(BaseService):
             from chunkhound.core.config.config import Config
 
             config = Config.from_environment(directory)
-            exclude_patterns = config.indexing.get_effective_exclude_patterns(directory)
+            exclude_patterns = config.indexing.exclude
 
         # Use custom directory walker that respects exclude patterns during traversal
         discovered_files = self._walk_directory_with_excludes(
@@ -1159,11 +1162,11 @@ class IndexingCoordinator(BaseService):
         try:
             # Create set of absolute paths for fast lookup
             current_file_paths = {
-                str(file_path.absolute()) for file_path in current_files
+                str(file_path.resolve()) for file_path in current_files
             }
 
             # Get all files in database that are under this directory
-            directory_str = str(directory.absolute())
+            directory_str = str(directory.resolve())
             query = """
                 SELECT id, path
                 FROM files

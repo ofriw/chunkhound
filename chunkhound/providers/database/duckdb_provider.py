@@ -972,7 +972,7 @@ class DuckDBProvider(SerialDatabaseProvider):
                 RETURNING id
             """,
                 [
-                    str(file.path),
+                    str(Path(file.path).resolve()),
                     file.name if hasattr(file, "name") else file.path.name,
                     file.extension if hasattr(file, "extension") else file.path.suffix,
                     file.size_bytes if hasattr(file, "size_bytes") else None,
@@ -1005,13 +1005,15 @@ class DuckDBProvider(SerialDatabaseProvider):
         self, conn: Any, state: dict[str, Any], path: str, as_model: bool
     ) -> dict[str, Any] | File | None:
         """Executor method for get_file_by_path - runs in DB thread."""
+        # Resolve path to handle symlinks and ensure consistent lookups
+        resolved_path = str(Path(path).resolve())
         result = conn.execute(
             """
             SELECT id, path, name, extension, size, modified_time, language, created_at, updated_at
             FROM files
             WHERE path = ?
         """,
-            [str(path)],
+            [resolved_path],
         ).fetchone()
 
         if result is None:
@@ -1106,8 +1108,10 @@ class DuckDBProvider(SerialDatabaseProvider):
         track_operation(state)
 
         # Get file ID first
+        # Resolve path to handle symlinks and ensure consistent lookups
+        resolved_path = str(Path(file_path).resolve())
         result = conn.execute(
-            "SELECT id FROM files WHERE path = ?", [file_path]
+            "SELECT id FROM files WHERE path = ?", [resolved_path]
         ).fetchone()
 
         if not result:
@@ -1827,6 +1831,17 @@ class DuckDBProvider(SerialDatabaseProvider):
         return self._execute_in_db_thread_sync(
             "search_regex", pattern, page_size, offset, path_filter
         )
+
+    def search_chunks_regex(
+        self, pattern: str, file_path: str | None = None
+    ) -> list[dict[str, Any]]:
+        """Backward compatibility wrapper for legacy search_chunks_regex calls."""
+        results, _ = self.search_regex(
+            pattern=pattern,
+            path_filter=file_path,
+            page_size=1000  # Large page for legacy behavior
+        )
+        return results
 
     def _executor_search_regex(
         self,

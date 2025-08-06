@@ -26,7 +26,9 @@ async def mcp_command(args: argparse.Namespace, config) -> None:
 
     # Set database path environment variable if provided
     if hasattr(args, "db") and args.db:
-        os.environ["CHUNKHOUND_DATABASE__PATH"] = str(args.db)
+        # Resolve database path to handle symlinks and relative paths
+        resolved_db_path = Path(args.db).resolve()
+        os.environ["CHUNKHOUND_DATABASE__PATH"] = str(resolved_db_path)
     elif hasattr(args, "path") and args.path != Path("."):
         # Set default database path based on project path
         project_path = args.path.resolve()

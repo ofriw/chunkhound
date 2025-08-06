@@ -86,7 +86,7 @@ class File:
             stat = file_path.stat()
 
             return cls(
-                path=FilePath(str(file_path.absolute())),
+                path=FilePath(str(file_path.resolve())),
                 mtime=Timestamp(stat.st_mtime),
                 language=Language.from_file_extension(file_path),
                 size_bytes=stat.st_size,
