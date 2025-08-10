@@ -47,7 +47,7 @@ class DatabaseProvider(Protocol):
 ### EmbeddingProvider Protocol
 ```python
 # CONTRACT: Defines embedding generation interface
-# IMPLEMENTATIONS: OpenAI, Ollama, TEI, BGE
+# IMPLEMENTATIONS: OpenAI, Ollama, TEI
 
 # REQUIRED_METHODS:
 - embed(texts) -> vectors: Batch embedding generation

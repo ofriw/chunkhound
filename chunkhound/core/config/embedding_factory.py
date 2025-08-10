@@ -14,7 +14,6 @@ from .embedding_config import EmbeddingConfig
 
 if TYPE_CHECKING:
     from chunkhound.embeddings import (
-        BGEInICLProvider,
         EmbeddingProvider,
         OpenAICompatibleProvider,
         OpenAIEmbeddingProvider,
@@ -66,8 +65,6 @@ class EmbeddingProviderFactory:
             )
         elif config.provider == "tei":
             return EmbeddingProviderFactory._create_tei_provider(provider_config)
-        elif config.provider == "bge-in-icl":
-            return EmbeddingProviderFactory._create_bge_in_icl_provider(provider_config)
         else:
             raise ValueError(f"Unsupported provider: {config.provider}")
 
@@ -180,51 +177,6 @@ class EmbeddingProviderFactory:
         except Exception as e:
             raise ValueError(f"Failed to create TEI provider: {e}") from e
 
-    @staticmethod
-    def _create_bge_in_icl_provider(config: dict[str, Any]) -> "BGEInICLProvider":
-        """Create BGE-IN-ICL embedding provider."""
-        try:
-            from chunkhound.embeddings import create_bge_in_icl_provider
-        except ImportError:
-            try:
-                from embeddings import create_bge_in_icl_provider
-            except ImportError:
-                raise ImportError(
-                    "Failed to import BGE-IN-ICL provider. "
-                    "Ensure chunkhound.embeddings module is available."
-                )
-
-        # Extract parameters
-        base_url = config["base_url"]  # Required
-        model = config.get("model", "bge-in-icl")
-        api_key = config.get("api_key")
-        language = config.get("language", "auto")
-        enable_icl = config.get("enable_icl", True)
-        adaptive_batching = config.get("adaptive_batching", True)
-        min_batch_size = config.get("min_batch_size", 10)
-        max_batch_size = config.get("max_batch_size", 100)
-        context_cache_size = config.get("context_cache_size", 100)
-
-        logger.debug(
-            f"Creating BGE-IN-ICL provider: model={model}, base_url={base_url}, "
-            f"language={language}, enable_icl={enable_icl}, "
-            f"adaptive_batching={adaptive_batching}, api_key={'***' if api_key else None}"
-        )
-
-        try:
-            return create_bge_in_icl_provider(
-                base_url=base_url,
-                model=model,
-                api_key=api_key,
-                language=language,
-                enable_icl=enable_icl,
-                adaptive_batching=adaptive_batching,
-                min_batch_size=min_batch_size,
-                max_batch_size=max_batch_size,
-                context_cache_size=context_cache_size,
-            )
-        except Exception as e:
-            raise ValueError(f"Failed to create BGE-IN-ICL provider: {e}") from e
 
     @staticmethod
     def get_supported_providers() -> list[str]:
@@ -234,7 +186,7 @@ class EmbeddingProviderFactory:
         Returns:
             List of supported provider names
         """
-        return ["openai", "openai-compatible", "tei", "bge-in-icl"]
+        return ["openai", "openai-compatible", "tei"]
 
     @staticmethod
     def validate_provider_dependencies(provider: str) -> tuple[bool, str | None]:
@@ -258,8 +210,6 @@ class EmbeddingProviderFactory:
                 from chunkhound.embeddings import create_openai_compatible_provider
             elif provider == "tei":
                 from chunkhound.embeddings import create_tei_provider
-            elif provider == "bge-in-icl":
-                from chunkhound.embeddings import create_bge_in_icl_provider
 
             return True, None
 
@@ -379,20 +329,6 @@ class EmbeddingProviderFactory:
                     "requires": ["base_url"],
                     "optional": ["model"],
                     "default_model": "auto-detected",
-                }
-            )
-        elif provider == "bge-in-icl":
-            info.update(
-                {
-                    "description": "BGE-IN-ICL with advanced in-context learning",
-                    "requires": ["base_url"],
-                    "optional": ["api_key", "model", "language", "enable_icl"],
-                    "default_model": "bge-in-icl",
-                    "features": [
-                        "in-context learning",
-                        "adaptive batching",
-                        "context caching",
-                    ],
                 }
             )
 

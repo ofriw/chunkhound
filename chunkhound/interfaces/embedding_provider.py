@@ -26,17 +26,17 @@ class EmbeddingProvider(Protocol):
     """Abstract protocol for embedding providers.
 
     Defines the interface that all embedding implementations must follow.
-    This enables pluggable embedding backends (OpenAI, BGE, local models, etc.)
+    This enables pluggable embedding backends (OpenAI, local models, etc.)
     """
 
     @property
     def name(self) -> str:
-        """Provider name (e.g., 'openai', 'bge', 'local')."""
+        """Provider name (e.g., 'openai', 'tei', 'local')."""
         ...
 
     @property
     def model(self) -> str:
-        """Model name (e.g., 'text-embedding-3-small', 'bge-in-icl')."""
+        """Model name (e.g., 'text-embedding-3-small', 'sentence-transformers/all-MiniLM-L6-v2')."""
         ...
 
     @property

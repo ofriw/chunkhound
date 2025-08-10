@@ -51,7 +51,7 @@ def validate_provider_args(
     if not provider:
         logger.error(
             "Embedding provider must be specified. Choose from: openai, "
-            "openai-compatible, tei, bge-in-icl. Set via --provider, "
+            "openai-compatible, tei. Set via --provider, "
             "CHUNKHOUND_EMBEDDING__PROVIDER, or in config file."
         )
         return False
@@ -77,10 +77,6 @@ def validate_provider_args(
             logger.error("Base URL required for TEI provider")
             return False
 
-    elif provider == "bge-in-icl":
-        if not base_url:
-            logger.error("Base URL required for BGE-IN-ICL provider")
-            return False
 
     else:
         logger.error(f"Unknown provider: {provider}")

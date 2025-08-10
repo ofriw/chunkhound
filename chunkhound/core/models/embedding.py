@@ -30,7 +30,7 @@ class Embedding:
 
     Attributes:
         chunk_id: Reference to the chunk this embedding represents
-        provider: Name of the embedding provider (e.g., "openai", "bge")
+        provider: Name of the embedding provider (e.g., "openai", "tei")
         model: Model name used to generate the embedding
         dims: Number of dimensions in the embedding vector
         vector: The actual embedding vector

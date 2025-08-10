@@ -130,7 +130,7 @@ def main() -> None:
         ):
             logger.error(
                 "Embedding provider must be specified. "
-                "Choose from: openai, openai-compatible, tei, bge-in-icl\n"
+                "Choose from: openai, openai-compatible, tei\n"
                 "Set via --provider, CHUNKHOUND_EMBEDDING__PROVIDER environment "
                 "variable, or in config file."
             )

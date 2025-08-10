@@ -218,7 +218,7 @@ async def _setup_embedding_manager(
         if args.provider == "openai":
             model = config.get_model()
             formatter.success(f"Embedding provider: {args.provider}/{model}")
-        elif args.provider in ["openai-compatible", "tei", "bge-in-icl"]:
+        elif args.provider in ["openai-compatible", "tei"]:
             model = config.get_model()
             formatter.success(
                 f"Embedding provider: {args.provider}/{model} at {args.base_url}"

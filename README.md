@@ -490,17 +490,6 @@ Text Embeddings Inference (TEI):
 }
 ```
 
-BGE-IN-ICL:
-```json
-{
-  "embedding": {
-    "provider": "bge-in-icl",
-    "base_url": "http://localhost:8080",
-    "language": "python",
-    "enable_icl": true
-  }
-}
-```
 
 **Security Note**: 
 - API keys in config files are convenient for local development
@@ -516,7 +505,7 @@ chunkhound.json
 **Configuration Options**:
 
 - **`embedding`**: Embedding provider settings
-  - `provider`: Choose from `openai`, `openai-compatible`, `tei`, `bge-in-icl`
+  - `provider`: Choose from `openai`, `openai-compatible`, `tei`
   - `model`: Model name (uses provider default if not specified)
   - `api_key`: API key for authentication
   - `base_url`: Base URL for API (for local/custom providers)

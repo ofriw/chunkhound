@@ -47,7 +47,7 @@ class EmbeddingConfig(BaseSettings):
     )
 
     # Provider Selection
-    provider: Literal["openai", "openai-compatible", "tei", "bge-in-icl"] = Field(
+    provider: Literal["openai", "openai-compatible", "tei"] = Field(
         description="Embedding provider to use (required)"
     )
 
@@ -99,36 +99,6 @@ class EmbeddingConfig(BaseSettings):
         description="Embedding dimensions (for openai-compatible provider)",
     )
 
-    # BGE-IN-ICL Specific Configuration
-    language: str = Field(
-        default="auto", description="Programming language for BGE-IN-ICL context"
-    )
-
-    enable_icl: bool = Field(
-        default=True, description="Enable in-context learning features for BGE-IN-ICL"
-    )
-
-    adaptive_batching: bool = Field(
-        default=True, description="Enable adaptive batch sizing for BGE-IN-ICL"
-    )
-
-    min_batch_size: int = Field(
-        default=10, ge=1, le=100, description="Minimum batch size for adaptive batching"
-    )
-
-    max_batch_size: int = Field(
-        default=100,
-        ge=1,
-        le=1000,
-        description="Maximum batch size for adaptive batching",
-    )
-
-    context_cache_size: int = Field(
-        default=100,
-        ge=1,
-        le=1000,
-        description="Size of context cache for BGE-IN-ICL optimization",
-    )
 
     @model_validator(mode="after")
     def validate_provider_is_set(self) -> "EmbeddingConfig":
@@ -136,7 +106,7 @@ class EmbeddingConfig(BaseSettings):
         if not hasattr(self, "provider") or self.provider is None:
             raise ValueError(
                 "Embedding provider must be explicitly selected. Available options: "
-                "openai, openai-compatible, tei, bge-in-icl. "
+                "openai, openai-compatible, tei. "
                 "Set via --provider, CHUNKHOUND_EMBEDDING__PROVIDER, or in config file."
             )
         return self
@@ -193,7 +163,6 @@ class EmbeddingConfig(BaseSettings):
             "openai": (1, 200),
             "openai-compatible": (1, 500),
             "tei": (1, 100),
-            "bge-in-icl": (1, 50),
         }
 
         min_size, max_size = limits.get(provider, (1, 1000))
@@ -234,18 +203,6 @@ class EmbeddingConfig(BaseSettings):
             if self.dimensions:
                 base_config["dimensions"] = self.dimensions
 
-        elif self.provider == "bge-in-icl":
-            base_config.update(
-                {
-                    "language": self.language,
-                    "enable_icl": self.enable_icl,
-                    "adaptive_batching": self.adaptive_batching,
-                    "min_batch_size": self.min_batch_size,
-                    "max_batch_size": self.max_batch_size,
-                    "context_cache_size": self.context_cache_size,
-                }
-            )
-
         return base_config
 
     def get_default_model(self) -> str:
@@ -267,7 +224,6 @@ class EmbeddingConfig(BaseSettings):
             "openai": "text-embedding-3-small",
             "openai-compatible": "text-embedding-ada-002",
             "tei": "sentence-transformers/all-MiniLM-L6-v2",
-            "bge-in-icl": "bge-in-icl",
         }
 
         return self.model or defaults.get(self.provider, "text-embedding-3-small")
@@ -289,10 +245,6 @@ class EmbeddingConfig(BaseSettings):
 
         # TEI requires base URL
         elif self.provider == "tei":
-            return self.base_url is not None
-
-        # BGE-IN-ICL requires base URL
-        elif self.provider == "bge-in-icl":
             return self.base_url is not None
 
         return False
@@ -318,7 +270,7 @@ class EmbeddingConfig(BaseSettings):
             missing.append("api_key (CHUNKHOUND_EMBEDDING_API_KEY)")
 
         elif (
-            self.provider in ["openai-compatible", "tei", "bge-in-icl"]
+            self.provider in ["openai-compatible", "tei"]
             and not self.base_url
         ):
             missing.append("base_url (CHUNKHOUND_EMBEDDING_BASE_URL)")
@@ -331,7 +283,7 @@ class EmbeddingConfig(BaseSettings):
         parser.add_argument(
             "--provider",
             "--embedding-provider",
-            choices=["openai", "openai-compatible", "tei", "bge-in-icl"],
+            choices=["openai", "openai-compatible", "tei"],
             help="Embedding provider to use (required - no default)",
         )
 
@@ -340,7 +292,7 @@ class EmbeddingConfig(BaseSettings):
             "--embedding-model",
             help=(
                 "Embedding model to use (defaults: openai=text-embedding-3-small, "
-                "bge-in-icl=bge-in-icl, tei=auto-detect, openai-compatible=required)"
+                "tei=auto-detect, openai-compatible=required)"
             ),
         )
 

@@ -246,7 +246,7 @@ class Config(BaseModel):
 
             if embedding_config:
                 if (
-                    embedding_config.provider in ["tei", "bge-in-icl"]
+                    embedding_config.provider == "tei"
                     and not embedding_config.base_url
                 ):
                     errors.append(

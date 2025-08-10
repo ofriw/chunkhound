@@ -261,7 +261,7 @@ class ProviderError(ChunkHoundError):
     """Raised when external provider operations fail.
 
     This exception is used for errors related to external service providers
-    like OpenAI API, BGE models, or other third-party integrations.
+    like OpenAI API, TEI models, or other third-party integrations.
     """
 
     def __init__(
@@ -275,7 +275,7 @@ class ProviderError(ChunkHoundError):
         """Initialize provider error.
 
         Args:
-            provider: Provider name (e.g., "openai", "bge")
+            provider: Provider name (e.g., "openai", "tei")
             service: Service or endpoint that failed
             status_code: HTTP status code if applicable
             reason: Description of what went wrong
