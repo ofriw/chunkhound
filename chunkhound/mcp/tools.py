@@ -187,7 +187,10 @@ async def search_semantic_impl(
     # Validate embedding manager and providers
     if not embedding_manager or not embedding_manager.list_providers():
         raise Exception(
-            "No embedding providers available. Set OPENAI_API_KEY to enable semantic search."
+            "No embedding providers available. Configure an embedding provider via:\n"
+            "1. Set OPENAI_API_KEY environment variable, OR\n"
+            "2. Create .chunkhound.json with embedding configuration, OR\n" 
+            "3. Set CHUNKHOUND_EMBEDDING__PROVIDER and CHUNKHOUND_EMBEDDING__API_KEY"
         )
 
     # Use explicit provider/model from arguments, otherwise get from configured provider
@@ -247,7 +250,14 @@ async def get_stats_impl(services: DatabaseServices) -> dict[str, Any]:
         Dict with database statistics
     """
     stats: dict[str, Any] = services.provider.get_stats()
-    return stats
+    
+    # Map provider field names to MCP API field names for consistency
+    return {
+        "total_files": stats.get("files", 0),
+        "total_chunks": stats.get("chunks", 0), 
+        "total_embeddings": stats.get("embeddings", 0),
+        "total_providers": stats.get("providers", 0),
+    }
 
 
 async def health_check_impl(

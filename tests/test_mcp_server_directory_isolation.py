@@ -249,7 +249,6 @@ Run the application with proper configuration.
             # Run indexing from target directory
             index_env = os.environ.copy()
             index_env.update({
-                "CHUNKHOUND_PROJECT_ROOT": str(project_dir),
                 "CHUNKHOUND_DATABASE__PATH": str(db_path)
             })
             
@@ -294,7 +293,6 @@ Run the application with proper configuration.
                     del mcp_env[key]
             
             mcp_env.update({
-                "CHUNKHOUND_PROJECT_ROOT": str(project_dir),
                 "CHUNKHOUND_DATABASE__PATH": str(db_path),
                 "CHUNKHOUND_MCP_MODE": "1",
                 "CHUNKHOUND_DEBUG": "1"
@@ -304,16 +302,17 @@ Run the application with proper configuration.
             print(f"Database exists: {db_path.exists()}")
             print(f"Database size: {db_path.stat().st_size if db_path.exists() else 'N/A'}")
             
-            # IMPORTANT: The correct fix is to use environment variables properly
-            # The MCP server should read CHUNKHOUND_PROJECT_ROOT from environment
+            # Use CLI positional argument to specify project directory
             print(f"Environment variables set for MCP server:")
             for key, value in mcp_env.items():
                 if key.startswith("CHUNKHOUND_"):
                     print(f"  {key} = {value}")
             
             # Critical: Start from test_cwd, not project_dir - pass target path as argument
+            mcp_cmd = ["uv", "run", "chunkhound", "mcp", str(project_dir), "--stdio"]
+            print(f"Running command: {' '.join(mcp_cmd)} from cwd: {test_cwd}")
             mcp_process = await asyncio.create_subprocess_exec(  
-                "uv", "run", "chunkhound", "mcp", "--stdio", str(project_dir),
+                *mcp_cmd,
                 cwd=test_cwd,  # Different from project_dir!
                 env=mcp_env,
                 stdin=asyncio.subprocess.PIPE,
@@ -584,7 +583,6 @@ def quicksort(arr):
             # Index the project
             index_env = os.environ.copy()
             index_env.update({
-                "CHUNKHOUND_PROJECT_ROOT": str(project_dir),
                 "CHUNKHOUND_DATABASE__PATH": str(db_path),
                 "OPENAI_API_KEY": os.getenv("OPENAI_API_KEY", "test-key")  # Use real key if available
             })
@@ -606,7 +604,7 @@ def quicksort(arr):
             mcp_env["CHUNKHOUND_MCP_MODE"] = "1"
             
             mcp_process = await asyncio.create_subprocess_exec(
-                "uv", "run", "chunkhound", "mcp", "--stdio", str(project_dir),
+                "uv", "run", "chunkhound", "mcp", str(project_dir), "--stdio",
                 cwd=test_cwd,  # Different from project_dir
                 env=mcp_env,
                 stdin=asyncio.subprocess.PIPE,

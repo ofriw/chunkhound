@@ -235,7 +235,7 @@ async def _setup_embedding_manager(
 
 
 async def _process_directory(
-    indexing_coordinator,
+    indexing_coordinator: Any,
     args: argparse.Namespace,
     formatter: OutputFormatter,
     include_patterns: list[str],
@@ -285,7 +285,7 @@ async def _process_directory(
 
 
 async def _generate_missing_embeddings(
-    indexing_coordinator, formatter: OutputFormatter, exclude_patterns: list[str]
+    indexing_coordinator: Any, formatter: OutputFormatter, exclude_patterns: list[str]
 ) -> None:
     """Generate missing embeddings for chunks.
 
