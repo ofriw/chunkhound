@@ -44,7 +44,7 @@ class Embedding:
     vector: EmbeddingVector
     created_at: datetime | None = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """Validate embedding model after initialization."""
         self._validate()
 
@@ -246,7 +246,7 @@ class Embedding:
 
     def magnitude(self) -> float:
         """Compute the magnitude (L2 norm) of the embedding vector."""
-        return sum(x * x for x in self.vector) ** 0.5
+        return float(sum(x * x for x in self.vector) ** 0.5)
 
     def normalize(self) -> "Embedding":
         """Create a normalized version of this embedding.
@@ -318,7 +318,7 @@ class EmbeddingResult:
     dims: Dimensions
     total_tokens: int | None = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """Validate embedding result after initialization."""
         self._validate()
 

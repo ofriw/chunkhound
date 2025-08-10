@@ -18,29 +18,9 @@ from chunkhound.core.types.common import Language
 # Import concrete providers
 from chunkhound.providers.database.duckdb_provider import DuckDBProvider
 from chunkhound.providers.embeddings.openai_provider import OpenAIEmbeddingProvider
-from chunkhound.providers.parsing.bash_parser import BashParser
-from chunkhound.providers.parsing.c_parser import CParser
-from chunkhound.providers.parsing.cpp_parser import CppParser
-from chunkhound.providers.parsing.csharp_parser import CSharpParser
-from chunkhound.providers.parsing.go_parser import GoParser
-from chunkhound.providers.parsing.groovy_parser import GroovyParser
-from chunkhound.providers.parsing.java_parser import JavaParser
-from chunkhound.providers.parsing.javascript_parser import JavaScriptParser
-from chunkhound.providers.parsing.kotlin_parser import KotlinParser
-from chunkhound.providers.parsing.makefile_parser import MakefileParser
-from chunkhound.providers.parsing.markdown_parser import MarkdownParser
-from chunkhound.providers.parsing.matlab_parser import MatlabParser
 
-# Import language parsers
-from chunkhound.providers.parsing.python_parser import PythonParser
-from chunkhound.providers.parsing.rust_parser import RustParser
-from chunkhound.providers.parsing.text_parser import (
-    JsonParser,
-    PlainTextParser,
-    YamlParser,
-)
-from chunkhound.providers.parsing.toml_parser import TomlParser
-from chunkhound.providers.parsing.typescript_parser import TypeScriptParser
+# Import new unified parser system
+from chunkhound.parsers.parser_factory import ParserFactory, get_parser_factory
 
 # Import services
 from chunkhound.services.base_service import BaseService
@@ -119,6 +99,38 @@ class ProviderRegistry:
         # Suppress logging during MCP mode initialization
         if not os.environ.get("CHUNKHOUND_MCP_MODE"):
             logger.debug(f"Registered {parser_class.__name__} for {language.value}")
+            
+    def _register_unified_parsers(self) -> None:
+        """Register all language parsers using the unified parser system."""
+        parser_factory = get_parser_factory()
+        
+        # Get all available languages from the factory
+        available_languages = parser_factory.get_available_languages()
+        
+        # Register parsers for all available languages
+        for language, is_available in available_languages.items():
+            if is_available:
+                try:
+                    # Create universal parser for this language
+                    universal_parser = parser_factory.create_parser(language)
+                    
+                    # Register the universal parser directly
+                    self._language_parsers[language] = universal_parser
+                    
+                    # Suppress logging during MCP mode initialization
+                    if not os.environ.get("CHUNKHOUND_MCP_MODE"):
+                        logger.debug(f"Registered unified parser for {language.value}")
+                        
+                except Exception as e:
+                    # Log error but continue with other languages
+                    if not os.environ.get("CHUNKHOUND_MCP_MODE"):
+                        logger.warning(f"Failed to register unified parser for {language.value}: {e}")
+            else:
+                # Log missing dependencies
+                if not os.environ.get("CHUNKHOUND_MCP_MODE"):
+                    missing_deps = parser_factory.get_missing_dependencies()
+                    if language in missing_deps:
+                        logger.debug(f"Skipping {language.value} parser - missing dependency: {missing_deps[language]}")
 
     def get_provider(self, name: str) -> Any:
         """Get a provider instance for the specified name.
@@ -175,7 +187,9 @@ class ProviderRegistry:
         if not issubclass(service_class, BaseService):
             raise ValueError(f"{service_class} must inherit from BaseService")
 
-        return self._create_instance(service_class)
+        # _create_instance returns Any but we know it creates the correct type
+        from typing import cast
+        return cast(T, self._create_instance(service_class))
 
     def create_indexing_coordinator(self) -> IndexingCoordinator:
         """Create an IndexingCoordinator with all dependencies.
@@ -277,91 +291,8 @@ class ProviderRegistry:
         # Embedding providers will be registered after configuration in configure()
         # This ensures the provider gets the correct configuration parameters
 
-        # Language parsers
-        self.register_language_parser(Language.PYTHON, PythonParser)
-        if not os.environ.get("CHUNKHOUND_MCP_MODE"):
-            logger.debug("Registered Python parser")
-
-        self.register_language_parser(Language.JAVA, JavaParser)
-        if not os.environ.get("CHUNKHOUND_MCP_MODE"):
-            logger.debug("Registered Java parser")
-
-        self.register_language_parser(Language.JAVASCRIPT, JavaScriptParser)
-        if not os.environ.get("CHUNKHOUND_MCP_MODE"):
-            logger.debug("Registered JavaScript parser")
-
-        self.register_language_parser(Language.JSX, JavaScriptParser)
-        if not os.environ.get("CHUNKHOUND_MCP_MODE"):
-            logger.debug("Registered JSX parser")
-
-        self.register_language_parser(Language.TYPESCRIPT, TypeScriptParser)
-        if not os.environ.get("CHUNKHOUND_MCP_MODE"):
-            logger.debug("Registered TypeScript parser")
-
-        self.register_language_parser(Language.TSX, TypeScriptParser)
-        if not os.environ.get("CHUNKHOUND_MCP_MODE"):
-            logger.debug("Registered TSX parser")
-
-        self.register_language_parser(Language.CSHARP, CSharpParser)
-        if not os.environ.get("CHUNKHOUND_MCP_MODE"):
-            logger.debug("Registered C# parser")
-
-        self.register_language_parser(Language.GROOVY, GroovyParser)
-        if not os.environ.get("CHUNKHOUND_MCP_MODE"):
-            logger.debug("Registered Groovy parser")
-
-        self.register_language_parser(Language.KOTLIN, KotlinParser)
-        if not os.environ.get("CHUNKHOUND_MCP_MODE"):
-            logger.debug("Registered Kotlin parser")
-
-        self.register_language_parser(Language.GO, GoParser)
-        if not os.environ.get("CHUNKHOUND_MCP_MODE"):
-            logger.debug("Registered Go parser")
-
-        self.register_language_parser(Language.BASH, BashParser)
-        if not os.environ.get("CHUNKHOUND_MCP_MODE"):
-            logger.debug("Registered Bash parser")
-
-        self.register_language_parser(Language.C, CParser)
-        if not os.environ.get("CHUNKHOUND_MCP_MODE"):
-            logger.debug("Registered C parser")
-
-        self.register_language_parser(Language.CPP, CppParser)
-        if not os.environ.get("CHUNKHOUND_MCP_MODE"):
-            logger.debug("Registered C++ parser")
-
-        self.register_language_parser(Language.MATLAB, MatlabParser)
-        if not os.environ.get("CHUNKHOUND_MCP_MODE"):
-            logger.debug("Registered Matlab parser")
-
-        self.register_language_parser(Language.MAKEFILE, MakefileParser)
-        if not os.environ.get("CHUNKHOUND_MCP_MODE"):
-            logger.debug("Registered Makefile parser")
-
-        self.register_language_parser(Language.RUST, RustParser)
-        if not os.environ.get("CHUNKHOUND_MCP_MODE"):
-            logger.debug("Registered Rust parser")
-
-        self.register_language_parser(Language.MARKDOWN, MarkdownParser)
-        if not os.environ.get("CHUNKHOUND_MCP_MODE"):
-            logger.debug("Registered Markdown parser")
-
-        # Register text-based parsers
-        self.register_language_parser(Language.JSON, JsonParser)
-        if not os.environ.get("CHUNKHOUND_MCP_MODE"):
-            logger.debug("Registered JSON parser")
-
-        self.register_language_parser(Language.YAML, YamlParser)
-        if not os.environ.get("CHUNKHOUND_MCP_MODE"):
-            logger.debug("Registered YAML parser")
-
-        self.register_language_parser(Language.TOML, TomlParser)
-        if not os.environ.get("CHUNKHOUND_MCP_MODE"):
-            logger.debug("Registered TOML parser")
-
-        self.register_language_parser(Language.TEXT, PlainTextParser)
-        if not os.environ.get("CHUNKHOUND_MCP_MODE"):
-            logger.debug("Registered Plain Text parser")
+        # Register language parsers using the new unified parser system
+        self._register_unified_parsers()
 
     def _register_database_provider(self) -> None:
         """Register the appropriate database provider based on configuration."""

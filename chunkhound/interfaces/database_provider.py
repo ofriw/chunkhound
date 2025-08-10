@@ -70,7 +70,7 @@ class DatabaseProvider(Protocol):
         """Get file record by ID."""
         ...
 
-    def update_file(self, file_id: int, **kwargs) -> None:
+    def update_file(self, file_id: int, **kwargs: Any) -> None:
         """Update file record with new values."""
         ...
 
@@ -107,7 +107,7 @@ class DatabaseProvider(Protocol):
         """Delete a single chunk by ID."""
         ...
 
-    def update_chunk(self, chunk_id: int, **kwargs) -> None:
+    def update_chunk(self, chunk_id: int, **kwargs: Any) -> None:
         """Update chunk record with new values."""
         ...
 
@@ -120,7 +120,7 @@ class DatabaseProvider(Protocol):
         self,
         embeddings_data: list[dict],
         batch_size: int | None = None,
-        connection=None,
+        connection: Any = None,
     ) -> int:
         """Insert multiple embedding vectors with optimization.
 

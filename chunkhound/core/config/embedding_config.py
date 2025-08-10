@@ -67,7 +67,7 @@ class EmbeddingConfig(BaseSettings):
 
     # Performance Configuration
     batch_size: int = Field(
-        default=50, ge=1, le=1000, description="Batch size for embedding generation"
+        default=100, ge=1, le=1000, description="Batch size for embedding generation"
     )
 
     timeout: int = Field(
@@ -190,10 +190,10 @@ class EmbeddingConfig(BaseSettings):
 
         # Provider-specific batch size limits
         limits = {
-            "openai": (1, 2048),
-            "openai-compatible": (1, 1000),
-            "tei": (1, 512),
-            "bge-in-icl": (1, 256),
+            "openai": (1, 200),
+            "openai-compatible": (1, 500),
+            "tei": (1, 100),
+            "bge-in-icl": (1, 50),
         }
 
         min_size, max_size = limits.get(provider, (1, 1000))

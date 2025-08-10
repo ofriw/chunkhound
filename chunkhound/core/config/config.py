@@ -71,7 +71,7 @@ class Config(BaseModel):
         if target_dir is None:
             from chunkhound.utils.project_detection import find_project_root
 
-            target_dir = find_project_root()
+            target_dir = find_project_root(getattr(args, 'path', None) if args else None)
 
         # Store target_dir for use in validation
         self._target_dir = target_dir

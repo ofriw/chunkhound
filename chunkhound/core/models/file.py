@@ -39,7 +39,7 @@ class File:
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """Validate file model after initialization."""
         self._validate()
 

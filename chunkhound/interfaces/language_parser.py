@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Callable, Protocol
 
 from chunkhound.core.types.common import ChunkType, Language
 
@@ -228,7 +228,7 @@ class LanguageParser(Protocol):
         ...
 
     # Configuration Management
-    def update_config(self, **kwargs) -> None:
+    def update_config(self, **kwargs: Any) -> None:
         """Update parser configuration.
 
         Args:
@@ -279,7 +279,7 @@ class TreeSitterParser(LanguageParser, Protocol):
         """Find all nodes of a specific type in the parse tree."""
         ...
 
-    def walk_tree(self, node: Any, visitor_func: callable) -> None:
+    def walk_tree(self, node: Any, visitor_func: Callable[[Any], None]) -> None:
         """Walk the parse tree with a visitor function."""
         ...
 

@@ -269,7 +269,7 @@ class OpenAICompatibleProvider:
             return all_embeddings
 
         except Exception as e:
-            logger.error(f"Failed to generate embeddings from {self._base_url}: {e}")
+            logger.error(f"[Legacy-Embeddings] Failed to generate embeddings from {self._base_url}: {e}")
             raise
 
 
@@ -793,6 +793,10 @@ class BGEInICLProvider:
     @property
     def batch_size(self) -> int:
         return self._batch_size
+
+    def get_max_tokens_per_batch(self) -> int:
+        """Get maximum tokens per batch for this provider."""
+        return 50_000  # Conservative limit for BGE-IN-ICL
 
     def get_performance_metrics(self) -> dict[str, Any]:
         """Get current performance metrics.

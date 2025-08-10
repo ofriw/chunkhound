@@ -62,15 +62,15 @@ class Chunk:
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """Validate chunk model after initialization."""
         self._validate()
 
     def _validate(self) -> None:
         """Validate chunk model attributes."""
-        # Symbol validation
-        if not self.symbol or not self.symbol.strip():
-            raise ValidationError("symbol", self.symbol, "Symbol cannot be empty")
+        # Symbol validation - allow None or empty for structural chunks
+        if self.symbol is not None and not self.symbol.strip():
+            object.__setattr__(self, 'symbol', None)
 
         # Line number validation
         if self.start_line < 1:

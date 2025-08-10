@@ -193,7 +193,7 @@ class EmbeddingProvider(Protocol):
         ...
 
     # Configuration Management
-    def update_config(self, **kwargs) -> None:
+    def update_config(self, **kwargs: Any) -> None:
         """Update provider configuration.
 
         Args:
@@ -207,6 +207,15 @@ class EmbeddingProvider(Protocol):
 
     def get_optimal_batch_size(self) -> int:
         """Get optimal batch size for this provider."""
+        ...
+
+    def get_max_tokens_per_batch(self) -> int:
+        """Get maximum tokens per batch for this provider.
+        
+        Returns:
+            Maximum number of tokens that can be processed in a single batch.
+            Used by service layer for provider-agnostic token-aware batching.
+        """
         ...
 
 

@@ -88,40 +88,40 @@ class ChunkType(Enum):
     def is_code(self) -> bool:
         """Return True if this chunk type represents code structure."""
         return self in {
-            self.FUNCTION,
-            self.METHOD,
-            self.CLASS,
-            self.INTERFACE,
-            self.STRUCT,
-            self.ENUM,
-            self.NAMESPACE,
-            self.CONSTRUCTOR,
-            self.PROPERTY,
-            self.FIELD,
-            self.TYPE_ALIAS,
-            self.CLOSURE,
-            self.TRAIT,
-            self.SCRIPT,
-            self.BLOCK,
-            self.VARIABLE,
-            self.TYPE,
-            self.MACRO,
+            ChunkType.FUNCTION,
+            ChunkType.METHOD,
+            ChunkType.CLASS,
+            ChunkType.INTERFACE,
+            ChunkType.STRUCT,
+            ChunkType.ENUM,
+            ChunkType.NAMESPACE,
+            ChunkType.CONSTRUCTOR,
+            ChunkType.PROPERTY,
+            ChunkType.FIELD,
+            ChunkType.TYPE_ALIAS,
+            ChunkType.CLOSURE,
+            ChunkType.TRAIT,
+            ChunkType.SCRIPT,
+            ChunkType.BLOCK,
+            ChunkType.VARIABLE,
+            ChunkType.TYPE,
+            ChunkType.MACRO,
         }
 
     @property
     def is_documentation(self) -> bool:
         """Return True if this chunk type represents documentation."""
         return self in {
-            self.COMMENT,
-            self.DOCSTRING,
-            self.HEADER_1,
-            self.HEADER_2,
-            self.HEADER_3,
-            self.HEADER_4,
-            self.HEADER_5,
-            self.HEADER_6,
-            self.PARAGRAPH,
-            self.CODE_BLOCK,
+            ChunkType.COMMENT,
+            ChunkType.DOCSTRING,
+            ChunkType.HEADER_1,
+            ChunkType.HEADER_2,
+            ChunkType.HEADER_3,
+            ChunkType.HEADER_4,
+            ChunkType.HEADER_5,
+            ChunkType.HEADER_6,
+            ChunkType.PARAGRAPH,
+            ChunkType.CODE_BLOCK,
         }
 
 
@@ -228,44 +228,44 @@ class Language(Enum):
     def is_programming_language(self) -> bool:
         """Return True if this is a programming language (not documentation)."""
         return self in {
-            self.PYTHON,
-            self.JAVA,
-            self.CSHARP,
-            self.TYPESCRIPT,
-            self.JAVASCRIPT,
-            self.TSX,
-            self.JSX,
-            self.GROOVY,
-            self.KOTLIN,
-            self.GO,
-            self.RUST,
-            self.BASH,
-            self.MAKEFILE,
-            self.C,
-            self.CPP,
-            self.MATLAB,
+            Language.PYTHON,
+            Language.JAVA,
+            Language.CSHARP,
+            Language.TYPESCRIPT,
+            Language.JAVASCRIPT,
+            Language.TSX,
+            Language.JSX,
+            Language.GROOVY,
+            Language.KOTLIN,
+            Language.GO,
+            Language.RUST,
+            Language.BASH,
+            Language.MAKEFILE,
+            Language.C,
+            Language.CPP,
+            Language.MATLAB,
         }
 
     @property
     def supports_classes(self) -> bool:
         """Return True if this language supports class definitions."""
         return self in {
-            self.PYTHON,
-            self.JAVA,
-            self.CSHARP,
-            self.TYPESCRIPT,
-            self.TSX,
-            self.GROOVY,
-            self.KOTLIN,
-            self.GO,
-            self.CPP,
-            self.MATLAB,
+            Language.PYTHON,
+            Language.JAVA,
+            Language.CSHARP,
+            Language.TYPESCRIPT,
+            Language.TSX,
+            Language.GROOVY,
+            Language.KOTLIN,
+            Language.GO,
+            Language.CPP,
+            Language.MATLAB,
         }
 
     @property
     def supports_interfaces(self) -> bool:
         """Return True if this language supports interface definitions."""
-        return self in {self.JAVA, self.CSHARP, self.TYPESCRIPT, self.TSX}
+        return self in {Language.JAVA, Language.CSHARP, Language.TYPESCRIPT, Language.TSX}
 
     @classmethod
     def get_all_extensions(cls) -> set[str]:
