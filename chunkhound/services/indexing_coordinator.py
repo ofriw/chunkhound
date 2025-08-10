@@ -18,7 +18,7 @@ from chunkhound.core.models import File
 from chunkhound.core.types.common import FileId, FilePath, Language
 from chunkhound.interfaces.database_provider import DatabaseProvider
 from chunkhound.interfaces.embedding_provider import EmbeddingProvider
-from chunkhound.interfaces.language_parser import LanguageParser, ParseResult
+from chunkhound.parsers.universal_parser import UniversalParser
 
 from .base_service import BaseService
 from .chunk_cache_service import ChunkCacheService
@@ -40,7 +40,7 @@ class IndexingCoordinator(BaseService):
         self,
         database_provider: DatabaseProvider,
         embedding_provider: EmbeddingProvider | None = None,
-        language_parsers: dict[Language, LanguageParser] | None = None,
+        language_parsers: dict[Language, UniversalParser] | None = None,
     ):
         """Initialize indexing coordinator.
 
@@ -54,7 +54,7 @@ class IndexingCoordinator(BaseService):
         self._language_parsers = language_parsers or {}
 
         # Performance optimization: shared instances
-        self._parser_cache: dict[Language, LanguageParser] = {}
+        self._parser_cache: dict[Language, UniversalParser] = {}
 
         # Chunk cache service for content-based comparison
         self._chunk_cache = ChunkCacheService()
@@ -66,7 +66,7 @@ class IndexingCoordinator(BaseService):
         self._file_locks: dict[str, asyncio.Lock] = {}
         self._locks_lock = None  # Will be initialized when first needed
 
-    def add_language_parser(self, language: Language, parser: LanguageParser) -> None:
+    def add_language_parser(self, language: Language, parser: UniversalParser) -> None:
         """Add or update a language parser.
 
         Args:
@@ -78,7 +78,7 @@ class IndexingCoordinator(BaseService):
         if language in self._parser_cache:
             del self._parser_cache[language]
 
-    def get_parser_for_language(self, language: Language) -> LanguageParser | None:
+    def get_parser_for_language(self, language: Language) -> UniversalParser | None:
         """Get parser for specified language with caching.
 
         Args:
@@ -221,28 +221,13 @@ class IndexingCoordinator(BaseService):
             # BENEFIT: Simpler logic, single responsibility
 
             # SECTION: Parse_Phase (CPU_BOUND)
-            # PATTERN: Parser returns ParseResult or legacy list format
+            # PATTERN: UniversalParser returns List[Chunk] directly
             # CONSTRAINT: Tree-sitter parsing is thread-safe
-            parsed_data = parser.parse_file(file_path)
-            if not parsed_data:
+            chunks_list = parser.parse_file(file_path, FileId(0))
+            if not chunks_list:
                 return {"status": "no_content", "chunks": 0}
 
-            # Extract chunks from ParseResult object or direct list
-            raw_chunks: list[dict[str, Any]]
-            if isinstance(parsed_data, ParseResult):
-                # New parser providers return ParseResult object
-                raw_chunks = parsed_data.chunks
-            elif isinstance(parsed_data, list):
-                # Legacy parsers return chunks directly
-                raw_chunks = parsed_data
-            else:
-                # Fallback for unexpected types
-                raw_chunks = []
-
-            # Filter empty chunks early to reduce storage warnings
-            chunks = self._filter_valid_chunks(raw_chunks)
-
-            if not chunks:
+            if not chunks_list:
                 return {"status": "no_chunks", "chunks": 0}
 
             # Always process files - let chunk-level comparison handle change detection
@@ -265,10 +250,21 @@ class IndexingCoordinator(BaseService):
                 # BUG_FIX: Always clean up old chunks to prevent stale data
                 # ISSUE: Content deletion bug when chunks persist after modification
 
-                # Convert new chunks to models for comparison
-                new_chunk_models = self._convert_to_chunk_models(
-                    file_id, chunks, language
-                )
+                # UniversalParser already returns Chunk models - create new with correct file_id
+                from chunkhound.core.models import Chunk
+                new_chunk_models = []
+                for chunk in chunks_list:
+                    new_chunk = Chunk(
+                        file_id=FileId(file_id),
+                        symbol=chunk.symbol,
+                        start_line=chunk.start_line,
+                        end_line=chunk.end_line,
+                        code=chunk.code,
+                        chunk_type=chunk.chunk_type,
+                        language=chunk.language,
+                        parent_header=chunk.parent_header
+                    )
+                    new_chunk_models.append(new_chunk)
 
                 # SECTION: Transaction_Boundary (CRITICAL)
                 # PATTERN: All-or-nothing updates prevent partial states
@@ -395,7 +391,20 @@ class IndexingCoordinator(BaseService):
                     raise
             else:
                 # New file, wrap in transaction for consistency
-                chunk_models = self._convert_to_chunk_models(file_id, chunks, language)
+                from chunkhound.core.models import Chunk
+                chunk_models = []
+                for chunk in chunks_list:
+                    new_chunk = Chunk(
+                        file_id=FileId(file_id),
+                        symbol=chunk.symbol,
+                        start_line=chunk.start_line,
+                        end_line=chunk.end_line,
+                        code=chunk.code,
+                        chunk_type=chunk.chunk_type,
+                        language=chunk.language,
+                        parent_header=chunk.parent_header
+                    )
+                    chunk_models.append(new_chunk)
                 chunks_dict = [chunk.to_dict() for chunk in chunk_models]
 
                 try:
@@ -440,7 +449,7 @@ class IndexingCoordinator(BaseService):
             result = {
                 "status": "success",
                 "file_id": file_id,
-                "chunks": len(chunks),
+                "chunks": len(chunks_list),
                 "chunk_ids": chunk_ids,
                 "embeddings": embeddings_generated,
                 "embeddings_skipped": skip_embeddings,
@@ -448,7 +457,7 @@ class IndexingCoordinator(BaseService):
 
             # Include chunk data for batch processing
             if skip_embeddings:
-                result["chunk_data"] = chunks
+                result["chunk_data"] = [chunk.to_dict() for chunk in chunks_list]
 
             return result
 
@@ -739,25 +748,6 @@ class IndexingCoordinator(BaseService):
         )
         return self._db.insert_file(file_model)
 
-    def _filter_valid_chunks(
-        self, chunks: list[dict[str, Any]]
-    ) -> list[dict[str, Any]]:
-        """Filter out chunks with empty content early in the process."""
-        valid_chunks = []
-        filtered_count = 0
-
-        for chunk in chunks:
-            code_content = chunk.get("code", "")
-            if code_content and code_content.strip():
-                valid_chunks.append(chunk)
-            else:
-                filtered_count += 1
-
-        # Log summary instead of individual warnings to reduce noise
-        if filtered_count > 0:
-            logger.debug(f"Filtered {filtered_count} empty chunks during parsing")
-
-        return valid_chunks
 
     def _store_chunks(
         self, file_id: int, chunks: list[dict[str, Any]], language: Language
@@ -799,35 +789,6 @@ class IndexingCoordinator(BaseService):
 
         return chunk_ids
 
-    def _convert_to_chunk_models(
-        self, file_id: int, chunks: list[dict[str, Any]], language: Language
-    ) -> list["Chunk"]:
-        """Convert dict chunks to Chunk models without storing in database."""
-        from chunkhound.core.models import Chunk
-        from chunkhound.core.types.common import ChunkType
-
-        chunk_models = []
-        for chunk in chunks:
-            # Convert chunk_type string to enum
-            chunk_type_str = chunk.get("chunk_type", "function")
-            try:
-                chunk_type_enum = ChunkType(chunk_type_str)
-            except ValueError:
-                chunk_type_enum = ChunkType.FUNCTION  # default fallback
-
-            chunk_model = Chunk(
-                file_id=FileId(file_id),
-                symbol=chunk.get("symbol", ""),
-                start_line=chunk.get("start_line", 0),
-                end_line=chunk.get("end_line", 0),
-                code=chunk.get("code", ""),
-                chunk_type=chunk_type_enum,
-                language=language,
-                parent_header=chunk.get("parent_header"),
-            )
-            chunk_models.append(chunk_model)
-
-        return chunk_models
 
     async def get_stats(self) -> dict[str, Any]:
         """Get database statistics.
@@ -914,7 +875,19 @@ class IndexingCoordinator(BaseService):
             )
 
         except Exception as e:
-            logger.error(f"Failed to generate missing embeddings: {e}")
+            # Debug log to trace if this is the mystery error source
+            import os
+            from datetime import datetime
+            debug_file = os.getenv("CHUNKHOUND_DEBUG_FILE", "/tmp/chunkhound_debug.log")
+            timestamp = datetime.now().isoformat()
+            try:
+                with open(debug_file, "a") as f:
+                    f.write(f"[{timestamp}] [COORDINATOR-MISSING] Failed to generate missing embeddings: {e}\n")
+                    f.flush()
+            except Exception:
+                pass
+                
+            logger.error(f"[IndexCoord-Missing] Failed to generate missing embeddings: {e}")
             return {"status": "error", "error": str(e), "generated": 0}
 
     async def _generate_embeddings(
@@ -976,7 +949,10 @@ class IndexingCoordinator(BaseService):
             return result
 
         except Exception as e:
-            logger.error(f"Failed to generate embeddings: {e}")
+            # Log chunk details for debugging oversized chunks
+            text_sizes = [len(text) for text in texts] if 'texts' in locals() else []
+            max_chars = max(text_sizes) if text_sizes else 0
+            logger.error(f"[IndexCoord] Failed to generate embeddings (chunks: {len(text_sizes)}, max_chars: {max_chars}): {e}")
             return 0
 
     async def _generate_embeddings_batch(

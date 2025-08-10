@@ -15,7 +15,7 @@ import asyncio
 import os
 import time
 from pathlib import Path
-from typing import Optional, Set
+from typing import Any, Iterator, Optional, Set
 
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
@@ -39,7 +39,7 @@ class SimpleEventHandler(FileSystemEventHandler):
         self.config = config
         self.loop = loop
         
-    def on_any_event(self, event):
+    def on_any_event(self, event: Any) -> None:
         """Handle filesystem events - simple queue operation."""
         if event.is_directory:
             return
@@ -152,11 +152,11 @@ class RealtimeIndexingService:
         self._debounce_delay = 0.5  # 500ms delay from research
         
         # Background scan state
-        self.scan_iterator: Optional[iter] = None
+        self.scan_iterator: Optional[Iterator] = None
         self.scan_complete = False
         
         # Filesystem monitoring
-        self.observer: Optional[Observer] = None
+        self.observer: Optional[Any] = None
         self.event_handler: Optional[SimpleEventHandler] = None
         self.watch_path: Optional[Path] = None
         

@@ -59,7 +59,7 @@ def get_thread_local_state() -> dict[str, Any]:
             "deferred_checkpoint": False,
             "checkpoint_threshold": 100,  # Checkpoint every N operations
         }
-    return _executor_local.state
+    return dict(_executor_local.state)  # Return a typed dict copy
 
 
 def track_operation(state: dict[str, Any]) -> None:
@@ -81,7 +81,7 @@ class SerialDatabaseExecutor:
     access from multiple threads.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize serial executor with single-threaded pool."""
         # Create single-threaded executor for all database operations
         # This ensures complete serialization and prevents concurrent access issues
@@ -90,7 +90,7 @@ class SerialDatabaseExecutor:
             thread_name_prefix="serial-db",
         )
 
-    def execute_sync(self, provider: Any, operation_name: str, *args, **kwargs) -> Any:
+    def execute_sync(self, provider: Any, operation_name: str, *args: Any, **kwargs: Any) -> Any:
         """Execute named operation synchronously in DB thread.
 
         All database operations MUST go through this method to ensure serialization.
@@ -106,7 +106,7 @@ class SerialDatabaseExecutor:
             The result of the operation, fully materialized
         """
 
-        def executor_operation():
+        def executor_operation() -> Any:
             # Get thread-local connection (created on first access)
             conn = get_thread_local_connection(provider)
 

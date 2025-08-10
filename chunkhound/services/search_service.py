@@ -71,7 +71,7 @@ class SearchService(BaseService):
             # Generate query embedding
             query_results = await self._embedding_provider.embed([query])
             if not query_results:
-                return []
+                return [], {}
 
             query_vector = query_results[0]
 
@@ -190,7 +190,7 @@ class SearchService(BaseService):
             # Regex search
             if regex_pattern:
 
-                async def get_regex_results():
+                async def get_regex_results() -> tuple[list[dict[str, Any]], dict[str, Any]]:
                     return self.search_regex(
                         regex_pattern, page_size=page_size * 2, offset=offset
                     )

@@ -67,17 +67,17 @@ class OpenAIEmbeddingProvider:
             "text-embedding-3-small": {
                 "dims": 1536,
                 "distance": "cosine",
-                "max_tokens": 8192,
+                "max_tokens": 8191,
             },
             "text-embedding-3-large": {
                 "dims": 3072,
                 "distance": "cosine",
-                "max_tokens": 8192,
+                "max_tokens": 8191,
             },
             "text-embedding-ada-002": {
                 "dims": 1536,
                 "distance": "cosine",
-                "max_tokens": 8192,
+                "max_tokens": 8191,
             },
         }
 
@@ -258,15 +258,39 @@ class OpenAIEmbeddingProvider:
         validated_texts = self.validate_texts(texts)
 
         try:
-            # Use batch processing for optimal performance
-            if len(validated_texts) <= self.batch_size:
-                return await self._embed_batch_internal(validated_texts)
-            else:
-                return await self.embed_batch(validated_texts)
+            # Always use token-aware batching
+            return await self.embed_batch(validated_texts)
 
         except Exception as e:
+            # CRITICAL: Log EVERY exception that passes through here to trace execution path
+            logger.error(f"[DEBUG-TRACE] Exception caught in OpenAI embed() method: {type(e).__name__}: {str(e)[:200]}")
             self._usage_stats["errors"] += 1
-            logger.error(f"Failed to generate embeddings: {e}")
+            # Log details of oversized chunks for root cause analysis
+            text_sizes = [len(text) for text in validated_texts]
+            total_chars = sum(text_sizes)
+            max_chars = max(text_sizes) if text_sizes else 0
+            
+            # Find and log oversized chunks with their content preview
+            oversized_chunks = []
+            for i, text in enumerate(validated_texts):
+                if len(text) > 100000:  # Chunks over 100k chars are definitely problematic
+                    preview = text[:200] + "..." if len(text) > 200 else text
+                    oversized_chunks.append(f"#{i}: {len(text)} chars, starts: {preview}")
+            
+            if oversized_chunks:
+                logger.error(f"[OpenAI-Provider] OVERSIZED CHUNKS FOUND:\n" + "\n".join(oversized_chunks[:3]))  # Limit to first 3
+            
+            logger.error(f"[OpenAI-Provider] Failed to generate embeddings (texts: {len(validated_texts)}, total_chars: {total_chars}, max_chars: {max_chars}): {e}")
+            
+            # Add debug logging to trace the error
+            debug_file = "/tmp/chunkhound_openai_debug.log"
+            try:
+                with open(debug_file, "a") as f:
+                    f.write(f"[{datetime.now().isoformat()}] OPENAI-PROVIDER ERROR: texts={len(validated_texts)}, max_chars={max_chars}, error={e}\n")
+                    f.flush()
+            except:
+                pass
+                
             raise
 
     async def embed_single(self, text: str) -> list[float]:
@@ -381,8 +405,8 @@ class OpenAIEmbeddingProvider:
                     # Handle token limit exceeded errors
                     error_message = str(rate_error)
                     if (
-                        "maximum context length" in error_message
-                        and "tokens" in error_message
+                        ("maximum context length" in error_message and "tokens" in error_message) or
+                        ("tokens" in error_message and "max" in error_message and "per request" in error_message)
                     ):
                         total_tokens = self.estimate_batch_tokens(texts)
                         token_limit = (
@@ -506,7 +530,7 @@ class OpenAIEmbeddingProvider:
         """Get token limit for current model."""
         if self._model in self._model_config:
             return self._model_config[self._model]["max_tokens"]
-        return 8192  # Default limit
+        return 8191  # Default limit
 
     def chunk_text_by_tokens(self, text: str, max_tokens: int) -> list[str]:
         """Split text into chunks by token count."""
@@ -588,6 +612,12 @@ class OpenAIEmbeddingProvider:
     def get_optimal_batch_size(self) -> int:
         """Get optimal batch size for this provider."""
         return self._batch_size
+
+    def get_max_tokens_per_batch(self) -> int:
+        """Get maximum tokens per batch for this provider."""
+        if self._model in self._model_config:
+            return self._model_config[self._model]["max_tokens"]
+        return 8191  # Default OpenAI limit
 
     async def validate_api_key(self) -> bool:
         """Validate API key with the service."""
