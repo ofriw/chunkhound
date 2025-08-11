@@ -312,6 +312,126 @@ sys.exit(asyncio.run(test()))
                 await proc.wait()
                 pytest.fail("MCP stdio server test timed out")
 
+    @pytest.mark.asyncio
+    async def test_mcp_stdio_protocol_handshake(self):
+        """Test MCP stdio server completes full protocol handshake with tool discovery."""
+        import tempfile
+        import json
+        
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            
+            # Create minimal test content (server will auto-index on startup)
+            test_file = temp_path / "test.py"
+            test_file.write_text("def hello(): return 'world'")
+            
+            # Create minimal config
+            config_path = temp_path / ".chunkhound.json"
+            db_path = temp_path / ".chunkhound" / "test.db"
+            db_path.parent.mkdir(exist_ok=True)
+            
+            config = {
+                "database": {"path": str(db_path), "provider": "duckdb"},
+                "indexing": {"include": ["*.py"]}
+            }
+            
+            # Add embedding config if API key available
+            api_key = os.environ.get("OPENAI_API_KEY")
+            if api_key:
+                config["embedding"] = {
+                    "provider": "openai",
+                    "model": "text-embedding-3-small"
+                }
+            
+            config_path.write_text(json.dumps(config))
+            
+            # Start MCP server (it will auto-index on startup)
+            mcp_env = os.environ.copy()
+            mcp_env["CHUNKHOUND_MCP_MODE"] = "1"
+            
+            proc = await asyncio.create_subprocess_exec(
+                "uv", "run", "chunkhound", "mcp", str(temp_path),
+                cwd=temp_path,
+                env=mcp_env,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            
+            try:
+                # 1. Send initialize request
+                init_request = {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "initialize",
+                    "params": {
+                        "protocolVersion": "2024-11-05",
+                        "capabilities": {},
+                        "clientInfo": {"name": "test", "version": "1.0"}
+                    }
+                }
+                
+                proc.stdin.write((json.dumps(init_request) + "\n").encode())
+                await proc.stdin.drain()
+                
+                # Read initialize response
+                response_line = await asyncio.wait_for(
+                    proc.stdout.readline(), timeout=10.0
+                )
+                init_response = json.loads(response_line.decode())
+                
+                # Verify response structure
+                assert "result" in init_response, f"No result in response: {init_response}"
+                assert "serverInfo" in init_response["result"], f"No serverInfo in result: {init_response['result']}"
+                assert init_response["result"]["serverInfo"]["name"] == "ChunkHound Code Search"
+                
+                # 2. Send initialized notification
+                proc.stdin.write((json.dumps({
+                    "jsonrpc": "2.0",
+                    "method": "notifications/initialized"
+                }) + "\n").encode())
+                await proc.stdin.drain()
+                
+                # 3. Request tool list
+                tools_request = {
+                    "jsonrpc": "2.0",
+                    "id": 2,
+                    "method": "tools/list"
+                }
+                
+                proc.stdin.write((json.dumps(tools_request) + "\n").encode())
+                await proc.stdin.drain()
+                
+                # Read tools response
+                tools_line = await asyncio.wait_for(
+                    proc.stdout.readline(), timeout=5.0
+                )
+                tools_response = json.loads(tools_line.decode())
+                
+                # Verify tools
+                assert "result" in tools_response, f"No result in tools response: {tools_response}"
+                tools = tools_response["result"].get("tools", [])
+                tool_names = [t["name"] for t in tools]
+                
+                # Should have at least regex search (works without embeddings)
+                assert "search_regex" in tool_names, f"search_regex not in tools: {tool_names}"
+                assert "get_stats" in tool_names, f"get_stats not in tools: {tool_names}"
+                assert "health_check" in tool_names, f"health_check not in tools: {tool_names}"
+                
+                # Semantic search only if embeddings available
+                if api_key:
+                    assert "search_semantic" in tool_names, f"search_semantic not in tools: {tool_names}"
+                    
+            except asyncio.TimeoutError:
+                pytest.fail("MCP stdio protocol handshake timed out")
+            finally:
+                proc.terminate()
+                try:
+                    await asyncio.wait_for(proc.wait(), timeout=2.0)
+                except asyncio.TimeoutError:
+                    proc.kill()
+                    await proc.wait()
+
 
 class TestTypeAnnotations:
     """Test for specific type annotation patterns that have caused issues."""
