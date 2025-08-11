@@ -31,7 +31,7 @@ class EmbeddingProvider(Protocol):
 
     @property
     def name(self) -> str:
-        """Provider name (e.g., 'openai', 'tei', 'local')."""
+        """Provider name (e.g., 'openai', 'local')."""
         ...
 
     @property

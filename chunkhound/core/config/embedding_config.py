@@ -47,7 +47,7 @@ class EmbeddingConfig(BaseSettings):
     )
 
     # Provider Selection
-    provider: Literal["openai", "openai-compatible", "tei"] = Field(
+    provider: Literal["openai", "openai-compatible"] = Field(
         description="Embedding provider to use (required)"
     )
 
@@ -106,7 +106,7 @@ class EmbeddingConfig(BaseSettings):
         if not hasattr(self, "provider") or self.provider is None:
             raise ValueError(
                 "Embedding provider must be explicitly selected. Available options: "
-                "openai, openai-compatible, tei. "
+                "openai, openai-compatible. "
                 "Set via --provider, CHUNKHOUND_EMBEDDING__PROVIDER, or in config file."
             )
         return self
@@ -162,7 +162,6 @@ class EmbeddingConfig(BaseSettings):
         limits = {
             "openai": (1, 200),
             "openai-compatible": (1, 500),
-            "tei": (1, 100),
         }
 
         min_size, max_size = limits.get(provider, (1, 1000))
@@ -223,7 +222,6 @@ class EmbeddingConfig(BaseSettings):
         defaults = {
             "openai": "text-embedding-3-small",
             "openai-compatible": "text-embedding-ada-002",
-            "tei": "sentence-transformers/all-MiniLM-L6-v2",
         }
 
         return self.model or defaults.get(self.provider, "text-embedding-3-small")
@@ -243,9 +241,6 @@ class EmbeddingConfig(BaseSettings):
         elif self.provider == "openai-compatible":
             return self.base_url is not None
 
-        # TEI requires base URL
-        elif self.provider == "tei":
-            return self.base_url is not None
 
         return False
 
@@ -270,7 +265,7 @@ class EmbeddingConfig(BaseSettings):
             missing.append("api_key (CHUNKHOUND_EMBEDDING_API_KEY)")
 
         elif (
-            self.provider in ["openai-compatible", "tei"]
+            self.provider == "openai-compatible"
             and not self.base_url
         ):
             missing.append("base_url (CHUNKHOUND_EMBEDDING_BASE_URL)")
@@ -283,7 +278,7 @@ class EmbeddingConfig(BaseSettings):
         parser.add_argument(
             "--provider",
             "--embedding-provider",
-            choices=["openai", "openai-compatible", "tei"],
+            choices=["openai", "openai-compatible"],
             help="Embedding provider to use (required - no default)",
         )
 
@@ -292,7 +287,7 @@ class EmbeddingConfig(BaseSettings):
             "--embedding-model",
             help=(
                 "Embedding model to use (defaults: openai=text-embedding-3-small, "
-                "tei=auto-detect, openai-compatible=required)"
+                "openai-compatible=required)"
             ),
         )
 

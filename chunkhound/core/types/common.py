@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import NewType
 
 # String-based type aliases for better semantic clarity
-ProviderName = NewType("ProviderName", str)  # e.g., "openai", "tei"
+ProviderName = NewType("ProviderName", str)  # e.g., "openai", "openai-compatible"
 ModelName = NewType("ModelName", str)  # e.g., "text-embedding-3-small"
 FilePath = NewType("FilePath", str)  # File path as string
 

@@ -30,7 +30,6 @@ def validate_batch_sizes(
     embedding_limits: dict[str, tuple[int, int]] = {
         "openai": (1, 2048),
         "openai-compatible": (1, 1000),
-        "tei": (1, 512),
     }
 
     # Database batch limits (DuckDB optimized for large batches)

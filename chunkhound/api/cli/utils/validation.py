@@ -51,7 +51,7 @@ def validate_provider_args(
     if not provider:
         logger.error(
             "Embedding provider must be specified. Choose from: openai, "
-            "openai-compatible, tei. Set via --provider, "
+            "openai-compatible. Set via --provider, "
             "CHUNKHOUND_EMBEDDING__PROVIDER, or in config file."
         )
         return False
@@ -70,11 +70,6 @@ def validate_provider_args(
             return False
         if not model:
             logger.error("Model name required for OpenAI-compatible provider")
-            return False
-
-    elif provider == "tei":
-        if not base_url:
-            logger.error("Base URL required for TEI provider")
             return False
 
 

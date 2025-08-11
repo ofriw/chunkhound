@@ -17,7 +17,6 @@ if TYPE_CHECKING:
         EmbeddingProvider,
         OpenAICompatibleProvider,
         OpenAIEmbeddingProvider,
-        TEIProvider,
     )
 
 
@@ -63,8 +62,6 @@ class EmbeddingProviderFactory:
             return EmbeddingProviderFactory._create_openai_compatible_provider(
                 provider_config
             )
-        elif config.provider == "tei":
-            return EmbeddingProviderFactory._create_tei_provider(provider_config)
         else:
             raise ValueError(f"Unsupported provider: {config.provider}")
 
@@ -149,33 +146,6 @@ class EmbeddingProviderFactory:
         except Exception as e:
             raise ValueError(f"Failed to create OpenAI-compatible provider: {e}") from e
 
-    @staticmethod
-    def _create_tei_provider(config: dict[str, Any]) -> "TEIProvider":
-        """Create TEI (Text Embeddings Inference) provider."""
-        try:
-            from chunkhound.embeddings import create_tei_provider
-        except ImportError:
-            try:
-                from embeddings import create_tei_provider
-            except ImportError:
-                raise ImportError(
-                    "Failed to import TEI provider. "
-                    "Ensure chunkhound.embeddings module is available."
-                )
-
-        # Extract parameters
-        base_url = config["base_url"]  # Required
-        model = config.get("model")  # Auto-detected if None
-
-        logger.debug(f"Creating TEI provider: model={model}, base_url={base_url}")
-
-        try:
-            return create_tei_provider(
-                base_url=base_url,
-                model=model,
-            )
-        except Exception as e:
-            raise ValueError(f"Failed to create TEI provider: {e}") from e
 
 
     @staticmethod
@@ -186,7 +156,7 @@ class EmbeddingProviderFactory:
         Returns:
             List of supported provider names
         """
-        return ["openai", "openai-compatible", "tei"]
+        return ["openai", "openai-compatible"]
 
     @staticmethod
     def validate_provider_dependencies(provider: str) -> tuple[bool, str | None]:
@@ -208,8 +178,6 @@ class EmbeddingProviderFactory:
                 from chunkhound.embeddings import create_openai_provider
             elif provider == "openai-compatible":
                 from chunkhound.embeddings import create_openai_compatible_provider
-            elif provider == "tei":
-                from chunkhound.embeddings import create_tei_provider
 
             return True, None
 
@@ -320,15 +288,6 @@ class EmbeddingProviderFactory:
                     "requires": ["base_url"],
                     "optional": ["api_key", "model", "dimensions"],
                     "default_model": "text-embedding-ada-002",
-                }
-            )
-        elif provider == "tei":
-            info.update(
-                {
-                    "description": "Text Embeddings Inference (Hugging Face TEI)",
-                    "requires": ["base_url"],
-                    "optional": ["model"],
-                    "default_model": "auto-detected",
                 }
             )
 

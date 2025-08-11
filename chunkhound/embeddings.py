@@ -273,47 +273,6 @@ class OpenAICompatibleProvider:
             raise
 
 
-class TEIProvider(OpenAICompatibleProvider):
-    """HuggingFace Text Embeddings Inference (TEI) optimized provider."""
-
-    def __init__(
-        self,
-        base_url: str,
-        model: str | None = None,
-        batch_size: int = 32,  # TEI typically works better with smaller batches
-        **kwargs: Any,
-    ) -> None:
-        """Initialize TEI provider with TEI-specific optimizations.
-
-        Args:
-            base_url: TEI server URL (e.g., 'http://localhost:8080')
-            model: Model name (will be auto-detected if None)
-            batch_size: TEI-optimized batch size (default: 32)
-            **kwargs: Additional arguments passed to OpenAICompatibleProvider
-        """
-        # TEI auto-detection: try to get model info from server
-        detected_model = model or "auto-detected"
-
-        super().__init__(
-            base_url=base_url,
-            model=detected_model,
-            batch_size=batch_size,
-            provider_name="tei",
-            **kwargs,
-        )
-
-        logger.info(f"TEI provider initialized with optimized batch size: {batch_size}")
-
-    async def _detect_capabilities(self, sample_embedding: list[float]) -> None:
-        """TEI-specific capability detection."""
-        await super()._detect_capabilities(sample_embedding)
-
-        # TEI typically uses cosine similarity
-        self._distance = "cosine"
-
-        logger.info(
-            f"TEI capabilities detected: dims={self._dims}, distance={self._distance}"
-        )
 
 
 class EmbeddingManager:
@@ -443,20 +402,6 @@ def create_openai_compatible_provider(
     )
 
 
-def create_tei_provider(
-    base_url: str, model: str | None = None, **kwargs: Any
-) -> TEIProvider:
-    """Create a TEI (Text Embeddings Inference) optimized provider.
-
-    Args:
-        base_url: TEI server URL
-        model: Model name (auto-detected if None)
-        **kwargs: Additional arguments passed to TEIProvider
-
-    Returns:
-        Configured TEI embedding provider
-    """
-    return TEIProvider(base_url=base_url, model=model, **kwargs)
 
 
 
