@@ -73,7 +73,7 @@ class StdioMCPServer(MCPServerBase):
         # Register individual tool handlers with specific signatures
         # like the HTTP server does - this is what MCP expects
         
-        @self.server.call_tool("get_stats")
+        @self.server.call_tool()
         async def get_stats() -> list[types.TextContent]:
             """Get database statistics including file, chunk, and embedding counts"""
             # Direct implementation - no routing through _handle_tool_call
@@ -96,7 +96,7 @@ class StdioMCPServer(MCPServerBase):
                 error_response = format_error_response(e, include_traceback=self.debug_mode)
                 return [types.TextContent(type="text", text=json.dumps(error_response))]
 
-        @self.server.call_tool("health_check")
+        @self.server.call_tool()
         async def health_check() -> list[types.TextContent]:
             """Check server health status"""
             # Direct implementation - no routing through _handle_tool_call
@@ -119,7 +119,7 @@ class StdioMCPServer(MCPServerBase):
                 error_response = format_error_response(e, include_traceback=self.debug_mode)
                 return [types.TextContent(type="text", text=json.dumps(error_response))]
 
-        @self.server.call_tool("search_regex")
+        @self.server.call_tool()
         async def search_regex(
             pattern: str,
             page_size: int = 10,
@@ -157,7 +157,7 @@ class StdioMCPServer(MCPServerBase):
                 error_response = format_error_response(e, include_traceback=self.debug_mode)
                 return [types.TextContent(type="text", text=json.dumps(error_response))]
 
-        @self.server.call_tool("search_semantic")
+        @self.server.call_tool()
         async def search_semantic(
             query: str,
             page_size: int = 10,
@@ -271,11 +271,11 @@ class StdioMCPServer(MCPServerBase):
             # Run with lifespan management
             async with self.server_lifespan():
                 # Run the stdio server
-                async with mcp.server.stdio.stdio_server() as streams:
+                async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
                     self.debug_log("Stdio server started, awaiting requests")
                     await self.server.run(
-                        streams[0],  # stdin
-                        streams[1],  # stdout
+                        read_stream,
+                        write_stream,
                         init_options,
                     )
 
