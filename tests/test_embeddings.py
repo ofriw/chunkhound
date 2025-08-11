@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from chunkhound.embeddings import EmbeddingManager
 from chunkhound.providers.embeddings.openai_provider import OpenAIEmbeddingProvider
-from chunkhound.embeddings import OpenAICompatibleProvider, TEIProvider
+from chunkhound.embeddings import OpenAICompatibleProvider
 
 
 async def test_openai_provider_creation():
@@ -141,39 +141,6 @@ async def test_openai_compatible_provider():
         return None
 
 
-async def test_tei_provider():
-    """Test TEI provider creation and optimization."""
-    print("\nTesting TEI provider...")
-
-    try:
-        # Test basic TEI provider
-        provider = TEIProvider(
-            base_url="http://localhost:8080",
-            model="sentence-transformers/all-MiniLM-L6-v2",
-        )
-
-        print(f"✅ TEI provider created successfully:")
-        print(f"   • Name: {provider.name}")
-        print(f"   • Model: {provider.model}")
-        print(f"   • Batch size (TEI optimized): {provider.batch_size}")
-        print(f"   • Distance metric: {provider.distance}")
-
-        # Test auto-detection without model
-        auto_provider = TEIProvider(base_url="http://localhost:8080")
-
-        print(f"✅ Auto-detection provider:")
-        print(f"   • Model: {auto_provider.model}")
-
-        # Test empty input handling
-        empty_result = await provider.embed([])
-        assert empty_result == []
-        print("✅ Empty input handling works")
-
-        return provider
-
-    except Exception as e:
-        print(f"❌ TEI provider test failed: {e}")
-        return None
 
 
 def test_provider_integration():
@@ -197,18 +164,12 @@ def test_provider_integration():
         )
         manager.register_provider(compatible_provider)
 
-        # Register TEI provider
-        tei_provider = TEIProvider(base_url="http://localhost:8081", model="tei-model")
-        manager.register_provider(tei_provider, set_default=True)
 
         # Test provider listing
         providers = manager.list_providers()
-        expected_providers = {"openai", "local-server", "tei"}
+        expected_providers = {"openai", "local-server"}
         assert expected_providers.issubset(set(providers))
 
-        # Test default provider
-        default = manager.get_provider()
-        assert default.name == "tei"
 
         # Test specific provider retrieval
         openai_retrieved = manager.get_provider("openai")
@@ -219,7 +180,6 @@ def test_provider_integration():
 
         print(f"✅ Provider integration successful:")
         print(f"   • Registered providers: {providers}")
-        print(f"   • Default provider: {default.name}")
         print(f"   • Can retrieve by name: ✓")
 
     except Exception as e:
@@ -277,7 +237,6 @@ async def main():
 
     # Test new providers
     compatible_provider = await test_openai_compatible_provider()
-    tei_provider = await test_tei_provider()
 
     # Test embedding manager
     manager = test_embedding_manager()
@@ -295,13 +254,12 @@ async def main():
     print("Test summary:")
     print("✅ OpenAI provider creation")
     print("✅ OpenAI-compatible provider creation")
-    print("✅ TEI provider creation")
     print("✅ Embedding manager functionality")
     print("✅ Provider integration")
     print("✅ Mock embedding generation")
     print("✅ Environment variable handling")
     print("\nAll core embedding functionality verified!")
-    print("🚀 New OpenAI-compatible and TEI providers ready!")
+    print("🚀 New OpenAI-compatible provider ready!")
     print("\nTo test with real API calls, set OPENAI_API_KEY and run:")
     print(
         'python -c "import asyncio; from test_embeddings import test_real_api; asyncio.run(test_real_api())"'

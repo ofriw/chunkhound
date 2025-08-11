@@ -15,11 +15,13 @@ import os
 import sys
 from abc import ABC, abstractmethod
 from pathlib import Path
+from typing import Any
 
 from chunkhound.core.config import EmbeddingProviderFactory
 from chunkhound.core.config.config import Config
 from chunkhound.database_factory import DatabaseServices, create_services
 from chunkhound.embeddings import EmbeddingManager
+from chunkhound.services.directory_indexing_service import DirectoryIndexingService
 from chunkhound.services.realtime_indexing_service import RealtimeIndexingService
 
 
@@ -34,14 +36,16 @@ class MCPServerBase(ABC):
     - run(): Main server execution loop
     """
 
-    def __init__(self, config: Config, debug_mode: bool = False):
+    def __init__(self, config: Config, debug_mode: bool = False, args: Any = None):
         """Initialize base MCP server.
 
         Args:
             config: Validated configuration object
             debug_mode: Enable debug logging to stderr
+            args: Original CLI arguments for direct path access
         """
         self.config = config
+        self.args = args  # Store original CLI args for direct path access
         self.debug_mode = debug_mode or os.getenv("CHUNKHOUND_DEBUG", "").lower() in (
             "true",
             "1",
@@ -121,21 +125,40 @@ class MCPServerBase(ABC):
             # Create services using unified factory
             self.services = create_services(
                 db_path=db_path,
-                config=self.config.to_dict(),
+                config=self.config,
                 embedding_manager=self.embedding_manager,
             )
 
             # Connect to database
             self.services.provider.connect()
             
-            # Start real-time indexing service
+            # Perform initial directory scan using shared service
+            self.debug_log("Starting initial directory scan")
+            indexing_service = DirectoryIndexingService(
+                indexing_coordinator=self.services.indexing_coordinator,
+                config=self.config,
+                progress_callback=self.debug_log
+            )
+            
+            # Use direct path like CLI indexer - align path resolution
+            if self.args and hasattr(self.args, 'path'):
+                target_path = Path(self.args.path)
+                self.debug_log(f"Using direct path from args: {target_path}")
+            else:
+                # Fallback to config resolution (shouldn't happen in normal usage)
+                target_path = getattr(self.config, '_target_dir', None) or db_path.parent.parent
+                self.debug_log(f"Using fallback path resolution: {target_path}")
+            
+            stats = await indexing_service.process_directory(target_path, no_embeddings=False)
+            
+            self.debug_log(f"Initial scan completed: {stats.files_processed} files, {stats.chunks_created} chunks")
+            
+            # Start real-time indexing service  
             self.debug_log("Starting real-time indexing service")
             self.realtime_indexing = RealtimeIndexingService(self.services, self.config)
             
-            # Use parent directory of database for watching
-            # This allows watching the project root while DB is in .chunkhound/
-            watch_path = db_path.parent.parent
-            await self.realtime_indexing.start(watch_path)
+            # Use same path for watching
+            await self.realtime_indexing.start(target_path)
             
             self._initialized = True
 

@@ -480,15 +480,6 @@ OpenAI-compatible (Ollama, LocalAI):
 }
 ```
 
-Text Embeddings Inference (TEI):
-```json
-{
-  "embedding": {
-    "provider": "tei",
-    "base_url": "http://localhost:8080"
-  }
-}
-```
 
 
 **Security Note**: 
@@ -505,7 +496,7 @@ chunkhound.json
 **Configuration Options**:
 
 - **`embedding`**: Embedding provider settings
-  - `provider`: Choose from `openai`, `openai-compatible`, `tei`
+  - `provider`: Choose from `openai`, `openai-compatible`
   - `model`: Model name (uses provider default if not specified)
   - `api_key`: API key for authentication
   - `base_url`: Base URL for API (for local/custom providers)
@@ -595,20 +586,6 @@ uv run chunkhound index
 uv run chunkhound index --provider openai-compatible --base-url http://localhost:1234 --model your-embedding-model
 ```
 
-**Text Embeddings Inference (TEI)**:
-```bash
-# Create .chunkhound.json for automatic detection
-echo '{
-  "embedding": {
-    "provider": "tei",
-    "base_url": "http://localhost:8080"
-  }
-}' > .chunkhound.json
-uv run chunkhound index
-
-# Or use command line
-uv run chunkhound index --provider tei --base-url http://localhost:8080
-```
 
 **Regex-only mode (no embeddings)**:
 ```bash
@@ -640,7 +617,7 @@ export CHUNKHOUND_DATABASE__PATH="/path/to/.chunkhound.db"
 ChunkHound prioritizes data security through a local-first architecture:
 
 - **Local database**: All code chunks stored in local DuckDB file - no data sent to external servers
-- **Local embeddings**: Supports self-hosted embedding servers (Ollama, LocalAI, TEI) for complete data isolation
+- **Local embeddings**: Supports self-hosted embedding servers (Ollama, LocalAI) for complete data isolation
 - **MCP over stdio**: Uses standard input/output for AI assistant communication - no network exposure
 - **No authentication complexity**: Zero auth required since everything runs locally on your machine
 
@@ -651,7 +628,7 @@ Your code never leaves your environment unless you explicitly configure external
 - **Python**: 3.10+
 - **API Key**: Only required for semantic search - **regex search works without any API key**
   - **OpenAI API key**: For OpenAI semantic search
-  - **No API key needed**: For local embedding servers (Ollama, LocalAI, TEI) or regex-only usage
+  - **No API key needed**: For local embedding servers (Ollama, LocalAI) or regex-only usage
 
 ## How It Works
 

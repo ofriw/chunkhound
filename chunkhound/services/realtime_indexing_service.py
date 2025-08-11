@@ -133,9 +133,9 @@ class SimpleEventHandler(FileSystemEventHandler):
 class RealtimeIndexingService:
     """Simple real-time indexing service with search responsiveness."""
     
-    def __init__(self, services: DatabaseServices, config: Config | None = None):
+    def __init__(self, services: DatabaseServices, config: Config):
         self.services = services
-        self.config = config or Config()
+        self.config = config
         
         # Existing asyncio queue for priority processing
         self.file_queue: asyncio.Queue[tuple[str, Path]] = asyncio.Queue()

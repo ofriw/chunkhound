@@ -309,7 +309,7 @@ Run the application with proper configuration.
                     print(f"  {key} = {value}")
             
             # Critical: Start from test_cwd, not project_dir - pass target path as argument
-            mcp_cmd = ["uv", "run", "chunkhound", "mcp", str(project_dir), "--stdio"]
+            mcp_cmd = ["uv", "run", "chunkhound", "mcp", "--stdio", str(project_dir)]
             print(f"Running command: {' '.join(mcp_cmd)} from cwd: {test_cwd}")
             mcp_process = await asyncio.create_subprocess_exec(  
                 *mcp_cmd,
@@ -604,7 +604,7 @@ def quicksort(arr):
             mcp_env["CHUNKHOUND_MCP_MODE"] = "1"
             
             mcp_process = await asyncio.create_subprocess_exec(
-                "uv", "run", "chunkhound", "mcp", str(project_dir), "--stdio",
+                "uv", "run", "chunkhound", "mcp", "--stdio", str(project_dir),
                 cwd=test_cwd,  # Different from project_dir
                 env=mcp_env,
                 stdin=asyncio.subprocess.PIPE,

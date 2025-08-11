@@ -49,13 +49,14 @@ class StdioMCPServer(MCPServerBase):
     connection model. All initialization happens eagerly during startup.
     """
 
-    def __init__(self, config: Config):
+    def __init__(self, config: Config, args: Any = None):
         """Initialize stdio MCP server.
 
         Args:
             config: Validated configuration object
+            args: Original CLI arguments for direct path access
         """
-        super().__init__(config)
+        super().__init__(config, args=args)
 
         # Create MCP server instance
         self.server: Server = Server("ChunkHound Code Search")
@@ -69,50 +70,142 @@ class StdioMCPServer(MCPServerBase):
     def _register_tools(self) -> None:
         """Register all tools from the registry with the stdio server."""
 
-        # Register the unified tool handler
-        @self.server.call_tool()
-        async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
-            """Handle all tool calls through the registry."""
-            # Wait for initialization to complete
+        # Register individual tool handlers with specific signatures
+        # like the HTTP server does - this is what MCP expects
+        
+        @self.server.call_tool("get_stats")
+        async def get_stats() -> list[types.TextContent]:
+            """Get database statistics including file, chunk, and embedding counts"""
+            # Direct implementation - no routing through _handle_tool_call
             try:
                 await asyncio.wait_for(
                     self._initialization_complete.wait(), timeout=30.0
                 )
-            except asyncio.TimeoutError:
-                error_response = format_error_response(
-                    Exception("Server initialization timed out"),
-                    include_traceback=self.debug_mode,
-                )
-                return [types.TextContent(type="text", text=json.dumps(error_response))]
-
-            try:
-                # Validate tool exists
-                if name not in TOOL_REGISTRY:
-                    raise ValueError(f"Unknown tool: {name}")
-
-                # Parse and validate arguments
-                parsed_args = parse_mcp_arguments(arguments)
-
-                # Execute tool from registry
+                
                 result = await execute_tool(
-                    tool_name=name,
+                    tool_name="get_stats",
                     services=self.ensure_services(),
                     embedding_manager=self.embedding_manager,
-                    arguments=parsed_args,
+                    arguments={},
                 )
-
-                # Format response for stdio protocol
+                
                 response_text = format_tool_response(result, format_type="json")
                 return [types.TextContent(type="text", text=response_text)]
-
+                
             except Exception as e:
-                # Format error response
-                error_response = format_error_response(
-                    e, include_traceback=self.debug_mode
-                )
+                error_response = format_error_response(e, include_traceback=self.debug_mode)
                 return [types.TextContent(type="text", text=json.dumps(error_response))]
 
-        # Register list_tools handler
+        @self.server.call_tool("health_check")
+        async def health_check() -> list[types.TextContent]:
+            """Check server health status"""
+            # Direct implementation - no routing through _handle_tool_call
+            try:
+                await asyncio.wait_for(
+                    self._initialization_complete.wait(), timeout=30.0
+                )
+                
+                result = await execute_tool(
+                    tool_name="health_check",
+                    services=self.ensure_services(),
+                    embedding_manager=self.embedding_manager,
+                    arguments={},
+                )
+                
+                response_text = format_tool_response(result, format_type="json")
+                return [types.TextContent(type="text", text=response_text)]
+                
+            except Exception as e:
+                error_response = format_error_response(e, include_traceback=self.debug_mode)
+                return [types.TextContent(type="text", text=json.dumps(error_response))]
+
+        @self.server.call_tool("search_regex")
+        async def search_regex(
+            pattern: str,
+            page_size: int = 10,
+            offset: int = 0,
+            max_response_tokens: int = 20000,
+            path: str | None = None,
+        ) -> list[types.TextContent]:
+            """Search code chunks using regex patterns with pagination support."""
+            # Direct implementation - no routing through _handle_tool_call
+            try:
+                await asyncio.wait_for(
+                    self._initialization_complete.wait(), timeout=30.0
+                )
+                
+                args = {
+                    "pattern": pattern,
+                    "page_size": page_size,
+                    "offset": offset,
+                    "max_response_tokens": max_response_tokens,
+                }
+                if path is not None:
+                    args["path"] = path
+                
+                result = await execute_tool(
+                    tool_name="search_regex",
+                    services=self.ensure_services(),
+                    embedding_manager=self.embedding_manager,
+                    arguments=parse_mcp_arguments(args),
+                )
+                
+                response_text = format_tool_response(result, format_type="json")
+                return [types.TextContent(type="text", text=response_text)]
+                
+            except Exception as e:
+                error_response = format_error_response(e, include_traceback=self.debug_mode)
+                return [types.TextContent(type="text", text=json.dumps(error_response))]
+
+        @self.server.call_tool("search_semantic")
+        async def search_semantic(
+            query: str,
+            page_size: int = 10,
+            offset: int = 0,
+            max_response_tokens: int = 20000,
+            path: str | None = None,
+            provider: str = "openai",
+            model: str = "text-embedding-3-small",
+            threshold: float | None = None,
+        ) -> list[types.TextContent]:
+            """Search code using semantic similarity with pagination support."""
+            # Direct implementation - no routing through _handle_tool_call
+            try:
+                await asyncio.wait_for(
+                    self._initialization_complete.wait(), timeout=30.0
+                )
+                
+                args = {
+                    "query": query,
+                    "page_size": page_size,
+                    "offset": offset,
+                    "max_response_tokens": max_response_tokens,
+                    "provider": provider,
+                    "model": model,
+                }
+                if path is not None:
+                    args["path"] = path
+                if threshold is not None:
+                    args["threshold"] = threshold
+                
+                result = await execute_tool(
+                    tool_name="search_semantic",
+                    services=self.ensure_services(),
+                    embedding_manager=self.embedding_manager,
+                    arguments=parse_mcp_arguments(args),
+                )
+                
+                response_text = format_tool_response(result, format_type="json")
+                return [types.TextContent(type="text", text=response_text)]
+                
+            except Exception as e:
+                error_response = format_error_response(e, include_traceback=self.debug_mode)
+                return [types.TextContent(type="text", text=json.dumps(error_response))]
+            
+        self._register_list_tools()
+
+    def _register_list_tools(self) -> None:
+        """Register list_tools handler."""
         @self.server.list_tools()
         async def list_tools() -> list[types.Tool]:
             """List available tools."""
@@ -226,8 +319,13 @@ async def main(args: Any = None) -> None:
         sys.exit(1)
 
     # Create and run the stdio server
-    server = StdioMCPServer(config)
-    await server.run()
+    try:
+        server = StdioMCPServer(config, args=args)
+        await server.run()
+    except Exception as e:
+        # CRITICAL: Cannot print to stderr in MCP mode - breaks JSON-RPC protocol
+        # Exit silently with error code
+        sys.exit(1)
 
 
 def main_sync() -> None:

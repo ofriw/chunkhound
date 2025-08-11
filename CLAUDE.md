@@ -86,7 +86,7 @@ chunkhound/
 - uv (package manager - ALWAYS use this)
 - DuckDB (primary) / LanceDB (alternative) 
 - Tree-sitter (20+ language parsers)
-- OpenAI/Ollama/TEI embeddings
+- OpenAI/Ollama embeddings
 - MCP protocol (stdio and HTTP)
 - Pydantic (configuration validation)
 

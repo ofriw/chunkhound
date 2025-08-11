@@ -9,7 +9,7 @@ protocol-specific constraints.
 """
 
 from .base import MCPServerBase
-from .http import HttpMCPServer
+from .http_server import HttpMCPServer
 from .stdio import StdioMCPServer
 from .tools import TOOL_REGISTRY
 

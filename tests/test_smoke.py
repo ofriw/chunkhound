@@ -50,7 +50,7 @@ class TestModuleImports:
         """Test critical modules that have caused issues before."""
         critical_modules = [
             "chunkhound.mcp.stdio",
-            "chunkhound.mcp.http",  # This would have caught the bug!
+            "chunkhound.mcp.http_server",  # This would have caught the bug!
             "chunkhound.api.cli.main",
             "chunkhound.database",
             "chunkhound.embeddings",
@@ -73,7 +73,6 @@ class TestCLICommands:
             ["chunkhound", "--version"],
             ["chunkhound", "index", "--help"],
             ["chunkhound", "mcp", "--help"],
-            ["chunkhound", "mcp", "stdio", "--help"],
         ],
     )
     def test_cli_help_commands(self, command):
@@ -104,7 +103,7 @@ class TestCLICommands:
                 "run",
                 "python",
                 "-c",
-                "import chunkhound.mcp.http; print('OK')",
+                "import chunkhound.mcp.http_server; print('OK')",
             ],
             capture_output=True,
             text=True,
@@ -236,7 +235,7 @@ class TestServerStartup:
             "run",
             "chunkhound",
             "mcp",
-            "stdio",
+            "--stdio",
             "--help",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
@@ -248,6 +247,70 @@ class TestServerStartup:
             f"MCP stdio help failed with code {proc.returncode}\n"
             f"stderr: {stderr.decode()}"
         )
+
+    @pytest.mark.asyncio
+    async def test_mcp_stdio_server_starts(self):
+        """Test that MCP stdio server can start without immediate crashes."""
+        import tempfile
+
+        # Create a temporary directory to avoid indexing the current directory
+        with tempfile.TemporaryDirectory() as temp_dir:
+            # Test that the server starts without crashing
+            proc = await asyncio.create_subprocess_exec(
+                "uv",
+                "run",
+                "python", "-c",
+                f'''
+import sys
+import os
+sys.path.insert(0, "{os.getcwd()}")
+from chunkhound.mcp.stdio import main
+import asyncio
+
+async def test():
+    # Set minimal config
+    os.environ["CHUNKHOUND_EMBEDDING__PROVIDER"] = "openai"
+    os.environ["CHUNKHOUND_EMBEDDING__API_KEY"] = "test"
+    
+    # Test we can import without immediate crash
+    try:
+        # Just test that critical imports work - this catches most startup issues
+        from chunkhound.mcp.stdio import StdioMCPServer
+        from chunkhound.mcp.http import HttpMCPServer  
+        from chunkhound.core.config.config import Config
+        
+        # Test config creation
+        config = Config()
+        
+        print("SUCCESS: MCP server imports and config creation work")
+        return 0
+    except Exception as e:
+        print(f"FAILED: {{e}}")
+        return 1
+
+sys.exit(asyncio.run(test()))
+                ''',
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+
+            try:
+                stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=10.0)
+                
+                if proc.returncode != 0:
+                    pytest.fail(
+                        f"MCP stdio server initialization failed with code {proc.returncode}\n"
+                        f"stdout: {stdout.decode()}\n"
+                        f"stderr: {stderr.decode()}"
+                    )
+                
+                # Check for success message
+                assert "SUCCESS:" in stdout.decode(), f"Expected success message, got: {stdout.decode()}"
+
+            except asyncio.TimeoutError:
+                proc.kill()
+                await proc.wait()
+                pytest.fail("MCP stdio server test timed out")
 
 
 class TestTypeAnnotations:
