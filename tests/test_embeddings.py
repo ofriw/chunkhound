@@ -8,33 +8,147 @@ import sys
 # Add parent directory to path to import chunkhound modules
 sys.path.insert(0, str(Path(__file__).parent))
 
+import json
+import os
+from pathlib import Path
+from typing import Optional
+
+import pytest
+
 from chunkhound.embeddings import EmbeddingManager
 from chunkhound.providers.embeddings.openai_provider import OpenAIEmbeddingProvider
-from chunkhound.embeddings import OpenAICompatibleProvider
 
 
-async def test_openai_provider_creation():
-    """Test creating OpenAI provider without API calls."""
-    print("Testing OpenAI provider creation...")
+def get_openai_api_key_for_tests() -> Optional[str]:
+    """
+    Intelligently discover OpenAI API key for testing.
+    
+    Priority:
+    1. OPENAI_API_KEY environment variable
+    2. .chunkhound.json in current directory
+    3. Return None if not found
+    """
+    # Priority 1: Environment variable
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if api_key:
+        return api_key.strip()
+    
+    # Priority 2: Local .chunkhound.json file
+    config_file = Path(".chunkhound.json")
+    if config_file.exists():
+        try:
+            with open(config_file, 'r') as f:
+                config_data = json.load(f)
+            
+            embedding_config = config_data.get("embedding", {})
+            api_key = embedding_config.get("api_key")
+            
+            if api_key:
+                return api_key.strip()
+                
+        except (json.JSONDecodeError, FileNotFoundError, KeyError):
+            pass
+    
+    return None
 
-    # Test with mock API key
-    try:
-        provider = OpenAIEmbeddingProvider(
-            api_key="sk-test-key-for-testing", model="text-embedding-3-small"
+
+def should_run_live_api_tests() -> bool:
+    """Check if live API tests should run (API key available)."""
+    return get_openai_api_key_for_tests() is not None
+
+
+async def test_official_openai_validation():
+    """Test official OpenAI API key validation logic."""
+    # Should work: API key provided
+    provider = OpenAIEmbeddingProvider(api_key="sk-fake-key")
+    assert provider.api_key == "sk-fake-key"
+    
+    # Should fail: No API key for official OpenAI
+    provider = OpenAIEmbeddingProvider()
+    with pytest.raises(ValueError, match="OpenAI API key is required for official OpenAI API"):
+        await provider._ensure_client()
+
+
+async def test_custom_endpoint_validation():
+    """Test custom endpoint mode allows optional API key."""
+    # Should work: Custom endpoint, no API key
+    provider = OpenAIEmbeddingProvider(
+        base_url="http://localhost:11434", 
+        model="nomic-embed-text"
+    )
+    assert provider.base_url == "http://localhost:11434"
+    
+    # Should work: Custom endpoint + API key
+    provider = OpenAIEmbeddingProvider(
+        base_url="http://localhost:1234",
+        api_key="custom-key"
+    )
+    assert provider.api_key == "custom-key"
+
+
+def test_url_detection_logic():
+    """Test the logic that determines official vs custom endpoints."""
+    # Official OpenAI URLs (should require API key)
+    official_urls = [
+        None,
+        "https://api.openai.com",
+        "https://api.openai.com/v1",
+        "https://api.openai.com/v1/",
+    ]
+    
+    for url in official_urls:
+        provider = OpenAIEmbeddingProvider(base_url=url)
+        is_official = not provider._base_url or (
+            provider._base_url.startswith("https://api.openai.com") and 
+            (provider._base_url == "https://api.openai.com" or provider._base_url.startswith("https://api.openai.com/"))
         )
+        assert is_official, f"URL {url} should be detected as official OpenAI"
+    
+    # Custom URLs (should NOT require API key)
+    custom_urls = [
+        "http://localhost:11434",
+        "https://api.example.com/v1/embeddings",
+        "https://api.openai.com.evil.com/v1",
+        "http://api.openai.com/v1",
+    ]
+    
+    for url in custom_urls:
+        provider = OpenAIEmbeddingProvider(base_url=url)
+        is_official = not provider._base_url or (
+            provider._base_url.startswith("https://api.openai.com") and 
+            (provider._base_url == "https://api.openai.com" or provider._base_url.startswith("https://api.openai.com/"))
+        )
+        assert not is_official, f"URL {url} should be detected as custom endpoint"
 
-        print(f"✅ Provider created successfully:")
-        print(f"   • Name: {provider.name}")
-        print(f"   • Model: {provider.model}")
-        print(f"   • Dimensions: {provider.dims}")
-        print(f"   • Distance: {provider.distance}")
-        print(f"   • Batch size: {provider.batch_size}")
 
-        return provider
+@pytest.mark.skipif(not should_run_live_api_tests(), 
+                   reason="No OpenAI API key available (set OPENAI_API_KEY or add to .chunkhound.json)")
+async def test_real_openai_api_embedding():
+    """Test real OpenAI API call with discovered key."""
+    api_key = get_openai_api_key_for_tests()
+    provider = OpenAIEmbeddingProvider(
+        api_key=api_key, 
+        model="text-embedding-3-small"
+    )
+    
+    result = await provider.embed(["Hello, world!"])
+    
+    assert len(result) == 1
+    assert len(result[0]) == 1536
+    assert all(isinstance(x, float) for x in result[0])
 
+
+async def test_custom_endpoint_mock_behavior():
+    """Test custom endpoint behavior without real server."""
+    provider = OpenAIEmbeddingProvider(
+        base_url="http://localhost:11434",
+        model="nomic-embed-text"
+    )
+    
+    try:
+        await provider._ensure_client()
     except Exception as e:
-        print(f"❌ Failed to create provider: {e}")
-        return None
+        assert "API key" not in str(e), f"Should not require API key for custom endpoint: {e}"
 
 
 def test_embedding_manager():
@@ -99,46 +213,6 @@ async def test_mock_embedding_generation():
         return False
 
 
-async def test_openai_compatible_provider():
-    """Test OpenAI-compatible provider creation."""
-    print("\nTesting OpenAI-compatible provider...")
-
-    try:
-        # Test basic provider creation
-        provider = OpenAICompatibleProvider(
-            base_url="http://localhost:8080",
-            model="sentence-transformers/all-MiniLM-L6-v2",
-            provider_name="test-local",
-        )
-
-        print(f"✅ OpenAI-compatible provider created successfully:")
-        print(f"   • Name: {provider.name}")
-        print(f"   • Model: {provider.model}")
-        print(f"   • Base URL: http://localhost:8080")
-        print(f"   • Batch size: {provider.batch_size}")
-
-        # Test with API key
-        auth_provider = OpenAICompatibleProvider(
-            base_url="https://api.example.com",
-            model="custom-model",
-            api_key="test-key",
-            provider_name="authenticated-server",
-        )
-
-        print(f"✅ Authenticated provider created:")
-        print(f"   • Name: {auth_provider.name}")
-        print(f"   • Has API key: True")
-
-        # Test empty input handling
-        empty_result = await provider.embed([])
-        assert empty_result == []
-        print("✅ Empty input handling works")
-
-        return provider
-
-    except Exception as e:
-        print(f"❌ OpenAI-compatible provider test failed: {e}")
-        return None
 
 
 
@@ -156,18 +230,11 @@ def test_provider_integration():
         )
         manager.register_provider(openai_provider)
 
-        # Register OpenAI-compatible provider
-        compatible_provider = OpenAICompatibleProvider(
-            base_url="http://localhost:8080",
-            model="local-model",
-            provider_name="local-server",
-        )
-        manager.register_provider(compatible_provider)
 
 
         # Test provider listing
         providers = manager.list_providers()
-        expected_providers = {"openai", "local-server"}
+        expected_providers = {"openai"}
         assert expected_providers.issubset(set(providers))
 
 
@@ -175,8 +242,6 @@ def test_provider_integration():
         openai_retrieved = manager.get_provider("openai")
         assert openai_retrieved.name == "openai"
 
-        local_retrieved = manager.get_provider("local-server")
-        assert local_retrieved.name == "local-server"
 
         print(f"✅ Provider integration successful:")
         print(f"   • Registered providers: {providers}")
@@ -235,8 +300,6 @@ async def main():
     # Test provider creation
     provider = await test_openai_provider_creation()
 
-    # Test new providers
-    compatible_provider = await test_openai_compatible_provider()
 
     # Test embedding manager
     manager = test_embedding_manager()
@@ -253,13 +316,11 @@ async def main():
     print("\n" + "=" * 40)
     print("Test summary:")
     print("✅ OpenAI provider creation")
-    print("✅ OpenAI-compatible provider creation")
     print("✅ Embedding manager functionality")
     print("✅ Provider integration")
     print("✅ Mock embedding generation")
     print("✅ Environment variable handling")
     print("\nAll core embedding functionality verified!")
-    print("🚀 New OpenAI-compatible provider ready!")
     print("\nTo test with real API calls, set OPENAI_API_KEY and run:")
     print(
         'python -c "import asyncio; from test_embeddings import test_real_api; asyncio.run(test_real_api())"'

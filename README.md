@@ -456,7 +456,7 @@ uv run chunkhound index
 # Create .chunkhound.json for Ollama
 echo '{
   "embedding": {
-    "provider": "openai-compatible",
+    "provider": "openai",
     "base_url": "http://localhost:11434",
     "model": "nomic-embed-text"
   }
@@ -468,11 +468,11 @@ uv run chunkhound index
 
 **Provider-Specific Examples**:
 
-OpenAI-compatible (Ollama, LocalAI):
+OpenAI (with custom endpoints like Ollama, LocalAI):
 ```json
 {
   "embedding": {
-    "provider": "openai-compatible",
+    "provider": "openai",
     "base_url": "http://localhost:11434",
     "model": "nomic-embed-text",
     "api_key": "optional-api-key"
@@ -496,7 +496,7 @@ chunkhound.json
 **Configuration Options**:
 
 - **`embedding`**: Embedding provider settings
-  - `provider`: Choose from `openai`, `openai-compatible`
+  - `provider`: Choose from `openai`
   - `model`: Model name (uses provider default if not specified)
   - `api_key`: API key for authentication
   - `base_url`: Base URL for API (for local/custom providers)
@@ -559,7 +559,7 @@ ollama pull nomic-embed-text
 # Option 1: Use .chunkhound.json (automatically detected)
 echo '{
   "embedding": {
-    "provider": "openai-compatible",
+    "provider": "openai",
     "base_url": "http://localhost:11434",
     "model": "nomic-embed-text"
   }
@@ -567,15 +567,15 @@ echo '{
 uv run chunkhound index
 
 # Option 2: Use command line
-uv run chunkhound index --provider openai-compatible --base-url http://localhost:11434 --model nomic-embed-text
+uv run chunkhound index --provider openai --base-url http://localhost:11434 --model nomic-embed-text
 ```
 
-**LocalAI, LM Studio, or other OpenAI-compatible servers**:
+**LocalAI, LM Studio, or other custom OpenAI endpoints**:
 ```bash
 # Create .chunkhound.json for automatic detection
 echo '{
   "embedding": {
-    "provider": "openai-compatible",
+    "provider": "openai",
     "base_url": "http://localhost:1234",
     "model": "your-embedding-model"
   }
@@ -583,7 +583,7 @@ echo '{
 uv run chunkhound index
 
 # Or use command line
-uv run chunkhound index --provider openai-compatible --base-url http://localhost:1234 --model your-embedding-model
+uv run chunkhound index --provider openai --base-url http://localhost:1234 --model your-embedding-model
 ```
 
 
@@ -602,7 +602,7 @@ Environment variables are useful for system-wide defaults, but `.chunkhound.json
 export CHUNKHOUND_EMBEDDING__API_KEY="sk-your-key-here"
 
 # For local embedding servers (Ollama, LocalAI, etc.)
-export CHUNKHOUND_EMBEDDING__PROVIDER="openai-compatible"
+export CHUNKHOUND_EMBEDDING__PROVIDER="openai"
 export CHUNKHOUND_EMBEDDING__BASE_URL="http://localhost:11434"  # Ollama default
 export CHUNKHOUND_EMBEDDING__MODEL="nomic-embed-text"
 

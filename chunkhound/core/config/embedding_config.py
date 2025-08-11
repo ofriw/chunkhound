@@ -47,7 +47,7 @@ class EmbeddingConfig(BaseSettings):
     )
 
     # Provider Selection
-    provider: Literal["openai", "openai-compatible"] = Field(
+    provider: Literal["openai"] = Field(
         description="Embedding provider to use (required)"
     )
 
@@ -96,7 +96,7 @@ class EmbeddingConfig(BaseSettings):
         default=None,
         ge=1,
         le=8192,
-        description="Embedding dimensions (for openai-compatible provider)",
+        description="Embedding dimensions (for custom providers)",
     )
 
 
@@ -106,7 +106,7 @@ class EmbeddingConfig(BaseSettings):
         if not hasattr(self, "provider") or self.provider is None:
             raise ValueError(
                 "Embedding provider must be explicitly selected. Available options: "
-                "openai, openai-compatible. "
+                "openai. "
                 "Set via --provider, CHUNKHOUND_EMBEDDING__PROVIDER, or in config file."
             )
         return self
@@ -161,7 +161,6 @@ class EmbeddingConfig(BaseSettings):
         # Provider-specific batch size limits
         limits = {
             "openai": (1, 200),
-            "openai-compatible": (1, 500),
         }
 
         min_size, max_size = limits.get(provider, (1, 1000))
@@ -198,9 +197,8 @@ class EmbeddingConfig(BaseSettings):
             base_config["base_url"] = self.base_url
 
         # Provider-specific configuration
-        if self.provider == "openai-compatible":
-            if self.dimensions:
-                base_config["dimensions"] = self.dimensions
+        if self.dimensions:
+            base_config["dimensions"] = self.dimensions
 
         return base_config
 
@@ -221,7 +219,6 @@ class EmbeddingConfig(BaseSettings):
 
         defaults = {
             "openai": "text-embedding-3-small",
-            "openai-compatible": "text-embedding-ada-002",
         }
 
         return self.model or defaults.get(self.provider, "text-embedding-3-small")
@@ -237,9 +234,6 @@ class EmbeddingConfig(BaseSettings):
         if self.provider == "openai":
             return self.api_key is not None
 
-        # OpenAI-compatible requires base URL
-        elif self.provider == "openai-compatible":
-            return self.base_url is not None
 
 
         return False
@@ -264,11 +258,6 @@ class EmbeddingConfig(BaseSettings):
         if self.provider == "openai" and not self.api_key:
             missing.append("api_key (CHUNKHOUND_EMBEDDING_API_KEY)")
 
-        elif (
-            self.provider == "openai-compatible"
-            and not self.base_url
-        ):
-            missing.append("base_url (CHUNKHOUND_EMBEDDING_BASE_URL)")
 
         return missing
 
@@ -278,7 +267,7 @@ class EmbeddingConfig(BaseSettings):
         parser.add_argument(
             "--provider",
             "--embedding-provider",
-            choices=["openai", "openai-compatible"],
+            choices=["openai"],
             help="Embedding provider to use (required - no default)",
         )
 
@@ -287,7 +276,7 @@ class EmbeddingConfig(BaseSettings):
             "--embedding-model",
             help=(
                 "Embedding model to use (defaults: openai=text-embedding-3-small, "
-                "openai-compatible=required)"
+                "openai=required)"
             ),
         )
 

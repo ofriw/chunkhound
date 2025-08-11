@@ -104,8 +104,13 @@ class OpenAIEmbeddingProvider:
                 "OpenAI library is not available. Install with: pip install openai"
             )
 
-        if not self._api_key:
-            raise ValueError("OpenAI API key is required")
+        # Only require API key for official OpenAI API
+        is_openai_official = not self._base_url or (
+            self._base_url.startswith("https://api.openai.com") and 
+            (self._base_url == "https://api.openai.com" or self._base_url.startswith("https://api.openai.com/"))
+        )
+        if is_openai_official and not self._api_key:
+            raise ValueError("OpenAI API key is required for official OpenAI API")
 
         # Configure client options for custom endpoints
         client_kwargs = {"api_key": self._api_key, "timeout": self._timeout}

@@ -15,7 +15,6 @@ from .embedding_config import EmbeddingConfig
 if TYPE_CHECKING:
     from chunkhound.embeddings import (
         EmbeddingProvider,
-        OpenAICompatibleProvider,
         OpenAIEmbeddingProvider,
     )
 
@@ -58,10 +57,6 @@ class EmbeddingProviderFactory:
         # Create provider based on type
         if config.provider == "openai":
             return EmbeddingProviderFactory._create_openai_provider(provider_config)
-        elif config.provider == "openai-compatible":
-            return EmbeddingProviderFactory._create_openai_compatible_provider(
-                provider_config
-            )
         else:
             raise ValueError(f"Unsupported provider: {config.provider}")
 
@@ -102,49 +97,6 @@ class EmbeddingProviderFactory:
         except Exception as e:
             raise ValueError(f"Failed to create OpenAI provider: {e}") from e
 
-    @staticmethod
-    def _create_openai_compatible_provider(
-        config: dict[str, Any],
-    ) -> "OpenAICompatibleProvider":
-        """Create OpenAI-compatible embedding provider."""
-        try:
-            from chunkhound.embeddings import create_openai_compatible_provider
-        except ImportError:
-            try:
-                from embeddings import create_openai_compatible_provider
-            except ImportError:
-                raise ImportError(
-                    "Failed to import OpenAI-compatible provider. "
-                    "Ensure chunkhound.embeddings module is available."
-                )
-
-        # Extract parameters
-        base_url = config["base_url"]  # Required
-        model = config.get("model") or "text-embedding-ada-002"
-        api_key = config.get("api_key")
-        dimensions = config.get("dimensions")
-
-        # Build kwargs for provider
-        kwargs = {}
-        if dimensions:
-            kwargs["dims"] = dimensions
-
-        logger.debug(
-            f"Creating OpenAI-compatible provider: model={model}, "
-            f"base_url={base_url}, api_key={'***' if api_key else None}, "
-            f"dimensions={dimensions}"
-        )
-
-        try:
-            return create_openai_compatible_provider(
-                base_url=base_url,
-                model=model,
-                api_key=api_key,
-                provider_name="openai-compatible",
-                **kwargs,
-            )
-        except Exception as e:
-            raise ValueError(f"Failed to create OpenAI-compatible provider: {e}") from e
 
 
 
@@ -156,7 +108,7 @@ class EmbeddingProviderFactory:
         Returns:
             List of supported provider names
         """
-        return ["openai", "openai-compatible"]
+        return ["openai"]
 
     @staticmethod
     def validate_provider_dependencies(provider: str) -> tuple[bool, str | None]:
@@ -176,8 +128,6 @@ class EmbeddingProviderFactory:
         try:
             if provider == "openai":
                 from chunkhound.embeddings import create_openai_provider
-            elif provider == "openai-compatible":
-                from chunkhound.embeddings import create_openai_compatible_provider
 
             return True, None
 
@@ -279,15 +229,6 @@ class EmbeddingProviderFactory:
                         "text-embedding-3-large",
                         "text-embedding-ada-002",
                     ],
-                }
-            )
-        elif provider == "openai-compatible":
-            info.update(
-                {
-                    "description": "OpenAI-compatible embedding servers (Ollama, LocalAI, etc.)",
-                    "requires": ["base_url"],
-                    "optional": ["api_key", "model", "dimensions"],
-                    "default_model": "text-embedding-ada-002",
                 }
             )
 

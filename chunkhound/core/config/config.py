@@ -245,16 +245,7 @@ class Config(BaseModel):
             embedding_config = self.embedding
 
             if embedding_config:
-
-                if embedding_config.provider == "openai-compatible":
-                    if not embedding_config.model:
-                        errors.append(
-                            f"--model required for {embedding_config.provider} provider"
-                        )
-                    if not embedding_config.base_url:
-                        errors.append(
-                            f"--base-url required for {embedding_config.provider} provider"
-                        )
+                pass  # No provider-specific validation needed
 
         return errors
 

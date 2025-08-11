@@ -200,7 +200,7 @@ def add_common_mcp_arguments(parser: Any) -> None:
     # Embedding arguments
     parser.add_argument(
         "--provider",
-        choices=["openai", "openai-compatible"],
+        choices=["openai"],
         help="Embedding provider",
     )
     parser.add_argument("--model", type=str, help="Embedding model")

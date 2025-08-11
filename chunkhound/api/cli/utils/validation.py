@@ -50,8 +50,8 @@ def validate_provider_args(
     """Validate embedding provider arguments."""
     if not provider:
         logger.error(
-            "Embedding provider must be specified. Choose from: openai, "
-            "openai-compatible. Set via --provider, "
+            "Embedding provider must be specified. Choose from: openai. "
+            "Set via --provider, "
             "CHUNKHOUND_EMBEDDING__PROVIDER, or in config file."
         )
         return False
@@ -64,13 +64,6 @@ def validate_provider_args(
             )
             return False
 
-    elif provider == "openai-compatible":
-        if not base_url:
-            logger.error("Base URL required for OpenAI-compatible provider")
-            return False
-        if not model:
-            logger.error("Model name required for OpenAI-compatible provider")
-            return False
 
 
     else:
@@ -84,7 +77,7 @@ def validate_config_args(
     server_type: str, base_url: str | None, model: str | None, api_key: str | None
 ) -> bool:
     """Validate configuration server arguments."""
-    if server_type in ["openai", "openai-compatible"] and not model:
+    if server_type in ["openai"] and not model:
         logger.error(f"Model is required for {server_type} servers")
         return False
 
