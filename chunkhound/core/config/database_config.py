@@ -30,35 +30,6 @@ class DatabaseConfig(BaseModel):
         default="duckdb", description="Database provider to use"
     )
 
-    # LanceDB specific configuration
-    lancedb_index_type: Literal["IVF_PQ", "IVF_HNSW_SQ"] = Field(
-        default="IVF_PQ",
-        description=(
-            "Index type for LanceDB (IVF_PQ for efficiency, IVF_HNSW_SQ for quality)"
-        ),
-    )
-
-    # Connection pool settings
-    pool_size: int = Field(
-        default=5, ge=1, le=50, description="Database connection pool size"
-    )
-
-    max_overflow: int = Field(
-        default=10,
-        ge=0,
-        le=100,
-        description="Maximum overflow connections above pool_size",
-    )
-
-    # Performance settings
-    cache_size: int = Field(
-        default=1000, ge=0, description="Query cache size (0 to disable)"
-    )
-
-    timeout: int = Field(
-        default=30, ge=1, le=300, description="Database operation timeout in seconds"
-    )
-
     @field_validator("path")
     def validate_path(cls, v: Path | None) -> Path | None:
         """Convert string paths to Path objects."""
@@ -112,12 +83,6 @@ class DatabaseConfig(BaseModel):
             help="Database provider to use",
         )
 
-        parser.add_argument(
-            "--database-lancedb-index-type",
-            choices=["ivf-pq", "ivf", "flat"],
-            help="LanceDB index type for vector search",
-        )
-
     @classmethod
     def load_from_env(cls) -> dict[str, Any]:
         """Load database config from environment variables."""
@@ -129,8 +94,6 @@ class DatabaseConfig(BaseModel):
             config["path"] = Path(db_path)
         if provider := os.getenv("CHUNKHOUND_DATABASE__PROVIDER"):
             config["provider"] = provider
-        if index_type := os.getenv("CHUNKHOUND_DATABASE__LANCEDB_INDEX_TYPE"):
-            config["lancedb_index_type"] = index_type
         return config
 
     @classmethod
@@ -143,11 +106,6 @@ class DatabaseConfig(BaseModel):
             overrides["path"] = args.database_path
         if hasattr(args, "database_provider") and args.database_provider:
             overrides["provider"] = args.database_provider
-        if (
-            hasattr(args, "database_lancedb_index_type")
-            and args.database_lancedb_index_type
-        ):
-            overrides["lancedb_index_type"] = args.database_lancedb_index_type
         return overrides
 
     def __repr__(self) -> str:
@@ -155,6 +113,5 @@ class DatabaseConfig(BaseModel):
         return (
             f"DatabaseConfig("
             f"provider={self.provider}, "
-            f"path={self.path}, "
-            f"pool_size={self.pool_size})"
+            f"path={self.path})"
         )

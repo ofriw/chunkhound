@@ -33,37 +33,21 @@ class IndexingConfig(BaseModel):
     Controls how files are discovered and indexed.
     """
 
-    # Batch processing
-    batch_size: int = Field(
-        default=50,
-        ge=1,
-        le=1000,
-        description="Number of files to process in a single batch",
-    )
-
-    db_batch_size: int = Field(
-        default=100,
-        ge=1,
-        le=5000,
-        description="Number of chunks to insert in a single database batch",
-    )
-
-    max_concurrent: int = Field(
-        default=5, ge=1, le=20, description="Maximum concurrent file processing tasks"
-    )
-
     # Indexing behavior
     force_reindex: bool = Field(
         default=False, description="Force re-indexing of all files"
     )
 
-    cleanup: bool = Field(
-        default=True, description="Remove chunks from deleted files during indexing"
-    )
-
-    ignore_gitignore: bool = Field(
-        default=False, description="Ignore .gitignore patterns when discovering files"
-    )
+    # Internal settings - not exposed to users
+    batch_size: int = Field(default=50, description="Internal batch size")
+    db_batch_size: int = Field(default=100, description="Internal DB batch size")
+    max_concurrent: int = Field(default=5, description="Internal concurrency")
+    cleanup: bool = Field(default=True, description="Internal cleanup setting")
+    ignore_gitignore: bool = Field(default=False, description="Internal gitignore setting")
+    max_file_size_mb: int = Field(default=10, description="Internal file size limit")
+    chunk_overlap: int = Field(default=50, description="Internal chunk overlap")
+    min_chunk_size: int = Field(default=50, description="Internal min chunk size") 
+    max_chunk_size: int = Field(default=2000, description="Internal max chunk size")
 
     # File patterns
     include: list[str] = Field(
@@ -124,25 +108,6 @@ class IndexingConfig(BaseModel):
         description="Glob patterns for files to exclude",
     )
 
-    # Performance tuning
-    max_file_size_mb: int = Field(
-        default=10, ge=1, le=100, description="Maximum file size in MB to index"
-    )
-
-    chunk_overlap: int = Field(
-        default=50,
-        ge=0,
-        le=500,
-        description="Number of characters to overlap between chunks",
-    )
-
-    min_chunk_size: int = Field(
-        default=50, ge=10, le=1000, description="Minimum chunk size in characters"
-    )
-
-    max_chunk_size: int = Field(
-        default=2000, ge=100, le=10000, description="Maximum chunk size in characters"
-    )
 
     @field_validator("include", "exclude")
     def validate_patterns(cls, v: list[str]) -> list[str]:
@@ -178,39 +143,9 @@ class IndexingConfig(BaseModel):
     def add_cli_arguments(cls, parser: argparse.ArgumentParser) -> None:
         """Add indexing-related CLI arguments."""
         parser.add_argument(
-            "--indexing-batch-size",
-            type=int,
-            help="Number of files to process per batch",
-        )
-
-        parser.add_argument(
-            "--db-batch-size",
-            type=int,
-            help="Number of records per database transaction",
-        )
-
-        parser.add_argument(
-            "--indexing-max-concurrent",
-            type=int,
-            help="Maximum concurrent file processing tasks",
-        )
-
-        parser.add_argument(
             "--force-reindex",
             action="store_true",
             help="Force reindexing of all files, even if they haven't changed",
-        )
-
-        parser.add_argument(
-            "--cleanup",
-            action="store_true",
-            help="Clean up orphaned chunks from deleted files",
-        )
-
-        parser.add_argument(
-            "--indexing-ignore-gitignore",
-            action="store_true",
-            help="Ignore .gitignore files when scanning",
         )
 
         parser.add_argument(
@@ -230,22 +165,8 @@ class IndexingConfig(BaseModel):
         """Load indexing config from environment variables."""
         config = {}
 
-        if batch_size := os.getenv("CHUNKHOUND_INDEXING__BATCH_SIZE"):
-            config["batch_size"] = int(batch_size)
-        if db_batch_size := os.getenv("CHUNKHOUND_INDEXING__DB_BATCH_SIZE"):
-            config["db_batch_size"] = int(db_batch_size)
-        if max_concurrent := os.getenv("CHUNKHOUND_INDEXING__MAX_CONCURRENT"):
-            config["max_concurrent"] = int(max_concurrent)
         if force_reindex := os.getenv("CHUNKHOUND_INDEXING__FORCE_REINDEX"):
             config["force_reindex"] = force_reindex.lower() in ("true", "1", "yes")
-        if cleanup := os.getenv("CHUNKHOUND_INDEXING__CLEANUP"):
-            config["cleanup"] = cleanup.lower() in ("true", "1", "yes")
-        if ignore_gitignore := os.getenv("CHUNKHOUND_INDEXING__IGNORE_GITIGNORE"):
-            config["ignore_gitignore"] = ignore_gitignore.lower() in (
-                "true",
-                "1",
-                "yes",
-            )
 
         # Handle comma-separated include/exclude patterns
         if include := os.getenv("CHUNKHOUND_INDEXING__INCLUDE"):
@@ -260,21 +181,8 @@ class IndexingConfig(BaseModel):
         """Extract indexing config from CLI arguments."""
         overrides = {}
 
-        if hasattr(args, "indexing_batch_size") and args.indexing_batch_size:
-            overrides["batch_size"] = args.indexing_batch_size
-        if hasattr(args, "db_batch_size") and args.db_batch_size:
-            overrides["db_batch_size"] = args.db_batch_size
-        if hasattr(args, "indexing_max_concurrent") and args.indexing_max_concurrent:
-            overrides["max_concurrent"] = args.indexing_max_concurrent
         if hasattr(args, "force_reindex") and args.force_reindex:
             overrides["force_reindex"] = args.force_reindex
-        if hasattr(args, "cleanup") and args.cleanup:
-            overrides["cleanup"] = args.cleanup
-        if (
-            hasattr(args, "indexing_ignore_gitignore")
-            and args.indexing_ignore_gitignore
-        ):
-            overrides["ignore_gitignore"] = args.indexing_ignore_gitignore
 
         # Include/exclude patterns
         if hasattr(args, "include") and args.include:
@@ -288,7 +196,6 @@ class IndexingConfig(BaseModel):
         """String representation of indexing configuration."""
         return (
             f"IndexingConfig("
-            f"batch_size={self.batch_size}, "
-            f"max_concurrent={self.max_concurrent}, "
+            f"force_reindex={self.force_reindex}, "
             f"patterns={len(self.include)} includes, {len(self.exclude)} excludes)"
         )
