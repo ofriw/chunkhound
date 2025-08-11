@@ -24,16 +24,6 @@ async def mcp_command(args: argparse.Namespace, config) -> None:
     except ImportError:
         pass
 
-    # Set database path environment variable if provided
-    if hasattr(args, "db") and args.db:
-        # Resolve database path to handle symlinks and relative paths
-        resolved_db_path = Path(args.db).resolve()
-        os.environ["CHUNKHOUND_DATABASE__PATH"] = str(resolved_db_path)
-    elif hasattr(args, "path") and args.path != Path("."):
-        # Set default database path based on project path
-        project_path = args.path.resolve()
-        db_path = project_path / ".chunkhound" / "db"
-        os.environ["CHUNKHOUND_DATABASE__PATH"] = str(db_path)
 
     # Handle transport selection
     if hasattr(args, "http") and args.http:
@@ -49,7 +39,7 @@ async def mcp_command(args: argparse.Namespace, config) -> None:
         cmd = [
             sys.executable,
             "-m",
-            "chunkhound.mcp.http",
+            "chunkhound.mcp.http_server",
             "--host",
             str(host),
             "--port",

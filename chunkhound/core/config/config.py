@@ -245,13 +245,6 @@ class Config(BaseModel):
             embedding_config = self.embedding
 
             if embedding_config:
-                if (
-                    embedding_config.provider == "tei"
-                    and not embedding_config.base_url
-                ):
-                    errors.append(
-                        f"--base-url required for {embedding_config.provider} provider"
-                    )
 
                 if embedding_config.provider == "openai-compatible":
                     if not embedding_config.model:
@@ -295,26 +288,3 @@ class Config(BaseModel):
         return self.embedding is not None and self.embedding.is_provider_configured()
 
 
-# Global configuration instance
-_global_config: Config | None = None
-
-
-def get_config() -> Config:
-    """Get the global configuration instance."""
-    global _global_config
-    if _global_config is None:
-        # Create config with automatic project detection
-        _global_config = Config()
-    return _global_config
-
-
-def set_config(config: Config) -> None:
-    """Set the global configuration instance."""
-    global _global_config
-    _global_config = config
-
-
-def reset_config() -> None:
-    """Reset the global configuration instance."""
-    global _global_config
-    _global_config = None

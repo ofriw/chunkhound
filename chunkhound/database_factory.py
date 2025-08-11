@@ -47,14 +47,14 @@ class DatabaseServices(NamedTuple):
 
 def create_services(
     db_path: Path | str,
-    config: dict[str, Any],
+    config: dict[str, Any] | Any,
     embedding_manager: EmbeddingManager | None = None,
 ) -> DatabaseServices:
     """Create clean service bundle for modern internal architecture.
 
     Args:
         db_path: Path to database file
-        config: Registry configuration dictionary
+        config: Registry configuration (dict or Config object)
         embedding_manager: Optional embedding manager
 
     Returns:
