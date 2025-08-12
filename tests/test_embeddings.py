@@ -18,43 +18,7 @@ import pytest
 from chunkhound.embeddings import EmbeddingManager
 from chunkhound.providers.embeddings.openai_provider import OpenAIEmbeddingProvider
 
-
-def get_openai_api_key_for_tests() -> Optional[str]:
-    """
-    Intelligently discover OpenAI API key for testing.
-    
-    Priority:
-    1. OPENAI_API_KEY environment variable
-    2. .chunkhound.json in current directory
-    3. Return None if not found
-    """
-    # Priority 1: Environment variable
-    api_key = os.environ.get("OPENAI_API_KEY")
-    if api_key:
-        return api_key.strip()
-    
-    # Priority 2: Local .chunkhound.json file
-    config_file = Path(".chunkhound.json")
-    if config_file.exists():
-        try:
-            with open(config_file, 'r') as f:
-                config_data = json.load(f)
-            
-            embedding_config = config_data.get("embedding", {})
-            api_key = embedding_config.get("api_key")
-            
-            if api_key:
-                return api_key.strip()
-                
-        except (json.JSONDecodeError, FileNotFoundError, KeyError):
-            pass
-    
-    return None
-
-
-def should_run_live_api_tests() -> bool:
-    """Check if live API tests should run (API key available)."""
-    return get_openai_api_key_for_tests() is not None
+from .test_utils import get_api_key_for_tests, should_run_live_api_tests
 
 
 async def test_official_openai_validation():
@@ -122,19 +86,27 @@ def test_url_detection_logic():
 
 
 @pytest.mark.skipif(not should_run_live_api_tests(), 
-                   reason="No OpenAI API key available (set OPENAI_API_KEY or add to .chunkhound.json)")
-async def test_real_openai_api_embedding():
-    """Test real OpenAI API call with discovered key."""
-    api_key = get_openai_api_key_for_tests()
-    provider = OpenAIEmbeddingProvider(
-        api_key=api_key, 
-        model="text-embedding-3-small"
-    )
+                   reason="No API key available (set CHUNKHOUND_EMBEDDING__API_KEY or add to .chunkhound.json)")
+async def test_real_embedding_api():
+    """Test real embedding API call with discovered provider and key."""
+    api_key, provider_name = get_api_key_for_tests()
+    
+    # Create the appropriate provider based on what's configured
+    if provider_name == "openai":
+        from chunkhound.providers.embeddings.openai_provider import OpenAIEmbeddingProvider
+        provider = OpenAIEmbeddingProvider(api_key=api_key, model="text-embedding-3-small")
+        expected_dims = 1536
+    elif provider_name == "voyageai":
+        from chunkhound.providers.embeddings.voyageai_provider import VoyageAIEmbeddingProvider
+        provider = VoyageAIEmbeddingProvider(api_key=api_key, model="voyage-3.5")
+        expected_dims = 1024  # voyage-3.5 dimensions
+    else:
+        pytest.skip(f"Unknown provider: {provider_name}")
     
     result = await provider.embed(["Hello, world!"])
     
     assert len(result) == 1
-    assert len(result[0]) == 1536
+    assert len(result[0]) == expected_dims
     assert all(isinstance(x, float) for x in result[0])
 
 
@@ -328,23 +300,33 @@ async def main():
 
 
 async def test_real_api():
-    """Test with real OpenAI API (requires valid API key)."""
-    # Get API key from environment variable
-    api_key = os.getenv("OPENAI_API_KEY")
+    """Test with real embedding API (requires valid API key)."""
+    # Get API key from generic test function
+    api_key, provider_name = get_api_key_for_tests()
 
     if not api_key:
-        print("⏭️  Skipping real API tests - no OPENAI_API_KEY found")
-        print("To run real API tests: export OPENAI_API_KEY=your_key_here")
+        print("⏭️  Skipping real API tests - no API key found")
+        print("To run real API tests: set CHUNKHOUND_EMBEDDING__API_KEY or configure .chunkhound.json")
         return True  # Return success to not break test suite
 
     print("\n" + "=" * 50)
-    print("🚀 COMPREHENSIVE REAL API TESTING")
+    print(f"🚀 COMPREHENSIVE REAL API TESTING ({provider_name.upper()})")
     print("=" * 50)
 
     try:
         # Test 1: Basic embedding generation
         print("\n1. Testing basic embedding generation...")
-        provider = OpenAIEmbeddingProvider(api_key=api_key)
+        
+        # Create the appropriate provider
+        if provider_name == "openai":
+            from chunkhound.providers.embeddings.openai_provider import OpenAIEmbeddingProvider
+            provider = OpenAIEmbeddingProvider(api_key=api_key)
+        elif provider_name == "voyageai":
+            from chunkhound.providers.embeddings.voyageai_provider import VoyageAIEmbeddingProvider
+            provider = VoyageAIEmbeddingProvider(api_key=api_key, model="voyage-3.5")
+        else:
+            print(f"❌ Unknown provider: {provider_name}")
+            return False
 
         test_texts = [
             "def hello(): return 'world'",
@@ -360,16 +342,25 @@ async def test_real_api():
         print(f"   • Model: {provider.model}")
         print(f"   • Provider: {provider.name}")
 
-        # Test 2: Different model
-        print("\n2. Testing with text-embedding-3-large...")
-        large_provider = OpenAIEmbeddingProvider(
-            api_key=api_key, model="text-embedding-3-large"
-        )
-
-        large_result = await large_provider.embed(["def test(): pass"])
-        print(f"✅ Large model test successful:")
-        print(f"   • Model: {large_provider.model}")
-        print(f"   • Dimensions: {len(large_result[0])}")
+        # Test 2: Alternative model (if available)
+        if provider_name == "openai":
+            print("\n2. Testing with text-embedding-3-large...")
+            alt_provider = OpenAIEmbeddingProvider(
+                api_key=api_key, model="text-embedding-3-large"
+            )
+            alt_result = await alt_provider.embed(["def test(): pass"])
+            print(f"✅ Alternative model test successful:")
+            print(f"   • Model: {alt_provider.model}")
+            print(f"   • Dimensions: {len(alt_result[0])}")
+        elif provider_name == "voyageai":
+            print("\n2. Testing with voyage-3-large...")
+            alt_provider = VoyageAIEmbeddingProvider(
+                api_key=api_key, model="voyage-3-large"
+            )
+            alt_result = await alt_provider.embed(["def test(): pass"])
+            print(f"✅ Alternative model test successful:")
+            print(f"   • Model: {alt_provider.model}")
+            print(f"   • Dimensions: {len(alt_result[0])}")
 
         # Test 3: Batch processing
         print("\n3. Testing batch processing...")
@@ -428,7 +419,7 @@ async def test_real_api():
         print("🎉" * 15)
         print(f"\nSummary:")
         print(f"✅ Basic embedding generation working")
-        print(f"✅ Multiple model support (small & large)")
+        print(f"✅ Multiple model support")
         print(f"✅ Batch processing functional")
         print(f"✅ EmbeddingManager integration complete")
         print(f"✅ Semantic relationships captured in vectors")

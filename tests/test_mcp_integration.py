@@ -15,6 +15,8 @@ from chunkhound.core.config.config import Config
 from chunkhound.database_factory import create_services
 from chunkhound.services.realtime_indexing_service import RealtimeIndexingService
 from chunkhound.mcp.tools import execute_tool
+from chunkhound.embeddings import EmbeddingManager
+from .test_utils import get_api_key_for_tests
 
 
 class TestMCPIntegration:
@@ -23,6 +25,9 @@ class TestMCPIntegration:
     @pytest.fixture
     async def mcp_setup(self):
         """Setup MCP server with real services and temp directory."""
+        # Get API key and provider configuration
+        api_key, provider = get_api_key_for_tests()
+        
         temp_dir = Path(tempfile.mkdtemp())
         db_path = temp_dir / ".chunkhound" / "test.db"
         watch_dir = temp_dir / "project"
@@ -31,21 +36,47 @@ class TestMCPIntegration:
         # Ensure database directory exists
         db_path.parent.mkdir(parents=True, exist_ok=True)
         
+        # Configure embedding based on available API key
+        embedding_config = None
+        if api_key and provider:
+            model = "text-embedding-3-small" if provider == "openai" else "voyage-3.5"
+            embedding_config = {
+                "provider": provider,
+                "api_key": api_key,
+                "model": model
+            }
+        
         config = Config(
             database={"path": str(db_path), "provider": "duckdb"},
-            embedding={"provider": "openai", "model": "text-embedding-3-small"},
+            embedding=embedding_config,
             indexing={"include": ["*.py", "*.js"], "exclude": ["*.log"]}
         )
         
+        # Create embedding manager if API key is available
+        embedding_manager = None
+        if api_key and provider:
+            embedding_manager = EmbeddingManager()
+            if provider == "openai":
+                from chunkhound.providers.embeddings.openai_provider import OpenAIEmbeddingProvider
+                embedding_provider = OpenAIEmbeddingProvider(api_key=api_key, model="text-embedding-3-small")
+            elif provider == "voyageai":
+                from chunkhound.providers.embeddings.voyageai_provider import VoyageAIEmbeddingProvider
+                embedding_provider = VoyageAIEmbeddingProvider(api_key=api_key, model="voyage-3.5")
+            else:
+                embedding_provider = None
+            
+            if embedding_provider:
+                embedding_manager.register_provider(embedding_provider, set_default=True)
+        
         # Create services - this is what MCP server uses
-        services = create_services(db_path, config.to_dict())
+        services = create_services(db_path, config.to_dict(), embedding_manager)
         services.provider.connect()
         
         # Initialize realtime indexing service (what MCP server should do)
         realtime_service = RealtimeIndexingService(services, config)
         await realtime_service.start(watch_dir)
         
-        yield services, realtime_service, watch_dir, temp_dir
+        yield services, realtime_service, watch_dir, temp_dir, embedding_manager
         
         # Cleanup
         try:
@@ -60,19 +91,11 @@ class TestMCPIntegration:
             
         shutil.rmtree(temp_dir, ignore_errors=True)
 
+    @pytest.mark.skipif(get_api_key_for_tests()[0] is None, reason="No API key available")
     @pytest.mark.asyncio
     async def test_mcp_semantic_search_finds_new_files(self, mcp_setup):
         """Test that MCP semantic search finds newly created files."""
-        services, realtime_service, watch_dir, _ = mcp_setup
-        
-        # Check if embedding provider is available
-        import os
-        has_openai_key = bool(os.getenv("OPENAI_API_KEY"))
-        has_config = (watch_dir / ".chunkhound.json").exists()
-        has_embedding_config = bool(os.getenv("CHUNKHOUND_EMBEDDING__API_KEY"))
-        
-        if not (has_openai_key or has_config or has_embedding_config):
-            pytest.skip("No embedding provider available - set OPENAI_API_KEY or configure embeddings")
+        services, realtime_service, watch_dir, _, embedding_manager = mcp_setup
         
         # Wait for initial scan
         await asyncio.sleep(1.0)
@@ -81,7 +104,7 @@ class TestMCPIntegration:
         initial_results = await execute_tool(
             tool_name="search_semantic",
             services=services,
-            embedding_manager=None,  # Will skip if no embeddings available
+            embedding_manager=embedding_manager,
             arguments={
                 "query": "unique_mcp_test_function",
                 "page_size": 10,
@@ -105,7 +128,7 @@ def unique_mcp_test_function():
         new_results = await execute_tool(
             tool_name="search_semantic",
             services=services,
-            embedding_manager=None,
+            embedding_manager=embedding_manager,
             arguments={
                 "query": "unique_mcp_test_function",
                 "page_size": 10,
@@ -120,7 +143,7 @@ def unique_mcp_test_function():
     @pytest.mark.asyncio
     async def test_mcp_regex_search_finds_modified_files(self, mcp_setup):
         """Test that MCP regex search finds modified file content."""
-        services, realtime_service, watch_dir, _ = mcp_setup
+        services, realtime_service, watch_dir, _, _ = mcp_setup
         
         # Create initial file
         test_file = watch_dir / "modify_test.py"
@@ -172,7 +195,7 @@ def modified_unique_regex_pattern():
     @pytest.mark.asyncio
     async def test_mcp_database_stats_change_with_realtime(self, mcp_setup):
         """Test that database stats reflect real-time indexing changes."""
-        services, realtime_service, watch_dir, _ = mcp_setup
+        services, realtime_service, watch_dir, _, _ = mcp_setup
         
         # Wait for initial scan
         await asyncio.sleep(1.0)
@@ -221,7 +244,7 @@ class StatsTestClass_{i}:
     @pytest.mark.asyncio
     async def test_mcp_search_after_file_deletion(self, mcp_setup):
         """Test that MCP search handles file deletions correctly."""
-        services, realtime_service, watch_dir, _ = mcp_setup
+        services, realtime_service, watch_dir, _, _ = mcp_setup
         
         # Create file with unique content
         delete_file = watch_dir / "delete_test.py"
@@ -269,7 +292,7 @@ def delete_test_unique_function():
     @pytest.mark.asyncio
     async def test_mcp_realtime_service_actually_starts(self, mcp_setup):
         """Test that realtime indexing service is actually running."""
-        services, realtime_service, watch_dir, _ = mcp_setup
+        services, realtime_service, watch_dir, _, _ = mcp_setup
         
         # Check service state
         stats = await realtime_service.get_stats()
@@ -293,7 +316,7 @@ def delete_test_unique_function():
     @pytest.mark.asyncio
     async def test_file_modification_detection_comprehensive(self, mcp_setup):
         """Comprehensive test to reproduce file modification detection issues."""
-        services, realtime_service, watch_dir, _ = mcp_setup
+        services, realtime_service, watch_dir, _, _ = mcp_setup
         
         # Create initial file
         test_file = watch_dir / "comprehensive_modify_test.py"
@@ -372,7 +395,7 @@ class NewlyAddedClass:
     @pytest.mark.asyncio
     async def test_file_modification_with_filesystem_ops(self, mcp_setup):
         """Test modification using different filesystem operations to ensure OS detection."""
-        services, realtime_service, watch_dir, _ = mcp_setup
+        services, realtime_service, watch_dir, _, _ = mcp_setup
         
         test_file = watch_dir / "fs_ops_test.py"
         

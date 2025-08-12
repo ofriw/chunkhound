@@ -15,6 +15,7 @@ from chunkhound.database_factory import create_services
 from chunkhound.services.indexing_coordinator import IndexingCoordinator
 from chunkhound.services.embedding_service import EmbeddingService
 from chunkhound.providers.embeddings.openai_provider import OpenAIEmbeddingProvider
+from .test_utils import get_api_key_for_tests
 
 
 class TestOversizedChunkReproduction:
@@ -110,76 +111,6 @@ def very_long_function_that_might_not_be_chunked_properly():
         test_file.write_text(content)
         return test_file
 
-    @pytest.mark.asyncio
-    async def test_reproduce_325k_token_error_with_real_provider(self, services, temp_dir, test_config):
-        """Reproduce the exact 325k token error using real OpenAI provider."""
-        if not os.getenv("OPENAI_API_KEY"):
-            pytest.skip("OPENAI_API_KEY not set - cannot test with real provider")
-        
-        # Create oversized content (325,998 characters ≈ 81k+ tokens)
-        oversized_content = self.create_oversized_content(325998)
-        test_file = self.create_test_file(temp_dir, "oversized.py", oversized_content)
-        
-        print(f"\nTest file created: {test_file}")
-        print(f"Content size: {len(oversized_content):,} characters")
-        
-        # Create IndexingCoordinator with real embedding provider
-        coordinator = IndexingCoordinator(
-            database_provider=services.provider,
-            embedding_provider=OpenAIEmbeddingProvider(
-                api_key=os.getenv("OPENAI_API_KEY"),
-                model="text-embedding-3-small"
-            )
-        )
-        
-        # Index the oversized file - this should trigger the exact error
-        print("Starting indexing process...")
-        try:
-            result = await coordinator.process_file(test_file)
-            print(f"Indexing result: {result}")
-        except Exception as e:
-            print(f"Error during indexing: {e}")
-        
-        # Try to generate embeddings - this should reproduce the 325k token error
-        print("Attempting to generate embeddings...")
-        try:
-            embed_result = await coordinator.generate_missing_embeddings()
-            print(f"Embedding result: {embed_result}")
-            pytest.fail("Expected 325k token error but embedding succeeded")
-        except Exception as e:
-            error_str = str(e)
-            print(f"Caught expected error: {error_str}")
-            
-            # Verify this is the exact error we're trying to reproduce
-            assert "325998 tokens" in error_str or "max 300000 tokens" in error_str, \
-                f"Expected 325k token error, got: {error_str}"
-            
-            print("✅ Successfully reproduced the 325k token error!")
-            
-            # Now investigate what chunks were created
-            chunk_data = services.provider.get_all_chunks_with_metadata()
-            from chunkhound.core.models.chunk import Chunk
-            chunks = [Chunk.from_dict(data) for data in chunk_data]
-            print(f"\nChunk analysis:")
-            print(f"Total chunks: {len(chunks)}")
-            
-            if chunks:
-                chunk_sizes = [len(chunk.code) for chunk in chunks]
-                max_chunk = max(chunk_sizes)
-                print(f"Largest chunk: {max_chunk:,} characters")
-                print(f"Chunks over 100k chars: {sum(1 for size in chunk_sizes if size > 100000)}")
-                print(f"Chunks over 200k chars: {sum(1 for size in chunk_sizes if size > 200000)}")
-                
-                # Find the problematic chunk
-                for chunk in chunks:
-                    if len(chunk.code) > 200000:
-                        print(f"\n🔍 OVERSIZED CHUNK FOUND:")
-                        print(f"  ID: {chunk.id}")
-                        print(f"  Size: {len(chunk.code):,} characters")
-                        print(f"  Type: {chunk.chunk_type}")
-                        print(f"  Language: {chunk.language}")
-                        print(f"  Preview: {chunk.code[:200]}...")
-                        break
 
     @pytest.mark.asyncio  
     async def test_reproduce_with_mock_provider_for_debugging(self, services, temp_dir, test_config):

@@ -653,8 +653,9 @@ class EmbeddingService(BaseService):
                 batches.append(batch)
             return batches
 
-        # Get provider's token limit
+        # Get provider's token and document limits
         max_tokens = self._embedding_provider.get_max_tokens_per_batch()
+        max_documents = self._embedding_provider.get_max_documents_per_batch()
         # Apply safety margin (20% for conservative batching)
         safe_limit = int(max_tokens * 0.80)
 
@@ -670,8 +671,8 @@ class EmbeddingService(BaseService):
             # - Use conservative 4.0 chars per token for mixed code content
             text_tokens = max(1, int(len(text) / 4.0))
 
-            # Check if adding this chunk would exceed token limit
-            if current_tokens + text_tokens > safe_limit and current_batch:
+            # Check if adding this chunk would exceed token OR document limit
+            if (current_tokens + text_tokens > safe_limit and current_batch) or len(current_batch) >= max_documents:
                 # Start new batch
                 batches.append(current_batch)
                 current_batch = [(chunk_id, text)]
@@ -685,8 +686,8 @@ class EmbeddingService(BaseService):
             batches.append(current_batch)
 
         logger.debug(
-            f"Created {len(batches)} token-aware batches from {len(chunk_data)} chunks "
-            f"(max_tokens={max_tokens}, safe_limit={safe_limit})"
+            f"Created {len(batches)} batches from {len(chunk_data)} chunks "
+            f"(max_tokens={max_tokens}, max_documents={max_documents}, safe_limit={safe_limit})"
         )
         return batches
 

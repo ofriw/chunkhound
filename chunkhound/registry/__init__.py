@@ -333,20 +333,10 @@ class ProviderRegistry:
                 merged_config = embedding_config.model_dump()
                 merged_config.update(kwargs)
 
-                try:
-                    # Create EmbeddingConfig from merged configuration
-                    config = EmbeddingConfig(**merged_config)
-                    # Use factory to create the correct provider
-                    return EmbeddingProviderFactory.create_provider(config)
-                except Exception as e:
-                    logger.warning(
-                        f"Failed to create configured embedding provider: {e}. Falling back to OpenAI."
-                    )
-                    # Fallback to OpenAI with minimal config
-                    fallback_config = EmbeddingConfig(
-                        provider="openai", api_key=merged_config.get("api_key")
-                    )
-                    return EmbeddingProviderFactory.create_provider(fallback_config)
+                # Create EmbeddingConfig from merged configuration
+                config = EmbeddingConfig(**merged_config)
+                # Use factory to create the correct provider
+                return EmbeddingProviderFactory.create_provider(config)
 
         self.register_provider("embedding", FactoryEmbeddingProvider, singleton=True)
 

@@ -57,6 +57,8 @@ class EmbeddingProviderFactory:
         # Create provider based on type
         if config.provider == "openai":
             return EmbeddingProviderFactory._create_openai_provider(provider_config)
+        elif config.provider == "voyageai":
+            return EmbeddingProviderFactory._create_voyageai_provider(provider_config)
         else:
             raise ValueError(f"Unsupported provider: {config.provider}")
 
@@ -97,6 +99,41 @@ class EmbeddingProviderFactory:
         except Exception as e:
             raise ValueError(f"Failed to create OpenAI provider: {e}") from e
 
+    @staticmethod
+    def _create_voyageai_provider(config: dict[str, Any]) -> "EmbeddingProvider":
+        """Create VoyageAI embedding provider."""
+        try:
+            from chunkhound.providers.embeddings.voyageai_provider import VoyageAIEmbeddingProvider
+        except ImportError as e:
+            raise ImportError(
+                "Failed to import VoyageAI provider. "
+                "Ensure voyageai package is installed: uv pip install voyageai"
+            ) from e
+
+        # Extract VoyageAI-specific parameters
+        api_key = config.get("api_key")
+        model = config.get("model")
+
+        # Model should come from config, but handle None case safely
+        if not model:
+            raise ValueError("Model not specified in provider configuration")
+
+        logger.debug(
+            f"Creating VoyageAI provider: model={model}, "
+            f"api_key={'***' if api_key else None}"
+        )
+
+        try:
+            return VoyageAIEmbeddingProvider(
+                api_key=api_key,
+                model=model,
+                batch_size=config.get("batch_size", 100),
+                timeout=config.get("timeout", 30),
+                retry_attempts=config.get("max_retries", 3),
+            )
+        except Exception as e:
+            raise ValueError(f"Failed to create VoyageAI provider: {e}") from e
+
 
 
 
@@ -108,7 +145,7 @@ class EmbeddingProviderFactory:
         Returns:
             List of supported provider names
         """
-        return ["openai"]
+        return ["openai", "voyageai"]
 
     @staticmethod
     def validate_provider_dependencies(provider: str) -> tuple[bool, str | None]:
@@ -128,6 +165,8 @@ class EmbeddingProviderFactory:
         try:
             if provider == "openai":
                 from chunkhound.embeddings import create_openai_provider
+            elif provider == "voyageai":
+                from chunkhound.providers.embeddings.voyageai_provider import VoyageAIEmbeddingProvider
 
             return True, None
 

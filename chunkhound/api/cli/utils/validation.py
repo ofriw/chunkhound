@@ -50,7 +50,7 @@ def validate_provider_args(
     """Validate embedding provider arguments."""
     if not provider:
         logger.error(
-            "Embedding provider must be specified. Choose from: openai. "
+            "Embedding provider must be specified. Choose from: openai, voyageai. "
             "Set via --provider, "
             "CHUNKHOUND_EMBEDDING__PROVIDER, or in config file."
         )
@@ -63,9 +63,13 @@ def validate_provider_args(
                 "or use --api-key"
             )
             return False
-
-
-
+    elif provider == "voyageai":
+        if not api_key:
+            logger.error(
+                "VoyageAI API key required. Set CHUNKHOUND_EMBEDDING_API_KEY "
+                "or use --api-key"
+            )
+            return False
     else:
         logger.error(f"Unknown provider: {provider}")
         return False

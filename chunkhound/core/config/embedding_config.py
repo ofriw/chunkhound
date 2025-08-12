@@ -39,9 +39,9 @@ class EmbeddingConfig(BaseSettings):
     )
 
     # Provider Selection
-    provider: Literal["openai"] = Field(
+    provider: Literal["openai", "voyageai"] = Field(
         default="openai",
-        description="Embedding provider (openai)"
+        description="Embedding provider (openai, voyageai)"
     )
 
     # Common Configuration
@@ -131,13 +131,20 @@ class EmbeddingConfig(BaseSettings):
         Get the model name, using default if not specified.
 
         Returns:
-            Model name or default OpenAI model
+            Model name or provider default
         """
-        return self.model or "text-embedding-3-small"
+        if self.model:
+            return self.model
+        
+        # Provider defaults
+        if self.provider == "voyageai":
+            return "voyage-3.5"
+        else:  # openai
+            return "text-embedding-3-small"
 
     def is_provider_configured(self) -> bool:
         """
-        Check if OpenAI is properly configured.
+        Check if the selected provider is properly configured.
 
         Returns:
             True if API key is available

@@ -41,6 +41,10 @@ class SearchService(BaseService):
         path_filter: str | None = None,
     ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         """Perform semantic search using vector similarity.
+        
+        Automatically selects the best search strategy:
+        - Two-hop + reranking if provider supports reranking
+        - Standard single-hop otherwise
 
         Args:
             query: Natural language search query
@@ -64,42 +68,179 @@ class SearchService(BaseService):
             search_provider = provider or self._embedding_provider.name
             search_model = model or self._embedding_provider.model
 
-            logger.debug(
-                f"Performing semantic search for: '{query}' using {search_provider}/{search_model}"
-            )
-
-            # Generate query embedding
-            query_results = await self._embedding_provider.embed([query])
-            if not query_results:
-                return [], {}
-
-            query_vector = query_results[0]
-
-            # Perform vector similarity search
-            results, pagination = self._db.search_semantic(
-                query_embedding=query_vector,
-                provider=search_provider,
-                model=search_model,
-                page_size=page_size,
-                offset=offset,
-                threshold=threshold,
-                path_filter=path_filter,
-            )
-
-            # Enhance results with additional metadata
-            enhanced_results = []
-            for result in results:
-                enhanced_result = self._enhance_search_result(result)
-                enhanced_results.append(enhanced_result)
-
-            logger.info(
-                f"Semantic search completed: {len(enhanced_results)} results found"
-            )
-            return enhanced_results, pagination
+            # Choose search strategy based on provider capabilities
+            if self._embedding_provider.supports_reranking():
+                logger.debug(f"Using two-hop search with reranking for: '{query}'")
+                return await self._search_semantic_two_hop(
+                    query=query,
+                    page_size=page_size,
+                    offset=offset,
+                    threshold=threshold,
+                    provider=search_provider,
+                    model=search_model,
+                    path_filter=path_filter,
+                )
+            else:
+                logger.debug(f"Using standard semantic search for: '{query}'")
+                return await self._search_semantic_standard(
+                    query=query,
+                    page_size=page_size,
+                    offset=offset,
+                    threshold=threshold,
+                    provider=search_provider,
+                    model=search_model,
+                    path_filter=path_filter,
+                )
 
         except Exception as e:
             logger.error(f"Semantic search failed: {e}")
             raise
+
+    async def _search_semantic_standard(
+        self,
+        query: str,
+        page_size: int,
+        offset: int,
+        threshold: float | None,
+        provider: str,
+        model: str,
+        path_filter: str | None,
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+        """Standard single-hop semantic search implementation."""
+        # Generate query embedding
+        query_results = await self._embedding_provider.embed([query])
+        if not query_results:
+            return [], {}
+
+        query_vector = query_results[0]
+
+        # Perform vector similarity search
+        results, pagination = self._db.search_semantic(
+            query_embedding=query_vector,
+            provider=provider,
+            model=model,
+            page_size=page_size,
+            offset=offset,
+            threshold=threshold,
+            path_filter=path_filter,
+        )
+
+        # Enhance results with additional metadata
+        enhanced_results = []
+        for result in results:
+            enhanced_result = self._enhance_search_result(result)
+            enhanced_results.append(enhanced_result)
+
+        logger.info(
+            f"Standard semantic search completed: {len(enhanced_results)} results found"
+        )
+        return enhanced_results, pagination
+
+    async def _search_semantic_two_hop(
+        self,
+        query: str,
+        page_size: int,
+        offset: int,
+        threshold: float | None,
+        provider: str,
+        model: str,
+        path_filter: str | None,
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+        """Two-hop semantic search with reranking implementation."""
+        # Step 1: Get more initial candidates (2-3x final limit)
+        initial_limit = min(page_size * 3, 100)  # Cap at 100 for performance
+        first_hop_results, _ = await self._search_semantic_standard(
+            query=query,
+            page_size=initial_limit,
+            offset=0,  # Always start from beginning for two-hop
+            threshold=0.0,  # No threshold filtering for first hop
+            provider=provider,
+            model=model,
+            path_filter=path_filter,
+        )
+
+        if len(first_hop_results) <= 10:
+            # Not enough results for expansion, fall back to standard search
+            logger.debug("Not enough results for two-hop expansion, using standard search")
+            return await self._search_semantic_standard(
+                query=query,
+                page_size=page_size,
+                offset=offset,
+                threshold=threshold,
+                provider=provider,
+                model=model,
+                path_filter=path_filter,
+            )
+
+        # Step 2: Expand top 10 results to find semantic neighbors
+        top_candidates = first_hop_results[:10]
+        expanded_results = list(first_hop_results)  # Start with original results
+
+        for candidate in top_candidates:
+            try:
+                neighbors = self._db.find_similar_chunks(
+                    chunk_id=candidate["chunk_id"],
+                    provider=provider,
+                    model=model,
+                    limit=10,
+                    threshold=None,  # No threshold for neighbor expansion
+                )
+                expanded_results.extend(self._enhance_search_result(n) for n in neighbors)
+            except Exception as e:
+                logger.warning(f"Failed to find neighbors for chunk {candidate['chunk_id']}: {e}")
+
+        # Step 3: Deduplicate by chunk_id
+        unique_results = []
+        seen_chunk_ids = set()
+        for result in expanded_results:
+            chunk_id = result["chunk_id"]
+            if chunk_id not in seen_chunk_ids:
+                unique_results.append(result)
+                seen_chunk_ids.add(chunk_id)
+
+        # Step 4: Rerank all results against original query
+        if len(unique_results) > page_size:
+            try:
+                documents = [result["content"] for result in unique_results]
+                rerank_results = await self._embedding_provider.rerank(
+                    query=query,
+                    documents=documents,
+                    top_k=page_size * 2,  # Get extra candidates before threshold filtering
+                )
+
+                # Apply reranking scores
+                for rerank_result in rerank_results:
+                    if rerank_result.index < len(unique_results):
+                        unique_results[rerank_result.index]["score"] = rerank_result.score
+
+                # Sort by rerank score (highest first)
+                unique_results = sorted(
+                    unique_results, key=lambda x: x.get("score", 0.0), reverse=True
+                )
+            except Exception as e:
+                logger.warning(f"Reranking failed, using original order: {e}")
+
+        # Step 5: Apply threshold and pagination
+        if threshold is not None:
+            unique_results = [r for r in unique_results if r.get("score", 1.0) >= threshold]
+
+        # Apply pagination
+        total_results = len(unique_results)
+        paginated_results = unique_results[offset : offset + page_size]
+
+        pagination = {
+            "offset": offset,
+            "page_size": page_size,
+            "has_more": offset + page_size < total_results,
+            "next_offset": offset + page_size if offset + page_size < total_results else None,
+            "total": total_results,
+        }
+
+        logger.info(
+            f"Two-hop semantic search completed: {len(paginated_results)} results returned "
+            f"({total_results} total candidates)"
+        )
+        return paginated_results, pagination
 
     def search_regex(
         self,

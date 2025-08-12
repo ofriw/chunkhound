@@ -178,6 +178,28 @@ class DatabaseProvider(Protocol):
         """
         ...
 
+    def find_similar_chunks(
+        self,
+        chunk_id: int,
+        provider: str,
+        model: str,
+        limit: int = 10,
+        threshold: float | None = None,
+    ) -> list[dict[str, Any]]:
+        """Find chunks similar to the given chunk using its embedding.
+        
+        Args:
+            chunk_id: ID of the chunk to find similar chunks for
+            provider: Embedding provider name
+            model: Embedding model name
+            limit: Maximum number of results to return
+            threshold: Optional similarity threshold
+            
+        Returns:
+            List of similar chunks with scores and metadata
+        """
+        ...
+
     def search_regex(
         self,
         pattern: str,

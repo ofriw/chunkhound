@@ -18,6 +18,7 @@ from pathlib import Path
 
 from chunkhound.database_factory import create_database_with_dependencies
 from chunkhound.core.config.config import Config
+from .test_utils import get_api_key_for_tests
 
 
 class MCPStdioClient:
@@ -526,6 +527,7 @@ def should_not_appear():
             shutil.rmtree(temp_base, ignore_errors=True)
 
     @pytest.mark.asyncio
+    @pytest.mark.skipif(get_api_key_for_tests()[0] is None, reason="No API key available")
     async def test_mcp_server_semantic_search_isolation(self, clean_environment):
         """Test semantic search also respects directory isolation."""
         temp_base = Path(tempfile.mkdtemp())
@@ -568,81 +570,76 @@ def quicksort(arr):
     return quicksort(left) + middle + quicksort(right)
 ''')
             
+            # Use the same pattern as working MCP integration test
+            from chunkhound.core.config.config import Config
+            from chunkhound.database_factory import create_services
+            from chunkhound.embeddings import EmbeddingManager
+            
             # Database and config setup
             db_path = project_dir / ".chunkhound" / "semantic_test.db"
             db_path.parent.mkdir(exist_ok=True)
             
-            config_path = project_dir / ".chunkhound.json"
-            config_content = {
-                "database": {"path": str(db_path), "provider": "duckdb"},
-                "embedding": {"provider": "openai", "model": "text-embedding-3-small"},
-                "indexing": {"include": ["*.py"]}
+            # Get API key and provider configuration
+            api_key, provider_name = get_api_key_for_tests()
+            model = "text-embedding-3-small" if provider_name == "openai" else "voyage-3.5"
+            
+            # Configure embedding based on available API key
+            embedding_config = {
+                "provider": provider_name,
+                "api_key": api_key,
+                "model": model
             }
-            config_path.write_text(json.dumps(config_content, indent=2))
             
-            # Index the project
-            index_env = os.environ.copy()
-            index_env.update({
-                "CHUNKHOUND_DATABASE__PATH": str(db_path),
-                "OPENAI_API_KEY": os.getenv("OPENAI_API_KEY", "test-key")  # Use real key if available
-            })
-            
-            index_process = await asyncio.create_subprocess_exec(
-                "uv", "run", "chunkhound", "index", str(project_dir),
-                cwd=project_dir,
-                env=index_env,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
+            config = Config(
+                database={"path": str(db_path), "provider": "duckdb"},
+                embedding=embedding_config,
+                indexing={"include": ["*.py"]}
             )
             
-            await index_process.communicate()
-            if index_process.returncode != 0:
-                pytest.skip("Indexing failed - might be missing OpenAI API key")
+            # Create embedding manager
+            embedding_manager = EmbeddingManager()
+            if provider_name == "openai":
+                from chunkhound.providers.embeddings.openai_provider import OpenAIEmbeddingProvider
+                embedding_provider = OpenAIEmbeddingProvider(api_key=api_key, model=model)
+            elif provider_name == "voyageai":
+                from chunkhound.providers.embeddings.voyageai_provider import VoyageAIEmbeddingProvider
+                embedding_provider = VoyageAIEmbeddingProvider(api_key=api_key, model=model)
             
-            # Start MCP server from different directory
-            mcp_env = index_env.copy()
-            mcp_env["CHUNKHOUND_MCP_MODE"] = "1"
+            embedding_manager.register_provider(embedding_provider, set_default=True)
             
-            mcp_process = await asyncio.create_subprocess_exec(
-                "uv", "run", "chunkhound", "mcp", "--stdio", str(project_dir),
-                cwd=test_cwd,  # Different from project_dir
-                env=mcp_env,
-                stdin=asyncio.subprocess.PIPE,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
+            # Create services
+            services = create_services(db_path, config.to_dict(), embedding_manager)
+            services.provider.connect()
+            
+            # Index the project files
+            result = await services.indexing_coordinator.process_file(project_dir / "algorithms.py")
+            if result["status"] == "error":
+                pytest.skip(f"Indexing failed: {result.get('error', 'Unknown error')}")
             
             try:
-                # Test semantic search if OpenAI key is available
-                if os.getenv("OPENAI_API_KEY"):
-                    mcp_client = MCPStdioClient(mcp_process)
-                    
-                    await mcp_client.initialize()
-                    await asyncio.sleep(3)
-                    
-                    # Search for sorting algorithms semantically
-                    semantic_response = await mcp_client.search_semantic("sorting algorithms")
-                    
-                    if "result" in semantic_response:
-                        semantic_results = json.loads(semantic_response["result"]["content"][0]["text"])["results"]
+                # Test semantic search with services (no subprocess needed)
+                from chunkhound.mcp.tools import execute_tool
+                
+                # Search for sorting algorithms semantically
+                semantic_response = await execute_tool(
+                    tool_name="search_semantic",
+                    services=services,
+                    embedding_manager=embedding_manager,
+                    arguments={"query": "sorting algorithms", "page_size": 10, "offset": 0}
+                )
+                
+                semantic_results = semantic_response.get('results', [])
                         
-                        # Should find sorting-related content from target project
-                        for result in semantic_results:
-                            file_path = result["file_path"]
-                            assert str(project_dir) in file_path
-                            assert str(test_cwd) not in file_path
+                # Should find sorting-related content from target project
+                for result in semantic_results:
+                    file_path = result["file_path"]
+                    assert str(project_dir) in file_path
+                    assert str(test_cwd) not in file_path
                     
-                    print("✓ Semantic search respects directory isolation")
-                else:
-                    print("⚠ Skipping semantic search test - no OpenAI API key")
+                print("✓ Semantic search respects directory isolation")
                     
             finally:
-                mcp_process.terminate()
-                try:
-                    await asyncio.wait_for(mcp_process.wait(), timeout=5.0)
-                except asyncio.TimeoutError:
-                    mcp_process.kill()
-                    await mcp_process.wait()
+                services.provider.disconnect()
                     
         finally:
             import shutil

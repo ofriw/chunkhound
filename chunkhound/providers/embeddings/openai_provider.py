@@ -657,3 +657,11 @@ class OpenAIEmbeddingProvider:
             "Content-Type": "application/json",
             "User-Agent": "ChunkHound-OpenAI-Provider",
         }
+
+    def get_max_documents_per_batch(self) -> int:
+        """Get maximum documents per batch for OpenAI provider."""
+        return self._batch_size
+
+    def supports_reranking(self) -> bool:
+        """OpenAI provider does not support reranking."""
+        return False

@@ -1932,6 +1932,111 @@ class DuckDBProvider(SerialDatabaseProvider):
                 "total": 0,
             }
 
+    def find_similar_chunks(
+        self,
+        chunk_id: int,
+        provider: str,
+        model: str,
+        limit: int = 10,
+        threshold: float | None = None,
+    ) -> list[dict[str, Any]]:
+        """Find chunks similar to the given chunk using its embedding."""
+        return self._execute_in_db_thread_sync(
+            "find_similar_chunks", chunk_id, provider, model, limit, threshold
+        )
+
+    def _executor_find_similar_chunks(
+        self,
+        conn: Any,
+        state: dict[str, Any],
+        chunk_id: int,
+        provider: str,
+        model: str,
+        limit: int,
+        threshold: float | None,
+    ) -> list[dict[str, Any]]:
+        """Executor method for find_similar_chunks - runs in DB thread."""
+        try:
+            # Determine table name and dimensions based on provider
+            if provider == "voyageai":
+                table_name = "embeddings_1024"
+                embedding_type = "FLOAT[1024]"
+            else:  # Default to OpenAI dimensions
+                table_name = "embeddings_1536"
+                embedding_type = "FLOAT[1536]"
+            
+            # Get the embedding for the target chunk
+            embedding_query = f"""
+                SELECT embedding
+                FROM {table_name}
+                WHERE chunk_id = ?
+                AND provider = ?
+                AND model = ?
+                LIMIT 1
+            """
+            result = conn.execute(embedding_query, [chunk_id, provider, model]).fetchone()
+            
+            if not result:
+                logger.warning(f"No embedding found for chunk_id={chunk_id}, provider={provider}, model={model}")
+                return []
+                
+            target_embedding = result[0]
+            
+            # Use the embedding to find similar chunks
+            similarity_metric = "cosine"  # Default for semantic search
+            threshold_condition = f"AND distance <= {threshold}" if threshold is not None else ""
+            
+            # Query for similar chunks (exclude the original chunk)
+            # Cast the target embedding to match the table's embedding type
+            query = f"""
+                SELECT 
+                    c.id as chunk_id,
+                    c.symbol as name,
+                    c.code as content,
+                    c.chunk_type,
+                    c.start_line,
+                    c.end_line,
+                    f.path as file_path,
+                    f.language,
+                    array_cosine_distance(e.embedding, ?::{embedding_type}) as distance
+                FROM {table_name} e
+                JOIN chunks c ON e.chunk_id = c.id
+                JOIN files f ON c.file_id = f.id
+                WHERE e.provider = ?
+                AND e.model = ?
+                AND c.id != ?
+                {threshold_condition}
+                ORDER BY distance ASC
+                LIMIT ?
+            """
+            
+            results = conn.execute(
+                query,
+                [target_embedding, provider, model, chunk_id, limit]
+            ).fetchall()
+            
+            # Format results
+            result_list = [
+                {
+                    "chunk_id": result[0],
+                    "name": result[1],
+                    "content": result[2],
+                    "chunk_type": result[3],
+                    "start_line": result[4],
+                    "end_line": result[5],
+                    "file_path": result[6],
+                    "language": result[7],
+                    "score": 1.0 - result[8],  # Convert distance to similarity score
+                }
+                for result in results
+            ]
+            
+            return result_list
+            
+        except Exception as e:
+            logger.error(f"Failed to find similar chunks: {e}")
+            return []
+
     def search_text(self, query: str, limit: int = 10) -> list[dict[str, Any]]:
         """Perform full-text search on code content."""
         return self._execute_in_db_thread_sync("search_text", query, limit)

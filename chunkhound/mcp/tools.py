@@ -188,9 +188,8 @@ async def search_semantic_impl(
     if not embedding_manager or not embedding_manager.list_providers():
         raise Exception(
             "No embedding providers available. Configure an embedding provider via:\n"
-            "1. Set OPENAI_API_KEY environment variable, OR\n"
-            "2. Create .chunkhound.json with embedding configuration, OR\n"
-            "3. Set CHUNKHOUND_EMBEDDING__PROVIDER and CHUNKHOUND_EMBEDDING__API_KEY"
+            "1. Create .chunkhound.json with embedding configuration, OR\n"
+            "2. Set CHUNKHOUND_EMBEDDING__API_KEY environment variable"
         )
 
     # Use explicit provider/model from arguments, otherwise get from configured provider
