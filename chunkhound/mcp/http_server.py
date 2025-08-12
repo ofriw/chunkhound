@@ -165,11 +165,11 @@ class HttpMCPServer(MCPServerBase):
 async def main() -> None:
     """Main entry point for HTTP server"""
     import argparse
-    import asyncio
     import sys
+
     from chunkhound.api.cli.utils.config_factory import create_validated_config
     from chunkhound.mcp.common import add_common_mcp_arguments
-    
+
     parser = argparse.ArgumentParser(
         description="ChunkHound MCP HTTP server (FastMCP 2.0)",
         formatter_class=argparse.RawDescriptionHelpFormatter,

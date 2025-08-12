@@ -4,9 +4,19 @@ This module provides shared utilities used by both stdio and HTTP servers,
 including error handling, response formatting, and validation helpers.
 """
 
+from __future__ import annotations
+
 import asyncio
 import json
-from typing import Any, Coroutine, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar
+
+import mcp.types as types
+
+from .tools import TOOL_REGISTRY, execute_tool
+
+if TYPE_CHECKING:
+    from chunkhound.database_factory import DatabaseServices
+    from chunkhound.embeddings import EmbeddingManager
 
 T = TypeVar("T")
 
@@ -110,6 +120,69 @@ def validate_search_parameters(
     return validated_page_size, validated_offset, validated_tokens
 
 
+async def handle_tool_call(
+    tool_name: str,
+    arguments: dict[str, Any],
+    services: DatabaseServices,
+    embedding_manager: EmbeddingManager | None,
+    initialization_complete: asyncio.Event,
+    debug_mode: bool = False
+) -> list[types.TextContent]:
+    """Unified tool call handler for all MCP servers.
+    
+    Single entry point for all tool executions across transports.
+    Handles initialization, validation, execution, and formatting.
+    
+    Args:
+        tool_name: Name of the tool to execute from TOOL_REGISTRY
+        arguments: Tool arguments as key-value pairs
+        services: Database services bundle for tool execution
+        embedding_manager: Optional embedding manager for semantic search
+        initialization_complete: Event to wait for server initialization
+        debug_mode: Whether to include stack traces in error responses
+        
+    Returns:
+        List containing a single TextContent with JSON-formatted response
+        
+    Raises:
+        MCPError: On tool execution failure (caught and formatted as error response)
+    """
+    try:
+        # Wait for initialization
+        await asyncio.wait_for(
+            initialization_complete.wait(),
+            timeout=30.0
+        )
+
+        # Validate tool exists
+        if tool_name not in TOOL_REGISTRY:
+            raise ValueError(f"Unknown tool: {tool_name}")
+
+        # Check embedding requirements
+        tool = TOOL_REGISTRY[tool_name]
+        if tool.requires_embeddings and not embedding_manager:
+            raise ValueError(f"Tool {tool_name} requires embedding provider")
+
+        # Parse arguments (handles both string and typed values)
+        parsed_args = parse_mcp_arguments(arguments)
+
+        # Execute tool
+        result = await execute_tool(
+            tool_name=tool_name,
+            services=services,
+            embedding_manager=embedding_manager,
+            arguments=parsed_args,
+        )
+
+        # Format response
+        response_text = format_tool_response(result, format_type="json")
+        return [types.TextContent(type="text", text=response_text)]
+
+    except Exception as e:
+        error_response = format_error_response(e, include_traceback=debug_mode)
+        return [types.TextContent(type="text", text=json.dumps(error_response))]
+
+
 def format_json_response(data: Any) -> str:
     """Format data as JSON string for stdio protocol.
 
@@ -157,13 +230,17 @@ def parse_mcp_arguments(args: dict[str, Any]) -> dict[str, Any]:
 
     # Handle common search parameters
     if "page_size" in parsed:
-        parsed["page_size"] = int(parsed["page_size"])
+        if not isinstance(parsed["page_size"], int):
+            parsed["page_size"] = int(parsed["page_size"])
     if "offset" in parsed:
-        parsed["offset"] = int(parsed["offset"])
+        if not isinstance(parsed["offset"], int):
+            parsed["offset"] = int(parsed["offset"])
     if "max_response_tokens" in parsed:
-        parsed["max_response_tokens"] = int(parsed["max_response_tokens"])
+        if not isinstance(parsed["max_response_tokens"], int):
+            parsed["max_response_tokens"] = int(parsed["max_response_tokens"])
     if "threshold" in parsed and parsed["threshold"] is not None:
-        parsed["threshold"] = float(parsed["threshold"])
+        if not isinstance(parsed["threshold"], float):
+            parsed["threshold"] = float(parsed["threshold"])
 
     return parsed
 
@@ -179,7 +256,7 @@ def add_common_mcp_arguments(parser: Any) -> None:
     """
     # Positional path argument
     from pathlib import Path
-    
+
     parser.add_argument(
         "path",
         type=Path,
@@ -187,7 +264,7 @@ def add_common_mcp_arguments(parser: Any) -> None:
         default=Path("."),
         help="Directory path to index (default: current directory)",
     )
-    
+
     # Config file argument
     parser.add_argument("--config", type=str, help="Path to configuration file")
 

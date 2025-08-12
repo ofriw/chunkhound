@@ -12,7 +12,6 @@ to ensure consistent initialization while respecting protocol-specific constrain
 
 import asyncio
 import os
-import sys
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any
@@ -131,7 +130,7 @@ class MCPServerBase(ABC):
 
             # Connect to database
             self.services.provider.connect()
-            
+
             # Perform initial directory scan using shared service
             self.debug_log("Starting initial directory scan")
             indexing_service = DirectoryIndexingService(
@@ -139,7 +138,7 @@ class MCPServerBase(ABC):
                 config=self.config,
                 progress_callback=self.debug_log
             )
-            
+
             # Use direct path like CLI indexer - align path resolution
             if self.args and hasattr(self.args, 'path'):
                 target_path = Path(self.args.path)
@@ -148,18 +147,18 @@ class MCPServerBase(ABC):
                 # Fallback to config resolution (shouldn't happen in normal usage)
                 target_path = getattr(self.config, '_target_dir', None) or db_path.parent.parent
                 self.debug_log(f"Using fallback path resolution: {target_path}")
-            
+
             stats = await indexing_service.process_directory(target_path, no_embeddings=False)
-            
+
             self.debug_log(f"Initial scan completed: {stats.files_processed} files, {stats.chunks_created} chunks")
-            
-            # Start real-time indexing service  
+
+            # Start real-time indexing service
             self.debug_log("Starting real-time indexing service")
             self.realtime_indexing = RealtimeIndexingService(self.services, self.config)
-            
+
             # Use same path for watching
             await self.realtime_indexing.start(target_path)
-            
+
             self._initialized = True
 
             self.debug_log("Service initialization complete")
@@ -173,7 +172,7 @@ class MCPServerBase(ABC):
         if self.realtime_indexing:
             self.debug_log("Stopping real-time indexing service")
             await self.realtime_indexing.stop()
-            
+
         if self.services and self.services.provider.is_connected:
             self.debug_log("Closing database connection")
             self.services.provider.disconnect()

@@ -8,7 +8,6 @@ ARCHITECTURE: Global state required for stdio communication model
 """
 
 import asyncio
-import json
 import logging
 import sys
 from collections.abc import AsyncIterator
@@ -24,8 +23,8 @@ from chunkhound.core.config.config import Config
 from chunkhound.version import __version__
 
 from .base import MCPServerBase
-from .common import format_error_response, format_tool_response, parse_mcp_arguments
-from .tools import TOOL_REGISTRY, execute_tool
+from .common import handle_tool_call
+from .tools import TOOL_REGISTRY
 
 # CRITICAL: Disable ALL logging to prevent JSON-RPC corruption
 logging.disable(logging.CRITICAL)
@@ -68,145 +67,28 @@ class StdioMCPServer(MCPServerBase):
         self._register_tools()
 
     def _register_tools(self) -> None:
-        """Register all tools from the registry with the stdio server."""
+        """Register tool handlers with the stdio server."""
 
-        # Register individual tool handlers with specific signatures
-        # like the HTTP server does - this is what MCP expects
-        
-        @self.server.call_tool()
-        async def get_stats() -> list[types.TextContent]:
-            """Get database statistics including file, chunk, and embedding counts"""
-            # Direct implementation - no routing through _handle_tool_call
-            try:
-                await asyncio.wait_for(
-                    self._initialization_complete.wait(), timeout=30.0
-                )
-                
-                result = await execute_tool(
-                    tool_name="get_stats",
-                    services=self.ensure_services(),
-                    embedding_manager=self.embedding_manager,
-                    arguments={},
-                )
-                
-                response_text = format_tool_response(result, format_type="json")
-                return [types.TextContent(type="text", text=response_text)]
-                
-            except Exception as e:
-                error_response = format_error_response(e, include_traceback=self.debug_mode)
-                return [types.TextContent(type="text", text=json.dumps(error_response))]
+        # The MCP SDK's call_tool decorator expects a SINGLE handler function
+        # with signature (tool_name: str, arguments: dict) that handles ALL tools
 
-        @self.server.call_tool()
-        async def health_check() -> list[types.TextContent]:
-            """Check server health status"""
-            # Direct implementation - no routing through _handle_tool_call
-            try:
-                await asyncio.wait_for(
-                    self._initialization_complete.wait(), timeout=30.0
-                )
-                
-                result = await execute_tool(
-                    tool_name="health_check",
-                    services=self.ensure_services(),
-                    embedding_manager=self.embedding_manager,
-                    arguments={},
-                )
-                
-                response_text = format_tool_response(result, format_type="json")
-                return [types.TextContent(type="text", text=response_text)]
-                
-            except Exception as e:
-                error_response = format_error_response(e, include_traceback=self.debug_mode)
-                return [types.TextContent(type="text", text=json.dumps(error_response))]
+        @self.server.call_tool()  # type: ignore[misc]
+        async def handle_all_tools(tool_name: str, arguments: dict[str, Any]) -> list[types.TextContent]:
+            """Universal tool handler that routes to the unified handler."""
+            return await handle_tool_call(
+                tool_name=tool_name,
+                arguments=arguments,
+                services=self.ensure_services(),
+                embedding_manager=self.embedding_manager,
+                initialization_complete=self._initialization_complete,
+                debug_mode=self.debug_mode
+            )
 
-        @self.server.call_tool()
-        async def search_regex(
-            pattern: str,
-            page_size: int = 10,
-            offset: int = 0,
-            max_response_tokens: int = 20000,
-            path: str | None = None,
-        ) -> list[types.TextContent]:
-            """Search code chunks using regex patterns with pagination support."""
-            # Direct implementation - no routing through _handle_tool_call
-            try:
-                await asyncio.wait_for(
-                    self._initialization_complete.wait(), timeout=30.0
-                )
-                
-                args = {
-                    "pattern": pattern,
-                    "page_size": page_size,
-                    "offset": offset,
-                    "max_response_tokens": max_response_tokens,
-                }
-                if path is not None:
-                    args["path"] = path
-                
-                result = await execute_tool(
-                    tool_name="search_regex",
-                    services=self.ensure_services(),
-                    embedding_manager=self.embedding_manager,
-                    arguments=parse_mcp_arguments(args),
-                )
-                
-                response_text = format_tool_response(result, format_type="json")
-                return [types.TextContent(type="text", text=response_text)]
-                
-            except Exception as e:
-                error_response = format_error_response(e, include_traceback=self.debug_mode)
-                return [types.TextContent(type="text", text=json.dumps(error_response))]
-
-        @self.server.call_tool()
-        async def search_semantic(
-            query: str,
-            page_size: int = 10,
-            offset: int = 0,
-            max_response_tokens: int = 20000,
-            path: str | None = None,
-            provider: str = "openai",
-            model: str = "text-embedding-3-small",
-            threshold: float | None = None,
-        ) -> list[types.TextContent]:
-            """Search code using semantic similarity with pagination support."""
-            # Direct implementation - no routing through _handle_tool_call
-            try:
-                await asyncio.wait_for(
-                    self._initialization_complete.wait(), timeout=30.0
-                )
-                
-                args = {
-                    "query": query,
-                    "page_size": page_size,
-                    "offset": offset,
-                    "max_response_tokens": max_response_tokens,
-                    "provider": provider,
-                    "model": model,
-                }
-                if path is not None:
-                    args["path"] = path
-                if threshold is not None:
-                    args["threshold"] = threshold
-                
-                result = await execute_tool(
-                    tool_name="search_semantic",
-                    services=self.ensure_services(),
-                    embedding_manager=self.embedding_manager,
-                    arguments=parse_mcp_arguments(args),
-                )
-                
-                response_text = format_tool_response(result, format_type="json")
-                return [types.TextContent(type="text", text=response_text)]
-                
-            except Exception as e:
-                error_response = format_error_response(e, include_traceback=self.debug_mode)
-                return [types.TextContent(type="text", text=json.dumps(error_response))]
-            
         self._register_list_tools()
 
     def _register_list_tools(self) -> None:
         """Register list_tools handler."""
-        @self.server.list_tools()
+        @self.server.list_tools()  # type: ignore[misc]
         async def list_tools() -> list[types.Tool]:
             """List available tools."""
             # Wait for initialization
@@ -258,7 +140,7 @@ class StdioMCPServer(MCPServerBase):
         try:
             # Set initialization options with capabilities
             from mcp.server.lowlevel import NotificationOptions
-            
+
             init_options = InitializationOptions(
                 server_name="ChunkHound Code Search",
                 server_version=__version__,
@@ -296,9 +178,10 @@ async def main(args: Any = None) -> None:
         args: Pre-parsed arguments. If None, will parse from sys.argv.
     """
     import argparse
+
     from chunkhound.api.cli.utils.config_factory import create_validated_config
     from chunkhound.mcp.common import add_common_mcp_arguments
-    
+
     if args is None:
         # Direct invocation - parse arguments
         parser = argparse.ArgumentParser(
@@ -322,7 +205,7 @@ async def main(args: Any = None) -> None:
     try:
         server = StdioMCPServer(config, args=args)
         await server.run()
-    except Exception as e:
+    except Exception:
         # CRITICAL: Cannot print to stderr in MCP mode - breaks JSON-RPC protocol
         # Exit silently with error code
         sys.exit(1)

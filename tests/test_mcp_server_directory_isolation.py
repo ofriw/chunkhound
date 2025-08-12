@@ -65,7 +65,7 @@ class MCPStdioClient:
         if "result" in response:
             initialized_notification = {
                 "jsonrpc": "2.0",
-                "method": "initialized",  # Correct method name
+                "method": "notifications/initialized",  # Correct method name per MCP spec
                 "params": {}
             }
             notification_json = json.dumps(initialized_notification) + "\n"

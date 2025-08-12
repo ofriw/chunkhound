@@ -14,8 +14,8 @@ from fastmcp import FastMCP
 from chunkhound.core.config.config import Config
 
 from .base import MCPServerBase
-from .common import parse_mcp_arguments
-from .tools import execute_tool
+from .common import handle_tool_call
+from .tools import TOOL_REGISTRY, Tool
 
 
 class HttpMCPServer(MCPServerBase):
@@ -44,97 +44,52 @@ class HttpMCPServer(MCPServerBase):
 
     def _register_tools(self) -> None:
         """Register all tools from the registry with FastMCP."""
-        # FastMCP requires explicit function signatures, not **kwargs
-        # So we create specific handler functions for each tool
+        import asyncio
+        import json
 
-        @self.app.tool()
-        async def get_stats() -> dict[str, Any]:
-            """Get database statistics including file, chunk, and embedding counts"""
-            await self.initialize()
-            result = await execute_tool(
-                tool_name="get_stats",
-                services=self.ensure_services(),
-                embedding_manager=self.embedding_manager,
-                arguments={},
-            )
-            return dict(result) if hasattr(result, "__dict__") else result
+        import mcp.types as types
 
-        @self.app.tool()
-        async def health_check() -> dict[str, Any]:
-            """Check server health status"""
-            await self.initialize()
-            result = await execute_tool(
-                tool_name="health_check",
-                services=self.ensure_services(),
-                embedding_manager=self.embedding_manager,
-                arguments={},
-            )
-            return dict(result) if hasattr(result, "__dict__") else result
+        # Auto-register all tools from registry
+        for tool_name, tool_def in TOOL_REGISTRY.items():
+            # Skip embedding tools if no provider configured
+            if tool_def.requires_embeddings and not self.embedding_manager:
+                continue
 
-        @self.app.tool()
-        async def search_regex(
-            pattern: str,
-            page_size: int = 10,
-            offset: int = 0,
-            max_response_tokens: int = 20000,
-            path: str | None = None,
-        ) -> dict[str, Any]:
-            """Search code chunks using regex patterns with pagination support."""
-            await self.initialize()
+            # Create a closure to capture tool_name correctly
+            def create_handler(name: str, tool: Tool) -> Any:
+                async def tool_handler(**kwargs: Any) -> dict[str, Any]:
+                    """Auto-generated handler from registry."""
+                    # Create an initialization event for this request
+                    init_event = asyncio.Event()
 
-            # Build arguments dict
-            args = {
-                "pattern": pattern,
-                "page_size": page_size,
-                "offset": offset,
-                "max_response_tokens": max_response_tokens,
-            }
-            if path is not None:
-                args["path"] = path
+                    # Ensure initialization
+                    await self.initialize()
+                    init_event.set()
 
-            result = await execute_tool(
-                tool_name="search_regex",
-                services=self.ensure_services(),
-                embedding_manager=self.embedding_manager,
-                arguments=parse_mcp_arguments(args),
-            )
-            return dict(result) if hasattr(result, "__dict__") else result
+                    # FastMCP passes params as kwargs, convert to dict
+                    result = await handle_tool_call(
+                        tool_name=name,
+                        arguments=kwargs,
+                        services=self.ensure_services(),
+                        embedding_manager=self.embedding_manager,
+                        initialization_complete=init_event,
+                        debug_mode=self.debug_mode
+                    )
 
-        @self.app.tool()
-        async def search_semantic(
-            query: str,
-            page_size: int = 10,
-            offset: int = 0,
-            max_response_tokens: int = 20000,
-            path: str | None = None,
-            provider: str = "openai",
-            model: str = "text-embedding-3-small",
-            threshold: float | None = None,
-        ) -> dict[str, Any]:
-            """Search code using semantic similarity with pagination support."""
-            await self.initialize()
+                    # Convert TextContent list to dict for FastMCP
+                    if result and isinstance(result[0], types.TextContent):
+                        parsed_result: dict[str, Any] = json.loads(result[0].text)
+                        return parsed_result
+                    return {"error": "Invalid response format"}
 
-            # Build arguments dict
-            args = {
-                "query": query,
-                "page_size": page_size,
-                "offset": offset,
-                "max_response_tokens": max_response_tokens,
-                "provider": provider,
-                "model": model,
-            }
-            if path is not None:
-                args["path"] = path
-            if threshold is not None:
-                args["threshold"] = threshold
+                # Set the handler's name and docstring from tool definition
+                tool_handler.__name__ = name
+                tool_handler.__doc__ = tool.description
+                return tool_handler
 
-            result = await execute_tool(
-                tool_name="search_semantic",
-                services=self.ensure_services(),
-                embedding_manager=self.embedding_manager,
-                arguments=parse_mcp_arguments(args),
-            )
-            return dict(result) if hasattr(result, "__dict__") else result
+            # Register with FastMCP using tool metadata from registry
+            handler = create_handler(tool_name, tool_def)
+            self.app.tool()(handler)
 
     async def run(self) -> None:
         """Run the HTTP server.
@@ -165,11 +120,11 @@ class HttpMCPServer(MCPServerBase):
 async def main() -> None:
     """Main entry point for HTTP server"""
     import argparse
-    import asyncio
     import sys
+
     from chunkhound.api.cli.utils.config_factory import create_validated_config
     from chunkhound.mcp.common import add_common_mcp_arguments
-    
+
     parser = argparse.ArgumentParser(
         description="ChunkHound MCP HTTP server (FastMCP 2.0)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
