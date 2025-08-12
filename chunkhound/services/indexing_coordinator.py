@@ -199,6 +199,12 @@ class IndexingCoordinator(BaseService):
             if not language:
                 return {"status": "skipped", "reason": "unsupported_type", "chunks": 0}
 
+            # Skip large JSON data files (config files are typically < 20KB)
+            if language == Language.JSON:
+                file_size_kb = file_path.stat().st_size / 1024
+                if file_size_kb > 20:  # 20KB threshold
+                    return {"status": "skipped", "reason": "large_json_file", "chunks": 0}
+
             # Get parser for language
             parser = self.get_parser_for_language(language)
             if not parser:
@@ -1020,16 +1026,22 @@ class IndexingCoordinator(BaseService):
             List of file paths that match include patterns and don't match exclude patterns
         """
         files = []
+        
+        # Cache for .gitignore patterns by directory
+        gitignore_patterns: dict[Path, list[str]] = {}
 
-        def should_exclude_path(path: Path, base_dir: Path) -> bool:
+        def should_exclude_path(path: Path, base_dir: Path, patterns: list[str] | None = None) -> bool:
             """Check if a path should be excluded based on exclude patterns."""
+            if patterns is None:
+                patterns = exclude_patterns
+                
             try:
                 rel_path = path.relative_to(base_dir)
             except ValueError:
                 # Path is not under base directory, use absolute path
                 rel_path = path
 
-            for exclude_pattern in exclude_patterns:
+            for exclude_pattern in patterns:
                 # Handle ** patterns that fnmatch doesn't support properly
                 if exclude_pattern.startswith("**/") and exclude_pattern.endswith(
                     "/**"
@@ -1094,11 +1106,77 @@ class IndexingCoordinator(BaseService):
         def walk_recursive(current_dir: Path) -> None:
             """Recursively walk directory, skipping excluded paths."""
             try:
+                # Load .gitignore for this directory if it exists
+                gitignore_path = current_dir / ".gitignore"
+                if gitignore_path.exists():
+                    try:
+                        with open(gitignore_path, 'r', encoding='utf-8', errors='ignore') as f:
+                            lines = f.read().splitlines()
+                        # Filter out comments and empty lines, convert to exclude patterns
+                        # Gitignore patterns are converted to our exclude format:
+                        # - Patterns starting with / are relative to the gitignore's directory
+                        # - Other patterns apply recursively from that point
+                        patterns_from_gitignore = []
+                        for line in lines:
+                            line = line.strip()
+                            if line and not line.startswith('#'):
+                                # Convert gitignore pattern to our exclude pattern format
+                                # Patterns starting with / are relative to this directory
+                                if line.startswith('/'):
+                                    # Make it relative to the root directory we're indexing
+                                    rel_from_root = current_dir.relative_to(directory)
+                                    if rel_from_root == Path('.'):
+                                        patterns_from_gitignore.append(line[1:])
+                                    else:
+                                        patterns_from_gitignore.append(str(rel_from_root / line[1:]))
+                                else:
+                                    # Pattern applies recursively from this directory
+                                    # Simple patterns like *.log should match at any level
+                                    rel_from_root = current_dir.relative_to(directory)
+                                    if rel_from_root == Path('.'):
+                                        # Pattern at root - just use as is for simple patterns
+                                        patterns_from_gitignore.append(line)
+                                        # Also add recursive version for patterns like *.log
+                                        if '*' in line and not line.startswith('**/'):
+                                            patterns_from_gitignore.append(f"**/{line}")
+                                    else:
+                                        patterns_from_gitignore.append(f"{rel_from_root}/**/{line}")
+                                        patterns_from_gitignore.append(f"{rel_from_root}/{line}")
+                        gitignore_patterns[current_dir] = patterns_from_gitignore
+                    except (OSError, IOError) as e:
+                        # Log error but continue - don't fail indexing due to gitignore issues
+                        if self.progress_callback:
+                            self.progress_callback(f"Warning: Failed to read .gitignore at {gitignore_path}: {e}")
+                    except Exception as e:
+                        # Unexpected error - still log but continue
+                        if self.progress_callback:
+                            self.progress_callback(f"Warning: Unexpected error reading .gitignore at {gitignore_path}: {e}")
+                
+                # Combine all applicable gitignore patterns from this dir and parents
+                all_gitignore_patterns = []
+                check_dir = current_dir
+                while check_dir >= directory:
+                    if check_dir in gitignore_patterns:
+                        all_gitignore_patterns.extend(gitignore_patterns[check_dir])
+                    if check_dir == directory:
+                        break
+                    check_dir = check_dir.parent
+                
                 # Get directory contents
                 for entry in current_dir.iterdir():
-                    # Skip if path should be excluded
+                    # Skip if path should be excluded by config patterns
                     if should_exclude_path(entry, directory):
                         continue
+                    
+                    # Skip if path should be excluded by gitignore patterns
+                    if all_gitignore_patterns:
+                        skip = False
+                        for pattern in all_gitignore_patterns:
+                            if should_exclude_path(entry, directory, [pattern]):
+                                skip = True
+                                break
+                        if skip:
+                            continue
 
                     if entry.is_file():
                         # Check if file matches include patterns

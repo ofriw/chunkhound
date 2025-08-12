@@ -77,6 +77,27 @@ class IndexingConfig(BaseModel):
             "**/.cache/**",
             "**/tmp/**",
             "**/temp/**",
+            # Static Site Generators (Docusaurus, Next.js, Gatsby, VuePress, Nuxt)
+            "**/.docusaurus/**",
+            "**/.docusaurus-cache/**",
+            "**/.next/**",
+            "**/out/**",
+            "**/.nuxt/**",
+            "**/.vuepress/dist/**",
+            "**/.temp/**",
+            # JavaScript bundler and build tool artifacts
+            "**/.parcel-cache/**",
+            "**/.serverless/**",
+            "**/.fusebox/**",
+            "**/.dynamodb/**",
+            "**/.tern-port",
+            "**/.vscode-test/**",
+            # Yarn v2+ specific
+            "**/.yarn/cache/**",
+            "**/.yarn/unplugged/**",
+            "**/.yarn/build-state.yml",
+            "**/.yarn/install-state.gz",
+            "**/.pnp.*",
             # Editor temporary file patterns
             # Vim patterns
             "**/*.swp",
@@ -99,11 +120,26 @@ class IndexingConfig(BaseModel):
             "**/*.bak",
             "**/*~",
             "**/*.old",
-            # Large generated files
+            # Minified and generated files
             "**/*.min.js",
             "**/*.min.css",
+            "**/*.min.html",
+            "**/*.min.svg",
+            "**/dist/*.js",
+            "**/dist/*.css",
             "**/bundle.js",
             "**/vendor.js",
+            "**/webpack.*.js",
+            "**/*.bundle.js",
+            "**/*.chunk.js",
+            # JSON data files (not config)
+            "**/*-lock.json",
+            "**/package-lock.json",
+            "**/yarn.lock",
+            "**/composer.lock",
+            "**/assets.json",
+            "**/*.map.json",
+            "**/*.min.json",
         ],
         description="Glob patterns for files to exclude",
     )
