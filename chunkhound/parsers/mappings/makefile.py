@@ -231,6 +231,22 @@ class MakefileMapping(BaseMapping):
                     prerequisites = self._extract_prerequisites(def_node, source)
                     if prerequisites:
                         metadata["prerequisites"] = prerequisites
+                        
+                        # Enhanced dependency analysis
+                        if "targets" in captures and prerequisites:
+                            metadata["dependencies"] = {
+                                "provides": targets_list,
+                                "requires": prerequisites
+                            }
+                            
+                            # Pattern rule detection
+                            if self._is_pattern_rule(targets_list):
+                                metadata["is_pattern_rule"] = True
+                                metadata["pattern_stem"] = self._extract_pattern_stem(targets_list[0])
+                            
+                            # Enhanced phony target detection
+                            if ".PHONY" in prerequisites or self._is_phony_target(targets_list, prerequisites):
+                                metadata["is_phony"] = True
                     
                     # Extract recipe/commands
                     recipe_node = self.find_child_by_type(def_node, "recipe")
@@ -239,6 +255,10 @@ class MakefileMapping(BaseMapping):
                         commands = self._extract_recipe_commands(recipe_text)
                         metadata["commands"] = commands
                         metadata["command_count"] = len(commands)
+                        
+                        # Recipe complexity analysis
+                        recipe_analysis = self._analyze_recipe_complexity(recipe_text)
+                        metadata.update(recipe_analysis)
                 
                 # For variable assignments
                 elif def_node.type == "variable_assignment":
@@ -266,6 +286,7 @@ class MakefileMapping(BaseMapping):
                     if body_node:
                         body_text = self.get_node_text(body_node, source)
                         metadata["body_lines"] = len(body_text.splitlines())
+                
         
         elif concept == UniversalConcept.BLOCK:
             if "definition" in captures:
@@ -415,3 +436,35 @@ class MakefileMapping(BaseMapping):
                            "distclean", "mostlyclean", "maintainer-clean"}
         
         return any(target.lower() in phony_indicators for target in targets)
+
+    def _extract_pattern_stem(self, pattern_target: str) -> str:
+        """Extract the stem part of a pattern rule target."""
+        if '%' in pattern_target:
+            return pattern_target.split('%')[0]
+        return pattern_target
+
+    def _analyze_recipe_complexity(self, recipe_text: str) -> Dict[str, Any]:
+        """Analyze recipe complexity for better chunking hints."""
+        commands = self._extract_recipe_commands(recipe_text)
+        
+        analysis = {
+            "has_shell_constructs": any(
+                any(construct in cmd for construct in ['if', 'for', 'while', '&&', '||', '|'])
+                for cmd in commands
+            ),
+            "has_multiline_commands": any('\\' in cmd for cmd in commands),
+            "estimated_complexity": "high" if len(commands) > 5 else "low"
+        }
+        
+        return analysis
+
+    def _detect_function_type(self, function_name: str) -> str:
+        """Detect built-in vs user-defined function types."""
+        builtin_functions = {
+            'call', 'eval', 'foreach', 'if', 'or', 'and', 'strip', 'filter',
+            'filter-out', 'sort', 'word', 'words', 'wordlist', 'firstword',
+            'lastword', 'dir', 'notdir', 'suffix', 'basename', 'addsuffix',
+            'addprefix', 'join', 'wildcard', 'realpath', 'abspath', 'shell'
+        }
+        
+        return "builtin" if function_name in builtin_functions else "user_defined"
