@@ -352,9 +352,43 @@ class IndexingCoordinator(BaseService):
                         ]
                         chunk_ids = unchanged_ids + chunk_ids_new
 
-                        # Generate embeddings only for new/modified chunks
-                        chunks_needing_embeddings = chunks_to_store
-                        chunk_ids_needing_embeddings = chunk_ids_new
+                        # Check which unchanged chunks are missing embeddings
+                        if not skip_embeddings and chunk_diff.unchanged and self._embedding_provider:
+                            unchanged_chunk_ids = [
+                                chunk.id for chunk in chunk_diff.unchanged 
+                                if chunk.id is not None
+                            ]
+                            
+                            # Use existing interface to check embedding status
+                            existing_embedding_ids = self._db.get_existing_embeddings(
+                                unchanged_chunk_ids, 
+                                self._embedding_provider.name,
+                                self._embedding_provider.model
+                            )
+                            
+                            # Find unchanged chunks that need embeddings
+                            unchanged_needing_embeddings = [
+                                chunk for chunk in chunk_diff.unchanged
+                                if chunk.id not in existing_embedding_ids
+                            ]
+                            
+                            # Add to embedding generation lists
+                            chunks_needing_embeddings = chunks_to_store + [
+                                chunk.to_dict() for chunk in unchanged_needing_embeddings
+                            ]
+                            chunk_ids_needing_embeddings = chunk_ids_new + [
+                                chunk.id for chunk in unchanged_needing_embeddings
+                            ]
+                            
+                            if unchanged_needing_embeddings:
+                                logger.debug(
+                                    f"Found {len(unchanged_needing_embeddings)} unchanged chunks "
+                                    f"missing embeddings - adding to generation queue"
+                                )
+                        else:
+                            # Original logic for skip_embeddings=True or no unchanged chunks
+                            chunks_needing_embeddings = chunks_to_store
+                            chunk_ids_needing_embeddings = chunk_ids_new
 
                         logger.debug(
                             f"Smart chunk update complete: {len(chunk_diff.unchanged)} preserved, "
