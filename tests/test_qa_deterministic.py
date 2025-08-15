@@ -22,6 +22,7 @@ from chunkhound.core.types.common import Language
 from chunkhound.database_factory import create_services
 from chunkhound.services.realtime_indexing_service import RealtimeIndexingService
 from chunkhound.mcp.tools import execute_tool
+from .test_utils import get_api_key_for_tests
 
 
 class TestQADeterministic:
@@ -38,9 +39,22 @@ class TestQADeterministic:
         # Ensure database directory exists
         db_path.parent.mkdir(parents=True, exist_ok=True)
         
+        # Standard API key discovery for multi-provider support
+        api_key, provider = get_api_key_for_tests()
+        
+        # Create embedding config if available
+        embedding_config = None
+        if api_key and provider:
+            model = "text-embedding-3-small" if provider == "openai" else "voyage-3.5"
+            embedding_config = {
+                "provider": provider,
+                "api_key": api_key,
+                "model": model
+            }
+        
         config = Config(
             database={"path": str(db_path), "provider": "duckdb"},
-            embedding={"provider": "openai", "model": "text-embedding-3-small"},
+            embedding=embedding_config,
             indexing={"include": ["*"], "exclude": ["*.log", "__pycache__/"]}  # More inclusive for QA
         )
         
@@ -53,7 +67,7 @@ class TestQADeterministic:
         await realtime_service.start(watch_dir)
         
         # Wait for initial scan
-        await asyncio.sleep(1.0)
+        await asyncio.sleep(2.0)
         
         yield services, realtime_service, watch_dir, temp_dir
         
@@ -86,7 +100,7 @@ class ExistingClass:
         return "existing_method_result"
 """
         existing_file.write_text(existing_content)
-        await asyncio.sleep(2.0)  # Wait for processing
+        await asyncio.sleep(3.0)  # Wait for processing (extended for Ollama)
         
         # Search for existing content
         existing_regex = await execute_tool("search_regex", services, None, {
@@ -122,7 +136,7 @@ class NewlyAddedClass:
         return "new_method_qa_test"
 """
         new_file.write_text(new_content)
-        await asyncio.sleep(2.5)  # Wait for debounce + processing
+        await asyncio.sleep(3.5)  # Wait for debounce + processing
         
         # Search for new content
         new_regex = await execute_tool("search_regex", services, None, {
@@ -155,7 +169,7 @@ def added_during_edit():
     return "added_content_edit_qa"
 """
         existing_file.write_text(modified_content)
-        await asyncio.sleep(2.5)
+        await asyncio.sleep(3.5)
         
         added_regex = await execute_tool("search_regex", services, None, {
             "pattern": "added_content_edit_qa",
@@ -177,7 +191,7 @@ def added_during_edit():
 # Note: ExistingClass was DELETED
 """
         existing_file.write_text(deleted_and_modified_content)
-        await asyncio.sleep(2.5)
+        await asyncio.sleep(3.5)
         
         # Check modification worked
         modified_regex = await execute_tool("search_regex", services, None, {
@@ -199,7 +213,7 @@ def added_during_edit():
         # QA Item 4: Delete file and verify search results
         delete_target = new_file  # Delete the new file we created
         delete_target.unlink()
-        await asyncio.sleep(2.5)
+        await asyncio.sleep(3.5)
         
         # Search for deleted file content
         deleted_file_regex = await execute_tool("search_regex", services, None, {
@@ -284,8 +298,8 @@ def added_during_edit():
                 
                 print(f"Created {language.value} test file: {filename}")
         
-        # Wait for all files to be processed
-        await asyncio.sleep(3.0)
+        # Wait for all files to be processed (extended for Ollama)
+        await asyncio.sleep(5.0)
         
         # QA Item 5: Test concurrent processing for all languages
         # Search for each language's unique content
@@ -348,7 +362,7 @@ def added_during_edit():
             file_path.write_text(content)
             base_files.append((file_path, f"concurrent_qa_test_{i}"))
         
-        await asyncio.sleep(2.0)
+        await asyncio.sleep(3.0)
         
         # Function to perform searches during file modifications
         async def search_during_modifications():
@@ -488,7 +502,7 @@ class RapidClass_{i}:
     return "single_unique_result_qa_test"
 """
         single_file.write_text(single_content)
-        await asyncio.sleep(2.0)
+        await asyncio.sleep(3.0)
         
         single_results = await execute_tool("search_regex", services, None, {
             "pattern": "single_unique_result_qa_test",
@@ -721,7 +735,7 @@ if __name__ == "__main__":
             created_files_for_pagination.append(file_path)
         
         # Wait for all files to be processed
-        await asyncio.sleep(4.0)
+        await asyncio.sleep(5.0)
         
         # Test pagination by fetching all pages
         all_results = []

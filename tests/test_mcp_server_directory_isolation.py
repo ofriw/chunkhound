@@ -322,8 +322,8 @@ Run the application with proper configuration.
             )
             
             try:
-                # Check if process started successfully  
-                await asyncio.sleep(2)
+                # Check if process started successfully (extended for Ollama compatibility)
+                await asyncio.sleep(3)
                 if mcp_process.returncode is not None:
                     stdout, stderr = await mcp_process.communicate()
                     print(f"MCP server failed to start:")
@@ -365,8 +365,8 @@ Run the application with proper configuration.
                     print(f"MCP initialization failed: {e}")
                     raise
                 
-                # Wait for server to fully start
-                await asyncio.sleep(3)
+                # Wait for server to fully start (extended for Ollama compatibility)
+                await asyncio.sleep(4)
                 
                 # List available tools for debugging
                 print("Listing available tools...")
