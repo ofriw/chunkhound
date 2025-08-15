@@ -1,13 +1,19 @@
-"""Provider registry and dependency injection container for ChunkHound."""
+"""Provider registry and dependency injection container for ChunkHound.
+
+Simplified from 540 lines to ~250 lines by:
+- Removing string-based class detection
+- Eliminating factory-within-factory pattern
+- Using explicit provider creation methods
+- Removing unused generic service creation
+"""
 
 import os
-from typing import Any, Optional, TypeVar
+from typing import Any, Optional
 
 from loguru import logger
 
 # Import centralized configuration
 from chunkhound.core.config.config import Config
-from chunkhound.core.config.embedding_config import EmbeddingConfig
 
 # Import embedding factory for unified provider creation
 from chunkhound.core.config.embedding_factory import EmbeddingProviderFactory
@@ -15,20 +21,13 @@ from chunkhound.core.config.embedding_factory import EmbeddingProviderFactory
 # Import core types
 from chunkhound.core.types.common import Language
 
-# Import concrete providers
-from chunkhound.providers.database.duckdb_provider import DuckDBProvider
-from chunkhound.providers.embeddings.openai_provider import OpenAIEmbeddingProvider
-
 # Import new unified parser system
-from chunkhound.parsers.parser_factory import ParserFactory, get_parser_factory
+from chunkhound.parsers.parser_factory import get_parser_factory
 
 # Import services
-from chunkhound.services.base_service import BaseService
 from chunkhound.services.embedding_service import EmbeddingService
 from chunkhound.services.indexing_coordinator import IndexingCoordinator
 from chunkhound.services.search_service import SearchService
-
-T = TypeVar("T")
 
 
 class ProviderRegistry:
@@ -37,58 +36,30 @@ class ProviderRegistry:
     def __init__(self):
         """Initialize the provider registry."""
         self._providers: dict[str, Any] = {}
-        self._singletons: dict[str, Any] = {}
         self._language_parsers: dict[Language, Any] = {}
         self._config: Config | None = None
 
-        # Register default providers
-        self._register_default_providers()
-
     def configure(self, config: Config) -> None:
-        """Configure the registry with application settings.
-
-        Args:
-            config: Configuration object with provider settings
-        """
+        """Configure the registry with application settings."""
         self._config = config
+        
+        # Create and register providers based on configuration
+        self._setup_database_provider()
+        self._setup_embedding_provider()
+        self._setup_language_parsers()
 
-        # Register database provider after configuration is available
-        self._register_database_provider()
-
-        # Register embedding provider after configuration is available
-        self._register_embedding_provider()
-
-        # Provider registry configured (logging disabled for MCP/CLI compatibility)
-        if not os.environ.get("CHUNKHOUND_MCP_MODE"):
-            pass  # Could enable logging here for non-MCP modes if needed
-
-    def register_provider(
-        self, name: str, implementation: Any, singleton: bool = True
-    ) -> None:
-        """Register a provider implementation.
-
-        Args:
-            name: Provider name/identifier
-            implementation: Concrete implementation class or instance
-            singleton: Whether to use singleton pattern for this provider
+    def register_provider(self, name: str, provider: Any, singleton: bool = True) -> None:
+        """Register a provider instance directly.
+        
+        Simplified: Takes actual instances instead of classes.
         """
-        self._providers[name] = (implementation, singleton)
-
-        # Clear existing singleton if registered
-        if singleton and name in self._singletons:
-            del self._singletons[name]
-
-        # Suppress logging during MCP mode initialization
+        self._providers[name] = provider
+        
         if not os.environ.get("CHUNKHOUND_MCP_MODE"):
-            logger.debug(f"Registered {implementation.__name__} as {name}")
+            logger.debug(f"Registered {type(provider).__name__} as {name}")
 
     def register_language_parser(self, language: Language, parser_class: Any) -> None:
-        """Register a language parser for a specific programming language.
-
-        Args:
-            language: Programming language identifier
-            parser_class: Parser implementation class
-        """
+        """Register a language parser for a specific programming language."""
         # Create and setup parser instance
         parser = parser_class()
         if hasattr(parser, "setup"):
@@ -96,337 +67,149 @@ class ProviderRegistry:
 
         self._language_parsers[language] = parser
 
-        # Suppress logging during MCP mode initialization
         if not os.environ.get("CHUNKHOUND_MCP_MODE"):
             logger.debug(f"Registered {parser_class.__name__} for {language.value}")
-            
-    def _register_unified_parsers(self) -> None:
-        """Register all language parsers using the unified parser system."""
-        parser_factory = get_parser_factory()
-        
-        # Get all available languages from the factory
-        available_languages = parser_factory.get_available_languages()
-        
-        # Register parsers for all available languages
-        for language, is_available in available_languages.items():
-            if is_available:
-                try:
-                    # Create universal parser for this language
-                    universal_parser = parser_factory.create_parser(language)
-                    
-                    # Register the universal parser directly
-                    self._language_parsers[language] = universal_parser
-                    
-                    # Suppress logging during MCP mode initialization
-                    if not os.environ.get("CHUNKHOUND_MCP_MODE"):
-                        logger.debug(f"Registered unified parser for {language.value}")
-                        
-                except Exception as e:
-                    # Log error but continue with other languages
-                    if not os.environ.get("CHUNKHOUND_MCP_MODE"):
-                        logger.warning(f"Failed to register unified parser for {language.value}: {e}")
-            else:
-                # Log missing dependencies
-                if not os.environ.get("CHUNKHOUND_MCP_MODE"):
-                    missing_deps = parser_factory.get_missing_dependencies()
-                    if language in missing_deps:
-                        logger.debug(f"Skipping {language.value} parser - missing dependency: {missing_deps[language]}")
 
     def get_provider(self, name: str) -> Any:
-        """Get a provider instance for the specified name.
-
-        Args:
-            name: Provider name to get
-
-        Returns:
-            Provider instance
-
-        Raises:
-            ValueError: If no provider is registered for the name
-        """
+        """Get a provider instance by name."""
         if name not in self._providers:
             raise ValueError(f"No provider registered for {name}")
-
-        implementation_class, is_singleton = self._providers[name]
-
-        if is_singleton:
-            if name not in self._singletons:
-                self._singletons[name] = self._create_instance(implementation_class)
-            return self._singletons[name]
-        else:
-            return self._create_instance(implementation_class)
+        return self._providers[name]
 
     def get_language_parser(self, language: Language) -> Any | None:
-        """Get parser for specified programming language.
-
-        Args:
-            language: Programming language identifier
-
-        Returns:
-            Parser instance or None if not supported
-        """
+        """Get parser for specified programming language."""
         return self._language_parsers.get(language)
 
     def get_all_language_parsers(self) -> dict[Language, Any]:
-        """Get all registered language parsers.
-
-        Returns:
-            Dictionary mapping languages to parser instances
-        """
+        """Get all registered language parsers."""
         return self._language_parsers.copy()
 
-    def create_service(self, service_class: type[T]) -> T:
-        """Create a service instance with dependency injection.
-
-        Args:
-            service_class: Service class to instantiate
-
-        Returns:
-            Service instance with dependencies injected
-        """
-        if not issubclass(service_class, BaseService):
-            raise ValueError(f"{service_class} must inherit from BaseService")
-
-        # _create_instance returns Any but we know it creates the correct type
-        from typing import cast
-        return cast(T, self._create_instance(service_class))
-
     def create_indexing_coordinator(self) -> IndexingCoordinator:
-        """Create an IndexingCoordinator with all dependencies.
-
-        Returns:
-            Configured IndexingCoordinator instance
-        """
+        """Create an IndexingCoordinator with all dependencies."""
         database_provider = self.get_provider("database")
         embedding_provider = None
-
+        
         try:
             embedding_provider = self.get_provider("embedding")
         except ValueError:
-            # No embedding provider configured (logging disabled for MCP/CLI compatibility)
-            if not os.environ.get("CHUNKHOUND_MCP_MODE"):
-                pass  # Could enable logging here for non-MCP modes if needed
-        except Exception:
-            # Failed to create embedding provider (logging disabled for MCP/CLI compatibility)
-            if not os.environ.get("CHUNKHOUND_MCP_MODE"):
-                pass  # Could enable logging here for non-MCP modes if needed
-
-        language_parsers = self.get_all_language_parsers()
-
+            pass  # No embedding provider configured
+        
         return IndexingCoordinator(
             database_provider=database_provider,
             embedding_provider=embedding_provider,
-            language_parsers=language_parsers,
+            language_parsers=self._language_parsers,
         )
 
     def create_search_service(self) -> SearchService:
-        """Create a SearchService with all dependencies.
-
-        Returns:
-            Configured SearchService instance
-        """
+        """Create a SearchService with all dependencies."""
         database_provider = self.get_provider("database")
         embedding_provider = None
-
+        
         try:
             embedding_provider = self.get_provider("embedding")
         except ValueError:
             logger.warning("No embedding provider configured for search service")
-
+        
         return SearchService(
-            database_provider=database_provider, embedding_provider=embedding_provider
+            database_provider=database_provider,
+            embedding_provider=embedding_provider
         )
 
     def create_embedding_service(self) -> EmbeddingService:
-        """Create an EmbeddingService with all dependencies.
-
-        Returns:
-            Configured EmbeddingService instance
-        """
+        """Create an EmbeddingService with all dependencies."""
         database_provider = self.get_provider("database")
         embedding_provider = None
-
+        
         try:
             embedding_provider = self.get_provider("embedding")
         except ValueError:
             logger.warning("No embedding provider configured for embedding service")
-
-        # Get unified batch configuration from config object
-        # Optimized defaults based on DuckDB performance research and HNSW vector index best practices
+        
+        # Get batch configuration from config
         if self._config and self._config.embedding:
             embedding_batch_size = self._config.embedding.batch_size
-            db_batch_size = self._config.indexing.db_batch_size
             max_concurrent = self._config.embedding.max_concurrent_batches
-            # Get optimization frequency with default
-            optimization_batch_frequency = getattr(
-                self._config.embedding, "optimization_batch_frequency", 1000
-            )
         else:
-            # Fallback defaults if no config
             embedding_batch_size = 1000
-            db_batch_size = 5000
             max_concurrent = 8
-            optimization_batch_frequency = 1000
-
-        logger.info(
-            f"EmbeddingService configuration: embedding_batch_size={embedding_batch_size}, "
-            f"db_batch_size={db_batch_size}, max_concurrent={max_concurrent}, "
-            f"optimization_batch_frequency={optimization_batch_frequency}"
-        )
-
+            
+        db_batch_size = 5000
+        if self._config and self._config.indexing:
+            db_batch_size = self._config.indexing.db_batch_size
+        
         return EmbeddingService(
             database_provider=database_provider,
             embedding_provider=embedding_provider,
             embedding_batch_size=embedding_batch_size,
             db_batch_size=db_batch_size,
             max_concurrent_batches=max_concurrent,
-            optimization_batch_frequency=optimization_batch_frequency,
+            optimization_batch_frequency=1000,
         )
 
-    def _register_default_providers(self) -> None:
-        """Register default provider implementations."""
-        # Database providers will be registered after configuration in configure()
-        # This ensures the provider gets the correct configuration parameters
+    # Private setup methods - explicit provider creation
 
-        # Embedding providers will be registered after configuration in configure()
-        # This ensures the provider gets the correct configuration parameters
-
-        # Register language parsers using the new unified parser system
-        self._register_unified_parsers()
-
-    def _register_database_provider(self) -> None:
-        """Register the appropriate database provider based on configuration."""
+    def _setup_database_provider(self) -> None:
+        """Create and register the database provider based on configuration."""
         if not self._config:
             # Default to DuckDB if no config
-            self.register_provider("database", DuckDBProvider, singleton=True)
+            from chunkhound.providers.database.duckdb_provider import DuckDBProvider
+            provider = DuckDBProvider(db_path=".chunkhound/db")
+            provider.connect()
+            self.register_provider("database", provider, singleton=True)
             return
-
+        
         provider_type = self._config.database.provider
-
+        db_path = str(self._config.database.path)
+        
+        # Create the appropriate provider
         if provider_type == "duckdb":
-            self.register_provider("database", DuckDBProvider, singleton=True)
+            from chunkhound.providers.database.duckdb_provider import DuckDBProvider
+            provider = DuckDBProvider(db_path, config=self._config.database)
         elif provider_type == "lancedb":
             from chunkhound.providers.database.lancedb_provider import LanceDBProvider
-
-            self.register_provider("database", LanceDBProvider, singleton=True)
+            provider = LanceDBProvider(db_path, config=self._config.database)
         else:
-            logger.warning(
-                f"Unsupported database provider type: {provider_type}. Falling back to DuckDB."
-            )
-            self.register_provider("database", DuckDBProvider, singleton=True)
+            logger.warning(f"Unknown provider {provider_type}, defaulting to DuckDB")
+            from chunkhound.providers.database.duckdb_provider import DuckDBProvider
+            provider = DuckDBProvider(db_path, config=self._config.database)
+        
+        # Connect and register
+        provider.connect()
+        self.register_provider("database", provider, singleton=True)
 
-    def _register_embedding_provider(self) -> None:
-        """Register the appropriate embedding provider based on configuration using factory."""
+    def _setup_embedding_provider(self) -> None:
+        """Create and register the embedding provider if configured."""
         if not self._config or not self._config.embedding:
-            # Skip embedding provider registration if no config or no embedding config
-            # This allows the system to run without embeddings
-            return
-
-        embedding_config = self._config.embedding
-
-        # Register a factory-based provider that creates the correct instance on demand
-        class FactoryEmbeddingProvider:
-            """Wrapper that uses factory to create correct provider type."""
-
-            def __new__(cls, **kwargs):
-                # Merge config with any runtime kwargs
-                merged_config = embedding_config.model_dump()
-                merged_config.update(kwargs)
-
-                # Create EmbeddingConfig from merged configuration
-                config = EmbeddingConfig(**merged_config)
-                # Use factory to create the correct provider
-                return EmbeddingProviderFactory.create_provider(config)
-
-        self.register_provider("embedding", FactoryEmbeddingProvider, singleton=True)
-
-        # Suppress logging during MCP mode initialization
-        if not os.environ.get("CHUNKHOUND_MCP_MODE"):
-            logger.info("Factory-based embedding provider registered")
-
-    def _create_instance(self, cls: Any) -> Any:
-        """Create an instance with basic dependency injection.
-
-        Args:
-            cls: Class to instantiate
-
-        Returns:
-            Instance with dependencies injected
-        """
+            return  # No embedding provider needed
+        
         try:
-            # Handle specific provider types
-            if hasattr(cls, "__name__"):
-                if (
-                    "DuckDBProvider" in cls.__name__
-                    or "LanceDBProvider" in cls.__name__
-                ):
-                    # Database providers need db_path parameter and config
-                    if self._config:
-                        db_path = str(self._config.database.path)
-                        db_config = self._config.database
-                    else:
-                        # Default config if none provided
-                        from chunkhound.core.config.database_config import (
-                            DatabaseConfig,
-                        )
-
-                        db_config = DatabaseConfig()
-                        db_path = str(db_config.path)
-
-                    instance = cls(db_path, config=db_config)
-                    instance.connect()
-                    return instance
-                elif "Database" in cls.__name__:
-                    # Other database providers - use default path
-                    return cls()
-                elif (
-                    "Embedding" in cls.__name__
-                    or cls.__name__ == "FactoryEmbeddingProvider"
-                ):
-                    # Factory-based embedding provider or legacy embedding provider
-                    if cls.__name__ == "FactoryEmbeddingProvider":
-                        if self._config:
-                            logger.debug(
-                                "Creating factory-based embedding provider with config"
-                            )
-                        return cls()
-                    else:
-                        # Legacy embedding provider - inject configuration
-                        if self._config:
-                            embedding_config = self._config.embedding
-                            config_params = {}
-                            if embedding_config.api_key:
-                                config_params["api_key"] = embedding_config.api_key
-                            if embedding_config.base_url:
-                                config_params["base_url"] = embedding_config.base_url
-                            if embedding_config.model:
-                                config_params["model"] = embedding_config.model
-                            if embedding_config.batch_size:
-                                config_params["batch_size"] = (
-                                    embedding_config.batch_size
-                                )
-
-                            logger.debug(
-                                f"Creating legacy embedding provider with config: {config_params}"
-                            )
-                            try:
-                                return cls(**config_params)
-                            except Exception as e:
-                                logger.error(
-                                    f"Failed to create embedding provider {cls.__name__}: {e}"
-                                )
-                                raise
-                        else:
-                            # No config - use default
-                            return cls()
-                else:
-                    # Other services - try with no args first
-                    return cls()
-            else:
-                return cls()
+            # Use the factory to create the provider
+            provider = EmbeddingProviderFactory.create_provider(self._config.embedding)
+            self.register_provider("embedding", provider, singleton=True)
+            
+            if not os.environ.get("CHUNKHOUND_MCP_MODE"):
+                logger.info(f"Registered {self._config.embedding.provider} embedding provider")
         except Exception as e:
-            logger.error(f"Failed to create instance: {e}")
-            raise
+            logger.warning(f"Failed to create embedding provider: {e}")
+
+    def _setup_language_parsers(self) -> None:
+        """Register all available language parsers."""
+        parser_factory = get_parser_factory()
+        available_languages = parser_factory.get_available_languages()
+        
+        for language, is_available in available_languages.items():
+            if is_available:
+                try:
+                    parser = parser_factory.create_parser(language)
+                    self._language_parsers[language] = parser
+                    
+                    if not os.environ.get("CHUNKHOUND_MCP_MODE"):
+                        logger.debug(f"Registered parser for {language.value}")
+                except Exception as e:
+                    if not os.environ.get("CHUNKHOUND_MCP_MODE"):
+                        logger.warning(f"Failed to register parser for {language.value}: {e}")
+
+    # Transaction management - delegates to database provider
 
     def begin_transaction(self) -> None:
         """Begin transaction on registered database provider."""
@@ -439,34 +222,20 @@ class ProviderRegistry:
         database_provider = self.get_provider("database")
         if hasattr(database_provider, "commit_transaction"):
             database_provider.commit_transaction()
-        elif hasattr(database_provider, "_provider") and hasattr(
-            database_provider._provider, "_connection"
-        ):
-            # Fallback for existing pattern
-            database_provider._provider._connection.commit()
 
     def rollback_transaction(self) -> None:
         """Rollback transaction on registered database provider."""
         database_provider = self.get_provider("database")
         if hasattr(database_provider, "rollback_transaction"):
             database_provider.rollback_transaction()
-        elif hasattr(database_provider, "_provider") and hasattr(
-            database_provider._provider, "_connection"
-        ):
-            # Fallback for existing pattern
-            database_provider._provider._connection.rollback()
 
 
-# Global registry instance (lazy initialization)
-_registry = None
+# Global registry instance
+_registry: Optional[ProviderRegistry] = None
 
 
 def get_registry() -> ProviderRegistry:
-    """Get the global registry instance.
-
-    Returns:
-        Global ProviderRegistry instance
-    """
+    """Get the global registry instance."""
     global _registry
     if _registry is None:
         _registry = ProviderRegistry()
@@ -474,57 +243,34 @@ def get_registry() -> ProviderRegistry:
 
 
 def configure_registry(config: Config | dict[str, Any]) -> None:
-    """Configure the global provider registry.
-
-    Args:
-        config: Configuration object or dictionary (for backward compatibility)
-    """
+    """Configure the global provider registry."""
     if isinstance(config, dict):
-        # Backward compatibility - convert dict to Config object
         from chunkhound.core.config.config import Config as ConfigClass
-
         config_obj = ConfigClass(**config)
         get_registry().configure(config_obj)
     else:
         get_registry().configure(config)
 
 
+# Convenience functions for common operations
+
 def get_provider(name: str) -> Any:
-    """Get a provider from the global registry.
-
-    Args:
-        name: Provider name
-
-    Returns:
-        Provider instance
-    """
+    """Get a provider from the global registry."""
     return get_registry().get_provider(name)
 
 
 def create_indexing_coordinator() -> IndexingCoordinator:
-    """Create an IndexingCoordinator from the global registry.
-
-    Returns:
-        Configured IndexingCoordinator instance
-    """
+    """Create an IndexingCoordinator from the global registry."""
     return get_registry().create_indexing_coordinator()
 
 
 def create_search_service() -> SearchService:
-    """Create a SearchService from the global registry.
-
-    Returns:
-        Configured SearchService instance
-    """
+    """Create a SearchService from the global registry."""
     return get_registry().create_search_service()
 
 
 def create_embedding_service() -> EmbeddingService:
-    """Create an EmbeddingService from the global registry.
-
-    Returns:
-        Configured EmbeddingService instance
-    """
+    """Create an EmbeddingService from the global registry."""
     return get_registry().create_embedding_service()
 
 
