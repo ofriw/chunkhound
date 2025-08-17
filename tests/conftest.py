@@ -2,6 +2,7 @@
 Pytest configuration and fixtures for ChunkHound tests.
 """
 
+import asyncio
 import os
 import tempfile
 import pytest
@@ -79,3 +80,53 @@ def mock_embedding_manager():
     )
 
     return manager
+
+
+@pytest.fixture(scope="session")
+async def rerank_server():
+    """
+    Session-scoped fixture to manage mock reranking server for tests.
+    
+    This fixture automatically starts a mock reranking server if:
+    1. No external reranking server is already running
+    2. Tests that need reranking are being executed
+    
+    The server is automatically stopped at the end of the test session.
+    """
+    from tests.fixtures.rerank_server_manager import ensure_rerank_server_running
+    
+    # Check if we need a rerank server (only if running reranking tests)
+    # This is determined by checking if any test uses the reranking fixtures
+    manager = await ensure_rerank_server_running(start_if_needed=True)
+    
+    if manager:
+        # We started a mock server, need to clean it up
+        yield manager
+        await manager.stop()
+    else:
+        # External server is running or not needed
+        yield None
+
+
+@pytest.fixture
+async def ensure_rerank_server(rerank_server):
+    """
+    Test-scoped fixture that ensures reranking server is available.
+    
+    Use this fixture in tests that require reranking functionality.
+    It will either use an existing external server or the mock server
+    started by the session fixture.
+    """
+    from tests.fixtures.rerank_server_manager import RerankServerManager
+    
+    # Check if server is running
+    manager = RerankServerManager()
+    if await manager.is_running():
+        return manager.base_url
+    
+    # If not, the session fixture should have started it
+    if rerank_server:
+        return rerank_server.base_url
+    
+    # No server available
+    pytest.skip("No reranking server available for testing")

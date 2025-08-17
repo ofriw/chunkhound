@@ -64,12 +64,15 @@ class SearchService(BaseService):
                     "Embedding provider not configured for semantic search"
                 )
 
+            # Type narrowing for mypy
+            embedding_provider = self._embedding_provider
+            
             # Use provided provider/model or fall back to configured defaults
-            search_provider = provider or self._embedding_provider.name
-            search_model = model or self._embedding_provider.model
+            search_provider = provider or embedding_provider.name
+            search_model = model or embedding_provider.model
 
             # Choose search strategy based on provider capabilities
-            if self._embedding_provider.supports_reranking():
+            if hasattr(embedding_provider, 'supports_reranking') and embedding_provider.supports_reranking():
                 logger.debug(f"Using two-hop search with reranking for: '{query}'")
                 return await self._search_semantic_two_hop(
                     query=query,
@@ -107,6 +110,9 @@ class SearchService(BaseService):
         path_filter: str | None,
     ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         """Standard single-hop semantic search implementation."""
+        if not self._embedding_provider:
+            raise ValueError("Embedding provider not configured")
+        
         # Generate query embedding
         query_results = await self._embedding_provider.embed([query])
         if not query_results:
@@ -202,6 +208,9 @@ class SearchService(BaseService):
         if len(unique_results) > page_size:
             try:
                 documents = [result["content"] for result in unique_results]
+                # Type narrowing: we know provider has rerank if we're in two-hop
+                assert self._embedding_provider is not None
+                assert hasattr(self._embedding_provider, 'rerank')
                 rerank_results = await self._embedding_provider.rerank(
                     query=query,
                     documents=documents,

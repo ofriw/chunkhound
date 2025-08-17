@@ -34,7 +34,7 @@ class VoyageAIEmbeddingProvider:
         self,
         api_key: str | None = None,
         model: str = "voyage-3.5",
-        rerank_model: str = "rerank-lite-1",
+        rerank_model: str | None = "rerank-lite-1",
         batch_size: int = 100,
         timeout: int = 30,
         retry_attempts: int = 3,
@@ -299,6 +299,10 @@ class VoyageAIEmbeddingProvider:
             return []
 
         try:
+            logger.debug(
+                f"VoyageAI reranking {len(documents)} documents with model {self._rerank_model}"
+            )
+            
             result = await asyncio.to_thread(
                 self._client.rerank,
                 query=query,
@@ -309,15 +313,27 @@ class VoyageAIEmbeddingProvider:
             
             self._requests_made += 1
             
+            # Check if we got valid results
+            if not hasattr(result, 'results') or not result.results:
+                logger.warning(f"VoyageAI rerank returned no results for query: {query[:100]}")
+                return []
+            
             rerank_results = []
             for item in result.results:
-                rerank_results.append(RerankResult(
-                    index=item.index,
-                    score=item.relevance_score
-                ))
-                
+                if hasattr(item, 'index') and hasattr(item, 'relevance_score'):
+                    rerank_results.append(RerankResult(
+                        index=item.index,
+                        score=item.relevance_score
+                    ))
+                else:
+                    logger.warning(f"Skipping invalid rerank result: {item}")
+            
+            logger.debug(f"VoyageAI reranked {len(documents)} documents, got {len(rerank_results)} results")
             return rerank_results
             
+        except AttributeError as e:
+            logger.error(f"VoyageAI rerank response format error: {e}")
+            raise ValueError(f"Invalid rerank response format: {e}") from e
         except Exception as e:
             logger.error(f"VoyageAI reranking failed: {e}")
             raise RuntimeError(f"Reranking failed: {e}") from e

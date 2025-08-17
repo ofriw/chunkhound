@@ -80,6 +80,8 @@ class EmbeddingProviderFactory:
         api_key = config.get("api_key")
         base_url = config.get("base_url")
         model = config.get("model")
+        rerank_model = config.get("rerank_model")
+        rerank_url = config.get("rerank_url", "/rerank")
 
         # Model should come from config, but handle None case safely
         if not model:
@@ -87,7 +89,8 @@ class EmbeddingProviderFactory:
 
         logger.debug(
             f"Creating OpenAI provider: model={model}, "
-            f"base_url={base_url}, api_key={'***' if api_key else None}"
+            f"base_url={base_url}, api_key={'***' if api_key else None}, "
+            f"rerank_model={rerank_model}"
         )
 
         try:
@@ -95,6 +98,8 @@ class EmbeddingProviderFactory:
                 api_key=api_key,
                 base_url=base_url,
                 model=model,
+                rerank_model=rerank_model,
+                rerank_url=rerank_url,
             )
         except Exception as e:
             raise ValueError(f"Failed to create OpenAI provider: {e}") from e
@@ -113,6 +118,7 @@ class EmbeddingProviderFactory:
         # Extract VoyageAI-specific parameters
         api_key = config.get("api_key")
         model = config.get("model")
+        rerank_model = config.get("rerank_model")
 
         # Model should come from config, but handle None case safely
         if not model:
@@ -120,21 +126,21 @@ class EmbeddingProviderFactory:
 
         logger.debug(
             f"Creating VoyageAI provider: model={model}, "
-            f"api_key={'***' if api_key else None}"
+            f"api_key={'***' if api_key else None}, "
+            f"rerank_model={rerank_model}"
         )
 
         try:
             return VoyageAIEmbeddingProvider(
                 api_key=api_key,
                 model=model,
+                rerank_model=rerank_model,
                 batch_size=config.get("batch_size", 100),
                 timeout=config.get("timeout", 30),
                 retry_attempts=config.get("max_retries", 3),
             )
         except Exception as e:
             raise ValueError(f"Failed to create VoyageAI provider: {e}") from e
-
-
 
 
     @staticmethod

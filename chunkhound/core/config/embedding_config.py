@@ -58,6 +58,17 @@ class EmbeddingConfig(BaseSettings):
         default=None, description="Base URL for the embedding API"
     )
 
+    rerank_model: str | None = Field(
+        default=None,
+        description="Reranking model name (enables two-hop search if specified)"
+    )
+
+    rerank_url: str = Field(
+        default="/rerank", 
+        description="Rerank endpoint URL. Absolute URLs (http/https) used as-is for separate services. "
+                    "Relative paths combined with base_url for same-server reranking."
+    )
+
     # Internal settings - not exposed to users
     batch_size: int = Field(default=100, description="Internal batch size")
     timeout: int = Field(default=30, description="Internal timeout")
@@ -98,6 +109,26 @@ class EmbeddingConfig(BaseSettings):
             raise ValueError("base_url must start with http:// or https://")
 
         return v
+    
+    @field_validator("rerank_model")
+    def validate_rerank_config(cls, v: str | None, info) -> str | None:  # noqa: N805
+        """Validate rerank configuration completeness."""
+        if v is None:
+            return v
+        
+        # When rerank_model is set, check if we have what we need for URL construction
+        values = info.data
+        rerank_url = values.get('rerank_url', '/rerank')
+        base_url = values.get('base_url')
+        
+        # If rerank_url is relative (not absolute), we need base_url
+        if not rerank_url.startswith(('http://', 'https://')) and not base_url:
+            raise ValueError(
+                "base_url is required when using rerank_model with relative rerank_url. "
+                "Either provide base_url or use an absolute rerank_url (http://...)"
+            )
+        
+        return v
 
 
     def get_provider_config(self) -> dict[str, Any]:
@@ -123,6 +154,11 @@ class EmbeddingConfig(BaseSettings):
         # Add base URL if available
         if self.base_url:
             base_config["base_url"] = self.base_url
+
+        # Add rerank configuration if available
+        if self.rerank_model:
+            base_config["rerank_model"] = self.rerank_model
+        base_config["rerank_url"] = self.rerank_url
 
         return base_config
 

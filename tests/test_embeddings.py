@@ -123,6 +123,109 @@ async def test_custom_endpoint_mock_behavior():
         assert "API key" not in str(e), f"Should not require API key for custom endpoint: {e}"
 
 
+async def test_ollama_with_reranking_configuration():
+    """Test OpenAI provider configured for Ollama with dual-endpoint reranking."""
+    # Test configuration using OpenAI provider for Ollama embeddings and separate reranking endpoint
+    provider = OpenAIEmbeddingProvider(
+        base_url="http://localhost:11434/v1",  # Ollama's OpenAI-compatible endpoint
+        model="nomic-embed-text",
+        api_key="dummy-key-for-custom-endpoint",  # Custom endpoints don't validate API keys
+        rerank_model="test-reranker",
+        rerank_url="http://localhost:8001/rerank"  # Separate rerank service
+    )
+    
+    # Verify configuration
+    assert provider.base_url == "http://localhost:11434/v1"
+    assert provider.model == "nomic-embed-text"
+    assert provider._rerank_model == "test-reranker"
+    assert provider._rerank_url == "http://localhost:8001/rerank"
+    
+    # Test that reranking is supported when rerank_model is configured
+    assert provider.supports_reranking() == True
+    
+    # Test reranking call (will fail due to no actual service, but tests structure)
+    try:
+        await provider.rerank("test query", ["doc1", "doc2"])
+    except Exception as e:
+        # Expected to fail since we don't have actual rerank service running
+        # But should not be an API key error
+        assert "API key" not in str(e), f"Should not require API key error for reranking: {e}"
+        # Should be a connection error since the rerank service isn't running
+        assert any(keyword in str(e).lower() for keyword in ["connection", "network", "reranking failed"]), \
+            f"Expected connection error for rerank service, got: {e}"
+
+
+@pytest.mark.skipif(
+    not (
+        # Check if Ollama is running
+        os.system("curl -s http://localhost:11434/api/tags > /dev/null 2>&1") == 0 and
+        # Check if rerank service is running  
+        os.system("curl -s http://localhost:8001/health > /dev/null 2>&1") == 0
+    ),
+    reason="Ollama and/or rerank service not running"
+)
+async def test_ollama_with_live_reranking():
+    """Test OpenAI provider configured for Ollama with actual reranking service.
+    
+    Note: This test requires a real reranking service (e.g., vLLM) and may not work
+    with the simple mock server due to HTTP parsing limitations in the mock server.
+    """
+    # Check if we're using the mock server (which has HTTP parsing issues with httpx)
+    import httpx
+    try:
+        # Use synchronous check since we can't use async in the test setup
+        with httpx.Client(timeout=1.0) as client:
+            response = client.get("http://localhost:8001/health")
+            if response.json().get("service") == "mock-rerank-server":
+                # Mock server has issues with httpx requests - skip this test
+                pytest.skip("Mock server has HTTP parsing issues with httpx - use vLLM for this test")
+    except Exception as e:
+        # If we can't check, continue with test
+        pass
+    
+    # This test uses OpenAI provider configured for Ollama embeddings and a separate service for reranking
+    # Embeddings come from Ollama (port 11434)
+    # Reranking goes to separate service (port 8001)
+    provider = OpenAIEmbeddingProvider(
+        base_url="http://localhost:11434/v1",  # Ollama's OpenAI-compatible endpoint
+        model="nomic-embed-text",
+        api_key="dummy-key",  # Ollama doesn't require real API key
+        rerank_model="test-model",
+        rerank_url="http://localhost:8001/rerank"  # Absolute URL to rerank service
+    )
+    
+    # Test that reranking works end-to-end
+    test_docs = [
+        "def calculate_sum(a, b): return a + b",
+        "import numpy as np",
+        "class Calculator: pass",
+        "function add(x, y) { return x + y; }"
+    ]
+    
+    results = await provider.rerank("python function definition", test_docs, top_k=3)
+    
+    # Verify results structure
+    assert len(results) <= 3, "Should respect top_k limit"
+    assert all(hasattr(r, 'index') and hasattr(r, 'score') for r in results), "Results should have index and score"
+    assert all(0 <= r.index < len(test_docs) for r in results), "Indices should be valid"
+    assert all(isinstance(r.score, float) for r in results), "Scores should be floats"
+    
+    # Verify we got meaningful results (ranking may vary with embeddings)
+    assert len(results) > 0, "Should return results"
+    
+    print(f"✅ Live reranking test passed:")
+    print(f"   • Reranked {len(test_docs)} documents")
+    print(f"   • Top result: '{test_docs[results[0].index][:50]}...' (score: {results[0].score:.3f})")
+    print(f"   • All results: {[(r.index, f'{r.score:.3f}') for r in results]}")
+    print(f"   • Document mapping:")
+    for i, doc in enumerate(test_docs):
+        print(f"     [{i}]: {doc}")
+    
+    # Check that scores are in descending order
+    for i in range(len(results) - 1):
+        assert results[i].score >= results[i+1].score, "Results should be ordered by score"
+
+
 def test_embedding_manager():
     """Test embedding manager functionality."""
     print("\nTesting embedding manager...")

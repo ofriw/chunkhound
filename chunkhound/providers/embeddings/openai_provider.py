@@ -2,12 +2,14 @@
 
 import asyncio
 from collections.abc import AsyncIterator
+from datetime import datetime
 from typing import Any
 
+import httpx
 from loguru import logger
 
 from chunkhound.core.exceptions.core import ValidationError
-from chunkhound.interfaces.embedding_provider import EmbeddingConfig
+from chunkhound.interfaces.embedding_provider import EmbeddingConfig, RerankResult
 
 from .batch_utils import handle_token_limit_error, with_openai_token_handling
 
@@ -29,6 +31,8 @@ class OpenAIEmbeddingProvider:
         api_key: str | None = None,
         base_url: str | None = None,
         model: str = "text-embedding-3-small",
+        rerank_model: str | None = None,
+        rerank_url: str = "/rerank",
         batch_size: int = 100,
         timeout: int = 30,
         retry_attempts: int = 3,
@@ -41,6 +45,8 @@ class OpenAIEmbeddingProvider:
             api_key: OpenAI API key (defaults to OPENAI_API_KEY env var)
             base_url: Base URL for OpenAI API (defaults to OPENAI_BASE_URL env var)
             model: Model name to use for embeddings
+            rerank_model: Model name to use for reranking (enables two-hop search)
+            rerank_url: Rerank endpoint URL (defaults to /rerank)
             batch_size: Maximum batch size for API requests
             timeout: Request timeout in seconds
             retry_attempts: Number of retry attempts for failed requests
@@ -56,6 +62,8 @@ class OpenAIEmbeddingProvider:
         self._api_key = api_key
         self._base_url = base_url
         self._model = model
+        self._rerank_model = rerank_model
+        self._rerank_url = rerank_url
         self._batch_size = batch_size
         self._timeout = timeout
         self._retry_attempts = retry_attempts
@@ -663,5 +671,118 @@ class OpenAIEmbeddingProvider:
         return self._batch_size
 
     def supports_reranking(self) -> bool:
-        """OpenAI provider does not support reranking."""
-        return False
+        """Check if reranking is supported."""
+        return self._rerank_model is not None
+
+    async def rerank(
+        self, 
+        query: str, 
+        documents: list[str], 
+        top_k: int | None = None
+    ) -> list[RerankResult]:
+        """Rerank documents using configured rerank model."""
+        await self._ensure_client()
+        
+        # Validate base_url exists for reranking
+        if not self._base_url:
+            raise ValueError("base_url is required for reranking operations")
+        
+        # Build full rerank endpoint URL
+        if self._rerank_url.startswith(('http://', 'https://')):
+            # Full URL - use as-is for separate reranking service
+            rerank_endpoint = self._rerank_url
+        else:
+            # Relative path - combine with base_url
+            base_url = self._base_url.rstrip('/')
+            rerank_url = self._rerank_url.lstrip('/')
+            rerank_endpoint = f"{base_url}/{rerank_url}"
+        
+        # Prepare request payload
+        payload = {
+            "model": self._rerank_model,
+            "query": query,
+            "documents": documents
+        }
+        if top_k is not None:
+            payload["top_n"] = top_k
+        
+        try:
+            logger.debug(
+                f"Reranking {len(documents)} documents with model {self._rerank_model} "
+                f"at endpoint {rerank_endpoint}"
+            )
+            
+            # Make API request with timeout using httpx directly
+            # since OpenAI client doesn't support custom endpoints well
+            async with httpx.AsyncClient(timeout=self._timeout) as client:
+                headers = {"Content-Type": "application/json"}
+                response = await client.post(
+                    rerank_endpoint,
+                    json=payload,
+                    headers=headers
+                )
+                response.raise_for_status()
+                response_data = response.json()
+            
+            # Validate response structure
+            if "results" not in response_data:
+                raise ValueError("Invalid rerank response: missing 'results' field")
+            
+            results = response_data["results"]
+            if not isinstance(results, list):
+                raise ValueError("Invalid rerank response: 'results' must be a list")
+            
+            # Convert to ChunkHound format with validation
+            rerank_results = []
+            for i, result in enumerate(results):
+                if not isinstance(result, dict):
+                    logger.warning(f"Skipping invalid result {i}: not a dict")
+                    continue
+                
+                if "index" not in result or "relevance_score" not in result:
+                    logger.warning(f"Skipping result {i}: missing required fields")
+                    continue
+                
+                try:
+                    rerank_results.append(RerankResult(
+                        index=int(result["index"]),
+                        score=float(result["relevance_score"])
+                    ))
+                except (ValueError, TypeError) as e:
+                    logger.warning(f"Skipping result {i}: invalid data types - {e}")
+                    continue
+            
+            # Update usage statistics
+            self._usage_stats["requests_made"] += 1
+            self._usage_stats["documents_reranked"] = (
+                self._usage_stats.get("documents_reranked", 0) + len(documents)
+            )
+            
+            logger.debug(f"Successfully reranked {len(documents)} documents, got {len(rerank_results)} results")
+            return rerank_results
+            
+        except httpx.ConnectError as e:
+            # Connection failed - service not available
+            self._usage_stats["errors"] += 1
+            logger.error(f"Failed to connect to rerank service at {rerank_endpoint}: {e}")
+            raise
+        except httpx.TimeoutException as e:
+            # Request timed out
+            self._usage_stats["errors"] += 1
+            logger.error(f"Rerank request timed out after {self._timeout}s: {e}")
+            raise
+        except httpx.HTTPStatusError as e:
+            # HTTP error response from service
+            self._usage_stats["errors"] += 1
+            logger.error(f"Rerank service returned error {e.response.status_code}: {e.response.text}")
+            raise
+        except ValueError as e:
+            # Invalid response format
+            self._usage_stats["errors"] += 1
+            logger.error(f"Invalid rerank response format: {e}")
+            raise
+        except Exception as e:
+            # Unexpected error
+            self._usage_stats["errors"] += 1
+            logger.error(f"Unexpected error during reranking: {e}")
+            raise

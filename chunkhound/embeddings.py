@@ -152,6 +152,8 @@ def create_openai_provider(
     api_key: str | None = None,
     base_url: str | None = None,
     model: str = "text-embedding-3-small",
+    rerank_model: str | None = None,
+    rerank_url: str = "/rerank",
 ) -> "OpenAIEmbeddingProvider":
     """Create an OpenAI embedding provider with default settings.
 
@@ -159,6 +161,8 @@ def create_openai_provider(
         api_key: OpenAI API key (uses OPENAI_API_KEY env var if None)
         base_url: Base URL for API (uses OPENAI_BASE_URL env var if None)
         model: Model name to use
+        rerank_model: Model name to use for reranking (enables two-hop search)
+        rerank_url: Rerank endpoint URL (defaults to /rerank)
 
     Returns:
         Configured OpenAI embedding provider
@@ -170,6 +174,8 @@ def create_openai_provider(
         api_key=api_key,
         base_url=base_url,
         model=model,
+        rerank_model=rerank_model,
+        rerank_url=rerank_url,
     )
 
 
