@@ -125,14 +125,20 @@ class OpenAIEmbeddingProvider:
 
         if self._base_url:
             client_kwargs["base_url"] = self._base_url
-
-            # Note: We intentionally do NOT create httpx.AsyncClient here
-            # Creating AsyncClient in __init__ (sync context) causes TaskGroup
-            # errors on Ubuntu when running MCP server from different directories.
-            # The OpenAI SDK will create its own httpx client internally when needed.
-            # For local/dev environments with self-signed certs, users can set:
-            # export HTTPX_SSL_VERIFY=0
-            # Skip debug logging to avoid interfering with MCP JSON-RPC
+            
+            # For custom endpoints (non-OpenAI), disable SSL verification
+            # These often use self-signed certificates (e.g., corporate servers, Ollama)
+            if not is_openai_official:
+                import httpx
+                
+                # Create httpx client with SSL verification disabled
+                http_client = httpx.AsyncClient(
+                    timeout=httpx.Timeout(timeout=self._timeout),
+                    verify=False  # Disable SSL for custom endpoints
+                )
+                client_kwargs["http_client"] = http_client
+                
+                logger.debug(f"SSL verification disabled for custom endpoint: {self._base_url}")
 
         # IMPORTANT: Create the client in async context to avoid TaskGroup errors on Ubuntu
         # This ensures the event loop is running when the client initializes its httpx instance
