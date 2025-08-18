@@ -67,14 +67,11 @@ class EmbeddingProviderFactory:
         """Create OpenAI embedding provider."""
         try:
             from chunkhound.embeddings import create_openai_provider
-        except ImportError:
-            try:
-                from embeddings import create_openai_provider
-            except ImportError:
-                raise ImportError(
-                    "Failed to import OpenAI provider. "
-                    "Ensure chunkhound.embeddings module is available."
-                )
+        except ImportError as e:
+            raise ImportError(
+                "Failed to import OpenAI provider. "
+                "Ensure chunkhound.embeddings module is available."
+            ) from e
 
         # Extract OpenAI-specific parameters
         api_key = config.get("api_key")

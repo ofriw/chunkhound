@@ -63,6 +63,17 @@ def create_services(
     configure_registry(config)
     registry = get_registry()
 
+    # If embedding_manager is provided, register its provider with the global registry
+    # to ensure services use the same provider instance
+    if embedding_manager:
+        try:
+            provider = embedding_manager.get_default_provider()
+            if provider:
+                registry.register_provider("embedding", provider, singleton=True)
+        except Exception:
+            # If no provider in embedding_manager, registry will handle provider creation
+            pass
+
     return DatabaseServices(
         provider=registry.get_provider("database"),
         indexing_coordinator=registry.create_indexing_coordinator(),

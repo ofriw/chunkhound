@@ -44,8 +44,8 @@ class ProviderRegistry:
         self._config = config
         
         # Create and register providers based on configuration
-        self._setup_database_provider()
         self._setup_embedding_provider()
+        self._setup_database_provider()
         self._setup_language_parsers()
 
     def register_provider(self, name: str, provider: Any, singleton: bool = True) -> None:
