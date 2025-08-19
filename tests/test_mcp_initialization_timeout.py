@@ -348,3 +348,118 @@ CONFIGURATION_{i} = {{
                 except asyncio.TimeoutError:
                     proc.kill()
                     await proc.wait()
+
+    @pytest.mark.asyncio
+    async def test_watchdog_recursive_blocking_on_deep_directory_tree(self):
+        """Test that watchdog's recursive directory traversal blocks MCP initialization.
+        
+        This test creates a deeply nested directory structure that causes 
+        watchdog's observer.schedule(..., recursive=True) to block for 
+        several seconds during filesystem watch setup.
+        
+        The key difference from other tests is that this creates many directories
+        rather than many files, which is what causes watchdog blocking.
+        """
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            
+            # Create deeply nested directory structure
+            # Watchdog blocks on directory traversal, not file count
+            for i in range(50):  # 50 top-level dirs
+                level1 = temp_path / f"project_{i}"
+                level1.mkdir()
+                
+                for j in range(10):  # 10 subdirs each
+                    level2 = level1 / f"module_{j}"
+                    level2.mkdir()
+                    
+                    for k in range(5):  # 5 more subdirs each
+                        level3 = level2 / f"submodule_{k}"
+                        level3.mkdir()
+                        
+                        # Add one small file per leaf directory
+                        (level3 / "code.py").write_text("# code")
+            
+            print(f"Created {50 * 10 * 5} directories for watchdog traversal test")
+            
+            # Setup minimal chunkhound config
+            config_path = temp_path / ".chunkhound.json"
+            db_path = temp_path / ".chunkhound" / "test.db"
+            db_path.parent.mkdir(exist_ok=True)
+            
+            config = {
+                "database": {"path": str(db_path), "provider": "duckdb"},
+                "indexing": {"include": ["*.py"]}
+            }
+            config_path.write_text(json.dumps(config))
+            
+            # Start MCP server with deep directory structure
+            mcp_env = os.environ.copy()
+            mcp_env["CHUNKHOUND_MCP_MODE"] = "1"
+            
+            proc = await asyncio.create_subprocess_exec(
+                "uv", "run", "chunkhound", "mcp", str(temp_path),
+                cwd=temp_path,
+                env=mcp_env,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            
+            try:
+                # Send initialize request
+                init_request = {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "initialize",
+                    "params": {
+                        "protocolVersion": "2024-11-05",
+                        "capabilities": {},
+                        "clientInfo": {"name": "test", "version": "1.0"}
+                    }
+                }
+                
+                proc.stdin.write((json.dumps(init_request) + "\n").encode())
+                await proc.stdin.drain()
+                
+                # This SHOULD timeout due to watchdog blocking
+                # After fix: should respond quickly
+                start_time = time.time()
+                try:
+                    response_line = await asyncio.wait_for(
+                        proc.stdout.readline(), 
+                        timeout=5.0  # VS Code timeout
+                    )
+                    response_time = time.time() - start_time
+                    
+                    # If we get here, the bug is fixed!
+                    print(f"✅ Server responded in {response_time:.2f}s - bug is fixed!")
+                    
+                    # Verify proper response structure  
+                    response_text = response_line.decode().strip()
+                    if not response_text:
+                        # Empty response, try reading more
+                        response_line = await asyncio.wait_for(proc.stdout.readline(), timeout=2.0)
+                        response_text = response_line.decode().strip()
+                    
+                    print(f"Response: {response_text}")
+                    init_response = json.loads(response_text)
+                    assert "result" in init_response, f"No result in response: {init_response}"
+                    assert "serverInfo" in init_response["result"]
+                    assert init_response["result"]["serverInfo"]["name"] == "ChunkHound Code Search"
+                    
+                except asyncio.TimeoutError:
+                    # This is expected with the current bug
+                    print("❌ Server timed out during initialization (watchdog blocking bug confirmed)")
+                    raise AssertionError(
+                        "MCP server timed out during initialization due to watchdog recursive directory traversal blocking. "
+                        "This reproduces the VS Code integration issue where the server becomes unresponsive."
+                    )
+                    
+            finally:
+                proc.terminate()
+                try:
+                    await asyncio.wait_for(proc.wait(), timeout=2.0)
+                except asyncio.TimeoutError:
+                    proc.kill()
+                    await proc.wait()
