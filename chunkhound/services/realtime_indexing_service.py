@@ -41,6 +41,19 @@ class SimpleEventHandler(FileSystemEventHandler):
         
     def on_any_event(self, event: Any) -> None:
         """Handle filesystem events - simple queue operation."""
+        # Handle directory creation
+        if event.event_type == 'created' and event.is_directory:
+            # Queue directory creation for processing
+            self._queue_event('dir_created', Path(normalize_file_path(event.src_path)))
+            return
+        
+        # Handle directory deletion  
+        if event.event_type == 'deleted' and event.is_directory:
+            # Queue directory deletion for cleanup
+            self._queue_event('dir_deleted', Path(normalize_file_path(event.src_path)))
+            return
+        
+        # Skip other directory events (modified, moved)
         if event.is_directory:
             return
             
@@ -164,6 +177,14 @@ class RealtimeIndexingService:
         self.process_task: Optional[asyncio.Task] = None
         self.event_consumer_task: Optional[asyncio.Task] = None
         
+        # Directory watch management for progressive monitoring
+        self.watched_directories: set[str] = set()  # Track watched dirs
+        self.watch_lock = asyncio.Lock()  # Protect concurrent access
+        
+        # Monitoring readiness coordination
+        self.monitoring_ready = asyncio.Event()  # Signals when monitoring is ready
+        self._monitoring_ready_time: Optional[float] = None  # Track when monitoring became ready
+        
     async def start(self, watch_path: Path) -> None:
         """Start real-time indexing service."""
         logger.debug(f"Starting real-time indexing for {watch_path}")
@@ -171,20 +192,33 @@ class RealtimeIndexingService:
         # Store the watch path
         self.watch_path = watch_path
         
-        # Start filesystem monitoring with simple handler
-        self._start_fs_monitor(watch_path)
+        # Always start with watchdog but with reasonable timeout
+        # If it takes too long, we'll fall back to polling
+        loop = asyncio.get_event_loop()
         
-        # Start event consumer (bridges thread-safe queue to asyncio)
+        # Start all necessary tasks
         self.event_consumer_task = asyncio.create_task(self._consume_events())
-        
-        # Start processing loop
         self.process_task = asyncio.create_task(self._process_loop())
         
-        # Initial scan is now handled by MCPServerBase to prevent blocking
+        # Setup watchdog with timeout
+        self._watchdog_setup_task = asyncio.create_task(
+            self._setup_watchdog_with_timeout(watch_path, loop)
+        )
+        
+        # Wait for monitoring to be confirmed ready
+        await self.wait_for_monitoring_ready(timeout=10.0)
         
     async def stop(self) -> None:
         """Stop the service gracefully."""
         logger.debug("Stopping real-time indexing service")
+        
+        # Cancel watchdog setup if still running
+        if hasattr(self, '_watchdog_setup_task') and self._watchdog_setup_task:
+            self._watchdog_setup_task.cancel()
+            try:
+                await self._watchdog_setup_task
+            except asyncio.CancelledError:
+                pass
         
         # Stop filesystem observer
         if self.observer:
@@ -207,19 +241,123 @@ class RealtimeIndexingService:
             except asyncio.CancelledError:
                 pass
                 
-    def _start_fs_monitor(self, watch_path: Path) -> None:
-        """Start filesystem monitoring with simple handler."""
-        self.event_handler = SimpleEventHandler(self.event_queue, self.config, asyncio.get_event_loop())
-        
+    async def _setup_watchdog_async(self, watch_path: Path, loop: asyncio.AbstractEventLoop) -> None:
+        """Setup watchdog in background thread without blocking initialization."""
+        try:
+            await loop.run_in_executor(None, self._start_fs_monitor, watch_path, loop)
+            logger.debug("Watchdog setup completed successfully")
+        except Exception as e:
+            logger.error(f"Failed to setup watchdog monitoring: {e}")
+            # Server continues to work even if watchdog setup fails
+            
+    async def _setup_watchdog_with_timeout(self, watch_path: Path, loop: asyncio.AbstractEventLoop) -> None:
+        """Setup watchdog with timeout - fall back to polling if it takes too long."""
+        try:
+            # Try recursive setup with reasonable timeout for large directories
+            await asyncio.wait_for(
+                loop.run_in_executor(None, self._start_fs_monitor, watch_path, loop),
+                timeout=5.0  # Increased from 2.0 to 5.0 seconds
+            )
+            logger.debug("Watchdog setup completed successfully (recursive mode)")
+            self._monitoring_ready_time = time.time()
+            self.monitoring_ready.set()  # Signal monitoring is ready
+            
+        except asyncio.TimeoutError:
+            logger.info(f"Watchdog setup timed out for {watch_path} - falling back to polling")
+            self._using_polling = True
+            asyncio.create_task(self._polling_monitor(watch_path))
+            # Wait a moment for polling to start
+            await asyncio.sleep(0.5)
+            self._monitoring_ready_time = time.time()
+            self.monitoring_ready.set()  # Signal monitoring is ready (polling mode)
+        except Exception as e:
+            logger.warning(f"Watchdog setup failed: {e} - falling back to polling")
+            self._using_polling = True
+            asyncio.create_task(self._polling_monitor(watch_path))
+            # Wait a moment for polling to start
+            await asyncio.sleep(0.5)
+            self._monitoring_ready_time = time.time()
+            self.monitoring_ready.set()  # Signal monitoring is ready (polling mode)
+                
+    def _start_fs_monitor(self, watch_path: Path, loop: asyncio.AbstractEventLoop) -> None:
+        """Start filesystem monitoring with recursive watching for complete coverage."""
+        self.event_handler = SimpleEventHandler(self.event_queue, self.config, loop)
         self.observer = Observer()
+        
+        # Use recursive=True to ensure all directory events are captured
+        # This is necessary for proper real-time monitoring of new directories
         self.observer.schedule(
             self.event_handler,
             str(watch_path),
-            recursive=True
+            recursive=True  # Use recursive for complete event coverage
         )
+        self.watched_directories.add(str(watch_path))
         self.observer.start()
         
-        logger.debug(f"Started filesystem monitoring for {watch_path}")
+        # Wait for observer thread to be fully running
+        max_wait = 1.0
+        start = time.time()
+        while not self.observer.is_alive() and (time.time() - start) < max_wait:
+            time.sleep(0.01)
+        
+        if self.observer.is_alive():
+            logger.debug(f"Started recursive filesystem monitoring for {watch_path}")
+        else:
+            raise RuntimeError("Observer failed to start within timeout")
+        
+    async def _add_subdirectories_progressively(self, root_path: Path) -> None:
+        """No longer needed - using recursive monitoring."""
+        logger.debug("Progressive directory addition skipped (using recursive monitoring)")
+        
+    async def _polling_monitor(self, watch_path: Path) -> None:
+        """Simple polling monitor for large directories."""
+        logger.debug(f"Starting polling monitor for {watch_path}")
+        known_files = set()
+        
+        # Create a simple event handler for shouldIndex check once
+        simple_handler = SimpleEventHandler(None, self.config, None)
+        
+        while True:
+            try:
+                current_files = set()
+                files_checked = 0
+                
+                # Walk directory tree but with limits to avoid hanging
+                for file_path in watch_path.rglob('*'):
+                    try:
+                        if file_path.is_file():
+                            files_checked += 1
+                            if simple_handler._should_index(file_path):
+                                current_files.add(file_path)
+                                if file_path not in known_files:
+                                    # New file detected
+                                    logger.debug(f"Polling detected new file: {file_path}")
+                                    await self.add_file(file_path, priority='change')
+                        
+                        # Yield control periodically and limit total files checked
+                        if files_checked % 100 == 0:
+                            await asyncio.sleep(0)  # Yield control
+                            if files_checked > 5000:  # Limit to prevent hanging
+                                logger.warning(f"Polling checked {files_checked} files, skipping rest to avoid blocking")
+                                break
+                    except (OSError, PermissionError):
+                        # Skip files we can't access
+                        continue
+                
+                # Check for deleted files
+                deleted = known_files - current_files
+                for file_path in deleted:
+                    logger.debug(f"Polling detected deleted file: {file_path}")
+                    await self.remove_file(file_path)
+                    
+                known_files = current_files
+                
+                # Poll every 5 seconds
+                await asyncio.sleep(5)
+                
+            except Exception as e:
+                logger.error(f"Polling monitor error: {e}")
+                await asyncio.sleep(5)
         
     async def add_file(self, file_path: Path, priority: str = 'change') -> None:
         """Add file to processing queue with deduplication and debouncing."""
@@ -276,6 +414,14 @@ class RealtimeIndexingService:
                 elif event_type == 'deleted':
                     # Handle deletion immediately
                     await self.remove_file(file_path)
+                elif event_type == 'dir_created':
+                    # Handle new directory creation - with recursive monitoring, 
+                    # we don't need to add individual watches
+                    # Index files in new directory
+                    await self._index_directory(file_path)
+                elif event_type == 'dir_deleted':
+                    # Handle directory deletion - cleanup database
+                    await self._cleanup_deleted_directory(str(file_path))
                 
                 self.event_queue.task_done()
                 
@@ -290,6 +436,70 @@ class RealtimeIndexingService:
             self.services.provider.delete_file_completely(str(file_path))
         except Exception as e:
             logger.error(f"Error removing file {file_path}: {e}")
+            
+    async def _add_directory_watch(self, dir_path: str) -> None:
+        """Add a new directory to monitoring with recursive watching for real-time events."""
+        async with self.watch_lock:
+            if dir_path not in self.watched_directories:
+                if self.observer and self.event_handler:
+                    self.observer.schedule(
+                        self.event_handler,
+                        dir_path,
+                        recursive=True  # Use recursive for dynamically created directories
+                    )
+                    self.watched_directories.add(dir_path)
+                    logger.debug(f"Added recursive watch for new directory: {dir_path}")
+
+    async def _remove_directory_watch(self, dir_path: str) -> None:
+        """Remove directory from monitoring and clean up database."""
+        async with self.watch_lock:
+            if dir_path in self.watched_directories:
+                # Note: Watchdog auto-removes watches for deleted dirs
+                self.watched_directories.discard(dir_path)
+                
+                # Clean up database entries for files in deleted directory
+                await self._cleanup_deleted_directory(dir_path)
+                logger.debug(f"Removed watch for deleted directory: {dir_path}")
+                
+    async def _cleanup_deleted_directory(self, dir_path: str) -> None:
+        """Clean up database entries for files in a deleted directory."""
+        try:
+            # Get all files that were in this directory from database
+            # Use the provider's search capability to find files with this path prefix
+            search_results, _ = self.services.provider.search_regex(
+                pattern=f"^{dir_path}/.*",
+                page_size=1000  # Large page to get all matches
+            )
+            
+            # Delete each file found in the directory
+            for result in search_results:
+                file_path = result.get('file_path', result.get('path', ''))
+                if file_path:
+                    logger.debug(f"Cleaning up deleted file: {file_path}")
+                    self.services.provider.delete_file_completely(file_path)
+                    
+            logger.info(f"Cleaned up {len(search_results)} files from deleted directory: {dir_path}")
+            
+        except Exception as e:
+            logger.error(f"Error cleaning up deleted directory {dir_path}: {e}")
+            
+    async def _index_directory(self, dir_path: Path) -> None:
+        """Index files in a newly created directory."""
+        try:
+            # Get all supported files in the new directory
+            supported_files = []
+            for file_path in dir_path.rglob('*'):
+                if file_path.is_file() and self.event_handler and self.event_handler._should_index(file_path):
+                    supported_files.append(file_path)
+            
+            # Add files to processing queue
+            for file_path in supported_files:
+                await self.add_file(file_path, priority='change')
+                
+            logger.debug(f"Queued {len(supported_files)} files from new directory: {dir_path}")
+            
+        except Exception as e:
+            logger.error(f"Error indexing new directory {dir_path}: {e}")
             
     async def _process_loop(self) -> None:
         """Main processing loop - simple and robust."""
@@ -339,11 +549,30 @@ class RealtimeIndexingService:
                 
     async def get_stats(self) -> dict:
         """Get current service statistics."""
+        # Check if observer is running OR we're using polling mode
+        monitoring_active = False
+        if self.observer and self.observer.is_alive():
+            monitoring_active = True
+        elif hasattr(self, '_using_polling'):
+            # If we're using polling mode, consider it "alive"
+            monitoring_active = True
+        
         return {
             'queue_size': self.file_queue.qsize(),
             'pending_files': len(self.pending_files),
             'failed_files': len(self.failed_files),
             'scan_complete': self.scan_complete,
-            'observer_alive': self.observer.is_alive() if self.observer else False,
-            'watching_directory': str(self.watch_path) if self.watch_path else None
+            'observer_alive': monitoring_active,
+            'watching_directory': str(self.watch_path) if self.watch_path else None,
+            'watched_directories_count': len(self.watched_directories)  # Added
         }
+    
+    async def wait_for_monitoring_ready(self, timeout: float = 10.0) -> bool:
+        """Wait for filesystem monitoring to be ready."""
+        try:
+            await asyncio.wait_for(self.monitoring_ready.wait(), timeout=timeout)
+            logger.debug(f"Monitoring became ready after setup")
+            return True
+        except asyncio.TimeoutError:
+            logger.warning(f"Monitoring not ready after {timeout}s")
+            return False
