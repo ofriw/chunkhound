@@ -56,6 +56,7 @@ class HttpMCPServer(MCPServerBase):
                 services=self.ensure_services(),
                 embedding_manager=self.embedding_manager,
                 arguments={},
+                scan_progress=self._scan_progress,
             )
             return dict(result) if hasattr(result, "__dict__") else result
 

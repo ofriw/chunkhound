@@ -73,7 +73,8 @@ class HttpMCPServer(MCPServerBase):
                         services=self.ensure_services(),
                         embedding_manager=self.embedding_manager,
                         initialization_complete=init_event,
-                        debug_mode=self.debug_mode
+                        debug_mode=self.debug_mode,
+                        scan_progress=self._scan_progress
                     )
 
                     # Convert TextContent list to dict for FastMCP

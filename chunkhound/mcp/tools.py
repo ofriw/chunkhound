@@ -239,24 +239,39 @@ async def search_semantic_impl(
     return cast(SearchResponse, {"results": results, "pagination": pagination})
 
 
-async def get_stats_impl(services: DatabaseServices) -> dict[str, Any]:
-    """Core stats implementation.
-
+async def get_stats_impl(services: DatabaseServices, scan_progress: dict | None = None) -> dict[str, Any]:
+    """Core stats implementation with scan progress.
+    
     Args:
         services: Database services bundle
-
+        scan_progress: Optional scan progress from MCPServerBase
+    
     Returns:
-        Dict with database statistics
+        Dict with database statistics and scan progress
     """
     stats: dict[str, Any] = services.provider.get_stats()
-
-    # Map provider field names to MCP API field names for consistency
-    return {
+    
+    # Map provider field names to MCP API field names
+    result = {
         "total_files": stats.get("files", 0),
         "total_chunks": stats.get("chunks", 0),
         "total_embeddings": stats.get("embeddings", 0),
+        "database_size_mb": stats.get("size_mb", 0),
         "total_providers": stats.get("providers", 0),
     }
+    
+    # Add scan progress if available
+    if scan_progress:
+        result["initial_scan"] = {
+            "is_scanning": scan_progress.get("is_scanning", False),
+            "files_processed": scan_progress.get("files_processed", 0),
+            "chunks_created": scan_progress.get("chunks_created", 0),
+            "started_at": scan_progress.get("scan_started_at"),
+            "completed_at": scan_progress.get("scan_completed_at"),
+            "error": scan_progress.get("scan_error")
+        }
+    
+    return result
 
 
 async def health_check_impl(
@@ -411,6 +426,7 @@ async def execute_tool(
     services: Any,
     embedding_manager: Any,
     arguments: dict[str, Any],
+    scan_progress: dict | None = None,
 ) -> dict[str, Any]:
     """Execute a tool from the registry with proper argument handling.
 
@@ -419,6 +435,7 @@ async def execute_tool(
         services: DatabaseServices instance
         embedding_manager: EmbeddingManager instance
         arguments: Tool arguments from the request
+        scan_progress: Optional scan progress from MCPServerBase
 
     Returns:
         Tool execution result
@@ -434,7 +451,7 @@ async def execute_tool(
 
     # Extract implementation-specific arguments
     if tool_name == "get_stats":
-        result = await tool.implementation(services)
+        result = await tool.implementation(services, scan_progress)
         return dict(result)
 
     elif tool_name == "health_check":

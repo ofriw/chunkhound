@@ -13,6 +13,7 @@ to ensure consistent initialization while respecting protocol-specific constrain
 import asyncio
 import os
 from abc import ABC, abstractmethod
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -59,6 +60,16 @@ class MCPServerBase(ABC):
         # Initialization state
         self._initialized = False
         self._init_lock = asyncio.Lock()
+
+        # Scan progress tracking
+        self._scan_complete = False
+        self._scan_progress = {
+            "files_processed": 0,
+            "chunks_created": 0,
+            "is_scanning": False,
+            "scan_started_at": None,
+            "scan_completed_at": None
+        }
 
         # Set MCP mode to suppress stderr output that interferes with JSON-RPC
         os.environ["CHUNKHOUND_MCP_MODE"] = "1"
@@ -131,15 +142,7 @@ class MCPServerBase(ABC):
             # Connect to database
             self.services.provider.connect()
 
-            # Perform initial directory scan using shared service
-            self.debug_log("Starting initial directory scan")
-            indexing_service = DirectoryIndexingService(
-                indexing_coordinator=self.services.indexing_coordinator,
-                config=self.config,
-                progress_callback=self.debug_log
-            )
-
-            # Use direct path like CLI indexer - align path resolution
+            # Determine target path for scanning and watching
             if self.args and hasattr(self.args, 'path'):
                 target_path = Path(self.args.path)
                 self.debug_log(f"Using direct path from args: {target_path}")
@@ -148,20 +151,65 @@ class MCPServerBase(ABC):
                 target_path = self.config.target_dir or db_path.parent.parent
                 self.debug_log(f"Using fallback path resolution: {target_path}")
 
-            stats = await indexing_service.process_directory(target_path, no_embeddings=False)
-
-            self.debug_log(f"Initial scan completed: {stats.files_processed} files, {stats.chunks_created} chunks")
-
-            # Start real-time indexing service
+            # Start real-time indexing service first (immediate responsiveness)
             self.debug_log("Starting real-time indexing service")
             self.realtime_indexing = RealtimeIndexingService(self.services, self.config)
-
-            # Use same path for watching
             await self.realtime_indexing.start(target_path)
 
-            self._initialized = True
+            # Schedule background initial scan (non-blocking)
+            self._scan_progress["is_scanning"] = True
+            self._scan_progress["scan_started_at"] = datetime.now().isoformat()
+            asyncio.create_task(self._background_initial_scan(target_path))
 
-            self.debug_log("Service initialization complete")
+            # Mark as initialized immediately (tools available)
+            self._initialized = True
+            self.debug_log("Service initialization complete (background scan started)")
+
+    async def _background_initial_scan(self, target_path: Path) -> None:
+        """Perform initial directory scan in background without blocking startup."""
+        try:
+            self.debug_log("Starting background initial directory scan")
+            
+            # Progress callback to update scan state
+            def progress_callback(message: str):
+                # Parse progress messages to update counters
+                if "files processed" in message:
+                    # Extract numbers from progress messages
+                    import re
+                    match = re.search(r'(\d+) files processed.*?(\d+) chunks', message)
+                    if match:
+                        self._scan_progress["files_processed"] = int(match.group(1))
+                        self._scan_progress["chunks_created"] = int(match.group(2))
+                self.debug_log(message)
+            
+            # Create indexing service for background scan
+            indexing_service = DirectoryIndexingService(
+                indexing_coordinator=self.services.indexing_coordinator,
+                config=self.config,
+                progress_callback=progress_callback
+            )
+            
+            # Perform scan with lower priority
+            stats = await indexing_service.process_directory(
+                target_path, 
+                no_embeddings=False
+            )
+            
+            # Update final stats
+            self._scan_progress.update({
+                "files_processed": stats.files_processed,
+                "chunks_created": stats.chunks_created,
+                "is_scanning": False,
+                "scan_completed_at": datetime.now().isoformat()
+            })
+            self._scan_complete = True
+            
+            self.debug_log(f"Background scan completed: {stats.files_processed} files, {stats.chunks_created} chunks")
+            
+        except Exception as e:
+            self.debug_log(f"Background initial scan failed: {e}")
+            self._scan_progress["is_scanning"] = False
+            self._scan_progress["scan_error"] = str(e)
 
     async def cleanup(self) -> None:
         """Clean up resources and close database connection.

@@ -140,9 +140,12 @@ async def test_mcp_server_handles_empty_directory_gracefully():
     """Test that MCP server handles directories without config files gracefully.
     
     After the fix, the server should be able to start even when pointing to
-    a directory that doesn't have a .chunkhound.json file, as long as the
-    directory argument is properly passed through the configuration system.
+    a directory that doesn't have a .chunkhound.json file and properly
+    respond to MCP protocol initialization.
     """
+    import json
+    import shutil
+    
     home_dir = Path(tempfile.mkdtemp())
     project_dir = Path(tempfile.mkdtemp())
     
@@ -159,35 +162,79 @@ async def test_mcp_server_handles_empty_directory_gracefully():
         )
         
         try:
-            # Wait for process to exit
-            stdout, stderr = await asyncio.wait_for(
-                proc.communicate(), timeout=5.0
+            # Step 1: Send initialize request (with id)
+            init_request = {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {},
+                    "clientInfo": {"name": "test", "version": "1.0"}
+                }
+            }
+            
+            proc.stdin.write((json.dumps(init_request) + "\n").encode())
+            await proc.stdin.drain()
+            
+            # Step 2: Receive initialize response
+            response_line = await asyncio.wait_for(
+                proc.stdout.readline(), timeout=5.0
             )
             
-            stderr_text = stderr.decode()
+            init_response = json.loads(response_line.decode())
             
-            # The server should handle this gracefully now that the fix is in place
-            # It may exit with an error code, but it should use the correct directory
-            print(f"Exit code: {proc.returncode}")
-            print(f"stderr: {stderr_text}")
+            # Verify we got a valid response with correct structure
+            assert "jsonrpc" in init_response and init_response["jsonrpc"] == "2.0"
+            assert "id" in init_response and init_response["id"] == 1
+            assert "result" in init_response, f"No result in response: {init_response}"
+            assert "serverInfo" in init_response["result"]
+            assert "protocolVersion" in init_response["result"]
             
-            # The key test is that we don't get the "Expected .chunkhound.json in current directory: {home_dir}" error
-            # Instead, if there's an error, it should reference the project_dir
-            if "No ChunkHound project found" in stderr_text:
-                # The error should reference project_dir, not home_dir
-                assert str(project_dir) in stderr_text or "current directory" not in stderr_text, \
-                    f"Error should reference project dir, not home dir. stderr: {stderr_text}"
-                print("✓ Error correctly references project directory, not working directory")
-            else:
-                print("✓ Server started successfully despite no config file")
+            print(f"✓ Server responded with serverInfo: {init_response['result']['serverInfo']}")
+            
+            # Step 3: Send initialized notification (no id - it's a notification)
+            initialized_notification = {
+                "jsonrpc": "2.0",
+                "method": "notifications/initialized"
+                # No "id" field for notifications
+            }
+            
+            proc.stdin.write((json.dumps(initialized_notification) + "\n").encode())
+            await proc.stdin.drain()
+            
+            # Optional: Test that server is now ready by requesting tools list
+            tools_request = {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/list"
+            }
+            
+            proc.stdin.write((json.dumps(tools_request) + "\n").encode())
+            await proc.stdin.drain()
+            
+            # Read tools response
+            tools_line = await asyncio.wait_for(
+                proc.stdout.readline(), timeout=5.0
+            )
+            tools_response = json.loads(tools_line.decode())
+            
+            # Verify tools response
+            assert "result" in tools_response
+            assert "tools" in tools_response["result"]
+            
+            print(f"✓ Server initialized successfully with {len(tools_response['result']['tools'])} tools")
+            print("✓ Server handles empty directory gracefully")
             
         finally:
-            if proc.returncode is None:
-                proc.terminate()
+            # Properly terminate the server
+            proc.terminate()
+            try:
+                await asyncio.wait_for(proc.wait(), timeout=2.0)
+            except asyncio.TimeoutError:
+                proc.kill()
                 await proc.wait()
     
     finally:
-        # Cleanup
-        import shutil
         shutil.rmtree(home_dir, ignore_errors=True)
         shutil.rmtree(project_dir, ignore_errors=True)

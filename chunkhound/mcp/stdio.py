@@ -81,7 +81,8 @@ class StdioMCPServer(MCPServerBase):
                 services=self.ensure_services(),
                 embedding_manager=self.embedding_manager,
                 initialization_complete=self._initialization_complete,
-                debug_mode=self.debug_mode
+                debug_mode=self.debug_mode,
+                scan_progress=self._scan_progress
             )
 
         self._register_list_tools()

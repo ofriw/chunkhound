@@ -126,7 +126,8 @@ async def handle_tool_call(
     services: DatabaseServices,
     embedding_manager: EmbeddingManager | None,
     initialization_complete: asyncio.Event,
-    debug_mode: bool = False
+    debug_mode: bool = False,
+    scan_progress: dict | None = None
 ) -> list[types.TextContent]:
     """Unified tool call handler for all MCP servers.
     
@@ -140,6 +141,7 @@ async def handle_tool_call(
         embedding_manager: Optional embedding manager for semantic search
         initialization_complete: Event to wait for server initialization
         debug_mode: Whether to include stack traces in error responses
+        scan_progress: Optional scan progress from MCPServerBase
         
     Returns:
         List containing a single TextContent with JSON-formatted response
@@ -148,10 +150,10 @@ async def handle_tool_call(
         MCPError: On tool execution failure (caught and formatted as error response)
     """
     try:
-        # Wait for initialization
+        # Wait for initialization (reduced timeout since server is immediately available)
         await asyncio.wait_for(
             initialization_complete.wait(),
-            timeout=30.0
+            timeout=5.0
         )
 
         # Validate tool exists
@@ -172,6 +174,7 @@ async def handle_tool_call(
             services=services,
             embedding_manager=embedding_manager,
             arguments=parsed_args,
+            scan_progress=scan_progress,
         )
 
         # Format response

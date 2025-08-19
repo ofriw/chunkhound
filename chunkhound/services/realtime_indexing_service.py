@@ -180,8 +180,7 @@ class RealtimeIndexingService:
         # Start processing loop
         self.process_task = asyncio.create_task(self._process_loop())
         
-        # Perform initial scan
-        asyncio.create_task(self._perform_initial_scan(watch_path))
+        # Initial scan is now handled by MCPServerBase to prevent blocking
         
     async def stop(self) -> None:
         """Stop the service gracefully."""
@@ -222,22 +221,6 @@ class RealtimeIndexingService:
         
         logger.debug(f"Started filesystem monitoring for {watch_path}")
         
-    async def _perform_initial_scan(self, watch_path: Path) -> None:
-        """Perform initial scan using existing process_directory."""
-        try:
-            # Resolve path to canonical form for consistency with real-time processing
-            resolved_path = Path(normalize_file_path(watch_path))
-            logger.info(f"Starting initial scan of {resolved_path}")
-            await self.services.indexing_coordinator.process_directory(
-                resolved_path,
-                patterns=self.config.indexing.include,
-                exclude_patterns=self.config.indexing.exclude
-            )
-            logger.info("Initial scan completed successfully")
-            
-        except Exception as e:
-            logger.error(f"Error during initial scan: {e}")
-            
     async def add_file(self, file_path: Path, priority: str = 'change') -> None:
         """Add file to processing queue with deduplication and debouncing."""
         if file_path not in self.pending_files:
