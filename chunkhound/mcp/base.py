@@ -145,7 +145,7 @@ class MCPServerBase(ABC):
                 self.debug_log(f"Using direct path from args: {target_path}")
             else:
                 # Fallback to config resolution (shouldn't happen in normal usage)
-                target_path = getattr(self.config, '_target_dir', None) or db_path.parent.parent
+                target_path = self.config.target_dir or db_path.parent.parent
                 self.debug_log(f"Using fallback path resolution: {target_path}")
 
             stats = await indexing_service.process_directory(target_path, no_embeddings=False)

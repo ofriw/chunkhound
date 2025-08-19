@@ -30,6 +30,9 @@ class Config(BaseModel):
     mcp: MCPConfig = Field(default_factory=MCPConfig)
     indexing: IndexingConfig = Field(default_factory=IndexingConfig)
     debug: bool = Field(default=False)
+    
+    # Private field to store the target directory from CLI args
+    target_dir: Path | None = Field(default=None, exclude=True)
 
     def __init__(self, args: Any | None = None, **kwargs: Any) -> None:
         """Universal configuration initialization that handles all contexts.
@@ -72,9 +75,6 @@ class Config(BaseModel):
             from chunkhound.utils.project_detection import find_project_root
 
             target_dir = find_project_root(getattr(args, 'path', None) if args else None)
-
-        # Store target_dir for use in validation
-        self._target_dir = target_dir
 
         # 2. Load config file if found
         if config_file and config_file.exists():
@@ -123,6 +123,9 @@ class Config(BaseModel):
         if "embedding" in config_data and isinstance(config_data["embedding"], dict):
             # Create EmbeddingConfig instance with the data
             config_data["embedding"] = EmbeddingConfig(**config_data["embedding"])
+
+        # Add target_dir to config_data for initialization
+        config_data["target_dir"] = target_dir
 
         # Initialize the model
         super().__init__(**config_data)
@@ -205,7 +208,7 @@ class Config(BaseModel):
             from chunkhound.utils.project_detection import find_project_root
 
             # Use the target_dir if it was provided during initialization
-            start_path = getattr(self, "_target_dir", None)
+            start_path = self.target_dir
             project_root = find_project_root(start_path)
 
             # Set default database path in project root
