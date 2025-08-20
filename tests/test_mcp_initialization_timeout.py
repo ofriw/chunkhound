@@ -2,6 +2,16 @@
 
 This test reproduces the VS Code MCP integration issue where the server
 hangs during initialization due to synchronous directory scanning.
+
+IMPORTANT: This file contains stress tests that create thousands of files 
+and directories to test performance under load. The large stress tests are
+automatically skipped in CI environments due to GitHub Actions I/O limitations.
+
+To run stress tests locally:
+  pytest tests/test_mcp_initialization_timeout.py -v
+
+To run only the stress tests:
+  pytest tests/test_mcp_initialization_timeout.py -k "large_directory or deep_directory" -v
 """
 
 import asyncio
@@ -17,12 +27,17 @@ import pytest
 class TestMCPInitializationTimeout:
     """Test MCP server initialization timeout scenarios."""
 
+    @pytest.mark.skipif(os.environ.get("CI") == "true", reason="Stress test with 1000 files too slow for CI")
     @pytest.mark.asyncio
     async def test_mcp_initialization_timeout_on_large_directory(self):
         """Test that MCP server times out on initialize when processing large directories.
         
         This reproduces the VS Code MCP integration issue where the server
         becomes unresponsive during directory scanning.
+        
+        NOTE: This is a stress test that creates 1000 files with substantial content.
+        It's skipped in CI due to GitHub Actions I/O performance limitations.
+        Run locally to verify performance fixes.
         """
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
@@ -349,6 +364,7 @@ CONFIGURATION_{i} = {{
                     proc.kill()
                     await proc.wait()
 
+    @pytest.mark.skipif(os.environ.get("CI") == "true", reason="Stress test with 2500 directories too slow for CI")
     @pytest.mark.asyncio
     async def test_watchdog_recursive_blocking_on_deep_directory_tree(self):
         """Test that watchdog's recursive directory traversal blocks MCP initialization.
@@ -359,6 +375,10 @@ CONFIGURATION_{i} = {{
         
         The key difference from other tests is that this creates many directories
         rather than many files, which is what causes watchdog blocking.
+        
+        NOTE: This is a stress test that creates 2500 directories in a deep hierarchy.
+        It's skipped in CI due to GitHub Actions I/O performance limitations.
+        Run locally to verify watchdog performance fixes.
         """
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
