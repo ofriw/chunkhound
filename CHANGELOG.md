@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.0] - 2025-08-20
+
 ### Added
 - VoyageAI embedding provider with advanced two-hop semantic search and reranking capabilities
 - GitHub Pages documentation site with interactive examples and improved navigation
@@ -398,7 +400,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 For more information, visit: https://github.com/chunkhound/chunkhound
 
-[Unreleased]: https://github.com/chunkhound/chunkhound/compare/v2.8.1...HEAD
+[Unreleased]: https://github.com/chunkhound/chunkhound/compare/v3.0.0...HEAD
+[3.0.0]: https://github.com/chunkhound/chunkhound/compare/v2.8.1...v3.0.0
 [2.8.1]: https://github.com/chunkhound/chunkhound/compare/v2.8.0...v2.8.1
 [2.8.0]: https://github.com/chunkhound/chunkhound/compare/v2.7.0...v2.8.0
 [2.7.0]: https://github.com/chunkhound/chunkhound/compare/v2.6.3...v2.7.0

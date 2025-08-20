@@ -351,7 +351,7 @@ wheels = [
 
 [[package]]
 name = "chunkhound"
-version = "2.8.1"
+version = "3.0.0"
 source = { editable = "." }
 dependencies = [
     { name = "aiohttp" },
