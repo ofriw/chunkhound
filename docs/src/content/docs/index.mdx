@@ -1,0 +1,158 @@
+---
+title: ChunkHound
+description: Semantic and regex search for codebases via MCP
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+Modern RAG for your codebase - semantic and regex search via MCP (Model Context Protocol).
+
+## What it does
+
+LLMs like Claude and GPT don't know your codebase - they only know what they were trained on. Every time they help you code, they need to search your files to understand your project's specific patterns and terminology.
+
+ChunkHound gives AI assistants two ways to explore your code:
+- **Semantic search** - Finds code by meaning, so when the AI looks for "user authentication" it also finds your `validateLogin()` and `checkCredentials()` functions
+- **Regex search** - Pattern matching for precise code structures
+
+Traditional search was built for humans who know what they're looking for. But AI assistants start with zero knowledge about your codebase. Semantic search bridges this gap by understanding that "database timeout" and "SQL connection lost" are related concepts, even though they share no keywords.
+
+## Requirements
+
+- Python 3.10+
+- [uv package manager](https://docs.astral.sh/uv/)
+- API key for semantic search (optional)
+
+## Installation
+
+```bash
+# Install uv package manager
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Install ChunkHound
+uv tool install chunkhound
+```
+
+## Configuration
+
+ChunkHound works **without configuration** for regex search. For semantic search, create `.chunkhound.json` in your project root:
+
+<Tabs syncKey="provider">
+  <TabItem label="VoyageAI (Recommended)">
+    **Best for:** Fastest, most accurate, and cost effective
+
+    ```json
+    {
+      "embedding": {
+        "provider": "voyageai",
+        "api_key": "pa-your-voyage-key"
+      }
+    }
+    ```
+
+    Get API key from [VoyageAI Console](https://dash.voyageai.com/)
+  </TabItem>
+
+  <TabItem label="OpenAI">
+    **Best for:** Wide compatibility and ecosystem
+
+    ```json
+    {
+      "embedding": {
+        "provider": "openai",
+        "api_key": "sk-your-openai-key"
+      }
+    }
+    ```
+
+    Get API key from [OpenAI Platform](https://platform.openai.com/api-keys)
+  </TabItem>
+
+  <TabItem label="Local (Ollama)">
+    **Best for:** Privacy and offline use
+
+    ```bash
+    # Start Ollama with embedding model
+    ollama pull nomic-embed-text
+    ```
+
+    ```json
+    {
+      "embedding": {
+        "provider": "openai",
+        "base_url": "http://localhost:11434/v1",
+        "model": "nomic-embed-text"
+      }
+    }
+    ```
+
+    No API key required - completely local
+  </TabItem>
+</Tabs>
+
+## IDE Setup
+
+Configure ChunkHound as an MCP server in your AI assistant:
+
+<Tabs syncKey="ide-setup">
+  <TabItem label="Claude Code">
+    Add to `~/.claude.json`:
+    ```json
+    {
+      "mcpServers": {
+        "chunkhound": {
+          "command": "chunkhound",
+          "args": ["mcp"]
+        }
+      }
+    }
+    ```
+  </TabItem>
+
+  <TabItem label="VS Code">
+    Add to `.vscode/mcp.json`:
+    ```json
+    {
+      "servers": {
+        "chunkhound": {
+          "type": "stdio",
+          "command": "chunkhound",
+          "args": ["mcp", "/path/to/project"]
+        }
+      }
+    }
+    ```
+  </TabItem>
+
+  <TabItem label="Cursor">
+    Add to `.cursor/mcp.json`:
+    ```json
+    {
+      "mcpServers": {
+        "chunkhound": {
+          "command": "chunkhound",
+          "args": ["mcp", "/path/to/project"]
+        }
+      }
+    }
+    ```
+  </TabItem>
+</Tabs>
+
+## Initial Indexing
+
+```bash
+# Index your codebase (respects .gitignore automatically)
+cd /path/to/project && chunkhound index
+```
+
+## Documentation
+
+- [Tutorial](/tutorial/) - Learn ChunkHound in 5 minutes
+- [Configuration](/configuration/) - Complete configuration reference
+- [Under the Hood](/under-the-hood/) - Technical deep dive into architecture and algorithms
+
+## Links
+
+- [GitHub Repository](https://github.com/ofriw/chunkhound)
+- [Report Issues](https://github.com/ofriw/chunkhound/issues)

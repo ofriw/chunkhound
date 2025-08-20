@@ -1,0 +1,296 @@
+---
+title: Configuration
+description: Complete reference for all ChunkHound configuration options
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+import { Card, CardGrid, Aside } from '@astrojs/starlight/components';
+
+## Configuration Sources
+
+ChunkHound uses a 5-level configuration hierarchy. Each source can override the previous ones:
+
+1. **CLI arguments** (highest priority) - `--api-key`, `--model`, `--debug`
+2. **Local `.chunkhound.json`** - Project-specific config in target directory
+3. **Config file** - Specified via `--config` path or `CHUNKHOUND_CONFIG_FILE`
+4. **Environment variables** - `CHUNKHOUND_*` prefixed variables
+5. **Default values** (lowest priority) - Built-in defaults
+
+<Aside type="tip" title="Configuration Discovery">
+ChunkHound automatically looks for `.chunkhound.json` in your project directory. No need to specify paths manually!
+</Aside>
+
+## Complete Configuration Schema
+
+### Full JSON Configuration
+
+```json
+{
+  "database": {
+    "provider": "duckdb",
+    "path": "/path/to/database"
+  },
+  "embedding": {
+    "provider": "voyageai",
+    "model": "voyage-3.5",
+    "api_key": "pa-your-key",
+    "base_url": "https://api.voyageai.com/v1",
+    "rerank_model": "rerank-lite-1",
+    "rerank_url": "/rerank"
+  },
+  "indexing": {
+    "include": ["**/*.py", "**/*.js", "**/*.ts"],
+    "exclude": ["**/node_modules/**", "**/__pycache__/**"]
+  },
+  "mcp": {
+    "transport": "stdio",
+    "host": "0.0.0.0",
+    "port": 3000
+  },
+  "debug": false
+}
+```
+
+## Database Configuration
+
+<CardGrid>
+  <Card title="DuckDB (Default)" icon="database">
+    **File**: Single `.db` file
+    **Performance**: Excellent for code search
+    **Storage**: Efficient columnar format
+    **Setup**: Zero configuration required
+  </Card>
+
+  <Card title="LanceDB (Alternative)" icon="database">
+    **File**: Directory with multiple files
+    **Performance**: Optimized for vector operations
+    **Storage**: Native vector format
+    **Setup**: Set `"provider": "lancedb"`
+  </Card>
+</CardGrid>
+
+### Database Options
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `provider` | `"duckdb"` \| `"lancedb"` | `"duckdb"` | Database engine |
+| `path` | `string` | `.chunkhound` | Database directory path |
+
+**Environment Variables**:
+- `CHUNKHOUND_DATABASE__PROVIDER` - Database provider
+- `CHUNKHOUND_DATABASE__PATH` - Database directory path
+
+**CLI Arguments**:
+- `--database-provider` - Choose database provider
+- `--db`, `--database-path` - Set database path
+
+## Embedding Configuration
+
+<Tabs syncKey="embedding-provider">
+  <TabItem label="VoyageAI">
+    **Best for**: Accuracy, cost efficiency, code understanding
+
+    ```json
+    {
+      "embedding": {
+        "provider": "voyageai",
+        "api_key": "pa-your-voyage-key",
+        "model": "voyage-3.5",
+        "rerank_model": "rerank-lite-1"
+      }
+    }
+    ```
+
+    **Available Models**:
+    - `voyage-3.5` (default) - General purpose, 1024 dimensions
+    - `voyage-code-3` - Optimized for code, 1024 dimensions
+    - `voyage-3-large` - Higher accuracy, 1024 dimensions
+    - `voyage-law-2` - Legal documents, 1024 dimensions
+  </TabItem>
+
+  <TabItem label="OpenAI">
+    **Best for**: Wide compatibility and ecosystem support
+
+    ```json
+    {
+      "embedding": {
+        "provider": "openai",
+        "api_key": "sk-your-openai-key",
+        "model": "text-embedding-3-small"
+      }
+    }
+    ```
+
+    **Available Models**:
+    - `text-embedding-3-small` (default) - Fast, 1536 dimensions
+    - `text-embedding-3-large` - Higher accuracy, 3072 dimensions
+    - `text-embedding-ada-002` - Legacy model, 1536 dimensions
+  </TabItem>
+
+  <TabItem label="Custom/Local">
+    **Best for**: Privacy, custom models, local deployment
+
+    ```json
+    {
+      "embedding": {
+        "provider": "openai",
+        "base_url": "http://localhost:11434/v1",
+        "model": "nomic-embed-text"
+      }
+    }
+    ```
+
+    **Compatible Servers**:
+    - **Ollama** - `http://localhost:11434/v1`
+    - **LocalAI** - `http://localhost:8080/v1`
+    - **LM Studio** - `http://localhost:1234/v1`
+    - **Custom OpenAI-compatible APIs**
+  </TabItem>
+</Tabs>
+
+### Embedding Options
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `provider` | `"openai"` \| `"voyageai"` | None | Embedding provider |
+| `model` | `string` | Provider default | Model name |
+| `api_key` | `string` | None | API key for authentication |
+| `base_url` | `string` | Provider default | Custom API base URL |
+| `rerank_model` | `string` | None | Reranking model |
+| `rerank_url` | `string` | `"/rerank"` | Rerank endpoint path |
+
+## Indexing Configuration
+
+### File Discovery
+
+ChunkHound automatically respects `.gitignore` files and includes comprehensive defaults:
+
+**Default Include Patterns**:
+```json
+[
+  "**/*.py", "**/*.js", "**/*.ts", "**/*.tsx", "**/*.jsx",
+  "**/*.go", "**/*.rs", "**/*.java", "**/*.c", "**/*.cpp",
+  "**/*.h", "**/*.hpp", "**/*.cs", "**/*.php", "**/*.rb",
+  "**/*.swift", "**/*.kt", "**/*.scala", "**/*.clj",
+  "**/*.sh", "**/*.bash", "**/*.zsh", "**/*.fish",
+  "**/*.sql", "**/*.json", "**/*.yaml", "**/*.yml",
+  "**/*.toml", "**/*.xml", "**/*.html", "**/*.css",
+  "**/*.scss", "**/*.sass", "**/*.less", "**/*.md",
+  "**/*.rst", "**/*.txt", "**/*.dockerfile",
+  "**/Dockerfile*", "**/Makefile*", "**/*.mk"
+]
+```
+
+**Default Exclude Patterns**:
+```json
+[
+  "**/node_modules/**", "**/.git/**", "**/__pycache__/**",
+  "**/venv/**", "**/.venv/**", "**/dist/**", "**/build/**",
+  "**/target/**", "**/.vscode/**", "**/.idea/**",
+  "**/*.tmp*", "**/*.swp", "**/*.swo", "**/*.min.js",
+  "**/*.min.css", "**/package-lock.json", "**/yarn.lock"
+]
+```
+
+### Indexing Options
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `include` | `string[]` | Comprehensive list | File patterns to include |
+| `exclude` | `string[]` | Comprehensive list | File patterns to exclude |
+
+**Environment Variables**:
+- `CHUNKHOUND_INDEXING__INCLUDE` - Comma-separated include patterns
+- `CHUNKHOUND_INDEXING__EXCLUDE` - Comma-separated exclude patterns
+
+**CLI Arguments**:
+- `--force-reindex` - Force reindexing all files
+- `--include PATTERN` - Add include pattern (can be used multiple times)
+- `--exclude PATTERN` - Add exclude pattern (can be used multiple times)
+
+## MCP Server Configuration
+
+MCP transport mode is controlled via CLI arguments when starting the server, not through configuration files.
+
+<Tabs syncKey="mcp-transport">
+  <TabItem label="stdio (Default)">
+    **Best for**: IDE integrations (Claude Desktop, Claude Code, Cursor)
+
+    ```bash
+    # Default stdio mode
+    chunkhound mcp
+
+    # Explicit stdio mode
+    chunkhound mcp --stdio
+    ```
+
+    Uses standard input/output for communication. Most IDE integrations expect this mode.
+  </TabItem>
+
+  <TabItem label="HTTP">
+    **Best for**: Web applications, VS Code extensions, debugging
+
+    ```bash
+    # HTTP mode with default port (3000)
+    chunkhound mcp --http
+
+    # HTTP mode with custom port and host
+    chunkhound mcp --http --port 8000 --host 127.0.0.1
+    ```
+
+    Runs an HTTP server for MCP communication. Easier to debug and test.
+  </TabItem>
+</Tabs>
+
+### CLI Arguments for MCP Server
+
+| Argument | Description | Example |
+|----------|-------------|---------|
+| `--stdio` | Use stdio transport (default) | `chunkhound mcp --stdio` |
+| `--http` | Use HTTP transport | `chunkhound mcp --http` |
+| `--host HOST` | Set HTTP server host | `chunkhound mcp --http --host localhost` |
+| `--port PORT` | Set HTTP server port | `chunkhound mcp --http --port 8000` |
+
+**Environment Variables** (for HTTP mode):
+- `CHUNKHOUND_MCP__HOST` - Default HTTP server host
+- `CHUNKHOUND_MCP__PORT` - Default HTTP server port
+
+## Environment Variables Reference
+
+### Naming Convention
+
+ChunkHound uses a standardized naming pattern:
+- **Prefix**: `CHUNKHOUND_`
+- **Sections**: Separated by `__` (double underscore)
+- **Example**: `CHUNKHOUND_EMBEDDING__API_KEY`
+
+### Complete Environment Variables List
+
+```bash
+# Main Configuration
+CHUNKHOUND_DEBUG=true                           # Enable debug mode
+CHUNKHOUND_CONFIG_FILE=/path/to/config.json     # Config file path
+
+# Database Configuration
+CHUNKHOUND_DATABASE__PROVIDER=duckdb            # Database provider
+CHUNKHOUND_DATABASE__PATH=/custom/db/path       # Database directory
+
+# Embedding Configuration
+CHUNKHOUND_EMBEDDING__PROVIDER=voyageai         # Embedding provider
+CHUNKHOUND_EMBEDDING__API_KEY=pa-your-key       # API key
+CHUNKHOUND_EMBEDDING__BASE_URL=https://api...   # Custom base URL
+CHUNKHOUND_EMBEDDING__MODEL=voyage-3.5          # Model name
+
+# Indexing Configuration
+CHUNKHOUND_INDEXING__INCLUDE="*.py,*.js"       # Include patterns
+CHUNKHOUND_INDEXING__EXCLUDE="*/tests/*"       # Exclude patterns
+
+# MCP Configuration (HTTP mode only)
+CHUNKHOUND_MCP__HOST=localhost                  # Default HTTP server host
+CHUNKHOUND_MCP__PORT=8080                       # Default HTTP server port
+
+# Provider Fallback Variables
+OPENAI_API_KEY=sk-your-key                      # OpenAI API key fallback
+OPENAI_BASE_URL=https://api.openai.com/v1       # OpenAI base URL fallback
+VOYAGE_API_KEY=pa-your-key                      # VoyageAI API key fallback
+```

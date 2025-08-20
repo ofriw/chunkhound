@@ -1,0 +1,153 @@
+---
+title: Under the Hood
+description: Technical deep dive into ChunkHound's architecture, algorithms, and design decisions
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+import { Card, CardGrid, Aside } from '@astrojs/starlight/components';
+import SemanticSearchFlow from '../../components/SemanticSearchFlow.tsx';
+import TwoHopSearchFlow from '../../components/TwoHopSearchFlow.tsx';
+
+## Architecture Overview
+
+ChunkHound uses a local-first architecture with embedded databases and universal code parsing:
+
+<CardGrid>
+  <Card title="Database Layer" icon="setting">
+    **DuckDB** (primary) - OLAP columnar database with HNSW vector indexing
+    **LanceDB** (experimental) - Purpose-built vector database with disk-based storage
+  </Card>
+
+  <Card title="Parsing Engine" icon="open-book">
+    **Tree-sitter** - Universal AST parser supporting 20+ languages
+    **Language-agnostic** - Same semantic concepts across all languages
+  </Card>
+
+  <Card title="Flexible Providers" icon="puzzle">
+    **Pluggable backends** - OpenAI, VoyageAI, Ollama
+    **Cloud & Local** - Run with APIs or fully offline with local models
+  </Card>
+
+  <Card title="Advanced Algorithms" icon="rocket">
+    **cAST** - Semantic code chunking preserving AST structure
+    **Two-Hop Search** - Context-aware search with reranking
+  </Card>
+</CardGrid>
+
+ChunkHound's local-first architecture provides key advantages: **Privacy** - Your code never leaves your machine. **Speed** - No network latency or API rate limits. **Reliability** - Works offline and in air-gapped environments. **Cost** - No per-token charges for indexing large codebases.
+
+## The cAST Algorithm
+
+When AI assistants search your codebase, they need code split into "chunks" - searchable pieces small enough to understand but large enough to be meaningful. The challenge: how do you split code without breaking its logic?
+
+### Three Approaches Compared
+
+**1. Naive Fixed-Size Chunking**
+
+Split every 1000 characters regardless of code structure:
+
+```python
+def authenticate_user(username, password):
+    if not username or not password:
+        return False
+
+    hashed = hash_password(password)
+    user = database.get_u
+# CHUNK BOUNDARY CUTS HERE ❌
+ser(username)
+    return user and user.password_hash == hashed
+```
+
+**Problem**: Functions get cut in half, breaking meaning.
+
+**2. Naive AST Chunking**
+
+Split only at function/class boundaries:
+
+```python
+# Chunk 1: Tiny function (50 characters)
+def get_name(self):
+    return self.name
+
+# Chunk 2: Massive function (5000 characters)
+def process_entire_request(self, request):
+    # ... 200 lines of complex logic ...
+```
+
+**Problem**: Creates chunks that are too big or too small.
+
+**3. Smart cAST Algorithm (ChunkHound's Solution)**
+
+Respects code boundaries AND enforces size limits:
+
+```python
+# Right-sized chunks that preserve meaning
+def authenticate_user(username, password):    # ✅ Complete function
+    if not username or not password:          #    fits in one chunk
+        return False
+    hashed = hash_password(password)
+    user = database.get_user(username)
+    return user and user.password_hash == hashed
+
+def hash_password(password):                  # ✅ Small adjacent functions
+def validate_email(email):                   #    merged together
+def sanitize_input(data):
+    # All fit together in one chunk
+```
+
+### How cAST Works
+
+The algorithm is surprisingly simple:
+
+1. **Parse** code into a syntax tree (AST)
+2. **Walk** the tree top-down (classes → functions → statements)
+3. **For each piece**:
+   - If it fits in size limit (1200 chars) → make it a chunk
+   - If too big → split at smart boundaries (`;`, `}`, line breaks)
+   - If too small → merge with neighboring pieces
+4. **Result**: Every chunk is meaningful code that fits in context window
+
+<Aside type="tip">
+**Think of code like paragraphs in an essay**. You wouldn't split a paragraph mid-sentence - cAST doesn't split code mid-statement. It keeps related logic together while respecting size limits.
+</Aside>
+
+### Why This Matters for AI
+
+- **Better Search**: Find complete functions, not fragments
+- **Better Context**: AI sees full logic flow, not half-statements
+- **Better Results**: AI gives accurate suggestions based on complete code understanding
+
+Traditional chunking gives AI puzzle pieces. cAST gives it complete pictures.
+
+## Semantic Search Architecture
+
+ChunkHound provides two search modes depending on your embedding provider's capabilities.
+
+### Regular Semantic Search
+
+The standard approach used by most embedding providers:
+
+<SemanticSearchFlow client:load />
+
+**How it works**:
+1. Convert query to embedding vector
+2. Search the vector index for nearest neighbors
+3. Return top-k most similar code chunks
+
+### Two-Hop Semantic Search
+
+Advanced search for providers with reranking (VoyageAI, custom servers):
+
+<TwoHopSearchFlow client:load />
+
+**Why it's better**:
+- **Semantic bridging**: Discovers related concepts through intermediate connections
+- **Example**: Search "authentication" → finds `validateLogin()` → discovers related `hashPassword()` through semantic similarity
+- **Context expansion**: Finds supporting functions you might not think to search for
+
+<Aside type="tip" title="When Two-Hop Activates">
+Two-hop search automatically activates when you use providers with reranking support:
+- **VoyageAI**: Built-in `rerank-lite-1` model
+- **Custom servers**: With reranking endpoints
+- **OpenAI**: Falls back to regular search (no reranking)
+</Aside>

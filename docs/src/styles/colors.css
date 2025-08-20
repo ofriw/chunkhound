@@ -1,0 +1,165 @@
+/**
+ * ChunkHound Color System
+ * Professional developer tool color palette with automatic dark/light mode support
+ */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap');
+
+:root {
+  /* ========== Light Theme Colors ========== */
+  
+  /* Primary Colors */
+  --color-primary: #5B6FED;
+  --color-primary-hover: #4C5FDE;
+  --color-primary-muted: rgba(91, 111, 237, 0.1);
+  
+  /* Accent Colors */
+  --color-accent: #10B981;
+  --color-accent-hover: #059669;
+  --color-accent-muted: rgba(16, 185, 129, 0.1);
+  
+  /* Background Colors */
+  --color-bg: #FFFFFF;
+  --color-bg-secondary: #F9FAFB;
+  --color-bg-tertiary: #F3F4F6;
+  --color-bg-elevated: #FFFFFF;
+  
+  /* Text Colors */
+  --color-text: #1F2937;
+  --color-text-secondary: #6B7280;
+  --color-text-tertiary: #9CA3AF;
+  --color-text-inverse: #FFFFFF;
+  
+  /* Border Colors */
+  --color-border: #E5E7EB;
+  --color-border-hover: #D1D5DB;
+  --color-border-focus: var(--color-primary);
+  
+  /* Semantic Colors */
+  --color-success: #10B981;
+  --color-success-bg: rgba(16, 185, 129, 0.1);
+  --color-warning: #F59E0B;
+  --color-warning-bg: rgba(245, 158, 11, 0.1);
+  --color-error: #EF4444;
+  --color-error-bg: rgba(239, 68, 68, 0.1);
+  --color-info: #3B82F6;
+  --color-info-bg: rgba(59, 130, 246, 0.1);
+  
+  /* Code & Syntax */
+  --color-code-bg: #F8FAFC;
+  --color-code-border: #E2E8F0;
+  --color-syntax-keyword: #8B5CF6;
+  --color-syntax-string: #059669;
+  --color-syntax-comment: #6B7280;
+  --color-syntax-number: #DC2626;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    /* ========== Dark Theme Colors ========== */
+    
+    /* Primary Colors */
+    --color-primary: #7C8FFF;
+    --color-primary-hover: #8DA0FF;
+    --color-primary-muted: rgba(124, 143, 255, 0.15);
+    
+    /* Accent Colors */
+    --color-accent: #34D399;
+    --color-accent-hover: #6EE7B7;
+    --color-accent-muted: rgba(52, 211, 153, 0.15);
+    
+    /* Background Colors */
+    --color-bg: #0A0A0B;
+    --color-bg-secondary: #18181B;
+    --color-bg-tertiary: #27272A;
+    --color-bg-elevated: #18181B;
+    
+    /* Text Colors */
+    --color-text: #FAFAFA;
+    --color-text-secondary: #A1A1AA;
+    --color-text-tertiary: #71717A;
+    --color-text-inverse: #1F2937;
+    
+    /* Border Colors */
+    --color-border: #27272A;
+    --color-border-hover: #3F3F46;
+    --color-border-focus: var(--color-primary);
+    
+    /* Semantic Colors */
+    --color-success: #34D399;
+    --color-success-bg: rgba(52, 211, 153, 0.15);
+    --color-warning: #FBBF24;
+    --color-warning-bg: rgba(251, 191, 36, 0.15);
+    --color-error: #F87171;
+    --color-error-bg: rgba(248, 113, 113, 0.15);
+    --color-info: #60A5FA;
+    --color-info-bg: rgba(96, 165, 250, 0.15);
+    
+    /* Code & Syntax */
+    --color-code-bg: #18181B;
+    --color-code-border: #3F3F46;
+    --color-syntax-keyword: #A78BFA;
+    --color-syntax-string: #6EE7B7;
+    --color-syntax-comment: #71717A;
+    --color-syntax-number: #FCA5A5;
+  }
+}
+
+/* ========== Utility Classes ========== */
+
+.text-primary { color: var(--color-primary); }
+.text-accent { color: var(--color-accent); }
+.text-success { color: var(--color-success); }
+.text-warning { color: var(--color-warning); }
+.text-error { color: var(--color-error); }
+.text-info { color: var(--color-info); }
+
+.bg-primary { background-color: var(--color-primary); }
+.bg-accent { background-color: var(--color-accent); }
+.bg-success { background-color: var(--color-success-bg); }
+.bg-warning { background-color: var(--color-warning-bg); }
+.bg-error { background-color: var(--color-error-bg); }
+.bg-info { background-color: var(--color-info-bg); }
+
+.border-primary { border-color: var(--color-primary); }
+.border-accent { border-color: var(--color-accent); }
+
+/* ========== Component Styles ========== */
+
+.btn-primary {
+  background-color: var(--color-primary);
+  color: var(--color-text-inverse);
+  border: 1px solid var(--color-primary);
+  transition: all 0.2s ease;
+}
+
+.btn-primary:hover {
+  background-color: var(--color-primary-hover);
+  border-color: var(--color-primary-hover);
+}
+
+.btn-secondary {
+  background-color: transparent;
+  color: var(--color-primary);
+  border: 1px solid var(--color-border);
+  transition: all 0.2s ease;
+}
+
+.btn-secondary:hover {
+  background-color: var(--color-primary-muted);
+  border-color: var(--color-primary);
+}
+
+.code-block {
+  background-color: var(--color-code-bg);
+  border: 1px solid var(--color-code-border);
+  border-radius: 8px;
+  padding: 1rem;
+}
+
+.search-highlight {
+  background-color: var(--color-accent-muted);
+  color: var(--color-accent);
+  padding: 0.125rem 0.25rem;
+  border-radius: 0.25rem;
+}

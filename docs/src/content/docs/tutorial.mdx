@@ -1,0 +1,137 @@
+---
+title: ChunkHound Tutorial
+description: Learn ChunkHound in 5 minutes - from installation to advanced search
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+import { Card, CardGrid, Aside } from '@astrojs/starlight/components';
+
+## Understanding ChunkHound
+
+ChunkHound transforms your codebase into a searchable knowledge base for AI assistants. It provides two powerful search methods:
+- **Semantic search** - Natural language queries that understand meaning and context
+- **Regex search** - Precise pattern matching for exact code structures
+
+## The Index Command - Your Knowledge Base
+
+### Why Index Separately?
+
+For large codebases, indexing is a separate step that provides significant benefits:
+
+<CardGrid>
+  <Card title="Performance" icon="rocket">
+    **Index once, search many times**
+    Initial indexing takes time, but subsequent searches are instant
+  </Card>
+
+  <Card title="Smart Diffing" icon="puzzle">
+    **Only processes changed files**
+    Preserves embeddings for unchanged code
+  </Card>
+
+  <Card title="Fix Command" icon="setting">
+    **Repairs inconsistencies**
+    `chunkhound index` detects and fixes database drift
+  </Card>
+
+  <Card title="Enterprise Ready" icon="approve-check">
+    **Battle-tested scaling**
+    Used on codebases with 75k+ files
+  </Card>
+</CardGrid>
+
+### Example: Initial Index
+
+```bash
+$ chunkhound index /path/to/large-codebase
+Scanning 10,000 files...
+Processing 8,234 Python files, 1,766 TypeScript files...
+✓ 45,000 chunks indexed
+✓ Embeddings: 45,000 generated
+⏱️  Time: 34m 30s
+```
+
+### Example: Incremental Update
+
+```bash
+$ chunkhound index  # After editing 3 files
+Detecting changes...
+✓ 3 files modified, 8,234 files unchanged
+✓ 150 chunks updated
+✓ Embeddings: 150 generated, 45,000 reused
+⏱️  Time: 18 seconds
+```
+
+<Aside type="tip" title="Performance Tip">
+You can re-index frequently without penalty. Run `chunkhound index` after major code changes.
+</Aside>
+
+## Choosing Your Server Mode
+
+| **Use Case** | **Mode** | **Command** |
+|--------------|----------|-------------|
+| Personal development | stdio | `chunkhound mcp` |
+| Team/production use | HTTP | `chunkhound mcp --http` |
+
+### stdio Mode - Let Your IDE Handle It
+
+Your IDE starts/stops the server automatically. The index stays in memory for instant searches. Perfect for personal development with a single IDE.
+
+```bash
+chunkhound mcp /path/to/project
+```
+
+### HTTP Mode - Shared Server
+
+You start the server once, multiple IDEs can connect. Ideal for teams or when switching between multiple git worktrees.
+
+```bash
+chunkhound mcp /path/to/project --http --port 8000
+# Connect IDEs to http://localhost:8000
+```
+
+<Aside type="tip">
+**Quick rule**: Use stdio for personal work, HTTP for everything else.
+</Aside>
+
+## Production Usage
+
+ChunkHound is production-ready and actively tested:
+
+<CardGrid>
+  <Card title="Enterprise Scale" icon="star">
+    **75k+ LOC indexed**
+
+    Proven on massive monorepos with complex dependency graphs
+  </Card>
+
+  <Card title="Real-World Testing" icon="laptop">
+    **Enterprise Validated**
+
+    Tested on multiple enterprise projects and [GoatDB's](https://goatdb.dev) TypeScript codebase
+  </Card>
+
+  <Card title="Multi-Language Support" icon="translate">
+    **20+ Languages**
+
+    Python, TypeScript, Go, Rust, Java, C++, and more via Tree-sitter
+  </Card>
+
+  <Card title="AI-Built Architecture" icon="rocket">
+    **100% AI-Generated**
+
+    Entire codebase written by AI agents, battle-tested through usage
+  </Card>
+</CardGrid>
+
+## Next Steps
+
+Now that you understand ChunkHound's core concepts:
+
+1. **Start using it** - Index your codebase and connect your AI assistant
+2. **[Advanced configuration](/configuration/)** - Advanced configuration options
+3. **[Technical deep dive](/under-the-hood/)** - Understand the architecture
+
+<Aside type="note" title="Questions or Issues?">
+ChunkHound is actively developed. Report issues or ask questions on [GitHub](https://github.com/ofriw/chunkhound/issues).
+</Aside>
