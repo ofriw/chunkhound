@@ -171,10 +171,13 @@ async def test_json_filtering_in_directory_processing(tmp_path, real_components)
     config = IndexingConfig()
     patterns = ["**/*.json", "**/*.py"]
     
+    # Filter out patterns that exclude CI temp directories
+    exclude_patterns = [p for p in config.exclude if p not in ["**/tmp/**", "**/temp/**"]]
+    
     result = await coordinator.process_directory(
         project_dir, 
         patterns=patterns,
-        exclude_patterns=config.exclude
+        exclude_patterns=exclude_patterns
     )
     
     # Debug info for CI troubleshooting
@@ -185,11 +188,10 @@ async def test_json_filtering_in_directory_processing(tmp_path, real_components)
         print(f"result: {result}")
         # Get all files in database for debugging
         try:
-            # Use the provider's connection properly
-            conn = db.get_connection()
-            all_files_result = conn.execute("SELECT path FROM files")
-            all_files = all_files_result.fetchall() if all_files_result else []
-            print(f"Files in database: {[f[0] if isinstance(f, tuple) else f for f in all_files]}")
+            # Query database directly through provider
+            search_results, _ = db.search_regex(pattern=".*", page_size=100)
+            files_in_db = [result.get('file_path', result.get('path', '')) for result in search_results]
+            print(f"Files in database: {files_in_db}")
         except Exception as e:
             print(f"Error querying database: {e}")
         print(f"==================")
