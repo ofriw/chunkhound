@@ -19,8 +19,13 @@ async def embedding_services(tmp_path):
     db_path = tmp_path / "embedding_test.duckdb"
     
     # Create config with real embedding provider (if API key available)
-    config = Config()
-    config.database.path = str(db_path)
+    # Use fake args to prevent find_project_root call that fails in CI
+    from types import SimpleNamespace
+    fake_args = SimpleNamespace(path=tmp_path)
+    config = Config(
+        args=fake_args,
+        database={"path": str(db_path), "provider": "duckdb"}
+    )
     
     # Only test with real embeddings if API key is available  
     if hasattr(config.embedding, 'api_key') and config.embedding.api_key:
@@ -141,8 +146,13 @@ async def test_realtime_indexing_embeddings_EXPECTED_FAIL(tmp_path):
     from chunkhound.services.realtime_indexing_service import RealtimeIndexingService
     
     # Setup config and services
-    config = Config()
-    config.database.path = str(tmp_path / "realtime_test.duckdb")
+    # Use fake args to prevent find_project_root call that fails in CI
+    from types import SimpleNamespace
+    fake_args = SimpleNamespace(path=tmp_path)
+    config = Config(
+        args=fake_args,
+        database={"path": str(tmp_path / "realtime_test.duckdb"), "provider": "duckdb"}
+    )
     
     # Only test with real embeddings if API key is available
     if not (hasattr(config.embedding, 'api_key') and config.embedding.api_key):
