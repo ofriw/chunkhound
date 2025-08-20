@@ -40,7 +40,7 @@ class TestRealtimeFunctional:
             indexing={"include": ["*.py", "*.js"], "exclude": ["*.log"]}
         )
         
-        services = create_services(db_path, config.to_dict())
+        services = create_services(db_path, config)
         services.provider.connect()
         
         realtime_service = RealtimeIndexingService(services, config)

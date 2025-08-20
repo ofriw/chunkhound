@@ -58,7 +58,7 @@ class TestOversizedChunkReproduction:
         """Create isolated services for testing."""
         return create_services(
             db_path=temp_dir / "test.db",
-            config=test_config.to_dict()
+            config=test_config
         )
 
     def create_oversized_content(self, target_chars: int = 325998) -> str:

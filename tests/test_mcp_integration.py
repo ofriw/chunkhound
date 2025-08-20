@@ -73,7 +73,7 @@ class TestMCPIntegration:
                 embedding_manager.register_provider(embedding_provider, set_default=True)
         
         # Create services - this is what MCP server uses
-        services = create_services(db_path, config.to_dict(), embedding_manager)
+        services = create_services(db_path, config, embedding_manager)
         services.provider.connect()
         
         # Initialize realtime indexing service (what MCP server should do)
