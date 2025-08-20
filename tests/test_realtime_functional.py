@@ -30,7 +30,11 @@ class TestRealtimeFunctional:
         # Ensure database directory exists
         db_path.parent.mkdir(parents=True, exist_ok=True)
         
+        # Use fake args to prevent find_project_root call that fails in CI
+        from types import SimpleNamespace
+        fake_args = SimpleNamespace(path=temp_dir)
         config = Config(
+            args=fake_args,
             database={"path": str(db_path), "provider": "duckdb"},
             embedding={"provider": "openai", "model": "text-embedding-3-small"},
             indexing={"include": ["*.py", "*.js"], "exclude": ["*.log"]}

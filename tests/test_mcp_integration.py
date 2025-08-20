@@ -46,7 +46,11 @@ class TestMCPIntegration:
                 "model": model
             }
         
+        # Use fake args to prevent find_project_root call that fails in CI
+        from types import SimpleNamespace
+        fake_args = SimpleNamespace(path=temp_dir)
         config = Config(
+            args=fake_args,
             database={"path": str(db_path), "provider": "duckdb"},
             embedding=embedding_config,
             indexing={"include": ["*.py", "*.js"], "exclude": ["*.log"]}

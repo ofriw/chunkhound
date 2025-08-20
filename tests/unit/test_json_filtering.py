@@ -177,12 +177,12 @@ async def test_json_filtering_in_directory_processing(tmp_path, real_components)
         exclude_patterns=config.exclude
     )
     
-    # Check what was indexed using file paths
-    tsconfig_file = db.get_file_by_path(str(project_dir / "tsconfig.json"))
-    eslint_file = db.get_file_by_path(str(project_dir / ".eslintrc.json"))
-    python_file = db.get_file_by_path(str(project_dir / "main.py"))
-    cache_file = db.get_file_by_path(str(project_dir / "cache.json"))
-    lock_file = db.get_file_by_path(str(project_dir / "package-lock.json"))
+    # Check what was indexed using resolved file paths (to match DB storage)
+    tsconfig_file = db.get_file_by_path(str((project_dir / "tsconfig.json").resolve()))
+    eslint_file = db.get_file_by_path(str((project_dir / ".eslintrc.json").resolve()))
+    python_file = db.get_file_by_path(str((project_dir / "main.py").resolve()))
+    cache_file = db.get_file_by_path(str((project_dir / "cache.json").resolve()))
+    lock_file = db.get_file_by_path(str((project_dir / "package-lock.json").resolve()))
     
     # Should be indexed
     assert tsconfig_file is not None, "Small config should be indexed"

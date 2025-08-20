@@ -33,7 +33,11 @@ class TestOversizedChunkReproduction:
     def test_config(self, temp_dir):
         """Create test configuration with isolated database."""
         db_path = temp_dir / "test.db"
+        # Use fake args to prevent find_project_root call that fails in CI
+        from types import SimpleNamespace
+        fake_args = SimpleNamespace(path=temp_dir)
         return Config(
+            args=fake_args,
             database={
                 "provider": "duckdb",
                 "path": str(db_path)
