@@ -163,6 +163,7 @@ class RealtimeIndexingService:
         # Simple debouncing for rapid file changes
         self._pending_debounce: dict[str, float] = {}  # file_path -> timestamp
         self._debounce_delay = 0.5  # 500ms delay from research
+        self._debounce_tasks: set[asyncio.Task] = set()  # Track active debounce tasks
         
         # Background scan state
         self.scan_iterator: Optional[Iterator] = None
@@ -176,6 +177,7 @@ class RealtimeIndexingService:
         # Processing tasks
         self.process_task: Optional[asyncio.Task] = None
         self.event_consumer_task: Optional[asyncio.Task] = None
+        self._polling_task: Optional[asyncio.Task] = None
         
         # Directory watch management for progressive monitoring
         self.watched_directories: set[str] = set()  # Track watched dirs
@@ -223,7 +225,15 @@ class RealtimeIndexingService:
         # Stop filesystem observer
         if self.observer:
             self.observer.stop()
-            self.observer.join()
+            # Join with timeout to prevent hanging
+            try:
+                loop = asyncio.get_event_loop()
+                await asyncio.wait_for(
+                    loop.run_in_executor(None, self.observer.join), 
+                    timeout=1.0
+                )
+            except asyncio.TimeoutError:
+                logger.warning("Observer thread did not exit within timeout")
             
         # Cancel event consumer task
         if self.event_consumer_task:
@@ -240,6 +250,23 @@ class RealtimeIndexingService:
                 await self.process_task
             except asyncio.CancelledError:
                 pass
+                
+        # Cancel polling task if running
+        if self._polling_task:
+            self._polling_task.cancel()
+            try:
+                await self._polling_task
+            except asyncio.CancelledError:
+                pass
+                
+        # Cancel all active debounce tasks
+        for task in self._debounce_tasks.copy():
+            task.cancel()
+        
+        # Wait for debounce tasks to finish cancelling
+        if self._debounce_tasks:
+            await asyncio.gather(*self._debounce_tasks, return_exceptions=True)
+            self._debounce_tasks.clear()
                 
     async def _setup_watchdog_async(self, watch_path: Path, loop: asyncio.AbstractEventLoop) -> None:
         """Setup watchdog in background thread without blocking initialization."""
@@ -265,7 +292,7 @@ class RealtimeIndexingService:
         except asyncio.TimeoutError:
             logger.info(f"Watchdog setup timed out for {watch_path} - falling back to polling")
             self._using_polling = True
-            asyncio.create_task(self._polling_monitor(watch_path))
+            self._polling_task = asyncio.create_task(self._polling_monitor(watch_path))
             # Wait a moment for polling to start
             await asyncio.sleep(0.5)
             self._monitoring_ready_time = time.time()
@@ -273,7 +300,7 @@ class RealtimeIndexingService:
         except Exception as e:
             logger.warning(f"Watchdog setup failed: {e} - falling back to polling")
             self._using_polling = True
-            asyncio.create_task(self._polling_monitor(watch_path))
+            self._polling_task = asyncio.create_task(self._polling_monitor(watch_path))
             # Wait a moment for polling to start
             await asyncio.sleep(0.5)
             self._monitoring_ready_time = time.time()
@@ -376,7 +403,9 @@ class RealtimeIndexingService:
                 else:
                     # Schedule debounced processing
                     self._pending_debounce[file_str] = current_time
-                    asyncio.create_task(self._debounced_add_file(file_path, priority))
+                    task = asyncio.create_task(self._debounced_add_file(file_path, priority))
+                    self._debounce_tasks.add(task)
+                    task.add_done_callback(self._debounce_tasks.discard)
             else:
                 # Priority scan events bypass debouncing
                 await self.file_queue.put((priority, file_path))
