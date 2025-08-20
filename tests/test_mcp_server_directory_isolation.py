@@ -270,7 +270,13 @@ Run the application with proper configuration.
             print(f"Indexing completed successfully")
             
             # Verify database has content
-            config_for_db = Config(database={"path": str(db_path), "provider": "duckdb"})
+            # Use fake args to prevent find_project_root call that fails in CI
+            from types import SimpleNamespace
+            fake_args = SimpleNamespace(path=db_path.parent)
+            config_for_db = Config(
+                args=fake_args,
+                database={"path": str(db_path), "provider": "duckdb"}
+            )
             db = create_database_with_dependencies(
                 db_path=db_path,
                 config=config_for_db,
