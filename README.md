@@ -10,10 +10,7 @@
 
 <p align="center">
   <a href="https://github.com/ofriw/chunkhound/actions/workflows/smoke-tests.yml">
-    <img src="https://github.com/ofriw/chunkhound/actions/workflows/smoke-tests.yml/badge.svg" alt="Smoke Tests">
-  </a>
-  <a href="https://github.com/ofriw/chunkhound/actions/workflows/tests.yml">
-    <img src="https://github.com/ofriw/chunkhound/actions/workflows/tests.yml/badge.svg" alt="Nightly Tests">
+    <img src="https://github.com/ofriw/chunkhound/actions/workflows/smoke-tests.yml/badge.svg" alt="Tests">
   </a>
 </p>
 
