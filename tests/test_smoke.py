@@ -123,109 +123,126 @@ class TestServerStartup:
     async def test_mcp_http_server_starts(self):
         """Test that MCP HTTP server can start without immediate crash."""
         import socket
+        import tempfile
         
-        # Find a free port
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.bind(("127.0.0.1", 0))
-            free_port = s.getsockname()[1]
-        
-        proc = await asyncio.create_subprocess_exec(
-            "uv",
-            "run",
-            "chunkhound",
-            "mcp",
-            "--http",
-            "--port",
-            str(free_port),
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            env={**os.environ, "CHUNKHOUND_MCP_MODE": "1"},  # Suppress logs
-        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            # Find a free port
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.bind(("127.0.0.1", 0))
+                free_port = s.getsockname()[1]
+            
+            proc = await asyncio.create_subprocess_exec(
+                "uv",
+                "run",
+                "chunkhound",
+                "mcp",
+                temp_dir,  # Provide temp directory to avoid indexing entire CI workspace
+                "--http",
+                "--port",
+                str(free_port),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env={**os.environ, "CHUNKHOUND_MCP_MODE": "1"},  # Suppress logs
+            )
 
-        try:
-            # Give server 2 seconds to start or crash
-            await asyncio.sleep(2)
+            try:
+                # Give server 2 seconds to start or crash with timeout
+                await asyncio.wait_for(asyncio.sleep(2), timeout=30.0)
 
-            # Check if process is still running
-            if proc.returncode is not None:
-                # Process exited - this means it crashed
-                stdout, stderr = await proc.communicate()
-                pytest.fail(
-                    f"MCP HTTP server crashed with code {proc.returncode}\n"
-                    f"stdout: {stdout.decode()}\n"
-                    f"stderr: {stderr.decode()}"
-                )
+                # Check if process is still running
+                if proc.returncode is not None:
+                    # Process exited - this means it crashed
+                    stdout, stderr = await proc.communicate()
+                    pytest.fail(
+                        f"MCP HTTP server crashed with code {proc.returncode}\n"
+                        f"stdout: {stdout.decode()}\n"
+                        f"stderr: {stderr.decode()}"
+                    )
 
-            # Server is running - success!
-            proc.terminate()
-            await proc.wait()
+                # Server is running - success!
+                proc.terminate()
+                await asyncio.wait_for(proc.wait(), timeout=5.0)
 
-        except asyncio.TimeoutError:
-            # This is actually good - server is running
-            proc.terminate()
-            await proc.wait()
+            except asyncio.TimeoutError:
+                # Server took too long or cleanup timed out
+                proc.kill()
+                try:
+                    await asyncio.wait_for(proc.wait(), timeout=2.0)
+                except asyncio.TimeoutError:
+                    pass  # Process is dead, ignore
 
     @pytest.mark.asyncio
     async def test_mcp_http_server_respects_port_argument(self):
         """Test that MCP HTTP server starts on the specified port."""
         import socket
+        import tempfile
 
-        # Find a free port for testing
-        def find_free_port():
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.bind(("127.0.0.1", 0))
-                return s.getsockname()[1]
+        with tempfile.TemporaryDirectory() as temp_dir:
+            # Find a free port for testing
+            def find_free_port():
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                    s.bind(("127.0.0.1", 0))
+                    return s.getsockname()[1]
 
-        test_port = find_free_port()
+            test_port = find_free_port()
 
-        # Start server with specific port
-        proc = await asyncio.create_subprocess_exec(
-            "uv",
-            "run",
-            "chunkhound",
-            "mcp",
-            "--http",
-            "--host",
-            "127.0.0.1",
-            "--port",
-            str(test_port),
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            env={**os.environ, "CHUNKHOUND_MCP_MODE": "1"},
-        )
+            # Start server with specific port
+            proc = await asyncio.create_subprocess_exec(
+                "uv",
+                "run",
+                "chunkhound",
+                "mcp",
+                temp_dir,  # Provide temp directory to avoid indexing entire CI workspace
+                "--http",
+                "--host",
+                "127.0.0.1",
+                "--port",
+                str(test_port),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env={**os.environ, "CHUNKHOUND_MCP_MODE": "1"},
+            )
 
-        try:
-            # Wait for server startup
-            await asyncio.sleep(3)
+            try:
+                # Wait for server startup with timeout
+                await asyncio.wait_for(asyncio.sleep(3), timeout=30.0)
 
-            # Verify server is running
-            if proc.returncode is not None:
-                stdout, stderr = await proc.communicate()
-                pytest.fail(
-                    f"MCP HTTP server crashed with code {proc.returncode}\n"
-                    f"stdout: {stdout.decode()}\n"
-                    f"stderr: {stderr.decode()}"
-                )
+                # Verify server is running
+                if proc.returncode is not None:
+                    stdout, stderr = await proc.communicate()
+                    pytest.fail(
+                        f"MCP HTTP server crashed with code {proc.returncode}\n"
+                        f"stdout: {stdout.decode()}\n"
+                        f"stderr: {stderr.decode()}"
+                    )
 
-            # Test that server is listening on correct port
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.settimeout(1)
-                result = s.connect_ex(("127.0.0.1", test_port))
-                assert result == 0, f"Server not listening on port {test_port}"
+                # Test that server is listening on correct port
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                    s.settimeout(1)
+                    result = s.connect_ex(("127.0.0.1", test_port))
+                    assert result == 0, f"Server not listening on port {test_port}"
 
-            # Verify server is NOT listening on a different port
-            wrong_port = find_free_port()
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.settimeout(1)
-                result = s.connect_ex(("127.0.0.1", wrong_port))
-                assert result != 0, (
-                    f"Server unexpectedly listening on port {wrong_port}"
-                )
+                # Verify server is NOT listening on a different port
+                wrong_port = find_free_port()
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                    s.settimeout(1)
+                    result = s.connect_ex(("127.0.0.1", wrong_port))
+                    assert result != 0, (
+                        f"Server unexpectedly listening on port {wrong_port}"
+                    )
 
-        finally:
-            # Clean up
-            proc.terminate()
-            await proc.wait()
+            except asyncio.TimeoutError:
+                # Server took too long
+                proc.kill()
+                pytest.fail("MCP HTTP server startup timed out")
+            finally:
+                # Clean up
+                proc.terminate()
+                try:
+                    await asyncio.wait_for(proc.wait(), timeout=5.0)
+                except asyncio.TimeoutError:
+                    proc.kill()
+                    await proc.wait()
 
     @pytest.mark.asyncio
     async def test_mcp_stdio_server_help(self):
