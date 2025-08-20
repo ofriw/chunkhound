@@ -6,6 +6,8 @@
 
 **Modern RAG for your codebase - semantic and regex search via MCP.**
 
+[![Tests](https://github.com/ofriw/chunkhound/actions/workflows/tests.yml/badge.svg)](https://github.com/ofriw/chunkhound/actions)
+
 Transform your codebase into a searchable knowledge base for AI assistants using semantic and regex search.
 
 ## ✨ Features
