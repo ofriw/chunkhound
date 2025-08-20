@@ -4,8 +4,6 @@
   </a>
 </p>
 
-# ChunkHound
-
 **Modern RAG for your codebase - semantic and regex search via MCP.**
 
 Transform your codebase into a searchable knowledge base for AI assistants using semantic and regex search.
@@ -21,7 +19,7 @@ Transform your codebase into a searchable knowledge base for AI assistants using
 
 ## 📚 Documentation
 
-**Visit [chunkhound.github.io](https://ofriw.github.io/chunkhound) for complete guides:**
+**Visit [ofriw.github.io/chunkhound](https://ofriw.github.io/chunkhound) for complete guides:**
 - [🚀 5-Minute Tutorial](https://ofriw.github.io/chunkhound/tutorial/)
 - [🔧 Configuration Guide](https://ofriw.github.io/chunkhound/configuration/)
 - [🏗️ Architecture Deep Dive](https://ofriw.github.io/chunkhound/under-the-hood/)
