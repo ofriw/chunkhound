@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- VoyageAI embedding provider with advanced two-hop semantic search and reranking capabilities
+- GitHub Pages documentation site with interactive examples and improved navigation
+- Intelligent file exclusion system with .gitignore support and JSON size filtering
+- Advanced makefile parsing with dependency analysis for better code comprehension
+- Comprehensive test suite for database consistency and integration testing
+- Real-time filesystem indexing with MCP integration for live code monitoring
+
+### Enhanced
+- Parsing system completely rebuilt with cAST (Code AST) algorithm for universal language support
+- Configuration system dramatically simplified with fewer user-facing options for easier setup  
+- OpenAI provider unified to handle both standard and custom OpenAI-compatible endpoints
+- MCP server reliability improved with proper initialization sequencing and watchdog coordination
+- Test infrastructure enhanced with Ollama compatibility and extended timeouts
+- Directory indexing consolidated between CLI and MCP with shared service architecture
+
+### Fixed
+- MCP server initialization blocking resolved - no more startup deadlocks during directory scanning
+- Custom OpenAI endpoint configuration now properly recognized and applied
+- Real-time indexing now generates missing embeddings for unchanged code chunks
+- SSL verification disabled for custom OpenAI-compatible endpoints to support local deployments
+- Watchdog filesystem monitoring no longer blocks MCP server startup process
+- MCP server properly respects target directory path arguments across all operations
+
+### Removed
+- TEI (Text Embeddings Inference) provider support - simplified provider ecosystem
+- BGE provider support - consolidated to core providers for better maintenance
+- Legacy parsing system replaced with modern cAST algorithm
+- Obsolete configuration documentation and setup files cleaned up
+
 ## [2.8.1] - 2025-07-20
 
 ### Enhanced
