@@ -4,9 +4,15 @@
   </a>
 </p>
 
-**Modern RAG for your codebase - semantic and regex search via MCP.**
+<p align="center">
+  <strong>Modern RAG for your codebase - semantic and regex search via MCP.</strong>
+</p>
 
-[![Tests](https://github.com/ofriw/chunkhound/actions/workflows/tests.yml/badge.svg)](https://github.com/ofriw/chunkhound/actions)
+<p align="center">
+  <a href="https://github.com/ofriw/chunkhound/actions">
+    <img src="https://github.com/ofriw/chunkhound/actions/workflows/tests.yml/badge.svg" alt="Tests">
+  </a>
+</p>
 
 Transform your codebase into a searchable knowledge base for AI assistants using semantic and regex search.
 
