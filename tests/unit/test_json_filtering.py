@@ -177,6 +177,23 @@ async def test_json_filtering_in_directory_processing(tmp_path, real_components)
         exclude_patterns=config.exclude
     )
     
+    # Debug info for CI troubleshooting
+    import os
+    if os.environ.get("CI") == "true":
+        print(f"\n=== DEBUG INFO ===")
+        print(f"project_dir: {project_dir}")
+        print(f"result: {result}")
+        # Get all files in database for debugging
+        try:
+            # Use the provider's connection properly
+            conn = db.get_connection()
+            all_files_result = conn.execute("SELECT path FROM files")
+            all_files = all_files_result.fetchall() if all_files_result else []
+            print(f"Files in database: {[f[0] if isinstance(f, tuple) else f for f in all_files]}")
+        except Exception as e:
+            print(f"Error querying database: {e}")
+        print(f"==================")
+
     # Check what was indexed using file paths (matching pattern from working tests)
     tsconfig_file = db.get_file_by_path(str(project_dir / "tsconfig.json"))
     eslint_file = db.get_file_by_path(str(project_dir / ".eslintrc.json"))
