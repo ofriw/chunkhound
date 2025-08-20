@@ -269,9 +269,23 @@ class TestServerStartup:
     async def test_mcp_stdio_server_starts(self):
         """Test that MCP stdio server can start without immediate crashes."""
         import tempfile
+        import json
 
         # Create a temporary directory to avoid indexing the current directory
         with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            
+            # Create minimal config file (required for Config() creation)
+            config_path = temp_path / ".chunkhound.json"
+            db_path = temp_path / ".chunkhound" / "test.db"
+            db_path.parent.mkdir(exist_ok=True)
+            
+            config = {
+                "database": {"path": str(db_path), "provider": "duckdb"},
+                "indexing": {"include": ["*.py"]}
+            }
+            config_path.write_text(json.dumps(config))
+            
             # Test that the server starts without crashing
             proc = await asyncio.create_subprocess_exec(
                 "uv",
@@ -309,6 +323,7 @@ sys.exit(asyncio.run(test()))
                 ''',
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                cwd=temp_dir,  # Run from temp directory that has .chunkhound.json
             )
 
             try:
