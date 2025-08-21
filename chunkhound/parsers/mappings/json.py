@@ -139,17 +139,22 @@ class JsonMapping(BaseMapping):
     def extract_content(self, concept: UniversalConcept, captures: Dict[str, Node], content: bytes) -> str:
         """Extract content from captures for this concept."""
         
-        # For JSON, we return the entire content for all concepts
-        # since JSON structure is inherently hierarchical
+        # Get the specific node to extract
+        def_node = captures.get('definition') or captures.get('block') or captures.get('node')
+        if not def_node and captures:
+            def_node = list(captures.values())[0]
+        
+        if not def_node:
+            return ""
+        
+        # Decode source
         source = content.decode('utf-8')
         
-        try:
-            # Validate JSON but preserve original formatting for searchability
-            json.loads(source)  # Validate JSON is well-formed
-            return source  # Return original source to preserve exact text for regex search
-        except json.JSONDecodeError:
-            # Return original content if invalid JSON
-            return source
+        # Return ONLY this node's content, not the entire file
+        # This allows cAST merging to work properly
+        node_content = source[def_node.start_byte:def_node.end_byte]
+        
+        return node_content
 
     def extract_metadata(self, concept: UniversalConcept, captures: Dict[str, Node], content: bytes) -> Dict[str, Any]:
         """Extract JSON-specific metadata."""
