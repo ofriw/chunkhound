@@ -61,9 +61,6 @@ uv tool install chunkhound
 ```bash
 # Index your codebase
 chunkhound index
-
-# Start MCP server for AI assistants
-chunkhound mcp
 ```
 
 **For configuration, IDE setup, and advanced usage, see the [documentation](https://ofriw.github.io/chunkhound).**
