@@ -90,6 +90,8 @@ ChunkHound automatically looks for `.chunkhound.json` in your project directory.
   <TabItem label="VoyageAI">
     **Best for**: Accuracy, cost efficiency, code understanding
 
+    [VoyageAI Documentation](https://docs.voyageai.com/) | [API Reference](https://docs.voyageai.com/docs/embeddings)
+
     ```json
     {
       "embedding": {
@@ -101,7 +103,7 @@ ChunkHound automatically looks for `.chunkhound.json` in your project directory.
     }
     ```
 
-    **Available Models**:
+    **Available Models** ([full list](https://docs.voyageai.com/docs/embeddings)):
     - `voyage-3.5` (default) - General purpose, 1024 dimensions
     - `voyage-code-3` - Optimized for code, 1024 dimensions
     - `voyage-3-large` - Higher accuracy, 1024 dimensions
@@ -110,6 +112,8 @@ ChunkHound automatically looks for `.chunkhound.json` in your project directory.
 
   <TabItem label="OpenAI">
     **Best for**: Wide compatibility and ecosystem support
+
+    [OpenAI Documentation](https://platform.openai.com/docs/) | [Embeddings Guide](https://platform.openai.com/docs/guides/embeddings)
 
     ```json
     {
@@ -121,7 +125,7 @@ ChunkHound automatically looks for `.chunkhound.json` in your project directory.
     }
     ```
 
-    **Available Models**:
+    **Available Models** ([pricing](https://openai.com/api/pricing/)):
     - `text-embedding-3-small` (default) - Fast, 1536 dimensions
     - `text-embedding-3-large` - Higher accuracy, 3072 dimensions
     - `text-embedding-ada-002` - Legacy model, 1536 dimensions
@@ -129,6 +133,8 @@ ChunkHound automatically looks for `.chunkhound.json` in your project directory.
 
   <TabItem label="Custom/Local">
     **Best for**: Privacy, custom models, local deployment
+
+    Uses OpenAI-compatible API format for maximum compatibility.
 
     ```json
     {
@@ -141,9 +147,9 @@ ChunkHound automatically looks for `.chunkhound.json` in your project directory.
     ```
 
     **Compatible Servers**:
-    - **Ollama** - `http://localhost:11434/v1`
-    - **LocalAI** - `http://localhost:8080/v1`
-    - **LM Studio** - `http://localhost:1234/v1`
+    - **[Ollama](https://ollama.ai/)** - `http://localhost:11434/v1` ([API docs](https://github.com/ollama/ollama/blob/main/docs/api.md))
+    - **[LocalAI](https://localai.io/)** - `http://localhost:8080/v1` ([setup guide](https://localai.io/basics/getting_started/))
+    - **[LM Studio](https://lmstudio.ai/)** - `http://localhost:1234/v1` ([local server docs](https://lmstudio.ai/docs/local-server))
     - **Custom OpenAI-compatible APIs**
   </TabItem>
 </Tabs>
@@ -163,7 +169,7 @@ ChunkHound automatically looks for `.chunkhound.json` in your project directory.
 
 ### File Discovery
 
-ChunkHound automatically respects `.gitignore` files and includes comprehensive defaults:
+ChunkHound automatically respects `.gitignore` files and includes comprehensive defaults. File discovery uses [Tree-sitter](https://tree-sitter.github.io/tree-sitter/) for language detection:
 
 **Default Include Patterns**:
 ```json
@@ -214,7 +220,9 @@ MCP transport mode is controlled via CLI arguments when starting the server, not
 
 <Tabs syncKey="mcp-transport">
   <TabItem label="stdio (Default)">
-    **Best for**: IDE integrations (Claude Desktop, Claude Code, Cursor)
+    **Best for**: IDE integrations ([Claude Desktop](https://claude.ai/), [Claude Code](https://docs.anthropic.com/claude/docs/claude-code), [Cursor](https://cursor.com/), [VS Code](https://code.visualstudio.com/))
+
+    Follows [MCP specification](https://spec.modelcontextprotocol.io/) for standard I/O transport.
 
     ```bash
     # Default stdio mode
@@ -228,7 +236,9 @@ MCP transport mode is controlled via CLI arguments when starting the server, not
   </TabItem>
 
   <TabItem label="HTTP">
-    **Best for**: Web applications, VS Code extensions, debugging
+    **Best for**: Web applications, [VS Code extensions](https://marketplace.visualstudio.com/), debugging
+
+    Uses [MCP over HTTP](https://spec.modelcontextprotocol.io/specification/basic/transports/) transport.
 
     ```bash
     # HTTP mode with default port (3000)

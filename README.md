@@ -17,15 +17,16 @@
   </a>
 </p>
 
-Transform your codebase into a searchable knowledge base for AI assistants using semantic and regex search.
+Transform your codebase into a searchable knowledge base for AI assistants using [semantic search via cAST algorithm](https://arxiv.org/pdf/2506.15655) and regex search. Integrates with AI assistants via the [Model Context Protocol (MCP)](https://spec.modelcontextprotocol.io/).
 
 ## Features
 
+- **[cAST Algorithm](https://arxiv.org/pdf/2506.15655)** - Research-backed semantic code chunking
 - **Semantic search** - Natural language queries like "find authentication code"
 - **Regex search** - Pattern matching without API keys
 - **Local-first** - Your code stays on your machine
-- **20+ languages** - Python, TypeScript, Java, C++, Go, Rust, and more
-- **MCP integration** - Works with Claude, VS Code, Cursor, Windsurf, Zed, etc
+- **[20+ languages](https://tree-sitter.github.io/tree-sitter/)** - Python, TypeScript, Java, C++, Go, Rust, and more
+- **[MCP integration](https://spec.modelcontextprotocol.io/)** - Works with Claude, VS Code, Cursor, Windsurf, Zed, etc
 
 ## Documentation
 
@@ -58,15 +59,39 @@ chunkhound mcp
 
 ## IDE Setup
 
-ChunkHound works with Claude Desktop, Claude Code, VS Code, Cursor, Windsurf, Zed, and IntelliJ IDEA.
+ChunkHound works with any AI assistant that supports [MCP (Model Context Protocol)](https://spec.modelcontextprotocol.io/):
 
-**See the [configuration guide](https://ofriw.github.io/chunkhound/configuration/) for setup instructions.**
+- **[Claude Desktop](https://claude.ai/)** - Add to `~/.claude.json` MCP servers
+- **[Claude Code](https://docs.anthropic.com/claude/docs/claude-code)** - Built-in MCP support
+- **[VS Code](https://marketplace.visualstudio.com/)** - MCP extensions available
+- **[Cursor](https://cursor.com/)** - MCP configuration in `.cursor/mcp.json`
+- **[Windsurf](https://codeium.com/windsurf)** - MCP server support
+- **[Zed](https://zed.dev/)** - MCP integration
+
+**See the [configuration guide](https://ofriw.github.io/chunkhound/configuration/) for detailed setup instructions.**
 
 ## Requirements
 
 - Python 3.10+
 - [uv package manager](https://docs.astral.sh/uv/)
 - API key for semantic search (optional - regex search works without any keys)
+  - [OpenAI](https://platform.openai.com/api-keys) | [VoyageAI](https://dash.voyageai.com/) | [Local with Ollama](https://ollama.ai/)
+
+## Why ChunkHound?
+
+**Research Foundation**: Built on the [cAST (Chunking via Abstract Syntax Trees)](https://arxiv.org/pdf/2506.15655) algorithm from Carnegie Mellon University, providing:
+- **4.3 point gain** in Recall@5 on RepoEval retrieval
+- **2.67 point gain** in Pass@1 on SWE-bench generation
+- **Structure-aware chunking** that preserves code meaning
+
+**Local-First Architecture**:
+- Your code never leaves your machine
+- Works offline with [Ollama](https://ollama.ai/) local models
+- No per-token charges for large codebases
+
+**Universal Language Support**:
+- Powered by [Tree-sitter](https://tree-sitter.github.io/tree-sitter/) for 20+ languages
+- Same semantic concepts across all programming languages
 
 ## License
 

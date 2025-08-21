@@ -10,26 +10,26 @@ import TwoHopSearchFlow from '../../components/TwoHopSearchFlow.tsx';
 
 ## Architecture Overview
 
-ChunkHound uses a local-first architecture with embedded databases and universal code parsing:
+ChunkHound uses a local-first architecture with embedded databases and universal code parsing. The system is built around the [cAST (Chunking via Abstract Syntax Trees)](https://arxiv.org/pdf/2506.15655) algorithm for intelligent code segmentation:
 
 <CardGrid>
   <Card title="Database Layer" icon="setting">
-    **DuckDB** (primary) - OLAP columnar database with HNSW vector indexing
-    **LanceDB** (experimental) - Purpose-built vector database with disk-based storage
+    **[DuckDB](https://duckdb.org/)** (primary) - OLAP columnar database with HNSW vector indexing
+    **[LanceDB](https://lancedb.github.io/lancedb/)** (experimental) - Purpose-built vector database with [Apache Arrow](https://arrow.apache.org/) format
   </Card>
 
   <Card title="Parsing Engine" icon="open-book">
-    **Tree-sitter** - Universal AST parser supporting 20+ languages
+    **[Tree-sitter](https://tree-sitter.github.io/tree-sitter/)** - Universal AST parser supporting 20+ languages
     **Language-agnostic** - Same semantic concepts across all languages
   </Card>
 
   <Card title="Flexible Providers" icon="puzzle">
-    **Pluggable backends** - OpenAI, VoyageAI, Ollama
+    **Pluggable backends** - [OpenAI](https://platform.openai.com/docs/guides/embeddings), [VoyageAI](https://docs.voyageai.com/), [Ollama](https://ollama.ai/)
     **Cloud & Local** - Run with APIs or fully offline with local models
   </Card>
 
   <Card title="Advanced Algorithms" icon="rocket">
-    **cAST** - Semantic code chunking preserving AST structure
+    **[cAST](https://arxiv.org/pdf/2506.15655)** - Semantic code chunking preserving AST structure
     **Two-Hop Search** - Context-aware search with reranking
   </Card>
 </CardGrid>
@@ -39,6 +39,8 @@ ChunkHound's local-first architecture provides key advantages: **Privacy** - You
 ## The cAST Algorithm
 
 When AI assistants search your codebase, they need code split into "chunks" - searchable pieces small enough to understand but large enough to be meaningful. The challenge: how do you split code without breaking its logic?
+
+**Research Foundation**: ChunkHound implements the [cAST (Chunking via Abstract Syntax Trees)](https://arxiv.org/pdf/2506.15655) algorithm developed by researchers at Carnegie Mellon University and Augment Code. This approach demonstrates significant improvements in code retrieval and generation tasks.
 
 ### Three Approaches Compared
 
@@ -99,13 +101,15 @@ def sanitize_input(data):
 
 The algorithm is surprisingly simple:
 
-1. **Parse** code into a syntax tree (AST)
+1. **Parse** code into a syntax tree (AST) using [Tree-sitter](https://tree-sitter.github.io/tree-sitter/)
 2. **Walk** the tree top-down (classes → functions → statements)
 3. **For each piece**:
    - If it fits in size limit (1200 chars) → make it a chunk
    - If too big → split at smart boundaries (`;`, `}`, line breaks)
    - If too small → merge with neighboring pieces
 4. **Result**: Every chunk is meaningful code that fits in context window
+
+**Performance**: The [research paper](https://arxiv.org/pdf/2506.15655) shows cAST provides 4.3 point gain in Recall@5 on RepoEval retrieval and 2.67 point gain in Pass@1 on SWE-bench generation tasks.
 
 <Aside type="tip">
 **Think of code like paragraphs in an essay**. You wouldn't split a paragraph mid-sentence - cAST doesn't split code mid-statement. It keeps related logic together while respecting size limits.
@@ -116,12 +120,15 @@ The algorithm is surprisingly simple:
 - **Better Search**: Find complete functions, not fragments
 - **Better Context**: AI sees full logic flow, not half-statements
 - **Better Results**: AI gives accurate suggestions based on complete code understanding
+- **Research-Backed**: [Peer-reviewed algorithm](https://arxiv.org/pdf/2506.15655) with proven performance gains
 
 Traditional chunking gives AI puzzle pieces. cAST gives it complete pictures.
 
+**Learn More**: Read the full [cAST research paper](https://arxiv.org/pdf/2506.15655) for implementation details and benchmarks.
+
 ## Semantic Search Architecture
 
-ChunkHound provides two search modes depending on your embedding provider's capabilities.
+ChunkHound provides two search modes depending on your embedding provider's capabilities. The system uses vector embeddings from providers like [OpenAI](https://platform.openai.com/docs/guides/embeddings), [VoyageAI](https://docs.voyageai.com/docs/embeddings), or [local models via Ollama](https://ollama.ai/).
 
 ### Regular Semantic Search
 
@@ -144,10 +151,30 @@ Advanced search for providers with reranking (VoyageAI, custom servers):
 - **Semantic bridging**: Discovers related concepts through intermediate connections
 - **Example**: Search "authentication" → finds `validateLogin()` → discovers related `hashPassword()` through semantic similarity
 - **Context expansion**: Finds supporting functions you might not think to search for
+- **Research foundation**: Based on advanced retrieval techniques in RAG systems
 
 <Aside type="tip" title="When Two-Hop Activates">
 Two-hop search automatically activates when you use providers with reranking support:
-- **VoyageAI**: Built-in `rerank-lite-1` model
-- **Custom servers**: With reranking endpoints
-- **OpenAI**: Falls back to regular search (no reranking)
+- **[VoyageAI](https://docs.voyageai.com/docs/reranking)**: Built-in `rerank-lite-1` model
+- **Custom servers**: With reranking endpoints following [OpenAI format](https://platform.openai.com/docs/api-reference)
+- **[OpenAI](https://platform.openai.com/docs/guides/embeddings)**: Falls back to regular search (no reranking)
+
+See [Configuration](/chunkhound/configuration/) for provider setup details.
 </Aside>
+
+## Learn More
+
+### Research & Documentation
+- **[cAST Paper](https://arxiv.org/pdf/2506.15655)** - Original research on structure-aware code chunking
+- **[MCP Specification](https://spec.modelcontextprotocol.io/)** - Protocol for AI assistant integration
+- **[Tree-sitter Documentation](https://tree-sitter.github.io/tree-sitter/)** - Universal code parsing
+
+### Database Technologies
+- **[DuckDB Documentation](https://duckdb.org/docs/)** - High-performance analytical database
+- **[LanceDB Documentation](https://lancedb.github.io/lancedb/)** - Vector database for AI applications
+- **[Apache Arrow](https://arrow.apache.org/)** - Columnar data format and interoperability
+
+### Embedding Providers
+- **[OpenAI Embeddings Guide](https://platform.openai.com/docs/guides/embeddings)** - Industry-standard embedding API
+- **[VoyageAI Documentation](https://docs.voyageai.com/)** - Code-optimized embeddings and reranking
+- **[Ollama](https://ollama.ai/)** - Local model deployment and management

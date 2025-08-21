@@ -16,7 +16,7 @@ import { Tabs, TabItem } from '@astrojs/starlight/components';
 
 LLMs like Claude and GPT don't know your codebase - they only know what they were trained on. Every time they help you code, they need to search your files to understand your project's specific patterns and terminology.
 
-ChunkHound gives AI assistants two ways to explore your code:
+ChunkHound integrates with AI assistants via the [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) to give them two ways to explore your code:
 - **Semantic search** - Finds code by meaning, so when the AI looks for "user authentication" it also finds your `validateLogin()` and `checkCredentials()` functions
 - **Regex search** - Pattern matching for precise code structures
 
@@ -55,7 +55,7 @@ ChunkHound works **without configuration** for regex search. For semantic search
     }
     ```
 
-    Get API key from [VoyageAI Console](https://dash.voyageai.com/)
+    Get API key from [VoyageAI Console](https://dash.voyageai.com/) | [Documentation](https://docs.voyageai.com/docs/embeddings)
   </TabItem>
 
   <TabItem label="OpenAI">
@@ -70,7 +70,7 @@ ChunkHound works **without configuration** for regex search. For semantic search
     }
     ```
 
-    Get API key from [OpenAI Platform](https://platform.openai.com/api-keys)
+    Get API key from [OpenAI Platform](https://platform.openai.com/api-keys) | [Embeddings Guide](https://platform.openai.com/docs/guides/embeddings)
   </TabItem>
 
   <TabItem label="Local (Ollama)">
@@ -80,6 +80,8 @@ ChunkHound works **without configuration** for regex search. For semantic search
     # Start Ollama with embedding model
     ollama pull nomic-embed-text
     ```
+
+    [Ollama Documentation](https://ollama.ai/) | [API Reference](https://github.com/ollama/ollama/blob/main/docs/api.md)
 
     ```json
     {
@@ -153,9 +155,9 @@ cd /path/to/project && chunkhound index
 
 ## Documentation
 
-- [Tutorial](/tutorial/) - Learn ChunkHound in 5 minutes
-- [Configuration](/configuration/) - Complete configuration reference
-- [Under the Hood](/under-the-hood/) - Technical deep dive into architecture and algorithms
+- [Tutorial](/chunkhound/tutorial/) - Learn ChunkHound in 5 minutes
+- [Configuration](/chunkhound/configuration/) - Complete configuration reference
+- [Under the Hood](/chunkhound/under-the-hood/) - Technical deep dive into [cAST algorithm](https://arxiv.org/pdf/2506.15655) and architecture
 
 ## Links
 
