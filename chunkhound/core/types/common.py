@@ -154,6 +154,7 @@ class Language(Enum):
     YAML = "yaml"
     TOML = "toml"
     TEXT = "text"
+    PDF = "pdf"
 
     # Generic/unknown
     UNKNOWN = "unknown"
@@ -202,6 +203,7 @@ class Language(Enum):
             ".yml": cls.YAML,
             ".toml": cls.TOML,
             ".txt": cls.TEXT,
+            ".pdf": cls.PDF,
             ".c": cls.C,
             ".h": cls.C,
             ".cpp": cls.CPP,
