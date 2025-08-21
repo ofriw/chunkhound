@@ -15,6 +15,10 @@
   <a href="https://github.com/ofriw/chunkhound/actions/workflows/smoke-tests.yml">
     <img src="https://github.com/ofriw/chunkhound/actions/workflows/smoke-tests.yml/badge.svg" alt="Tests">
   </a>
+  <a href="https://opensource.org/licenses/MIT">
+    <img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT">
+  </a>
+  <img src="https://img.shields.io/badge/100%25%20AI-Generated-ff69b4.svg" alt="100% AI Generated">
 </p>
 
 Transform your codebase into a searchable knowledge base for AI assistants using [semantic search via cAST algorithm](https://arxiv.org/pdf/2506.15655) and regex search. Integrates with AI assistants via the [Model Context Protocol (MCP)](https://spec.modelcontextprotocol.io/).
