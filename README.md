@@ -23,10 +23,9 @@ Transform your codebase into a searchable knowledge base for AI assistants using
 
 - **Semantic search** - Natural language queries like "find authentication code"
 - **Regex search** - Pattern matching without API keys
-- **20+ languages** - Python, TypeScript, Java, C++, Go, Rust, and more
-- **MCP integration** - Works with Claude, VS Code, Cursor, Windsurf, Zed
 - **Local-first** - Your code stays on your machine
-- **Smart indexing** - Only processes changed files
+- **20+ languages** - Python, TypeScript, Java, C++, Go, Rust, and more
+- **MCP integration** - Works with Claude, VS Code, Cursor, Windsurf, Zed, etc
 
 ## Documentation
 
