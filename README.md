@@ -19,7 +19,7 @@
 
 Transform your codebase into a searchable knowledge base for AI assistants using semantic and regex search.
 
-## ✨ Features
+## Features
 
 - **Semantic search** - Natural language queries like "find authentication code"
 - **Regex search** - Pattern matching without API keys
@@ -28,12 +28,12 @@ Transform your codebase into a searchable knowledge base for AI assistants using
 - **Local-first** - Your code stays on your machine
 - **Smart indexing** - Only processes changed files
 
-## 📚 Documentation
+## Documentation
 
 **Visit [ofriw.github.io/chunkhound](https://ofriw.github.io/chunkhound) for complete guides:**
-- [🚀 5-Minute Tutorial](https://ofriw.github.io/chunkhound/tutorial/)
-- [🔧 Configuration Guide](https://ofriw.github.io/chunkhound/configuration/)
-- [🏗️ Architecture Deep Dive](https://ofriw.github.io/chunkhound/under-the-hood/)
+- [Tutorial](https://ofriw.github.io/chunkhound/tutorial/)
+- [Configuration Guide](https://ofriw.github.io/chunkhound/configuration/)
+- [Architecture Deep Dive](https://ofriw.github.io/chunkhound/under-the-hood/)
 
 ## Installation
 
@@ -68,10 +68,6 @@ ChunkHound works with Claude Desktop, Claude Code, VS Code, Cursor, Windsurf, Ze
 - Python 3.10+
 - [uv package manager](https://docs.astral.sh/uv/)
 - API key for semantic search (optional - regex search works without any keys)
-
-## Origin Story
-
-**100% of ChunkHound's code was written by an AI agent** - zero lines written by hand. The entire codebase emerged through iterative human-AI collaboration where the AI agent used ChunkHound to search its own code, creating a self-improving feedback loop.
 
 ## License
 
