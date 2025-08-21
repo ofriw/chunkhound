@@ -407,7 +407,7 @@ class UniversalParser:
         chunk1_content = '\n'.join(lines[:mid_point])
         chunk2_content = '\n'.join(lines[mid_point:])
         
-        chunk1_lines = chunk1_content.count('\n') + 1
+        chunk1_lines = len(lines[:mid_point])
         
         chunk1 = UniversalChunk(
             concept=chunk.concept,
