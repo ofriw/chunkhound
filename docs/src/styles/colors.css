@@ -163,3 +163,70 @@
   padding: 0.125rem 0.25rem;
   border-radius: 0.25rem;
 }
+
+/* ========== Hero Section Customization ========== */
+
+/* Hero section layout - use flex for proper centering and ordering */
+.hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 3rem 0;
+  gap: 0;
+}
+
+/* Override Astro's default image sizing - DON'T override display to preserve theme switching */
+.hero img {
+  width: auto !important;
+  max-width: 700px;
+  height: auto !important;
+  margin: 0 auto;
+  order: 1; /* Images appear first */
+}
+
+/* Target specific Astro-generated attributes */
+.hero img[width="400"] {
+  width: auto !important;
+  max-width: 700px;
+  height: auto !important;
+}
+
+/* Hero content stack - tagline and other content comes after images */
+.hero .stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  margin-top: 0;
+  order: 2; /* Stack appears second */
+}
+
+/* Style the hero tagline */
+.hero .tagline {
+  font-size: 1.25rem;
+  line-height: 1.6;
+  color: var(--color-text-secondary);
+  text-align: center;
+  margin-top: 0;
+}
+
+/* Responsive design for smaller screens */
+@media (max-width: 768px) {
+  .hero img {
+    max-width: 90%;
+  }
+  
+  .hero {
+    padding: 2rem 0;
+  }
+  
+  .hero .tagline {
+    font-size: 1.125rem;
+  }
+}
+
+/* Ensure proper spacing for content below hero */
+.hero + .sl-markdown-content {
+  margin-top: 2rem;
+}
