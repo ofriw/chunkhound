@@ -22,6 +22,14 @@ ChunkHound integrates with AI assistants via the [Model Context Protocol (MCP)](
 
 Traditional search was built for humans who know what they're looking for. But AI assistants start with zero knowledge about your codebase. Semantic search bridges this gap by understanding that "database timeout" and "SQL connection lost" are related concepts, even though they share no keywords.
 
+## Supported Languages
+
+ChunkHound supports **22 languages** with structured parsing:
+
+- **Programming** (via [Tree-sitter](https://tree-sitter.github.io/tree-sitter/)): Python, JavaScript, TypeScript, JSX, TSX, Java, Kotlin, Groovy, C, C++, C#, Go, Rust, Bash, MATLAB, Makefile
+- **Configuration** (via Tree-sitter): JSON, YAML, TOML, Markdown
+- **Text-based** (custom parsers): Text files, PDF
+
 ## Requirements
 
 - Python 3.10+
@@ -43,8 +51,8 @@ uv tool install chunkhound
 ChunkHound works **without configuration** for regex search. For semantic search, create `.chunkhound.json` in your project root:
 
 <Tabs syncKey="provider">
-  <TabItem label="VoyageAI (Recommended)">
-    **Best for:** Fastest, most accurate, and cost effective
+  <TabItem label="VoyageAI">
+    **Recommended:** Fastest, most accurate, and cost effective
 
     ```json
     {
@@ -73,7 +81,7 @@ ChunkHound works **without configuration** for regex search. For semantic search
     Get API key from [OpenAI Platform](https://platform.openai.com/api-keys) | [Embeddings Guide](https://platform.openai.com/docs/guides/embeddings)
   </TabItem>
 
-  <TabItem label="Local (Ollama)">
+  <TabItem label="Local">
     **Best for:** Privacy and offline use
 
     ```bash
@@ -93,7 +101,7 @@ ChunkHound works **without configuration** for regex search. For semantic search
     }
     ```
 
-    No API key required - completely local
+    No API key required - completely local. Works with any OpenAI compatible endpoint.
   </TabItem>
 </Tabs>
 

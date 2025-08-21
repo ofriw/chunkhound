@@ -29,7 +29,10 @@ Transform your codebase into a searchable knowledge base for AI assistants using
 - **Semantic search** - Natural language queries like "find authentication code"
 - **Regex search** - Pattern matching without API keys
 - **Local-first** - Your code stays on your machine
-- **[20+ languages](https://tree-sitter.github.io/tree-sitter/)** - Python, TypeScript, Java, C++, Go, Rust, and more
+- **22 languages** with structured parsing
+  - **Programming** (via [Tree-sitter](https://tree-sitter.github.io/tree-sitter/)): Python, JavaScript, TypeScript, JSX, TSX, Java, Kotlin, Groovy, C, C++, C#, Go, Rust, Bash, MATLAB, Makefile
+  - **Configuration** (via Tree-sitter): JSON, YAML, TOML, Markdown
+  - **Text-based** (custom parsers): Text files, PDF
 - **[MCP integration](https://spec.modelcontextprotocol.io/)** - Works with Claude, VS Code, Cursor, Windsurf, Zed, etc
 
 ## Documentation
@@ -78,7 +81,7 @@ chunkhound index
 - No per-token charges for large codebases
 
 **Universal Language Support**:
-- Powered by [Tree-sitter](https://tree-sitter.github.io/tree-sitter/) for 20+ languages
+- Structured parsing for 22 languages (Tree-sitter + custom parsers)
 - Same semantic concepts across all programming languages
 
 ## License
