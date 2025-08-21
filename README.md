@@ -39,6 +39,13 @@ Transform your codebase into a searchable knowledge base for AI assistants using
 - [Configuration Guide](https://ofriw.github.io/chunkhound/configuration/)
 - [Architecture Deep Dive](https://ofriw.github.io/chunkhound/under-the-hood/)
 
+## Requirements
+
+- Python 3.10+
+- [uv package manager](https://docs.astral.sh/uv/)
+- API key for semantic search (optional - regex search works without any keys)
+  - [OpenAI](https://platform.openai.com/api-keys) | [VoyageAI](https://dash.voyageai.com/) | [Local with Ollama](https://ollama.ai/)
+
 ## Installation
 
 ```bash
@@ -60,26 +67,6 @@ chunkhound mcp
 ```
 
 **For configuration, IDE setup, and advanced usage, see the [documentation](https://ofriw.github.io/chunkhound).**
-
-## IDE Setup
-
-ChunkHound works with any AI assistant that supports [MCP (Model Context Protocol)](https://spec.modelcontextprotocol.io/):
-
-- **[Claude Desktop](https://claude.ai/)** - Add to `~/.claude.json` MCP servers
-- **[Claude Code](https://docs.anthropic.com/claude/docs/claude-code)** - Built-in MCP support
-- **[VS Code](https://marketplace.visualstudio.com/)** - MCP extensions available
-- **[Cursor](https://cursor.com/)** - MCP configuration in `.cursor/mcp.json`
-- **[Windsurf](https://codeium.com/windsurf)** - MCP server support
-- **[Zed](https://zed.dev/)** - MCP integration
-
-**See the [configuration guide](https://ofriw.github.io/chunkhound/configuration/) for detailed setup instructions.**
-
-## Requirements
-
-- Python 3.10+
-- [uv package manager](https://docs.astral.sh/uv/)
-- API key for semantic search (optional - regex search works without any keys)
-  - [OpenAI](https://platform.openai.com/api-keys) | [VoyageAI](https://dash.voyageai.com/) | [Local with Ollama](https://ollama.ai/)
 
 ## Why ChunkHound?
 
