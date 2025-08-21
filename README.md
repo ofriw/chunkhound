@@ -1,6 +1,9 @@
 <p align="center">
   <a href="https://ofriw.github.io/chunkhound">
-    <img src="docs/public/wordmark-centered.svg" alt="ChunkHound" width="400">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="docs/public/wordmark-github-dark.svg">
+      <img src="docs/public/wordmark-centered.svg" alt="ChunkHound" width="400">
+    </picture>
   </a>
 </p>
 
