@@ -2,7 +2,7 @@
   <a href="https://ofriw.github.io/chunkhound">
     <picture>
       <source media="(prefers-color-scheme: dark)" srcset="docs/public/wordmark-github-dark.svg">
-      <img src="docs/src/assets/wordmar.svg" alt="ChunkHound" width="400">
+      <img src="docs/src/assets/wordmark.svg" alt="ChunkHound" width="400">
     </picture>
   </a>
 </p>
