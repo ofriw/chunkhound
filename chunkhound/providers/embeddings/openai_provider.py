@@ -113,15 +113,18 @@ class OpenAIEmbeddingProvider:
             )
 
         # Only require API key for official OpenAI API
-        is_openai_official = not self._base_url or (
-            self._base_url.startswith("https://api.openai.com") and 
-            (self._base_url == "https://api.openai.com" or self._base_url.startswith("https://api.openai.com/"))
-        )
+        from chunkhound.core.config.openai_utils import is_official_openai_endpoint
+        is_openai_official = is_official_openai_endpoint(self._base_url)
         if is_openai_official and not self._api_key:
             raise ValueError("OpenAI API key is required for official OpenAI API")
 
         # Configure client options for custom endpoints
-        client_kwargs = {"api_key": self._api_key, "timeout": self._timeout}
+        api_key_value = self._api_key
+        if not is_openai_official and not api_key_value:
+            # OpenAI client requires a string value, provide placeholder for custom endpoints
+            api_key_value = "not-required"
+
+        client_kwargs = {"api_key": api_key_value, "timeout": self._timeout}
 
         if self._base_url:
             client_kwargs["base_url"] = self._base_url
@@ -233,7 +236,18 @@ class OpenAIEmbeddingProvider:
 
     def is_available(self) -> bool:
         """Check if the provider is available and properly configured."""
-        return OPENAI_AVAILABLE and self._api_key is not None
+        if not OPENAI_AVAILABLE:
+            return False
+        
+        # Import the utility function (following existing pattern)
+        from chunkhound.core.config.openai_utils import is_official_openai_endpoint
+        
+        # Use the same logic as _ensure_client() and config validation
+        if is_official_openai_endpoint(self._base_url):
+            return self._api_key is not None
+        else:
+            # Custom endpoints don't require API key
+            return True
 
     async def health_check(self) -> dict[str, Any]:
         """Perform health check and return status information."""

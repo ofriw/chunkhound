@@ -13,6 +13,8 @@ from typing import Any, Literal
 from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from .openai_utils import is_official_openai_endpoint
+
 
 class EmbeddingConfig(BaseSettings):
     """
@@ -183,9 +185,18 @@ class EmbeddingConfig(BaseSettings):
         Check if the selected provider is properly configured.
 
         Returns:
-            True if API key is available
+            True if provider is properly configured
         """
-        return self.api_key is not None
+        if self.provider == "openai":
+            # For OpenAI provider, only require API key for official endpoints
+            if is_official_openai_endpoint(self.base_url):
+                return self.api_key is not None
+            else:
+                # Custom endpoints don't require API key
+                return True
+        else:
+            # For other providers (voyageai, etc.), always require API key
+            return self.api_key is not None
 
     def get_missing_config(self) -> list[str]:
         """
@@ -194,9 +205,18 @@ class EmbeddingConfig(BaseSettings):
         Returns:
             List of missing configuration parameter names
         """
-        if not self.api_key:
-            return ["api_key (set CHUNKHOUND_EMBEDDING_API_KEY)"]
-        return []
+        missing = []
+        
+        if self.provider == "openai":
+            # For OpenAI provider, only require API key for official endpoints
+            if is_official_openai_endpoint(self.base_url) and not self.api_key:
+                missing.append("api_key (set CHUNKHOUND_EMBEDDING_API_KEY)")
+        else:
+            # For other providers (voyageai, etc.), always require API key
+            if not self.api_key:
+                missing.append("api_key (set CHUNKHOUND_EMBEDDING_API_KEY)")
+                
+        return missing
 
     @classmethod
     def add_cli_arguments(cls, parser: argparse.ArgumentParser) -> None:
