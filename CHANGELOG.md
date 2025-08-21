@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- PDF document parsing and indexing with full text extraction using PyMuPDF integration
+
+### Enhanced
+- Language support expanded to 22 languages with comprehensive documentation breakdown
+
+### Fixed
+- JSON file parsing now extracts specific node content instead of entire file content, improving search precision and reducing noise
+
 ## [3.0.1] - 2025-08-21
 
 ### Enhanced
