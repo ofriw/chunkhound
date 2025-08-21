@@ -19,6 +19,7 @@ from .kotlin import KotlinMapping
 from .makefile import MakefileMapping
 from .markdown import MarkdownMapping
 from .matlab import MatlabMapping
+from .pdf import PDFMapping
 from .python import PythonMapping
 from .rust import RustMapping
 from .text import TextMapping
@@ -43,6 +44,7 @@ __all__ = [
     "MakefileMapping",
     "MarkdownMapping",
     "MatlabMapping",
+    "PDFMapping",
     "PythonMapping",
     "RustMapping",
     "TextMapping",

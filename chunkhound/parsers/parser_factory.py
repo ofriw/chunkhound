@@ -36,6 +36,7 @@ from chunkhound.parsers.mappings import (
     MakefileMapping,
     MarkdownMapping,
     MatlabMapping,
+    PDFMapping,
     PythonMapping,
     RustMapping,
     TextMapping,
@@ -248,6 +249,7 @@ LANGUAGE_CONFIGS: Dict[Language, LanguageConfig] = {
     Language.JSX: LanguageConfig(ts_typescript, JSXMapping, JSX_AVAILABLE, "jsx"),  # JSX uses TSX grammar
     Language.TSX: LanguageConfig(ts_typescript, TSXMapping, TSX_AVAILABLE, "tsx"),  # TSX uses TS parser with tsx language
     Language.TEXT: LanguageConfig(None, TextMapping, True, "text"),  # Text doesn't need tree-sitter
+    Language.PDF: LanguageConfig(None, PDFMapping, True, "pdf"),  # PDF doesn't need tree-sitter
 }
 
 # File extension to language mapping
@@ -326,6 +328,9 @@ EXTENSION_TO_LANGUAGE: Dict[str, Language] = {
     '.cfg': Language.TEXT,
     '.conf': Language.TEXT,
     '.ini': Language.TEXT,
+    
+    # PDF files
+    '.pdf': Language.PDF,
 }
 
 
@@ -375,11 +380,11 @@ class ParserFactory:
         # Import TreeSitterEngine here to avoid circular imports
         from chunkhound.parsers.universal_engine import TreeSitterEngine
         
-        # Special handling for text files (no tree-sitter required)
-        if language == Language.TEXT:
-            # Text mapping doesn't need tree-sitter engine
+        # Special handling for text and PDF files (no tree-sitter required)
+        if language in (Language.TEXT, Language.PDF):
+            # Text and PDF mappings don't need tree-sitter engine
             mapping = config.mapping_class()
-            # For text files, we'll handle this specially in the parser
+            # For text and PDF files, we'll handle this specially in the parser
             parser = UniversalParser(None, mapping, cast_config)  # type: ignore
             self._parser_cache[cache_key] = parser
             return parser
@@ -499,7 +504,7 @@ class ParserFactory:
         """
         missing = {}
         for language, config in LANGUAGE_CONFIGS.items():
-            if not config.available and language != Language.TEXT:
+            if not config.available and language not in (Language.TEXT, Language.PDF):
                 missing[language] = f"pip install tree-sitter-{config.language_name.lower()}"
         return missing
     
