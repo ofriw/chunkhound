@@ -22,6 +22,7 @@ Transform your codebase into a searchable knowledge base for AI assistants using
 ## Features
 
 - **[cAST Algorithm](https://arxiv.org/pdf/2506.15655)** - Research-backed semantic code chunking
+- **[Multi-Hop Semantic Search](https://ofriw.github.io/chunkhound/under-the-hood/#multi-hop-semantic-search)** - Discovers interconnected code relationships beyond direct matches
 - **Semantic search** - Natural language queries like "find authentication code"
 - **Regex search** - Pattern matching without API keys
 - **Local-first** - Your code stays on your machine
@@ -81,6 +82,16 @@ chunkhound index --no-embeddings
 
 **For configuration, IDE setup, and advanced usage, see the [documentation](https://ofriw.github.io/chunkhound).**
 
+## Real-Time Indexing
+
+**Automatic File Watching**: MCP servers monitor your codebase and update the index automatically as you edit files. No manual re-indexing required.
+
+**Smart Content Diffs**: Only changed code chunks get re-processed. Unchanged chunks keep their existing embeddings, making updates efficient even for large codebases.
+
+**Seamless Branch Switching**: When you switch git branches, ChunkHound automatically detects and re-indexes only the files that actually changed between branches.
+
+**Live Memory Systems**: Index markdown notes or documentation that updates in real-time while you work, creating a dynamic knowledge base.
+
 ## Why ChunkHound?
 
 **Research Foundation**: Built on the [cAST (Chunking via Abstract Syntax Trees)](https://arxiv.org/pdf/2506.15655) algorithm from Carnegie Mellon University, providing:
@@ -96,6 +107,11 @@ chunkhound index --no-embeddings
 **Universal Language Support**:
 - Structured parsing for 22 languages (Tree-sitter + custom parsers)
 - Same semantic concepts across all programming languages
+
+**Intelligent Code Discovery**:
+- Multi-hop search follows semantic relationships to find related implementations
+- Automatically discovers complete feature patterns: find "authentication" to get password hashing, token validation, session management
+- Convergence detection prevents semantic drift while maximizing discovery
 
 ## License
 

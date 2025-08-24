@@ -62,6 +62,17 @@ Detecting changes...
 ⏱️  Time: 18 seconds
 ```
 
+### Real-Time Updates
+
+When using MCP servers, ChunkHound automatically watches your files and updates the index as you edit. No manual commands needed:
+
+- **Edit files** → Index updates automatically
+- **Switch git branches** → Only changed files get re-indexed
+- **Add new files** → Automatically detected and indexed
+- **Delete files** → Automatically removed from index
+
+This makes ChunkHound perfect for live memory systems - create a folder of markdown notes that stays searchable as you add and modify content.
+
 <Aside type="tip" title="Performance Tip">
 You can re-index frequently without penalty. Run `chunkhound index` after major code changes.
 </Aside>

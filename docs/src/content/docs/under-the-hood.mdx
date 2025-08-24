@@ -182,6 +182,22 @@ Multi-hop search automatically activates when you use providers with reranking s
 See [Configuration](/chunkhound/configuration/) for provider setup details.
 </Aside>
 
+## Real-Time Monitoring & Smart Diffs
+
+ChunkHound's MCP servers include automatic file watching and update mechanisms that keep your index current without manual intervention. When files change, ChunkHound uses intelligent diffing to minimize reprocessing:
+
+**Direct String Comparison**: Each chunk's content is compared as a string. If the content hasn't changed, the existing embedding is preserved.
+
+**Set Operations**: The algorithm categorizes chunks into:
+- **Unchanged** - Content identical, keep existing embeddings
+- **Added** - New chunks that need embedding generation
+- **Deleted** - Removed chunks to clean up from database
+- **Modified** - Changed chunks that need re-embedding
+
+**Efficiency Benefits**: Only chunks with actual content changes get re-processed. A file with 100 chunks where only 2 functions changed will preserve 98 existing embeddings and generate only 2 new ones.
+
+This approach enables efficient branch switching - when you `git checkout`, only files that actually differ between branches get re-indexed.
+
 ## Learn More
 
 ### Research & Documentation
