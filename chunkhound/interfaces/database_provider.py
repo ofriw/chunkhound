@@ -200,6 +200,30 @@ class DatabaseProvider(Protocol):
         """
         ...
 
+    def search_by_embedding(
+        self,
+        query_embedding: list[float],
+        provider: str,
+        model: str,
+        limit: int = 10,
+        threshold: float | None = None,
+        path_filter: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Find chunks similar to the given embedding vector.
+        
+        Args:
+            query_embedding: The embedding vector to search with
+            provider: Embedding provider name
+            model: Embedding model name
+            limit: Maximum number of results to return
+            threshold: Optional similarity threshold
+            path_filter: Optional relative path to limit search scope
+            
+        Returns:
+            List of similar chunks with scores and metadata
+        """
+        ...
+
     def search_regex(
         self,
         pattern: str,

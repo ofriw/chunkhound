@@ -9,8 +9,8 @@ Usage:
     python tests/run_with_rerank_server.py [pytest args]
     
 Examples:
-    # Run all two-hop semantic search tests
-    python tests/run_with_rerank_server.py tests/test_two_hop_semantic_search.py -v
+    # Run all multi-hop semantic search tests
+    python tests/run_with_rerank_server.py tests/test_multi_hop_semantic_search.py -v
     
     # Run specific test
     python tests/run_with_rerank_server.py tests/test_embeddings.py::test_ollama_with_reranking_configuration -v
@@ -88,9 +88,9 @@ def main():
     # Get pytest arguments (everything after script name)
     pytest_args = sys.argv[1:] if len(sys.argv) > 1 else []
     
-    # Default to running two-hop tests if no args provided
+    # Default to running multi-hop tests if no args provided
     if not pytest_args:
-        pytest_args = ["tests/test_two_hop_semantic_search.py", "-v"]
+        pytest_args = ["tests/test_multi_hop_semantic_search.py", "-v"]
         print("ℹ️  No arguments provided, defaulting to:")
         print(f"   pytest {' '.join(pytest_args)}")
         print()

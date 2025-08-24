@@ -161,7 +161,7 @@ def create_openai_provider(
         api_key: OpenAI API key (uses OPENAI_API_KEY env var if None)
         base_url: Base URL for API (uses OPENAI_BASE_URL env var if None)
         model: Model name to use
-        rerank_model: Model name to use for reranking (enables two-hop search)
+        rerank_model: Model name to use for reranking (enables multi-hop search)
         rerank_url: Rerank endpoint URL (defaults to /rerank)
 
     Returns:

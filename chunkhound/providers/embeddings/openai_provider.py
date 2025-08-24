@@ -45,7 +45,7 @@ class OpenAIEmbeddingProvider:
             api_key: OpenAI API key (defaults to OPENAI_API_KEY env var)
             base_url: Base URL for OpenAI API (defaults to OPENAI_BASE_URL env var)
             model: Model name to use for embeddings
-            rerank_model: Model name to use for reranking (enables two-hop search)
+            rerank_model: Model name to use for reranking (enables multi-hop search)
             rerank_url: Rerank endpoint URL (defaults to /rerank)
             batch_size: Maximum batch size for API requests
             timeout: Request timeout in seconds

@@ -1,6 +1,6 @@
 # Reranking Test Setup (For Developers Only)
 
-This document describes how to set up a local reranking service for **testing** two-hop semantic search functionality. 
+This document describes how to set up a local reranking service for **testing** multi-hop semantic search functionality. 
 
 **Note:** Production users should use providers with built-in reranking support like VoyageAI. This setup is only needed for testing and development.
 
@@ -9,7 +9,7 @@ This document describes how to set up a local reranking service for **testing** 
 The easiest way to run tests with reranking is using the automatic mock server:
 
 ```bash
-# Run all two-hop semantic search tests with automatic mock server
+# Run all multi-hop semantic search tests with automatic mock server
 python tests/run_with_rerank_server.py
 
 # Run specific tests with automatic mock server
@@ -124,7 +124,7 @@ Once both services are running:
 
 ```bash
 # Run two-hop semantic search tests
-uv run pytest tests/test_two_hop_semantic_search.py -v
+uv run pytest tests/test_multi_hop_semantic_search.py -v
 
 # Run specific provider tests
 uv run pytest tests/test_embeddings.py::test_ollama_with_reranking_configuration -v

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Mock reranking server for testing two-hop semantic search.
+Mock reranking server for testing multi-hop semantic search.
 
 This lightweight server provides a Cohere-compatible /rerank endpoint
 for testing purposes without requiring heavy dependencies like vLLM.

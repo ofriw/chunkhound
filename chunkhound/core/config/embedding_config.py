@@ -62,7 +62,7 @@ class EmbeddingConfig(BaseSettings):
 
     rerank_model: str | None = Field(
         default=None,
-        description="Reranking model name (enables two-hop search if specified)"
+        description="Reranking model name (enables multi-hop search if specified)"
     )
 
     rerank_url: str = Field(

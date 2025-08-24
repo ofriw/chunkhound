@@ -41,9 +41,9 @@ class SearchService(BaseService):
         path_filter: str | None = None,
     ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         """Perform semantic search using vector similarity.
-        
+
         Automatically selects the best search strategy:
-        - Two-hop + reranking if provider supports reranking
+        - Multi-hop + reranking if provider supports reranking
         - Standard single-hop otherwise
 
         Args:
@@ -53,7 +53,8 @@ class SearchService(BaseService):
             threshold: Optional similarity threshold to filter results
             provider: Optional specific embedding provider to use
             model: Optional specific model to use
-            path_filter: Optional relative path to limit search scope (e.g., 'src/', 'tests/')
+            path_filter: Optional relative path to limit search scope
+                (e.g., 'src/', 'tests/')
 
         Returns:
             Tuple of (results, pagination_metadata)
@@ -66,15 +67,20 @@ class SearchService(BaseService):
 
             # Type narrowing for mypy
             embedding_provider = self._embedding_provider
-            
+
             # Use provided provider/model or fall back to configured defaults
             search_provider = provider or embedding_provider.name
             search_model = model or embedding_provider.model
 
+            # logger.debug(f"Search using provider='{search_provider}', model='{search_model}'")
+
             # Choose search strategy based on provider capabilities
-            if hasattr(embedding_provider, 'supports_reranking') and embedding_provider.supports_reranking():
-                logger.debug(f"Using two-hop search with reranking for: '{query}'")
-                return await self._search_semantic_two_hop(
+            if (
+                hasattr(embedding_provider, "supports_reranking")
+                and embedding_provider.supports_reranking()
+            ):
+                logger.debug(f"Using multi-hop search with reranking for: '{query}'")
+                return await self._search_semantic_multi_hop(
                     query=query,
                     page_size=page_size,
                     offset=offset,
@@ -112,7 +118,7 @@ class SearchService(BaseService):
         """Standard single-hop semantic search implementation."""
         if not self._embedding_provider:
             raise ValueError("Embedding provider not configured")
-        
+
         # Generate query embedding
         query_results = await self._embedding_provider.embed([query])
         if not query_results:
@@ -142,7 +148,7 @@ class SearchService(BaseService):
         )
         return enhanced_results, pagination
 
-    async def _search_semantic_two_hop(
+    async def _search_semantic_multi_hop(
         self,
         query: str,
         page_size: int,
@@ -152,22 +158,28 @@ class SearchService(BaseService):
         model: str,
         path_filter: str | None,
     ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-        """Two-hop semantic search with reranking implementation."""
-        # Step 1: Get more initial candidates (2-3x final limit)
+        """Dynamic multi-hop semantic search with relevance-based termination."""
+        import time
+
+        start_time = time.perf_counter()
+
+        # Step 1: Initial search + rerank
         initial_limit = min(page_size * 3, 100)  # Cap at 100 for performance
-        first_hop_results, _ = await self._search_semantic_standard(
+        initial_results, _ = await self._search_semantic_standard(
             query=query,
             page_size=initial_limit,
-            offset=0,  # Always start from beginning for two-hop
-            threshold=0.0,  # No threshold filtering for first hop
+            offset=0,
+            threshold=0.0,
             provider=provider,
             model=model,
             path_filter=path_filter,
         )
 
-        if len(first_hop_results) <= 10:
+        if len(initial_results) <= 5:
             # Not enough results for expansion, fall back to standard search
-            logger.debug("Not enough results for two-hop expansion, using standard search")
+            logger.debug(
+                "Not enough results for dynamic expansion, using standard search"
+            )
             return await self._search_semantic_standard(
                 query=query,
                 page_size=page_size,
@@ -178,76 +190,215 @@ class SearchService(BaseService):
                 path_filter=path_filter,
             )
 
-        # Step 2: Expand top 10 results to find semantic neighbors
-        top_candidates = first_hop_results[:10]
-        expanded_results = list(first_hop_results)  # Start with original results
+        # Rerank initial results
+        try:
+            assert self._embedding_provider is not None
+            assert hasattr(self._embedding_provider, "rerank")
 
-        for candidate in top_candidates:
-            try:
-                neighbors = self._db.find_similar_chunks(
-                    chunk_id=candidate["chunk_id"],
-                    provider=provider,
-                    model=model,
-                    limit=10,
-                    threshold=None,  # No threshold for neighbor expansion
+            # Initialize all results with similarity scores as baseline
+            for result in initial_results:
+                if "score" not in result:
+                    result["score"] = result.get("similarity", 0.0)
+
+            documents = [result["content"] for result in initial_results]
+            rerank_results = await self._embedding_provider.rerank(
+                query=query,
+                documents=documents,
+                top_k=len(documents),
+            )
+
+            # Apply reranking scores (rerank_result.index maps to documents array position)
+            for rerank_result in rerank_results:
+                if 0 <= rerank_result.index < len(initial_results):
+                    initial_results[rerank_result.index]["score"] = rerank_result.score
+
+            # Log reranking effectiveness
+            reranked_count = len(rerank_results)
+            logger.debug(f"Initial reranking: {reranked_count}/{len(initial_results)} results reranked")
+
+            # Sort by rerank score (highest first)
+            initial_results = sorted(
+                initial_results, key=lambda x: x.get("score", 0.0), reverse=True
+            )
+        except Exception as e:
+            logger.warning(f"Initial reranking failed: {e}")
+            # Ensure all results still have scores using similarity as fallback
+            for result in initial_results:
+                if "score" not in result:
+                    result["score"] = result.get("similarity", 0.0)
+
+        # Step 2: Dynamic expansion loop
+        all_results = list(initial_results)
+        seen_chunk_ids = {result["chunk_id"] for result in initial_results}
+        # Track specific chunks and their scores (not positions)
+        top_chunk_scores = {}
+        for result in initial_results[:5]:
+            top_chunk_scores[result["chunk_id"]] = result.get("score", 0.0)
+
+        expansion_round = 0
+
+        while True:
+            # Check termination conditions
+            if time.perf_counter() - start_time >= 5.0:
+                logger.debug(
+                    "Dynamic expansion terminated: 5 second time limit reached"
                 )
-                expanded_results.extend(self._enhance_search_result(n) for n in neighbors)
-            except Exception as e:
-                logger.warning(f"Failed to find neighbors for chunk {candidate['chunk_id']}: {e}")
+                break
+            if len(all_results) >= 500:
+                logger.debug("Dynamic expansion terminated: 500 result limit reached")
+                break
 
-        # Step 3: Deduplicate by chunk_id
-        unique_results = []
-        seen_chunk_ids = set()
-        for result in expanded_results:
-            chunk_id = result["chunk_id"]
-            if chunk_id not in seen_chunk_ids:
-                unique_results.append(result)
-                seen_chunk_ids.add(chunk_id)
+            # Get top 5 candidates for expansion
+            top_candidates = [r for r in all_results if r.get("score", 0.0) > 0.0][:5]
+            if len(top_candidates) < 5:
+                logger.debug(
+                    "Dynamic expansion terminated: insufficient high-scoring candidates"
+                )
+                break
 
-        # Step 4: Rerank all results against original query
-        if len(unique_results) > page_size:
+            # Expand using find_similar_chunks for each top candidate
+            new_candidates = []
+            for candidate in top_candidates:
+                try:
+                    # logger.debug(f"Expanding chunk_id={candidate['chunk_id']} using provider='{provider}', model='{model}'")
+                    neighbors = self._db.find_similar_chunks(
+                        chunk_id=candidate["chunk_id"],
+                        provider=provider,
+                        model=model,
+                        limit=20,  # Get more neighbors per round
+                        threshold=None,
+                    )
+
+                    # Filter out already seen chunks
+                    for neighbor in neighbors:
+                        if neighbor["chunk_id"] not in seen_chunk_ids:
+                            new_candidates.append(self._enhance_search_result(neighbor))
+                            seen_chunk_ids.add(neighbor["chunk_id"])
+                    
+                    # logger.debug(f"Found {len(neighbors)} neighbors for chunk_id={candidate['chunk_id']}, "
+                    #            f"{len([n for n in neighbors if n['chunk_id'] not in seen_chunk_ids])} new")
+
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to expand chunk {candidate['chunk_id']}: {e}"
+                    )
+                    # Continue with other candidates even if one fails
+
+            if not new_candidates:
+                logger.debug("Dynamic expansion terminated: no new candidates found")
+                break
+
+            # Add new candidates and rerank all results
+            all_results.extend(new_candidates)
+
             try:
-                documents = [result["content"] for result in unique_results]
-                # Type narrowing: we know provider has rerank if we're in two-hop
+                # Initialize all results with scores (similarity fallback for new candidates)
+                for result in all_results:
+                    if "score" not in result:
+                        result["score"] = result.get("similarity", 0.0)
+
+                documents = [result["content"] for result in all_results]
+                # Type narrowing: we know provider has rerank if we're in multi-hop
                 assert self._embedding_provider is not None
-                assert hasattr(self._embedding_provider, 'rerank')
+                assert hasattr(self._embedding_provider, "rerank")
                 rerank_results = await self._embedding_provider.rerank(
                     query=query,
                     documents=documents,
-                    top_k=page_size * 2,  # Get extra candidates before threshold filtering
+                    top_k=len(documents),
                 )
 
-                # Apply reranking scores
+                # Apply reranking scores (rerank_result.index maps to documents array position)
                 for rerank_result in rerank_results:
-                    if rerank_result.index < len(unique_results):
-                        unique_results[rerank_result.index]["score"] = rerank_result.score
+                    if 0 <= rerank_result.index < len(all_results):
+                        all_results[rerank_result.index]["score"] = rerank_result.score
 
-                # Sort by rerank score (highest first)
-                unique_results = sorted(
-                    unique_results, key=lambda x: x.get("score", 0.0), reverse=True
+                # Log reranking effectiveness
+                reranked_count = len(rerank_results)
+                logger.debug(f"Expansion reranking: {reranked_count}/{len(all_results)} results reranked")
+
+                # Sort by rerank score
+                all_results = sorted(
+                    all_results, key=lambda x: x.get("score", 0.0), reverse=True
                 )
-            except Exception as e:
-                logger.warning(f"Reranking failed, using original order: {e}")
 
-        # Step 5: Apply threshold and pagination
+            except Exception as e:
+                logger.warning(
+                    f"Reranking failed in expansion round {expansion_round}: {e}"
+                )
+                # Scores already initialized, just sort and continue
+                all_results = sorted(
+                    all_results, key=lambda x: x.get("score", 0.0), reverse=True
+                )
+                break
+
+            # Check score derivative for termination (track specific chunks, not positions)
+            current_top_scores = [result.get("score", 0.0) for result in all_results[:5]]
+            
+            # Check if any of the originally top chunks have degraded significantly
+            score_drops = []
+            if top_chunk_scores:  # Only check after first iteration
+                for chunk_id, prev_score in top_chunk_scores.items():
+                    # Find this chunk's current score
+                    current_score = next(
+                        (r.get("score", 0.0) for r in all_results if r["chunk_id"] == chunk_id),
+                        0.0  # If not in results anymore, score is 0
+                    )
+                    if current_score < prev_score:
+                        score_drops.append(prev_score - current_score)
+
+            # Update tracked chunks to current top 5
+            top_chunk_scores.clear()
+            for result in all_results[:5]:
+                top_chunk_scores[result["chunk_id"]] = result.get("score", 0.0)
+
+            # Check termination conditions
+            if score_drops and max(score_drops) >= 0.15:
+                logger.debug(
+                    f"Dynamic expansion terminated: tracked chunk score drop "
+                    f"{max(score_drops):.3f} >= 0.15"
+                )
+                break
+
+            if min(current_top_scores) < 0.5:
+                logger.debug(
+                    f"Dynamic expansion terminated: minimum score "
+                    f"{min(current_top_scores):.3f} < 0.5"
+                )
+                break
+            expansion_round += 1
+
+            logger.debug(
+                f"Expansion round {expansion_round}: {len(all_results)} total results"
+            )
+
+        # Step 3: Final filtering and pagination
+        # In multi-hop search, threshold applies to rerank scores (not similarity scores)
+        # since rerank scores are the final relevance metric after expansion
         if threshold is not None:
-            unique_results = [r for r in unique_results if r.get("score", 1.0) >= threshold]
+            # Use 0.0 default so unscored results are treated as low relevance, not perfect matches
+            all_results = [r for r in all_results if r.get("score", 0.0) >= threshold]
+            logger.debug(f"Applied rerank score threshold {threshold}, {len(all_results)} results remain")
 
         # Apply pagination
-        total_results = len(unique_results)
-        paginated_results = unique_results[offset : offset + page_size]
+        total_results = len(all_results)
+        paginated_results = all_results[offset : offset + page_size]
 
         pagination = {
             "offset": offset,
             "page_size": page_size,
             "has_more": offset + page_size < total_results,
-            "next_offset": offset + page_size if offset + page_size < total_results else None,
+            "next_offset": offset + page_size
+            if offset + page_size < total_results
+            else None,
             "total": total_results,
         }
 
+        elapsed_time = time.perf_counter() - start_time
         logger.info(
-            f"Two-hop semantic search completed: {len(paginated_results)} results returned "
-            f"({total_results} total candidates)"
+            f"Dynamic expansion search completed in {elapsed_time:.2f}s: "
+            f"{len(paginated_results)} results returned "
+            f"({total_results} total candidates, "
+            f"{expansion_round} expansion rounds)"
         )
         return paginated_results, pagination
 
@@ -264,7 +415,8 @@ class SearchService(BaseService):
             pattern: Regular expression pattern to search for
             page_size: Number of results per page
             offset: Starting position for pagination
-            path_filter: Optional relative path to limit search scope (e.g., 'src/', 'tests/')
+            path_filter: Optional relative path to limit search scope
+                (e.g., 'src/', 'tests/')
 
         Returns:
             Tuple of (results, pagination_metadata)
@@ -340,7 +492,9 @@ class SearchService(BaseService):
             # Regex search
             if regex_pattern:
 
-                async def get_regex_results() -> tuple[list[dict[str, Any]], dict[str, Any]]:
+                async def get_regex_results() -> tuple[
+                    list[dict[str, Any]], dict[str, Any]
+                ]:
                     return self.search_regex(
                         regex_pattern, page_size=page_size * 2, offset=offset
                     )

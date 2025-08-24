@@ -6,7 +6,7 @@ description: Technical deep dive into ChunkHound's architecture, algorithms, and
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 import { Card, CardGrid, Aside } from '@astrojs/starlight/components';
 import SemanticSearchFlow from '../../components/SemanticSearchFlow.tsx';
-import TwoHopSearchFlow from '../../components/TwoHopSearchFlow.tsx';
+import MultiHopSearchFlow from '../../components/MultiHopSearchFlow.tsx';
 
 ## Architecture Overview
 
@@ -30,7 +30,7 @@ ChunkHound uses a local-first architecture with embedded databases and universal
 
   <Card title="Advanced Algorithms" icon="rocket">
     **[cAST](https://arxiv.org/pdf/2506.15655)** - Semantic code chunking preserving AST structure
-    **Two-Hop Search** - Context-aware search with reranking
+    **Multi-Hop Search** - Context-aware search with reranking
   </Card>
 </CardGrid>
 
@@ -141,20 +141,40 @@ The standard approach used by most embedding providers:
 2. Search the vector index for nearest neighbors
 3. Return top-k most similar code chunks
 
-### Two-Hop Semantic Search
+### Multi-Hop Semantic Search
 
-Advanced search for providers with reranking (VoyageAI, custom servers):
+Traditional semantic search finds code that directly matches your query, but real codebases are interconnected webs of relationships. When you search for "authentication," you don't just want the login function—you want the password hashing, token validation, session management, and security logging that work together to make authentication complete.
 
-<TwoHopSearchFlow client:load />
+Multi-hop search addresses this by following semantic relationships. It starts with direct matches, then identifies similar code to expand the result set. Through iterative expansion rounds, it discovers related functionality across architectural boundaries.
 
-**Why it's better**:
-- **Semantic bridging**: Discovers related concepts through intermediate connections
-- **Example**: Search "authentication" → finds `validateLogin()` → discovers related `hashPassword()` through semantic similarity
-- **Context expansion**: Finds supporting functions you might not think to search for
-- **Research foundation**: Based on advanced retrieval techniques in RAG systems
+<MultiHopSearchFlow client:load />
 
-<Aside type="tip" title="When Two-Hop Activates">
-Two-hop search automatically activates when you use providers with reranking support:
+The process resembles following references in technical documentation. Starting with "authentication," you might discover "cryptographic hash," then "salt generation," then "timing attack prevention." Each step reveals related concepts that share semantic similarity with your original query.
+
+The algorithm maintains focus throughout exploration by continuously reranking all discovered code against the original query. This prevents semantic drift, ensuring that expansion doesn't compromise relevance.
+
+Consider how ChunkHound discovers these semantic chains in its own codebase: a search for "HNSW optimization" finds the initial embedding repository code, expands to discover the DuckDB provider optimizations, then the search service coordination, and finally the indexing orchestration—a complete end-to-end picture of how vector indexing works across architectural layers.
+
+### How Multi-Hop Search Works
+
+Multi-hop search begins by retrieving more initial candidates than standard semantic search. Instead of returning just the requested number of results, it retrieves three times that amount (up to 100 total) of the top-ranked matches. This provides the reranking algorithm with more high-quality candidates to evaluate. These expanded initial results undergo immediate reranking against the original query, establishing a relevance baseline for subsequent expansion rounds.
+
+The expansion phase takes the highest-scoring chunks as seeds to discover semantic neighbors—code that shares similar patterns, concepts, or functionality. This creates the "hops": from query to initial matches, then from those matches to their related code, forming chains of semantic relationships across the codebase.
+
+After each expansion round, the algorithm maintains focus by reranking all discovered code against the original query. This continuous relevance assessment prevents semantic drift, ensuring that multi-hop exploration doesn't compromise result quality.
+
+The process continues iteratively until convergence detection triggers termination. Multi-hop search monitors its progress through rate-of-change analysis, ending exploration when score improvements diminish below the threshold, when computational limits are reached, or when insufficient expansion candidates remain.
+
+### Convergence Detection
+
+Multi-hop search implements several termination criteria to balance comprehensive discovery with computational efficiency. Left unchecked, semantic expansion could theoretically connect any piece of code to any other piece through enough intermediate hops—most codebases are more interconnected than they appear. The algorithm uses gradient-based convergence detection to recognize when exploration should cease.
+
+The system monitors three key signals for termination. First, it employs **rate-of-change monitoring** similar to early stopping in machine learning: when reranking scores degrade by more than 0.15 between iterations, indicating diminishing relevance returns. This derivative-based stopping criterion is common in optimization algorithms, effectively measuring the "convergence velocity" of score improvements. Second, it respects computational boundaries—both execution time (5 seconds maximum) and result volume (500 candidates maximum). Third, it detects resource exhaustion when fewer than 5 high-scoring candidates remain for productive expansion.
+
+This convergence detection creates a practical balance. The algorithm explores broadly enough to discover cross-domain relationships while terminating before semantic drift compromises result quality.
+
+<Aside type="tip" title="When Multi-Hop Activates">
+Multi-hop search automatically activates when you use providers with reranking support:
 - **[VoyageAI](https://docs.voyageai.com/docs/reranking)**: Built-in `rerank-lite-1` model
 - **Custom servers**: With reranking endpoints following [OpenAI format](https://platform.openai.com/docs/api-reference)
 - **[OpenAI](https://platform.openai.com/docs/guides/embeddings)**: Falls back to regular search (no reranking)

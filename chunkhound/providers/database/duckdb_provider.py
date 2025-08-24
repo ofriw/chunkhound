@@ -12,6 +12,7 @@
 """
 
 import os
+import re
 import threading
 import time
 from pathlib import Path
@@ -1957,30 +1958,58 @@ class DuckDBProvider(SerialDatabaseProvider):
     ) -> list[dict[str, Any]]:
         """Executor method for find_similar_chunks - runs in DB thread."""
         try:
-            # Determine table name and dimensions based on provider
-            if provider == "voyageai":
-                table_name = "embeddings_1024"
-                embedding_type = "FLOAT[1024]"
-            else:  # Default to OpenAI dimensions
-                table_name = "embeddings_1536"
-                embedding_type = "FLOAT[1536]"
+            # Find which table contains this chunk's embedding (reuse existing pattern)
+            embedding_tables = self._executor_get_all_embedding_tables(conn, state)
+            target_embedding = None
+            dims = None
+            table_name = None
             
-            # Get the embedding for the target chunk
-            embedding_query = f"""
-                SELECT embedding
-                FROM {table_name}
-                WHERE chunk_id = ?
-                AND provider = ?
-                AND model = ?
-                LIMIT 1
-            """
-            result = conn.execute(embedding_query, [chunk_id, provider, model]).fetchone()
+            # logger.debug(f"Looking for embedding: chunk_id={chunk_id}, provider='{provider}', model='{model}'")
+            # logger.debug(f"Available embedding tables: {embedding_tables}")
             
-            if not result:
-                logger.warning(f"No embedding found for chunk_id={chunk_id}, provider={provider}, model={model}")
-                return []
+            for table in embedding_tables:
+                result = conn.execute(f"""
+                    SELECT embedding
+                    FROM {table}
+                    WHERE chunk_id = ? AND provider = ? AND model = ?
+                    LIMIT 1
+                """, [chunk_id, provider, model]).fetchone()
                 
-            target_embedding = result[0]
+                if result:
+                    target_embedding = result[0]
+                    # Extract dimensions from table name (e.g., "embeddings_1536" -> 1536)
+                    dims_match = re.match(r'embeddings_(\d+)', table)
+                    if dims_match:
+                        dims = int(dims_match.group(1))
+                        table_name = table
+                        # logger.debug(f"Found embedding in table {table} for chunk_id={chunk_id}")
+                        break
+                else:
+                    # Debug what's actually in this table for this chunk
+                    all_for_chunk = conn.execute(f"""
+                        SELECT provider, model, chunk_id
+                        FROM {table}
+                        WHERE chunk_id = ?
+                    """, [chunk_id]).fetchall()
+                    # if all_for_chunk:
+                    #     logger.debug(f"Table {table} has chunk_id={chunk_id} but with different provider/model: {all_for_chunk}")
+            
+            if not target_embedding or dims is None:
+                # Show what providers/models are actually available for this chunk
+                all_providers_models = []
+                for table in embedding_tables:
+                    results = conn.execute(f"""
+                        SELECT DISTINCT provider, model
+                        FROM {table}
+                        WHERE chunk_id = ?
+                    """, [chunk_id]).fetchall()
+                    all_providers_models.extend(results)
+                
+                logger.warning(f"No embedding found for chunk_id={chunk_id}, provider='{provider}', model='{model}'")
+                logger.warning(f"Available provider/model combinations for this chunk: {all_providers_models}")
+                return []
+            
+            embedding_type = f"FLOAT[{dims}]"
             
             # Use the embedding to find similar chunks
             similarity_metric = "cosine"  # Default for semantic search
@@ -2035,6 +2064,109 @@ class DuckDBProvider(SerialDatabaseProvider):
             
         except Exception as e:
             logger.error(f"Failed to find similar chunks: {e}")
+            return []
+
+    def search_by_embedding(
+        self,
+        query_embedding: list[float],
+        provider: str,
+        model: str,
+        limit: int = 10,
+        threshold: float | None = None,
+        path_filter: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Find chunks similar to the given embedding vector."""
+        return self._execute_in_db_thread_sync(
+            "search_by_embedding",
+            query_embedding,
+            provider,
+            model,
+            limit,
+            threshold,
+            path_filter,
+        )
+
+    def _executor_search_by_embedding(
+        self,
+        conn: Any,
+        state: dict[str, Any],
+        query_embedding: list[float],
+        provider: str,
+        model: str,
+        limit: int,
+        threshold: float | None,
+        path_filter: str | None,
+    ) -> list[dict[str, Any]]:
+        """Executor method for search_by_embedding - runs in DB thread."""
+        try:
+            # Detect dimensions from query embedding (reuse pattern from search_semantic)
+            query_dims = len(query_embedding)
+            table_name = f"embeddings_{query_dims}"
+            embedding_type = f"FLOAT[{query_dims}]"
+            
+            # Check if table exists for these dimensions (reuse existing validation pattern)
+            if not self._executor_table_exists(conn, state, table_name):
+                logger.warning(f"No embeddings table found for {query_dims} dimensions ({table_name})")
+                return []
+
+            # Build path filter condition
+            path_condition = ""
+            query_params = [query_embedding, provider, model, limit]
+            
+            if path_filter:
+                # Convert relative path to SQL pattern
+                path_pattern = f"%{path_filter}%"
+                path_condition = "AND f.path LIKE ?"
+                query_params.insert(-1, path_pattern)  # Insert before limit
+            
+            # Build threshold condition
+            threshold_condition = f"AND distance <= {threshold}" if threshold is not None else ""
+            
+            # Query for similar chunks using the provided embedding
+            query = f"""
+                SELECT 
+                    c.id as chunk_id,
+                    c.symbol as name,
+                    c.code as content,
+                    c.chunk_type,
+                    c.start_line,
+                    c.end_line,
+                    f.path as file_path,
+                    f.language,
+                    array_cosine_distance(e.embedding, ?::{embedding_type}) as distance
+                FROM {table_name} e
+                JOIN chunks c ON e.chunk_id = c.id
+                JOIN files f ON c.file_id = f.id
+                WHERE e.provider = ?
+                AND e.model = ?
+                {path_condition}
+                {threshold_condition}
+                ORDER BY distance ASC
+                LIMIT ?
+            """
+            
+            results = conn.execute(query, query_params).fetchall()
+            
+            # Format results
+            result_list = [
+                {
+                    "chunk_id": result[0],
+                    "name": result[1],
+                    "content": result[2],
+                    "chunk_type": result[3],
+                    "start_line": result[4],
+                    "end_line": result[5],
+                    "file_path": result[6],
+                    "language": result[7],
+                    "score": 1.0 - result[8],  # Convert distance to similarity score
+                }
+                for result in results
+            ]
+            
+            return result_list
+            
+        except Exception as e:
+            logger.error(f"Failed to search by embedding: {e}")
             return []
 
     def search_text(self, query: str, limit: int = 10) -> list[dict[str, Any]]:
