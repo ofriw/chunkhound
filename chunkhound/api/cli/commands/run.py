@@ -143,7 +143,7 @@ def _validate_run_arguments(
     # Validate provider arguments
     if not args.no_embeddings:
         # Use unified config values if available, fall back to CLI args
-        if config:
+        if config and config.embedding:
             provider = config.embedding.provider
             api_key = (
                 config.embedding.api_key.get_secret_value()
@@ -153,10 +153,19 @@ def _validate_run_arguments(
             base_url = config.embedding.base_url
             model = config.embedding.model
         else:
-            provider = args.provider
-            api_key = args.api_key
-            base_url = args.base_url
-            model = args.model
+            # Check if CLI args have provider info
+            provider = getattr(args, 'provider', None)
+            api_key = getattr(args, 'api_key', None)
+            base_url = getattr(args, 'base_url', None)
+            model = getattr(args, 'model', None)
+            
+            # If no provider info found, provide helpful error
+            if not provider:
+                formatter.error("No embedding provider configured.")
+                formatter.info("To fix this, you can:")
+                formatter.info("  1. Create a .chunkhound.json config file with embedding settings")
+                formatter.info("  2. Use --no-embeddings to skip embeddings")
+                return False
 
         if not validate_provider_args(provider, api_key, base_url, model):
             return False
