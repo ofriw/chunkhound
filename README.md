@@ -57,9 +57,26 @@ uv tool install chunkhound
 
 ## Quick Start
 
+### Option 1: With Embeddings (Recommended)
+
+
+1. Create `.chunkhound.json` in project root file
+```json
+{
+  "embedding": {
+    "provider": "openai",
+    "api_key": "your-api-key-here"
+  }
+}
+```
+2. Index your codebase
 ```bash
-# Index your codebase
 chunkhound index
+```
+
+### Option 2: Without embeddings (regex search only)
+```bash
+chunkhound index --no-embeddings
 ```
 
 **For configuration, IDE setup, and advanced usage, see the [documentation](https://ofriw.github.io/chunkhound).**
