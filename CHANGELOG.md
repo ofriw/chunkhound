@@ -47,7 +47,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Enhanced
 - Parsing system completely rebuilt with cAST (Code AST) algorithm for universal language support
-- Configuration system dramatically simplified with fewer user-facing options for easier setup  
+- Configuration system dramatically simplified with fewer user-facing options for easier setup
 - OpenAI provider unified to handle both standard and custom OpenAI-compatible endpoints
 - MCP server reliability improved with proper initialization sequencing and watchdog coordination
 - Test infrastructure enhanced with Ollama compatibility and extended timeouts
@@ -72,7 +72,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Enhanced
 - Architecture documentation significantly improved for better LLM comprehension and AI-assisted development workflows
 
-### Fixed  
+### Fixed
 - Type annotation syntax errors that could cause import failures in Python 3.10+ environments
 - Enhanced smoke tests now detect forward reference type annotation issues early
 
@@ -81,14 +81,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - MCP HTTP transport support alongside stdio transport for flexible deployment options
 
-### Enhanced  
+### Enhanced
 - Configuration system unified across CLI and MCP components for consistent behavior
 - File change processing reliability improved in MCP servers with better debouncing and coordination
 - Database portability enhanced with relative path storage
 
 ### Fixed
 - MCP server initialization deadlocks and startup crashes resolved with proper async coordination
-- File deletion handling improved using IndexingCoordinator for better reliability  
+- File deletion handling improved using IndexingCoordinator for better reliability
 - MCP server tool discovery enhanced with fallback logic for better error recovery
 - File path resolution improved in DuckDB provider for cross-platform consistency
 

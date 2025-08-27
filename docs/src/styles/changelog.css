@@ -1,0 +1,367 @@
+/**
+ * Simplified changelog styles - following KISS principle
+ * Reduced from 645 lines to ~200 lines by removing redundancy
+ */
+
+/* ========== Page Layout ========== */
+
+.changelog-title {
+    font-size: 3rem;
+    font-weight: 700;
+    color: var(--color-text);
+    margin-bottom: 1rem;
+    padding-top: 3rem;
+}
+
+.changelog-subtitle {
+    font-size: 1.25rem;
+    color: var(--color-text-secondary);
+    margin-bottom: 2rem;
+    line-height: 1.6;
+}
+
+.changelog-stats {
+    display: flex;
+    gap: 2rem;
+    flex-wrap: wrap;
+    padding-bottom: 2rem;
+}
+
+.stat-item {
+    text-align: center;
+    margin-top: 0px;
+}
+
+.stat-number {
+    font-size: 2rem;
+    font-weight: 700;
+    color: var(--color-primary);
+    margin-right: 0.5rem;
+}
+
+.stat-label {
+    font-size: 0.875rem;
+    color: var(--color-text-secondary);
+    text-transform: uppercase;
+    font-weight: 600;
+}
+
+/* ========== Card Components (Shared Base) ========== */
+
+.version-card,
+.change-card {
+    background: var(--color-bg-elevated);
+    border: 1px solid var(--color-border);
+    border-radius: 12px;
+    overflow: hidden;
+    margin: 1rem 0;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+    transition: all 0.2s ease;
+}
+
+.version-card:hover,
+.change-card:hover {
+    border-color: var(--color-border-hover);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+.change-card:hover {
+    transform: translateY(-2px);
+}
+
+/* ========== Version Card Specific ========== */
+
+.version-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1.5rem;
+    cursor: pointer;
+    user-select: none;
+    transition: background-color 0.2s ease;
+}
+
+.version-header:hover {
+    background-color: var(--color-bg-secondary);
+}
+
+.version-title {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 0.5rem;
+}
+
+.version-badge {
+    font-size: 1.25rem;
+    font-weight: 600;
+    padding: 0.25rem 0.75rem;
+    border-radius: 6px;
+    font-family: "Monaco", "Menlo", monospace;
+}
+
+.version-badge.success {
+    background: var(--color-success-bg);
+    color: var(--color-success);
+    border: 1px solid var(--color-success);
+}
+
+.version-badge.info {
+    background: var(--color-info-bg);
+    color: var(--color-info);
+    border: 1px solid var(--color-info);
+}
+
+.version-badge.warning {
+    background: var(--color-warning-bg);
+    color: var(--color-warning);
+    border: 1px solid var(--color-warning);
+}
+
+.version-type {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    font-weight: 600;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    background: var(--color-bg-tertiary);
+    color: var(--color-text-secondary);
+}
+
+.breaking-badge {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    font-weight: 600;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    background: var(--color-error-bg);
+    color: var(--color-error);
+    border: 1px solid var(--color-error);
+}
+
+.version-meta {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.875rem;
+    color: var(--color-text-secondary);
+}
+
+.expand-icon {
+    font-size: 1rem;
+    color: var(--color-text-secondary);
+    transition: transform 0.2s ease;
+}
+
+.version-content {
+    padding: 1.5rem;
+    border-top: 1px solid var(--color-border);
+    background: var(--color-bg-secondary);
+}
+
+/* ========== Change Sections ========== */
+
+.change-section {
+    margin-bottom: 1.5rem;
+}
+
+.change-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+    font-weight: 600;
+    font-size: 0.875rem;
+}
+
+.change-header.success {
+    color: var(--color-success);
+}
+.change-header.info {
+    color: var(--color-info);
+}
+.change-header.primary {
+    color: var(--color-primary);
+}
+.change-header.fixed {
+    color: var(--color-fixed);
+}
+.change-header.enhanced {
+    color: var(--color-enhanced);
+}
+.change-header.neutral {
+    color: var(--color-neutral);
+}
+.change-header.warning {
+    color: var(--color-warning);
+}
+.change-header.error {
+    color: var(--color-error);
+}
+
+.change-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.change-item {
+    padding: 0.5rem 0;
+    border-bottom: 1px solid var(--color-border);
+    color: var(--color-text);
+    line-height: 1.5;
+}
+
+.change-item:last-child {
+    border-bottom: none;
+}
+
+.change-item::before {
+    content: "•";
+    color: var(--color-text-tertiary);
+    margin-right: 0.75rem;
+}
+
+/* ========== Latest Changes Section ========== */
+
+.latest-changes {
+    margin: 3rem 0;
+}
+
+.latest-changes-header {
+    text-align: center;
+    margin-bottom: 2rem;
+}
+
+.latest-changes-header h2 {
+    font-size: 2.25rem;
+    font-weight: 700;
+    color: var(--color-text);
+    margin-bottom: 0.75rem;
+}
+
+.latest-changes-header p {
+    font-size: 1.125rem;
+    color: var(--color-text-secondary);
+    max-width: 600px;
+    margin: 0 auto;
+    line-height: 1.6;
+}
+
+.latest-changes-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 1.5rem;
+    margin-bottom: 2rem;
+}
+
+.change-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1.25rem 1.5rem;
+    background: var(--color-bg-secondary);
+    border-bottom: 1px solid var(--color-border);
+}
+
+.change-card-content {
+    padding: 1.5rem;
+}
+
+.change-summary {
+    font-weight: 500;
+    color: var(--color-text);
+    margin-bottom: 1rem;
+    line-height: 1.5;
+}
+
+.change-highlights {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.highlight-item {
+    padding: 0.25rem 0 0.25rem 1.25rem;
+    font-size: 0.875rem;
+    color: var(--color-text-secondary);
+    line-height: 1.4;
+    position: relative;
+}
+
+.highlight-item::before {
+    content: "✓";
+    position: absolute;
+    left: 0;
+    color: var(--color-success);
+    font-weight: 600;
+    font-size: 0.75rem;
+}
+
+.view-all-link {
+    text-align: center;
+    margin-top: 2.5rem;
+}
+
+.btn-secondary {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1.5rem;
+    background: transparent;
+    color: var(--color-primary);
+    border: 2px solid var(--color-border);
+    border-radius: 8px;
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 0.875rem;
+    transition: all 0.2s ease;
+}
+
+.btn-secondary:hover {
+    background: var(--color-primary-muted);
+    border-color: var(--color-primary);
+    transform: translateY(-1px);
+}
+
+/* ========== Responsive Design ========== */
+
+@media (max-width: 768px) {
+    .changelog-title {
+        font-size: 2.25rem;
+    }
+
+    .latest-changes-header h2 {
+        font-size: 1.875rem;
+    }
+
+    .latest-changes-header p {
+        font-size: 1rem;
+    }
+
+    .version-header {
+        padding: 1rem;
+    }
+
+    .version-content {
+        padding: 0 1rem 1rem;
+    }
+
+    .version-title {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.5rem;
+    }
+
+    .version-badge {
+        font-size: 1rem;
+    }
+
+    .changelog-stats {
+        gap: 4rem;
+    }
+
+    .stat-number {
+        font-size: 1.5rem;
+    }
+}

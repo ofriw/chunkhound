@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 155 40">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 155 45">
   <!-- Detailed hound logo -->
-  <g transform="translate(1, 37) scale(0.01, -0.01)" fill="#7C8FFF">
+  <g transform="translate(1, 42) scale(0.01, -0.01)" fill="#7C8FFF">
     <path d="M1755 3604 c-84 -16 -209 -77 -287 -139 -127 -100 -200 -212 -404
     -615 l-129 -254 0 -101 c0 -92 3 -105 33 -170 l33 -71 -41 -89 c-57 -125 -198
     -358 -341 -563 -135 -194 -147 -225 -106 -266 34 -34 95 -36 124 -4 22 25 126
@@ -23,6 +23,6 @@
 
   <!-- ChunkHound text -->
   <g font-family="'Inter', system-ui, -apple-system, sans-serif" font-weight="600">
-    <text x="39" y="26" font-size="18" fill="#FAFAFA">Chunk</text><text x="94" y="26" font-size="18" fill="#7C8FFF">Hound</text>
+    <text x="39" y="32" font-size="18" fill="#FAFAFA">Chunk</text><text x="94" y="32" font-size="18" fill="#7C8FFF">Hound</text>
   </g>
 </svg>

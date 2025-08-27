@@ -1,0 +1,74 @@
+---
+import { getCollection } from 'astro:content';
+import StarlightPage from '@astrojs/starlight/components/StarlightPage.astro';
+import VersionCard from '../components/VersionCard.tsx';
+import ChangelogStats from '../components/ChangelogStats.tsx';
+
+const versions = await getCollection('changelog');
+const sortedVersions = versions.sort((a, b) => {
+  // Sort by semantic version (newest first)
+  return b.data.version.localeCompare(a.data.version, undefined, { numeric: true });
+});
+
+const v3Versions = sortedVersions.filter(v => v.data.version.startsWith('3.'));
+const v2Versions = sortedVersions.filter(v => v.data.version.startsWith('2.'));
+const v1Versions = sortedVersions.filter(v => v.data.version.startsWith('1.'));
+---
+
+<StarlightPage
+  frontmatter={{
+    title: 'Version History',
+    description: 'All notable changes to ChunkHound documented with release history and version details.'
+  }}
+>
+
+<!-- Styles moved to changelog.css to avoid !important overrides -->
+
+<h1 class="changelog-title">Changelog</h1>
+<div class="changelog-subtitle">
+  Track ChunkHound's evolution with detailed release notes and version history.
+  All notable changes are documented following semantic versioning.
+</div>
+<ChangelogStats versions={sortedVersions} client:load />
+
+{v3Versions.map(version => (
+  <VersionCard
+    client:load
+    version={version.data.version}
+    date={version.data.date || ''}
+    changes={version.data.changes}
+    isBreaking={version.data.isBreaking}
+  />
+))}
+
+{v2Versions.length > 0 && (
+  <details>
+    <summary><strong>Version 2.x Series ({v2Versions.length} versions)</strong></summary>
+    {v2Versions.map(version => (
+      <VersionCard
+        client:load
+        version={version.data.version}
+        date={version.data.date || ''}
+        changes={version.data.changes}
+        isBreaking={version.data.isBreaking}
+      />
+    ))}
+  </details>
+)}
+
+{v1Versions.length > 0 && (
+  <details>
+    <summary><strong>Version 1.x Series ({v1Versions.length} versions)</strong></summary>
+    {v1Versions.map(version => (
+      <VersionCard
+        client:load
+        version={version.data.version}
+        date={version.data.date || ''}
+        changes={version.data.changes}
+        isBreaking={version.data.isBreaking}
+      />
+    ))}
+  </details>
+)}
+
+</StarlightPage>

@@ -20,6 +20,7 @@ export default defineConfig({
 			favicon: '/favicon.svg',
 			customCss: [
 				'./src/styles/colors.css',
+				'./src/styles/changelog.css',
 			],
 			expressiveCode: {
 				themes: ['github-light', 'github-dark'],
@@ -31,6 +32,7 @@ export default defineConfig({
 				{ label: 'Tutorial', slug: 'tutorial' },
 				{ label: 'Configuration', slug: 'configuration' },
 				{ label: 'Under the Hood', slug: 'under-the-hood' },
+				{ label: 'Changelog', link: '/changelog' },
 			],
 		}),
 	],

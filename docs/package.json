@@ -13,6 +13,7 @@
     "@astrojs/react": "^4.3.0",
     "@astrojs/starlight": "^0.35.2",
     "astro": "^5.6.1",
+    "changelog-parser": "^3.0.1",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "sharp": "^0.34.2"
