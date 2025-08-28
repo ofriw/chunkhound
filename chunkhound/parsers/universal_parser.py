@@ -552,6 +552,8 @@ class UniversalParser:
         chunks = []
         remaining = chunk.content
         part_num = 1
+        total_content_length = len(chunk.content)
+        current_pos = 0  # Track position in original content for line number calculation
 
         while remaining:
             remaining_metrics = ChunkMetrics.from_content(remaining)
@@ -559,7 +561,9 @@ class UniversalParser:
                 remaining_metrics.non_whitespace_chars
                 <= self.cast_config.max_chunk_size
             ):
-                chunks.append(self._create_split_chunk(chunk, remaining, part_num))
+                chunks.append(self._create_split_chunk(
+                    chunk, remaining, part_num, current_pos, total_content_length
+                ))
                 break
 
             # Find best split point within size limit
@@ -585,23 +589,81 @@ class UniversalParser:
                 best_split = max_chars
 
             chunks.append(
-                self._create_split_chunk(chunk, remaining[:best_split], part_num)
+                self._create_split_chunk(
+                    chunk, remaining[:best_split], part_num, current_pos, total_content_length
+                )
             )
             remaining = remaining[best_split:]
+            current_pos += best_split  # Update position tracker for next chunk's line calculation
             part_num += 1
 
         return chunks
 
     def _create_split_chunk(
-        self, original: UniversalChunk, content: str, part_num: int
+        self, original: UniversalChunk, content: str, part_num: int, content_start_pos: int = 0, total_content_length: int = 0
     ) -> UniversalChunk:
-        """Create a split chunk from emergency splitting."""
+        """Create a split chunk from emergency splitting with proper line number calculation."""
+        
+        # Calculate line numbers based on content position within the original chunk
+        total_lines = original.end_line - original.start_line + 1
+        
+        if total_content_length > 0 and content_start_pos >= 0:
+            # PROPORTIONAL LINE CALCULATION APPROACH:
+            # When emergency splitting occurs, we need to estimate line numbers for each chunk part.
+            # Since we only have character positions, we use proportional estimation based on
+            # the assumption that characters are roughly evenly distributed across lines.
+            # This is an approximation - actual line counting would be more accurate but requires
+            # scanning the content for newlines, which could impact performance for large chunks.
+            
+            # Calculate proportional line numbers based on character position
+            content_ratio = content_start_pos / total_content_length
+            content_length_ratio = len(content) / total_content_length
+            
+            # Calculate start line based on position ratio
+            # Example: if we're 50% through the content, start at 50% through the line range
+            line_offset = int(content_ratio * total_lines)
+            start_line = original.start_line + line_offset
+            
+            # Calculate end line based on content length ratio
+            # Example: if this chunk is 25% of total content, allocate 25% of total lines
+            lines_for_content = max(1, int(content_length_ratio * total_lines))
+            end_line = min(original.end_line, start_line + lines_for_content - 1)
+            
+            # Ensure valid line range (defensive programming)
+            if start_line > end_line:
+                end_line = start_line
+                
+        else:
+            # Fallback: use original line numbers (maintains backward compatibility)
+            # This path is taken when position tracking isn't available
+            start_line = original.start_line
+            end_line = original.end_line
+        
+        # Validate line range before creating chunk
+        if start_line > end_line:
+            logger.warning(
+                f"Invalid line range calculated for split chunk {part_num}: "
+                f"start_line={start_line} > end_line={end_line}. "
+                f"Original range: {original.start_line}-{original.end_line}. "
+                f"Correcting to single line at {start_line}"
+            )
+            end_line = start_line
+        
+        # Debug logging for line calculations
+        # Useful for debugging line number estimation accuracy in emergency splitting scenarios
+        if total_content_length > 0:
+            logger.debug(
+                f"Split chunk {part_num}: lines {start_line}-{end_line} "
+                f"(pos {content_start_pos}/{total_content_length}, "
+                f"content_len={len(content)})"
+            )
+        
         return UniversalChunk(
             concept=original.concept,
             name=f"{original.name}_part{part_num}",
             content=content,
-            start_line=original.start_line,
-            end_line=original.end_line,
+            start_line=start_line,
+            end_line=end_line,
             metadata=original.metadata.copy(),
             language_node_type=original.language_node_type,
         )

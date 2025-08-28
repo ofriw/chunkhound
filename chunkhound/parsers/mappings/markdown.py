@@ -509,7 +509,7 @@ class MarkdownMapping(BaseMapping):
                 queries.append(function_query.strip())
                 
             if queries:
-                return '\n\n'.join(queries)
+                return '\n'.join(queries)
             else:
                 return None
                 
@@ -528,7 +528,7 @@ class MarkdownMapping(BaseMapping):
                 queries.append(blockquote_query.strip())
                 
             if queries:
-                return '\n\n'.join(queries)
+                return '\n'.join(queries)
             else:
                 return None
                 
@@ -658,11 +658,8 @@ class MarkdownMapping(BaseMapping):
         def_node = self._find_definition_node(captures)
         if def_node:
             source = content.decode('utf-8', errors='replace')
-            # Return the original markdown text for the node
             return self.get_node_text(def_node, source)
-        else:
-            # If no specific node found, return the entire content to ensure searchability
-            return content.decode('utf-8', errors='replace')
+        return ""
 
     def extract_metadata(self, concept: UniversalConcept, captures: Dict[str, "TSNode"], content: bytes) -> Dict[str, Any]:
         """Extract markdown-specific metadata."""
@@ -706,22 +703,20 @@ class MarkdownMapping(BaseMapping):
         Returns:
             Main definition node or None
         """
-        # Common patterns for definition nodes in markdown queries
-        definition_keys = [
+        # Priority order - prefer specific nodes over generic
+        priority_keys = [
             'atx_heading', 'setext_heading',
-            'fenced_code', 'indented_code',
-            'paragraph', 'list', 'list_item', 'blockquote',
-            'link_ref_def', 'pipe_table', 'html_comment',
-            'definition', 'def', 'block', 'comment', 'import', 'structure'
+            'fenced_code_block', 'code_block',
+            'paragraph', 'list_item', 
+            'blockquote', 'table'
         ]
         
-        # Try to find a definition node
-        for key in definition_keys:
+        for key in priority_keys:
             if key in captures:
                 return captures[key]
-                
-        # If no definition found, return the first capture
+        
+        # Return first capture if no priority match
         if captures:
             return list(captures.values())[0]
-            
+        
         return None
