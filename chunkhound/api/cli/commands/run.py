@@ -158,15 +158,6 @@ def _validate_run_arguments(
             api_key = getattr(args, 'api_key', None)
             base_url = getattr(args, 'base_url', None)
             model = getattr(args, 'model', None)
-            
-            # If no provider info found, provide helpful error
-            if not provider:
-                formatter.error("No embedding provider configured.")
-                formatter.info("To fix this, you can:")
-                formatter.info("  1. Create a .chunkhound.json config file with embedding settings")
-                formatter.info("  2. Use --no-embeddings to skip embeddings")
-                return False
-
         if not validate_provider_args(provider, api_key, base_url, model):
             return False
 

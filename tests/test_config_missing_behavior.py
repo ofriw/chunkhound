@@ -33,8 +33,8 @@ class TestConfigMissingBehavior:
             
             # Should show helpful error message
             assert "No embedding provider configured" in result.stderr, f"Error message not found in stderr: {result.stderr}"
-            assert "Create a .chunkhound.json config file" in result.stdout, f"Config file suggestion not found in stdout: {result.stdout}"
-            assert "--no-embeddings" in result.stdout, f"--no-embeddings option not found in stdout: {result.stdout}"
+            assert ".chunkhound.json config file" in result.stderr, f"Config file suggestion not found in stderr: {result.stderr}"
+            assert "--no-embeddings" in result.stderr, f"--no-embeddings option not found in stderr: {result.stderr}"
 
     def test_no_attribute_error_crash(self):
         """Test that we don't get AttributeError when no config exists (the main bug fix)."""
