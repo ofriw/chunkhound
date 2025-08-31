@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import multiprocessing
 import sys
+from pathlib import Path
 
 from loguru import logger
 
@@ -35,7 +36,7 @@ def setup_logging(verbose: bool = False) -> None:
     else:
         logger.add(
             sys.stderr,
-            level="INFO",
+            level="WARNING",
             format=(
                 "<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | "
                 "<level>{message}</level>"
@@ -80,9 +81,22 @@ async def async_main() -> None:
     config, validation_errors = create_validated_config(args, args.command)
 
     if validation_errors:
-        for error in validation_errors:
-            logger.error(f"Error: {error}")
-        sys.exit(1)
+        # Check if we can offer interactive setup wizard for index command
+        if args.command in [None, "index"]:
+            from .setup_wizard import _should_run_setup_wizard, run_setup_wizard
+
+            if _should_run_setup_wizard(validation_errors):
+                wizard_config = await run_setup_wizard(Path(args.path))
+
+                if wizard_config:
+                    # Re-validate with new config
+                    config, validation_errors = create_validated_config(args, args.command)
+
+        # If we still have errors after wizard (or wizard was skipped/cancelled)
+        if validation_errors:
+            for error in validation_errors:
+                logger.error(f"Error: {error}")
+            sys.exit(1)
 
     try:
         if args.command == "index":

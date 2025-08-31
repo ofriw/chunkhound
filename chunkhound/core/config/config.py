@@ -243,12 +243,17 @@ class Config(BaseModel):
                 f"Missing required configuration: {item}" for item in missing_config
             )
 
-        # Validate embedding provider requirements for index and MCP commands
-        if command in ["index", "mcp"]:
-            embedding_config = self.embedding
-
-            if embedding_config:
-                pass  # No provider-specific validation needed
+        # Validate embedding provider requirements for index command
+        if command == "index":
+            if self.embedding is None:
+                errors.append("No embedding provider configured")
+            elif self.embedding and not self.embedding.is_provider_configured():
+                errors.append("Embedding provider not properly configured")
+        
+        # For MCP command, embedding is optional
+        elif command == "mcp":
+            if self.embedding and not self.embedding.is_provider_configured():
+                errors.append("Embedding provider not properly configured")
 
         return errors
 
