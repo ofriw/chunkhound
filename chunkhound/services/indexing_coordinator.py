@@ -9,10 +9,10 @@
 import asyncio
 from fnmatch import fnmatch
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 from loguru import logger
-from tqdm import tqdm
+from rich.progress import Progress, TaskID
 
 from chunkhound.core.models import File
 from chunkhound.core.types.common import FileId, FilePath, Language
@@ -41,6 +41,7 @@ class IndexingCoordinator(BaseService):
         database_provider: DatabaseProvider,
         embedding_provider: EmbeddingProvider | None = None,
         language_parsers: dict[Language, UniversalParser] | None = None,
+        progress: Optional[Progress] = None,
     ):
         """Initialize indexing coordinator.
 
@@ -48,9 +49,11 @@ class IndexingCoordinator(BaseService):
             database_provider: Database provider for persistence
             embedding_provider: Optional embedding provider for vector generation
             language_parsers: Optional mapping of language to parser implementations
+            progress: Optional Rich Progress instance for hierarchical progress display
         """
         super().__init__(database_provider)
         self._embedding_provider = embedding_provider
+        self.progress = progress
         self._language_parsers = language_parsers or {}
 
         # Performance optimization: shared instances
@@ -716,25 +719,42 @@ class IndexingCoordinator(BaseService):
             total_files = 0
             total_chunks = 0
 
-            # Create progress bar for file processing
-            with tqdm(total=len(files), desc="Processing files", unit="file") as pbar:
-                for file_path in files:
-                    result = await self.process_file(file_path, skip_embeddings=True)
+            # Create progress task for file processing
+            file_task: Optional[TaskID] = None
+            if self.progress:
+                file_task = self.progress.add_task(
+                    "  └─ Processing files",
+                    total=len(files),
+                    speed="",
+                    info=""
+                )
+            
+            for file_path in files:
+                result = await self.process_file(file_path, skip_embeddings=True)
 
-                    if result["status"] in ["success", "up_to_date"]:
-                        total_files += 1
-                        total_chunks += result["chunks"]
-                        pbar.set_postfix_str(f"{total_chunks} chunks")
-                    elif result["status"] in ["skipped", "no_content", "no_chunks"]:
-                        # Still update progress for skipped files
-                        pass
-                    else:
-                        # Log errors but continue processing
-                        logger.warning(
-                            f"Failed to process {file_path}: {result.get('error', 'unknown error')}"
-                        )
+                if result["status"] in ["success", "up_to_date"]:
+                    total_files += 1
+                    total_chunks += result["chunks"]
+                    if file_task is not None and self.progress:
+                        self.progress.advance(file_task, 1)
+                        self.progress.update(file_task, info=f"{total_chunks} chunks")
+                elif result["status"] in ["skipped", "no_content", "no_chunks"]:
+                    # Still update progress for skipped files
+                    if file_task is not None and self.progress:
+                        self.progress.advance(file_task, 1)
+                else:
+                    # Log errors but continue processing
+                    logger.warning(
+                        f"Failed to process {file_path}: {result.get('error', 'unknown error')}"
+                    )
+                    if file_task is not None and self.progress:
+                        self.progress.advance(file_task, 1)
 
-                    pbar.update(1)
+            # Complete the file processing progress bar
+            if file_task is not None and self.progress:
+                task = self.progress.tasks[file_task]
+                if task.total:
+                    self.progress.update(file_task, completed=task.total)
 
             # Note: Embedding generation is handled separately via generate_missing_embeddings()
             # to provide a unified progress experience
@@ -908,6 +928,7 @@ class IndexingCoordinator(BaseService):
                 database_provider=self._db,
                 embedding_provider=self._embedding_provider,
                 optimization_batch_frequency=optimization_batch_frequency,
+                progress=self.progress,
             )
 
             return await embedding_service.generate_missing_embeddings(
@@ -1298,20 +1319,32 @@ class IndexingCoordinator(BaseService):
                 if file_path not in current_file_paths or should_exclude:
                     orphaned_files.append(file_path)
 
-            # Remove orphaned files with progress bar
+            # Remove orphaned files with progress tracking
             orphaned_count = 0
             if orphaned_files:
-                with tqdm(
-                    total=len(orphaned_files),
-                    desc="Cleaning orphaned files",
-                    unit="file",
-                ) as pbar:
-                    for file_path in orphaned_files:
-                        if self._db.delete_file_completely(file_path):
-                            orphaned_count += 1
-                            # Clean up the file lock for orphaned file
-                            self._cleanup_file_lock(Path(file_path))
-                        pbar.update(1)
+                cleanup_task: Optional[TaskID] = None
+                if self.progress:
+                    cleanup_task = self.progress.add_task(
+                        "  └─ Cleaning orphaned files",
+                        total=len(orphaned_files),
+                        speed="",
+                        info=""
+                    )
+                
+                for file_path in orphaned_files:
+                    if self._db.delete_file_completely(file_path):
+                        orphaned_count += 1
+                        # Clean up the file lock for orphaned file
+                        self._cleanup_file_lock(Path(file_path))
+                    
+                    if cleanup_task is not None and self.progress:
+                        self.progress.advance(cleanup_task, 1)
+
+                # Complete the cleanup progress bar
+                if cleanup_task is not None and self.progress:
+                    task = self.progress.tasks[cleanup_task]
+                    if task.total:
+                        self.progress.update(cleanup_task, completed=task.total)
 
                 logger.info(f"Cleaned up {orphaned_count} orphaned files from database")
 

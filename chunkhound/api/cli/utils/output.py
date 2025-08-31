@@ -10,13 +10,41 @@ from typing import Any
 class OutputFormatter:
     """Handles consistent output formatting across CLI commands."""
 
-    def __init__(self, verbose: bool = False):
+    def __init__(self, verbose: bool = False, use_color: bool | None = None):
         """Initialize output formatter.
 
         Args:
             verbose: Whether to enable verbose output
+            use_color: Whether to use colors (auto-detected if None)
         """
         self.verbose = verbose
+        self.use_color = use_color if use_color is not None else self._supports_color()
+
+    def _supports_color(self) -> bool:
+        """Check if terminal supports color output."""
+        return (
+            hasattr(sys.stdout, 'isatty') and sys.stdout.isatty() and
+            os.getenv('TERM') != 'dumb' and
+            os.getenv('NO_COLOR') is None
+        )
+
+    def _colorize(self, text: str, color: str) -> str:
+        """Apply color to text if color is supported."""
+        if not self.use_color:
+            return text
+
+        colors = {
+            'red': '\033[31m',
+            'green': '\033[32m', 
+            'yellow': '\033[33m',
+            'blue': '\033[34m',
+            'cyan': '\033[36m',
+            'reset': '\033[0m'
+        }
+
+        if color in colors:
+            return f"{colors[color]}{text}{colors['reset']}"
+        return text
 
     def info(self, message: str) -> None:
         """Print an info message.
@@ -24,7 +52,8 @@ class OutputFormatter:
         Args:
             message: Message to print
         """
-        print(f"ℹ️  {message}")
+        prefix = self._colorize("[INFO]", "blue") if self.use_color else "[INFO]"
+        print(f"{prefix} {message}")
 
     def success(self, message: str) -> None:
         """Print a success message.
@@ -32,7 +61,8 @@ class OutputFormatter:
         Args:
             message: Message to print
         """
-        print(f"✅ {message}")
+        prefix = self._colorize("[SUCCESS]", "green") if self.use_color else "[SUCCESS]"
+        print(f"{prefix} {message}")
 
     def warning(self, message: str) -> None:
         """Print a warning message.
@@ -40,7 +70,8 @@ class OutputFormatter:
         Args:
             message: Message to print
         """
-        print(f"⚠️  {message}")
+        prefix = self._colorize("[WARN]", "yellow") if self.use_color else "[WARN]"
+        print(f"{prefix} {message}")
 
     def error(self, message: str) -> None:
         """Print an error message.
@@ -50,7 +81,8 @@ class OutputFormatter:
         """
         # Skip stderr output in MCP mode to avoid JSON-RPC interference
         if not os.environ.get("CHUNKHOUND_MCP_MODE"):
-            print(f"❌ {message}", file=sys.stderr)
+            prefix = self._colorize("[ERROR]", "red") if self.use_color else "[ERROR]"
+            print(f"{prefix} {message}", file=sys.stderr)
 
     def verbose_info(self, message: str) -> None:
         """Print a verbose info message if verbose mode is enabled.
@@ -59,7 +91,37 @@ class OutputFormatter:
             message: Message to print
         """
         if self.verbose:
-            print(f"🔍 {message}")
+            prefix = self._colorize("[DEBUG]", "cyan") if self.use_color else "[DEBUG]"
+            print(f"{prefix} {message}")
+
+    def progress_indicator(self, message: str) -> None:
+        """Print a progress indicator message."""
+        prefix = self._colorize("[PROGRESS]", "cyan") if self.use_color else "[PROGRESS]"
+        print(f"{prefix} {message}")
+
+    def section_header(self, title: str) -> None:
+        """Print a section header with consistent formatting."""
+        print(f"\n{title}")
+        print("─" * len(title))
+
+    def box_section(self, title: str, content: list[tuple[str, str]], width: int = 50) -> None:
+        """Print a bordered section with key-value pairs."""
+        print(f"\n{title}")
+        print("─" * width)
+        
+        for key, value in content:
+            # Truncate long values
+            if len(value) > width - len(key) - 5:
+                value = value[:width - len(key) - 8] + "..."
+            print(f"│ {key:<12} │ {value:<{width-17}} │")
+        
+        print("─" * width)
+
+    def bullet_list(self, items: list[str], indent: int = 2) -> None:
+        """Print a clean bullet list."""
+        prefix = " " * indent + "-"
+        for item in items:
+            print(f"{prefix} {item}")
 
     def json_output(self, data: dict[str, Any]) -> None:
         """Print data as formatted JSON.
@@ -126,14 +188,14 @@ def format_health_status(status: dict[str, Any]) -> str:
         status: Health status dictionary
 
     Returns:
-        Formatted status string with emoji
+        Formatted status string
     """
     if status.get("healthy", False):
         response_time = status.get("response_time_ms", 0)
-        return f"🟢 Healthy ({response_time}ms)"
+        return f"Healthy ({response_time}ms)"
     else:
         error = status.get("error", "Unknown error")
-        return f"🔴 Unhealthy: {error}"
+        return f"Unhealthy: {error}"
 
 
 def format_file_size(size_bytes: float) -> str:

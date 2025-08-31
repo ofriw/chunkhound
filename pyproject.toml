@@ -45,7 +45,6 @@ dependencies = [
     "psutil>=5.8.0",
     "PyYAML>=6.0.0",
     "tiktoken>=0.9.0",
-    "tqdm>=4.66.0",
     "tree-sitter-groovy>=0.1.2",
     "tree-sitter-kotlin>=0.3.0",
     "tree-sitter-make>=0.1.0",
@@ -67,6 +66,8 @@ dependencies = [
     "voyageai>=0.2.0",
     "httpx>=0.28.1",
     "pymupdf>=1.23.0",
+    "questionary>=2.0.1",
+    "rich>=13.0.0",
 ]
 
 [project.optional-dependencies]
