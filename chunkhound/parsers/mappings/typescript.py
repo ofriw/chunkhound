@@ -203,7 +203,7 @@ class TypeScriptMapping(BaseMapping):
                     child = node.child(i)
                     if child and child.type in ["identifier", "string", "computed_property_name"]:
                         return self.get_node_text(child, source)
-            
+
             return self.get_fallback_name(node, "function")
         except Exception as e:
             logger.error(f"Failed to extract TypeScript function name: {e}")
@@ -226,7 +226,7 @@ class TypeScriptMapping(BaseMapping):
             name_node = self.find_child_by_type(node, "type_identifier")
             if name_node:
                 return self.get_node_text(name_node, source)
-            
+
             return self.get_fallback_name(node, "class")
         except Exception as e:
             logger.error(f"Failed to extract TypeScript class name: {e}")
@@ -249,7 +249,7 @@ class TypeScriptMapping(BaseMapping):
             name_node = self.find_child_by_type(node, "type_identifier")
             if name_node:
                 return self.get_node_text(name_node, source)
-            
+
             return self.get_fallback_name(node, "interface")
         except Exception as e:
             logger.error(f"Failed to extract TypeScript interface name: {e}")
@@ -272,7 +272,7 @@ class TypeScriptMapping(BaseMapping):
             name_node = self.find_child_by_type(node, "identifier")
             if name_node:
                 return self.get_node_text(name_node, source)
-            
+
             return self.get_fallback_name(node, "enum")
         except Exception as e:
             logger.error(f"Failed to extract TypeScript enum name: {e}")
@@ -295,7 +295,7 @@ class TypeScriptMapping(BaseMapping):
             name_node = self.find_child_by_type(node, "type_identifier")
             if name_node:
                 return self.get_node_text(name_node, source)
-            
+
             return self.get_fallback_name(node, "type")
         except Exception as e:
             logger.error(f"Failed to extract TypeScript type alias name: {e}")
@@ -318,7 +318,7 @@ class TypeScriptMapping(BaseMapping):
             name_node = self.find_child_by_type(node, "identifier")
             if name_node:
                 return self.get_node_text(name_node, source)
-            
+
             return self.get_fallback_name(node, "namespace")
         except Exception as e:
             logger.error(f"Failed to extract TypeScript namespace name: {e}")
@@ -338,7 +338,7 @@ class TypeScriptMapping(BaseMapping):
             return []
 
         parameters: list[str] = []
-        
+
         try:
             # Find the parameters node
             params_node = None
@@ -428,7 +428,7 @@ class TypeScriptMapping(BaseMapping):
             return []
 
         modifiers: list[str] = []
-        
+
         try:
             # Look for accessibility_modifier and other modifier nodes
             for i in range(node.child_count):
@@ -464,7 +464,7 @@ class TypeScriptMapping(BaseMapping):
             return []
 
         decorators: list[str] = []
-        
+
         try:
             decorator_nodes = self.find_children_by_type(node, "decorator")
             for decorator_node in decorator_nodes:
@@ -507,11 +507,11 @@ class TypeScriptMapping(BaseMapping):
             Cleaned comment text
         """
         cleaned = super().clean_comment_text(text)
-        
+
         # Additional TypeScript-specific cleaning for TSDoc
         lines = cleaned.split('\n')
         cleaned_lines = []
-        
+
         for line in lines:
             line = line.strip()
             # Remove TSDoc comment markers
@@ -524,7 +524,7 @@ class TypeScriptMapping(BaseMapping):
                     break
             if line:
                 cleaned_lines.append(line)
-        
+
         return '\n'.join(cleaned_lines)
 
     def should_include_node(self, node: "TSNode | None", source: str) -> bool:
@@ -559,7 +559,7 @@ class TypeScriptMapping(BaseMapping):
                     name_node = self.find_child_by_type(node, "identifier")
                 else:
                     name_node = None
-                
+
                 if name_node:
                     func_name = self.get_node_text(name_node, source).strip()
                     # Include React components (start with uppercase)
@@ -596,7 +596,7 @@ class TypeScriptMapping(BaseMapping):
         """
         # Start with base chunk
         display_name = name
-        
+
         # Add TypeScript-specific enhancements
         if node and TREE_SITTER_AVAILABLE:
             try:
@@ -611,13 +611,13 @@ class TypeScriptMapping(BaseMapping):
                     parameters = self.extract_parameters(node, source)
                     param_str = ", ".join(parameters) if parameters else ""
                     display_name = f"{name}({param_str})"
-                    
+
                     # Add return type
                     return_type = self.extract_return_type(node, source)
                     if return_type:
                         display_name += f": {return_type}"
                         extra_fields["return_type"] = return_type
-                    
+
                     if parameters:
                         extra_fields["parameters"] = parameters
 

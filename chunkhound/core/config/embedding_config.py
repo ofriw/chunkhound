@@ -13,6 +13,7 @@ from typing import Any, Literal
 from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from chunkhound.core.constants import VOYAGE_DEFAULT_MODEL
 from .openai_utils import is_official_openai_endpoint
 
 
@@ -66,7 +67,7 @@ class EmbeddingConfig(BaseSettings):
     )
 
     rerank_url: str = Field(
-        default="/rerank", 
+        default="/rerank",
         description="Rerank endpoint URL. Absolute URLs (http/https) used as-is for separate services. "
                     "Relative paths combined with base_url for same-server reranking."
     )
@@ -111,25 +112,30 @@ class EmbeddingConfig(BaseSettings):
             raise ValueError("base_url must start with http:// or https://")
 
         return v
-    
+
     @field_validator("rerank_model")
     def validate_rerank_config(cls, v: str | None, info) -> str | None:  # noqa: N805
         """Validate rerank configuration completeness."""
         if v is None:
             return v
-        
+
         # When rerank_model is set, check if we have what we need for URL construction
         values = info.data
+        provider = values.get('provider', 'openai')
         rerank_url = values.get('rerank_url', '/rerank')
         base_url = values.get('base_url')
-        
-        # If rerank_url is relative (not absolute), we need base_url
+
+        # VoyageAI uses SDK-based reranking, doesn't need URL configuration
+        if provider == 'voyageai':
+            return v
+
+        # For other providers, if rerank_url is relative, we need base_url
         if not rerank_url.startswith(('http://', 'https://')) and not base_url:
             raise ValueError(
                 "base_url is required when using rerank_model with relative rerank_url. "
                 "Either provide base_url or use an absolute rerank_url (http://...)"
             )
-        
+
         return v
 
 
@@ -173,10 +179,10 @@ class EmbeddingConfig(BaseSettings):
         """
         if self.model:
             return self.model
-        
+
         # Provider defaults
         if self.provider == "voyageai":
-            return "voyage-3.5"
+            return VOYAGE_DEFAULT_MODEL
         else:  # openai
             return "text-embedding-3-small"
 
@@ -206,7 +212,7 @@ class EmbeddingConfig(BaseSettings):
             List of missing configuration parameter names
         """
         missing = []
-        
+
         if self.provider == "openai":
             # For OpenAI provider, only require API key for official endpoints
             if is_official_openai_endpoint(self.base_url) and not self.api_key:
@@ -215,7 +221,7 @@ class EmbeddingConfig(BaseSettings):
             # For other providers (voyageai, etc.), always require API key
             if not self.api_key:
                 missing.append("api_key (set CHUNKHOUND_EMBEDDING_API_KEY)")
-                
+
         return missing
 
     @classmethod

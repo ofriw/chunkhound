@@ -5,7 +5,7 @@ for mapping Markdown AST nodes to semantic chunks. Supports CommonMark syntax
 and GitHub Flavored Markdown extensions.
 """
 
-from typing import TYPE_CHECKING, Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from chunkhound.core.types.common import ChunkType, Language
 from chunkhound.parsers.mappings.base import BaseMapping
@@ -201,7 +201,7 @@ class MarkdownMapping(BaseMapping):
 
         # Extract heading text content
         heading_text = ""
-        
+
         if node.type == "atx_heading":
             # Get all child text nodes, skipping the markers
             for child in self.walk_tree(node):
@@ -209,7 +209,7 @@ class MarkdownMapping(BaseMapping):
                     text_content = self.get_node_text(child, source).strip()
                     if text_content and not text_content.startswith("#"):
                         heading_text += text_content + " "
-                        
+
         elif node.type == "setext_heading":
             # For setext headings, get the first line (before the underline)
             text_node = self.find_child_by_type(node, "paragraph")
@@ -386,7 +386,7 @@ class MarkdownMapping(BaseMapping):
         # Skip list markers and other structural elements
         if node.type in (
             "list_marker_minus",
-            "list_marker_plus", 
+            "list_marker_plus",
             "list_marker_star",
             "list_marker_dot",
             "list_marker_parenthesis",
@@ -450,7 +450,7 @@ class MarkdownMapping(BaseMapping):
             return {}
 
         language = self.extract_code_language(node, source) if node.type == "fenced_code_block" else ""
-        
+
         return self.create_chunk_dict(
             node=node,
             source=source,
@@ -480,7 +480,7 @@ class MarkdownMapping(BaseMapping):
             return {}
 
         list_type = self.extract_list_type(node, source)
-        
+
         return self.create_chunk_dict(
             node=node,
             source=source,
@@ -492,7 +492,7 @@ class MarkdownMapping(BaseMapping):
         )
 
     # LanguageMapping protocol methods
-    def get_query_for_concept(self, concept: UniversalConcept) -> Optional[str]:
+    def get_query_for_concept(self, concept: UniversalConcept) -> str | None:
         """Get tree-sitter query for universal concept in Markdown.
         
         Since Markdown uses tree-sitter, we map concepts to existing queries.
@@ -501,24 +501,24 @@ class MarkdownMapping(BaseMapping):
             # Combine heading and code block queries - these are the main "definitions" in markdown
             heading_query = self.get_heading_query()
             function_query = self.get_function_query()
-            
+
             queries = []
             if heading_query.strip():
                 queries.append(heading_query.strip())
             if function_query.strip():
                 queries.append(function_query.strip())
-                
+
             if queries:
                 return '\n'.join(queries)
             else:
                 return None
-                
+
         elif concept == UniversalConcept.BLOCK:
             # Use paragraph, list, and blockquote queries for block content
             paragraph_query = self.get_paragraph_query()
             list_query = self.get_list_query()
             blockquote_query = self.get_blockquote_query()
-            
+
             queries = []
             if paragraph_query.strip():
                 queries.append(paragraph_query.strip())
@@ -526,12 +526,12 @@ class MarkdownMapping(BaseMapping):
                 queries.append(list_query.strip())
             if blockquote_query.strip():
                 queries.append(blockquote_query.strip())
-                
+
             if queries:
                 return '\n'.join(queries)
             else:
                 return None
-                
+
         elif concept == UniversalConcept.COMMENT:
             # Use comment query
             comment_query = self.get_comment_query()
@@ -539,7 +539,7 @@ class MarkdownMapping(BaseMapping):
                 return comment_query.strip()
             else:
                 return None
-                
+
         elif concept == UniversalConcept.IMPORT:
             # Use link query for imports/references
             link_query = self.get_link_query()
@@ -547,7 +547,7 @@ class MarkdownMapping(BaseMapping):
                 return link_query.strip()
             else:
                 return None
-                
+
         elif concept == UniversalConcept.STRUCTURE:
             # Use table query for structured content
             table_query = self.get_table_query()
@@ -555,20 +555,20 @@ class MarkdownMapping(BaseMapping):
                 return table_query.strip()
             else:
                 return None
-                
+
         else:
             return None
 
-    def extract_name(self, concept: UniversalConcept, captures: Dict[str, "TSNode"], content: bytes) -> str:
+    def extract_name(self, concept: UniversalConcept, captures: dict[str, "TSNode"], content: bytes) -> str:
         """Extract name from captures for this concept."""
-        
+
         # Convert bytes to string for markdown processing
         source = content.decode('utf-8', errors='replace')
-        
+
         if concept == UniversalConcept.DEFINITION:
             # Try to find the main definition node (heading or code block)
             def_node = self._find_definition_node(captures)
-            
+
             if def_node:
                 if def_node.type in ("atx_heading", "setext_heading"):
                     return self.extract_class_name(def_node, source)
@@ -579,7 +579,7 @@ class MarkdownMapping(BaseMapping):
                     return self.extract_class_name(def_node, source)
             else:
                 return "unnamed_definition"
-                
+
         elif concept == UniversalConcept.BLOCK:
             # Find block content node
             block_node = self._find_definition_node(captures)
@@ -610,7 +610,7 @@ class MarkdownMapping(BaseMapping):
                     return f"{block_node.type}_block"
             else:
                 return "unnamed_block"
-                
+
         elif concept == UniversalConcept.COMMENT:
             # Comments in markdown are HTML comments
             comment_node = self._find_definition_node(captures)
@@ -619,7 +619,7 @@ class MarkdownMapping(BaseMapping):
                 return f"comment_line_{line}"
             else:
                 return "unnamed_comment"
-                
+
         elif concept == UniversalConcept.IMPORT:
             # Link reference definitions only (inline links/images aren't reliably parseable)
             link_node = self._find_definition_node(captures)
@@ -635,7 +635,7 @@ class MarkdownMapping(BaseMapping):
                     return f"{link_node.type}_import"
             else:
                 return "unnamed_import"
-                
+
         elif concept == UniversalConcept.STRUCTURE:
             # Tables and structured content
             struct_node = self._find_definition_node(captures)
@@ -643,17 +643,17 @@ class MarkdownMapping(BaseMapping):
                 return "table"
             else:
                 return "structure"
-                
+
         else:
             return f"unnamed_{concept.value}"
 
-    def extract_content(self, concept: UniversalConcept, captures: Dict[str, "TSNode"], content: bytes) -> str:
+    def extract_content(self, concept: UniversalConcept, captures: dict[str, "TSNode"], content: bytes) -> str:
         """Extract content from captures for this concept.
         
         This is the critical method - it must preserve the original markdown text
         so that regex searches can find the exact content.
         """
-        
+
         # Find the main definition node and extract its text
         def_node = self._find_definition_node(captures)
         if def_node:
@@ -661,40 +661,40 @@ class MarkdownMapping(BaseMapping):
             return self.get_node_text(def_node, source)
         return ""
 
-    def extract_metadata(self, concept: UniversalConcept, captures: Dict[str, "TSNode"], content: bytes) -> Dict[str, Any]:
+    def extract_metadata(self, concept: UniversalConcept, captures: dict[str, "TSNode"], content: bytes) -> dict[str, Any]:
         """Extract markdown-specific metadata."""
-        
+
         def_node = self._find_definition_node(captures)
         source = content.decode('utf-8', errors='replace')
-        
+
         metadata = {
             'concept': concept.value,
             'language': self.language.value,
             'capture_names': list(captures.keys())
         }
-        
+
         if def_node:
             metadata['node_type'] = def_node.type
-            
+
             # Add concept-specific metadata
             if concept == UniversalConcept.DEFINITION:
                 if def_node.type in ("atx_heading", "setext_heading"):
                     metadata['heading_level'] = self.extract_heading_level(def_node, source)
                 elif def_node.type == "fenced_code_block":
                     metadata['code_language'] = self.extract_code_language(def_node, source)
-                    
+
             elif concept == UniversalConcept.BLOCK:
                 if def_node.type == "list":
                     metadata['list_type'] = self.extract_list_type(def_node, source)
-                    
+
             elif concept == UniversalConcept.IMPORT:
                 if def_node.type == "link_reference_definition":
                     metadata['url'] = self.extract_link_url(def_node, source)
                     metadata['label'] = self.extract_link_text(def_node, source)
-                    
+
         return metadata
 
-    def _find_definition_node(self, captures: Dict[str, "TSNode"]) -> Optional["TSNode"]:
+    def _find_definition_node(self, captures: dict[str, "TSNode"]) -> Optional["TSNode"]:
         """Find the main definition node from captures.
         
         Args:
@@ -707,16 +707,16 @@ class MarkdownMapping(BaseMapping):
         priority_keys = [
             'atx_heading', 'setext_heading',
             'fenced_code_block', 'code_block',
-            'paragraph', 'list_item', 
+            'paragraph', 'list_item',
             'blockquote', 'table'
         ]
-        
+
         for key in priority_keys:
             if key in captures:
                 return captures[key]
-        
+
         # Return first capture if no priority match
         if captures:
             return list(captures.values())[0]
-        
+
         return None

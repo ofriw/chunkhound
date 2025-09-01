@@ -30,9 +30,11 @@ class Config(BaseModel):
     mcp: MCPConfig = Field(default_factory=MCPConfig)
     indexing: IndexingConfig = Field(default_factory=IndexingConfig)
     debug: bool = Field(default=False)
-    
+
     # Private field to store the target directory from CLI args
     target_dir: Path | None = Field(default=None, exclude=True)
+    # Private field to track if embeddings were explicitly disabled
+    embeddings_disabled: bool = Field(default=False, exclude=True)
 
     def __init__(self, args: Any | None = None, **kwargs: Any) -> None:
         """Universal configuration initialization that handles all contexts.
@@ -182,6 +184,7 @@ class Config(BaseModel):
             # Handle special case for --no-embeddings
             if embedding_overrides.get("disabled"):
                 overrides["embedding"] = None
+                overrides["embeddings_disabled"] = True
             else:
                 overrides["embedding"] = embedding_overrides
         if mcp_overrides := MCPConfig.extract_cli_overrides(args):
@@ -234,7 +237,7 @@ class Config(BaseModel):
         Returns:
             List of validation errors (empty if valid)
         """
-        errors = []
+        errors: list[str] = []
 
         # Check for missing configuration
         missing_config = self.get_missing_config()
@@ -245,11 +248,13 @@ class Config(BaseModel):
 
         # Validate embedding provider requirements for index command
         if command == "index":
-            if self.embedding is None:
-                errors.append("No embedding provider configured")
-            elif self.embedding and not self.embedding.is_provider_configured():
-                errors.append("Embedding provider not properly configured")
-        
+            # Skip embedding validation if embeddings were explicitly disabled
+            if not self.embeddings_disabled:
+                if self.embedding is None:
+                    errors.append("No embedding provider configured")
+                elif self.embedding and not self.embedding.is_provider_configured():
+                    errors.append("Embedding provider not properly configured")
+
         # For MCP command, embedding is optional
         elif command == "mcp":
             if self.embedding and not self.embedding.is_provider_configured():

@@ -17,27 +17,26 @@ recursive approach to create chunks that:
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from loguru import logger
-from tree_sitter import Tree, Node
+from tree_sitter import Tree
 
 from chunkhound.core.models.chunk import Chunk
 from chunkhound.core.types.common import (
-    ChunkType,
-    Language,
-    LineNumber,
     ByteOffset,
+    ChunkType,
     FileId,
     FilePath,
+    Language,
+    LineNumber,
 )
-from chunkhound.interfaces.language_parser import ParseResult, ParseConfig
+from chunkhound.interfaces.language_parser import ParseResult
 
-
-from .universal_engine import TreeSitterEngine, UniversalChunk, UniversalConcept
-from .concept_extractor import ConceptExtractor, LanguageMapping
+from .concept_extractor import ConceptExtractor
 from .mapping_adapter import MappingAdapter
 from .mappings.base import BaseMapping
+from .universal_engine import TreeSitterEngine, UniversalChunk, UniversalConcept
 
 
 @dataclass
@@ -95,7 +94,7 @@ class UniversalParser:
         self,
         engine: TreeSitterEngine,
         mapping: BaseMapping,
-        cast_config: Optional[CASTConfig] = None,
+        cast_config: CASTConfig | None = None,
     ):
         """Initialize universal parser.
 
@@ -135,7 +134,7 @@ class UniversalParser:
         else:
             return "unknown"
 
-    def parse_file(self, file_path: Path, file_id: FileId) -> List[Chunk]:
+    def parse_file(self, file_path: Path, file_id: FileId) -> list[Chunk]:
         """Parse a file and extract semantic chunks using cAST algorithm.
 
         Args:
@@ -173,14 +172,19 @@ class UniversalParser:
             else:
                 raise UnicodeDecodeError('utf-8', b'', 0, 1, f"Could not decode file {file_path}") from e
 
+        # Normalize line endings for consistent parsing and chunk comparison
+        # Skip for binary and protocol-specific files where CRLF might be semantically significant
+        if file_path.suffix.lower() not in ['.pdf', '.png', '.jpg', '.gif', '.zip', '.eml', '.http']:
+            content = content.replace('\r\n', '\n').replace('\r', '\n')
+
         return self.parse_content(content, file_path, file_id)
 
     def parse_content(
         self,
         content: str,
-        file_path: Optional[Path] = None,
-        file_id: Optional[FileId] = None,
-    ) -> List[Chunk]:
+        file_path: Path | None = None,
+        file_id: FileId | None = None,
+    ) -> list[Chunk]:
         """Parse content string and extract semantic chunks using cAST algorithm.
 
         Args:
@@ -289,8 +293,8 @@ class UniversalParser:
             )
 
     def _apply_cast_algorithm(
-        self, universal_chunks: List[UniversalChunk], ast_tree: Tree, content: str
-    ) -> List[UniversalChunk]:
+        self, universal_chunks: list[UniversalChunk], ast_tree: Tree, content: str
+    ) -> list[UniversalChunk]:
         """Apply cAST (Code AST) algorithm for optimal semantic chunking.
 
         The cAST algorithm uses a split-then-merge recursive approach:
@@ -313,7 +317,7 @@ class UniversalParser:
             return []
 
         # Group chunks by concept type for structured processing
-        chunks_by_concept: Dict[UniversalConcept, List[UniversalChunk]] = {}
+        chunks_by_concept: dict[UniversalConcept, list[UniversalChunk]] = {}
         for chunk in universal_chunks:
             if chunk.concept not in chunks_by_concept:
                 chunks_by_concept[chunk.concept] = []
@@ -345,8 +349,8 @@ class UniversalParser:
         return optimized_chunks
 
     def _chunk_definitions(
-        self, chunks: List[UniversalChunk], content: str
-    ) -> List[UniversalChunk]:
+        self, chunks: list[UniversalChunk], content: str
+    ) -> list[UniversalChunk]:
         """Apply cAST chunking to definition chunks (functions, classes, etc.).
 
         Definitions should ideally remain intact as they represent complete semantic units.
@@ -363,7 +367,7 @@ class UniversalParser:
 
     def _validate_and_split_chunk(
         self, chunk: UniversalChunk, content: str
-    ) -> List[UniversalChunk]:
+    ) -> list[UniversalChunk]:
         """Validate chunk size and split if necessary."""
         metrics = ChunkMetrics.from_content(chunk.content)
         estimated_tokens = metrics.estimated_tokens(
@@ -381,8 +385,8 @@ class UniversalParser:
             return self._recursive_split_chunk(chunk, content)
 
     def _chunk_blocks(
-        self, chunks: List[UniversalChunk], content: str
-    ) -> List[UniversalChunk]:
+        self, chunks: list[UniversalChunk], content: str
+    ) -> list[UniversalChunk]:
         """Apply cAST chunking to block chunks.
 
         Blocks are more flexible and can be merged aggressively with siblings.
@@ -418,8 +422,8 @@ class UniversalParser:
         return validated_result
 
     def _chunk_comments(
-        self, chunks: List[UniversalChunk], content: str
-    ) -> List[UniversalChunk]:
+        self, chunks: list[UniversalChunk], content: str
+    ) -> list[UniversalChunk]:
         """Apply cAST chunking to comment chunks.
 
         Comments can be merged aggressively or attached to nearby code chunks.
@@ -428,14 +432,14 @@ class UniversalParser:
         return self._chunk_blocks(chunks, content)
 
     def _chunk_generic(
-        self, chunks: List[UniversalChunk], content: str
-    ) -> List[UniversalChunk]:
+        self, chunks: list[UniversalChunk], content: str
+    ) -> list[UniversalChunk]:
         """Apply generic cAST chunking to other chunk types."""
         return self._chunk_blocks(chunks, content)  # Use block strategy as default
 
     def _recursive_split_chunk(
         self, chunk: UniversalChunk, content: str
-    ) -> List[UniversalChunk]:
+    ) -> list[UniversalChunk]:
         """Recursively split a chunk that exceeds the size limit.
 
         This implements the "split" part of the split-then-merge algorithm.
@@ -529,7 +533,7 @@ class UniversalParser:
 
     def _emergency_split_code(
         self, chunk: UniversalChunk, content: str
-    ) -> List[UniversalChunk]:
+    ) -> list[UniversalChunk]:
         """Smart code splitting for minified/large single-line files."""
         # Use the stricter limit: character limit or token-based limit
         max_chars_from_tokens = int(
@@ -603,10 +607,10 @@ class UniversalParser:
         self, original: UniversalChunk, content: str, part_num: int, content_start_pos: int = 0, total_content_length: int = 0
     ) -> UniversalChunk:
         """Create a split chunk from emergency splitting with proper line number calculation."""
-        
+
         # Calculate line numbers based on content position within the original chunk
         total_lines = original.end_line - original.start_line + 1
-        
+
         if total_content_length > 0 and content_start_pos >= 0:
             # PROPORTIONAL LINE CALCULATION APPROACH:
             # When emergency splitting occurs, we need to estimate line numbers for each chunk part.
@@ -614,31 +618,31 @@ class UniversalParser:
             # the assumption that characters are roughly evenly distributed across lines.
             # This is an approximation - actual line counting would be more accurate but requires
             # scanning the content for newlines, which could impact performance for large chunks.
-            
+
             # Calculate proportional line numbers based on character position
             content_ratio = content_start_pos / total_content_length
             content_length_ratio = len(content) / total_content_length
-            
+
             # Calculate start line based on position ratio
             # Example: if we're 50% through the content, start at 50% through the line range
             line_offset = int(content_ratio * total_lines)
             start_line = original.start_line + line_offset
-            
+
             # Calculate end line based on content length ratio
             # Example: if this chunk is 25% of total content, allocate 25% of total lines
             lines_for_content = max(1, int(content_length_ratio * total_lines))
             end_line = min(original.end_line, start_line + lines_for_content - 1)
-            
+
             # Ensure valid line range (defensive programming)
             if start_line > end_line:
                 end_line = start_line
-                
+
         else:
             # Fallback: use original line numbers (maintains backward compatibility)
             # This path is taken when position tracking isn't available
             start_line = original.start_line
             end_line = original.end_line
-        
+
         # Validate line range before creating chunk
         if start_line > end_line:
             logger.warning(
@@ -648,7 +652,7 @@ class UniversalParser:
                 f"Correcting to single line at {start_line}"
             )
             end_line = start_line
-        
+
         # Debug logging for line calculations
         # Useful for debugging line number estimation accuracy in emergency splitting scenarios
         if total_content_length > 0:
@@ -657,7 +661,7 @@ class UniversalParser:
                 f"(pos {content_start_pos}/{total_content_length}, "
                 f"content_len={len(content)})"
             )
-        
+
         return UniversalChunk(
             concept=original.concept,
             name=f"{original.name}_part{part_num}",
@@ -670,7 +674,7 @@ class UniversalParser:
 
     def _can_merge_chunks(
         self,
-        current_group: List[UniversalChunk],
+        current_group: list[UniversalChunk],
         candidate: UniversalChunk,
         content: str,
     ) -> bool:
@@ -724,8 +728,8 @@ class UniversalParser:
         return True
 
     def _merge_chunk_group(
-        self, group: List[UniversalChunk], content: str
-    ) -> List[UniversalChunk]:
+        self, group: list[UniversalChunk], content: str
+    ) -> list[UniversalChunk]:
         """Merge a group of chunks into optimized chunks.
 
         This implements the "merge" part of the split-then-merge algorithm.
@@ -783,8 +787,8 @@ class UniversalParser:
         return [merged_chunk]
 
     def _greedy_merge_pass(
-        self, chunks: List[UniversalChunk], content: str
-    ) -> List[UniversalChunk]:
+        self, chunks: list[UniversalChunk], content: str
+    ) -> list[UniversalChunk]:
         """Final greedy merge pass to maximize information density.
 
         This is the final optimization step of the cAST algorithm.
@@ -840,11 +844,11 @@ class UniversalParser:
 
     def _convert_to_chunks(
         self,
-        universal_chunks: List[UniversalChunk],
+        universal_chunks: list[UniversalChunk],
         content: str,
-        file_path: Optional[Path],
-        file_id: Optional[FileId],
-    ) -> List[Chunk]:
+        file_path: Path | None,
+        file_id: FileId | None,
+    ) -> list[Chunk]:
         """Convert UniversalChunk objects to standard Chunk format for compatibility.
 
         Args:
@@ -890,7 +894,7 @@ class UniversalParser:
         return chunks
 
     def _map_concept_to_chunk_type(
-        self, concept: UniversalConcept, metadata: Dict[str, Any]
+        self, concept: UniversalConcept, metadata: dict[str, Any]
     ) -> ChunkType:
         """Map UniversalConcept to ChunkType for compatibility.
 
@@ -934,8 +938,8 @@ class UniversalParser:
             return ChunkType.UNKNOWN
 
     def _parse_text_content(
-        self, content: str, file_path: Optional[Path], file_id: Optional[FileId]
-    ) -> List[Chunk]:
+        self, content: str, file_path: Path | None, file_id: FileId | None
+    ) -> list[Chunk]:
         """Parse plain text content without tree-sitter.
 
         For text files, we simply chunk by paragraphs or fixed-size blocks.
@@ -952,7 +956,7 @@ class UniversalParser:
         lines = content.split("\n")
 
         # Simple paragraph-based chunking for text
-        current_paragraph: List[str] = []
+        current_paragraph: list[str] = []
         current_start_line = 1
         line_num = 1
 
@@ -1008,7 +1012,7 @@ class UniversalParser:
         return chunks
 
 
-    def get_statistics(self) -> Dict[str, Any]:
+    def get_statistics(self) -> dict[str, Any]:
         """Get parsing statistics.
 
         Returns:

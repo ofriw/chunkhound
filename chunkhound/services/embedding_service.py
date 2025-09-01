@@ -1,8 +1,8 @@
 """Embedding service for ChunkHound - manages embedding generation and caching."""
 
 # CRITICAL: Add module-level debug logging to confirm this code loads
-import os
 from datetime import datetime
+
 try:
     debug_file = "/tmp/chunkhound_module_debug.log"
     with open(debug_file, "a") as f:
@@ -99,7 +99,7 @@ class EmbeddingService(BaseService):
                     f.flush()
             except Exception:
                 pass
-                
+
             logger.debug(f"Generating embeddings for {len(chunk_ids)} chunks")
 
             # Filter out chunks that already have embeddings
@@ -124,7 +124,7 @@ class EmbeddingService(BaseService):
             chunk_sizes = [len(text) for text in chunk_texts]
             max_size = max(chunk_sizes) if chunk_sizes else 0
             total_chars = sum(chunk_sizes)
-            # Debug log to trace execution path  
+            # Debug log to trace execution path
             import os
             from datetime import datetime
             debug_file = os.getenv("CHUNKHOUND_DEBUG_FILE", "/tmp/chunkhound_debug.log")
@@ -135,7 +135,7 @@ class EmbeddingService(BaseService):
                     f.flush()
             except Exception:
                 pass
-                
+
             logger.error(f"[EmbSvc-L101] Failed to generate embeddings (chunks: {len(chunk_sizes)}, total_chars: {total_chars}, max_chars: {max_size}): {e}")
             return 0
 
@@ -486,7 +486,7 @@ class EmbeddingService(BaseService):
                             f.flush()
                     except Exception:
                         pass
-                    
+
                     logger.error(f"[EmbSvc-BatchProcess] Batch {batch_num + 1} failed (chunks: {len(batch)}, max_chars: {max_size}): {e}")
                     return 0
 
@@ -510,14 +510,14 @@ class EmbeddingService(BaseService):
         ) -> int:
             nonlocal processed_count
             result = await process_batch(batch, batch_num)
-            
+
             # Thread-safe progress update if progress tracking is enabled
             if show_progress:
                 with update_lock:
                     processed_count += len(batch)
                     if embed_task and self.progress:
                         self.progress.advance(embed_task, len(batch))
-                        
+
                         # Calculate and display speed
                         task_obj = self.progress.tasks[embed_task]
                         if task_obj.elapsed and task_obj.elapsed > 0:
@@ -526,7 +526,7 @@ class EmbeddingService(BaseService):
                                 embed_task,
                                 speed=f"{speed:.1f} chunks/s"
                             )
-            
+
             return result
 
         # Create tasks (always process batches, with optional progress tracking)
@@ -550,12 +550,12 @@ class EmbeddingService(BaseService):
                 batch_sizes = [len(text) for _, text in failed_batch]
                 max_chars = max(batch_sizes) if batch_sizes else 0
                 total_chars = sum(batch_sizes)
-                
+
                 # Use debug_log mechanism to trace the mystery logging source
                 import os
                 import traceback
                 from datetime import datetime
-                
+
                 # Write directly to debug file like the MCP debug_log mechanism
                 debug_file = os.getenv("CHUNKHOUND_DEBUG_FILE", "/tmp/chunkhound_debug.log")
                 timestamp = datetime.now().isoformat()
@@ -564,14 +564,14 @@ class EmbeddingService(BaseService):
                     f"(chunks: {len(batch_sizes)}, total_chars: {total_chars:,}, max_chars: {max_chars:,}): {result}\n"
                     f"[{timestamp}] [EMBEDDING-DEBUG] Stack: {' -> '.join(traceback.format_stack()[-5:])}\n"
                 )
-                
+
                 try:
                     with open(debug_file, "a") as f:
                         f.write(debug_msg)
                         f.flush()
                 except Exception:
                     pass  # Silently fail like the original debug_log
-                
+
                 # Also keep the standard logging
                 logger.error(
                     f"[EmbSvc-AsyncBatch] Batch {i + 1} failed "
@@ -685,7 +685,9 @@ class EmbeddingService(BaseService):
                     filtered_chunks.append(chunk)
             all_chunks = filtered_chunks
 
-        all_chunk_ids = [chunk.get("chunk_id", chunk.get("id")) for chunk in all_chunks]
+        # Extract chunk IDs with consistent field handling
+        # Use "id" field directly as it's the standard field name across providers
+        all_chunk_ids = [chunk.get("id") for chunk in all_chunks if chunk.get("id") is not None]
 
         if not all_chunk_ids:
             return []
@@ -710,7 +712,7 @@ class EmbeddingService(BaseService):
         # Load all chunks and create token-aware batches
         chunks_data = self._get_chunks_by_ids(chunk_ids)
         chunk_data = [(chunk["id"], chunk["code"]) for chunk in chunks_data]
-        
+
         # Use existing token-aware batching instead of fixed size
         batches = self._create_token_aware_batches(chunk_data)
 

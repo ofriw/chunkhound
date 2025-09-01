@@ -128,19 +128,19 @@ class OpenAIEmbeddingProvider:
 
         if self._base_url:
             client_kwargs["base_url"] = self._base_url
-            
+
             # For custom endpoints (non-OpenAI), disable SSL verification
             # These often use self-signed certificates (e.g., corporate servers, Ollama)
             if not is_openai_official:
                 import httpx
-                
+
                 # Create httpx client with SSL verification disabled
                 http_client = httpx.AsyncClient(
                     timeout=httpx.Timeout(timeout=self._timeout),
                     verify=False  # Disable SSL for custom endpoints
                 )
                 client_kwargs["http_client"] = http_client
-                
+
                 logger.debug(f"SSL verification disabled for custom endpoint: {self._base_url}")
 
         # IMPORTANT: Create the client in async context to avoid TaskGroup errors on Ubuntu
@@ -238,10 +238,10 @@ class OpenAIEmbeddingProvider:
         """Check if the provider is available and properly configured."""
         if not OPENAI_AVAILABLE:
             return False
-        
+
         # Import the utility function (following existing pattern)
         from chunkhound.core.config.openai_utils import is_official_openai_endpoint
-        
+
         # Use the same logic as _ensure_client() and config validation
         if is_official_openai_endpoint(self._base_url):
             return self._api_key is not None
@@ -302,19 +302,19 @@ class OpenAIEmbeddingProvider:
             text_sizes = [len(text) for text in validated_texts]
             total_chars = sum(text_sizes)
             max_chars = max(text_sizes) if text_sizes else 0
-            
+
             # Find and log oversized chunks with their content preview
             oversized_chunks = []
             for i, text in enumerate(validated_texts):
                 if len(text) > 100000:  # Chunks over 100k chars are definitely problematic
                     preview = text[:200] + "..." if len(text) > 200 else text
                     oversized_chunks.append(f"#{i}: {len(text)} chars, starts: {preview}")
-            
+
             if oversized_chunks:
-                logger.error(f"[OpenAI-Provider] OVERSIZED CHUNKS FOUND:\n" + "\n".join(oversized_chunks[:3]))  # Limit to first 3
-            
+                logger.error("[OpenAI-Provider] OVERSIZED CHUNKS FOUND:\n" + "\n".join(oversized_chunks[:3]))  # Limit to first 3
+
             logger.error(f"[OpenAI-Provider] Failed to generate embeddings (texts: {len(validated_texts)}, total_chars: {total_chars}, max_chars: {max_chars}): {e}")
-            
+
             # Add debug logging to trace the error
             debug_file = "/tmp/chunkhound_openai_debug.log"
             try:
@@ -323,7 +323,7 @@ class OpenAIEmbeddingProvider:
                     f.flush()
             except:
                 pass
-                
+
             raise
 
     async def embed_single(self, text: str) -> list[float]:
@@ -695,18 +695,18 @@ class OpenAIEmbeddingProvider:
         return self._rerank_model is not None
 
     async def rerank(
-        self, 
-        query: str, 
-        documents: list[str], 
+        self,
+        query: str,
+        documents: list[str],
         top_k: int | None = None
     ) -> list[RerankResult]:
         """Rerank documents using configured rerank model."""
         await self._ensure_client()
-        
+
         # Validate base_url exists for reranking
         if not self._base_url:
             raise ValueError("base_url is required for reranking operations")
-        
+
         # Build full rerank endpoint URL
         if self._rerank_url.startswith(('http://', 'https://')):
             # Full URL - use as-is for separate reranking service
@@ -716,7 +716,7 @@ class OpenAIEmbeddingProvider:
             base_url = self._base_url.rstrip('/')
             rerank_url = self._rerank_url.lstrip('/')
             rerank_endpoint = f"{base_url}/{rerank_url}"
-        
+
         # Prepare request payload
         payload = {
             "model": self._rerank_model,
@@ -725,13 +725,13 @@ class OpenAIEmbeddingProvider:
         }
         if top_k is not None:
             payload["top_n"] = top_k
-        
+
         try:
             logger.debug(
                 f"Reranking {len(documents)} documents with model {self._rerank_model} "
                 f"at endpoint {rerank_endpoint}"
             )
-            
+
             # Make API request with timeout using httpx directly
             # since OpenAI client doesn't support custom endpoints well
             async with httpx.AsyncClient(timeout=self._timeout) as client:
@@ -743,26 +743,26 @@ class OpenAIEmbeddingProvider:
                 )
                 response.raise_for_status()
                 response_data = response.json()
-            
+
             # Validate response structure
             if "results" not in response_data:
                 raise ValueError("Invalid rerank response: missing 'results' field")
-            
+
             results = response_data["results"]
             if not isinstance(results, list):
                 raise ValueError("Invalid rerank response: 'results' must be a list")
-            
+
             # Convert to ChunkHound format with validation
             rerank_results = []
             for i, result in enumerate(results):
                 if not isinstance(result, dict):
                     logger.warning(f"Skipping invalid result {i}: not a dict")
                     continue
-                
+
                 if "index" not in result or "relevance_score" not in result:
                     logger.warning(f"Skipping result {i}: missing required fields")
                     continue
-                
+
                 try:
                     rerank_results.append(RerankResult(
                         index=int(result["index"]),
@@ -771,16 +771,16 @@ class OpenAIEmbeddingProvider:
                 except (ValueError, TypeError) as e:
                     logger.warning(f"Skipping result {i}: invalid data types - {e}")
                     continue
-            
+
             # Update usage statistics
             self._usage_stats["requests_made"] += 1
             self._usage_stats["documents_reranked"] = (
                 self._usage_stats.get("documents_reranked", 0) + len(documents)
             )
-            
+
             logger.debug(f"Successfully reranked {len(documents)} documents, got {len(rerank_results)} results")
             return rerank_results
-            
+
         except httpx.ConnectError as e:
             # Connection failed - service not available
             self._usage_stats["errors"] += 1

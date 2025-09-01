@@ -1,9 +1,8 @@
 """Utilities for OpenAI API endpoint detection."""
 
-from typing import Optional
 
 
-def is_official_openai_endpoint(base_url: Optional[str]) -> bool:
+def is_official_openai_endpoint(base_url: str | None) -> bool:
     """
     Determine if a base URL points to the official OpenAI API.
 

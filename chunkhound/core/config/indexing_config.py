@@ -46,7 +46,7 @@ class IndexingConfig(BaseModel):
     ignore_gitignore: bool = Field(default=False, description="Internal gitignore setting")
     max_file_size_mb: int = Field(default=10, description="Internal file size limit")
     chunk_overlap: int = Field(default=50, description="Internal chunk overlap")
-    min_chunk_size: int = Field(default=50, description="Internal min chunk size") 
+    min_chunk_size: int = Field(default=50, description="Internal min chunk size")
     max_chunk_size: int = Field(default=2000, description="Internal max chunk size")
 
     # File patterns

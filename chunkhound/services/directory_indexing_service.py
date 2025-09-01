@@ -1,9 +1,10 @@
 """Directory indexing service - extracted from CLI indexer for shared use."""
 
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from loguru import logger
 
@@ -48,7 +49,7 @@ class DirectoryIndexingService:
         self.config = config
         self.progress_callback = progress_callback or (lambda msg: None)
         self.progress = progress
-        
+
         # Pass progress to coordinator if it supports it
         if hasattr(self.indexing_coordinator, 'progress'):
             self.indexing_coordinator.progress = progress

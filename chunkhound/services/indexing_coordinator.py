@@ -9,7 +9,7 @@
 import asyncio
 from fnmatch import fnmatch
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from loguru import logger
 from rich.progress import Progress, TaskID
@@ -41,7 +41,7 @@ class IndexingCoordinator(BaseService):
         database_provider: DatabaseProvider,
         embedding_provider: EmbeddingProvider | None = None,
         language_parsers: dict[Language, UniversalParser] | None = None,
-        progress: Optional[Progress] = None,
+        progress: Progress | None = None,
     ):
         """Initialize indexing coordinator.
 
@@ -358,23 +358,23 @@ class IndexingCoordinator(BaseService):
                         # Check which unchanged chunks are missing embeddings
                         if not skip_embeddings and chunk_diff.unchanged and self._embedding_provider:
                             unchanged_chunk_ids = [
-                                chunk.id for chunk in chunk_diff.unchanged 
+                                chunk.id for chunk in chunk_diff.unchanged
                                 if chunk.id is not None
                             ]
-                            
+
                             # Use existing interface to check embedding status
                             existing_embedding_ids = self._db.get_existing_embeddings(
-                                unchanged_chunk_ids, 
+                                unchanged_chunk_ids,
                                 self._embedding_provider.name,
                                 self._embedding_provider.model
                             )
-                            
+
                             # Find unchanged chunks that need embeddings
                             unchanged_needing_embeddings = [
                                 chunk for chunk in chunk_diff.unchanged
                                 if chunk.id not in existing_embedding_ids
                             ]
-                            
+
                             # Add to embedding generation lists
                             chunks_needing_embeddings = chunks_to_store + [
                                 chunk.to_dict() for chunk in unchanged_needing_embeddings
@@ -382,7 +382,7 @@ class IndexingCoordinator(BaseService):
                             chunk_ids_needing_embeddings = chunk_ids_new + [
                                 chunk.id for chunk in unchanged_needing_embeddings
                             ]
-                            
+
                             if unchanged_needing_embeddings:
                                 logger.debug(
                                     f"Found {len(unchanged_needing_embeddings)} unchanged chunks "
@@ -720,7 +720,7 @@ class IndexingCoordinator(BaseService):
             total_chunks = 0
 
             # Create progress task for file processing
-            file_task: Optional[TaskID] = None
+            file_task: TaskID | None = None
             if self.progress:
                 file_task = self.progress.add_task(
                     "  └─ Processing files",
@@ -728,7 +728,7 @@ class IndexingCoordinator(BaseService):
                     speed="",
                     info=""
                 )
-            
+
             for file_path in files:
                 result = await self.process_file(file_path, skip_embeddings=True)
 
@@ -947,7 +947,7 @@ class IndexingCoordinator(BaseService):
                     f.flush()
             except Exception:
                 pass
-                
+
             logger.error(f"[IndexCoord-Missing] Failed to generate missing embeddings: {e}")
             return {"status": "error", "error": str(e), "generated": 0}
 
@@ -1081,7 +1081,7 @@ class IndexingCoordinator(BaseService):
             List of file paths that match include patterns and don't match exclude patterns
         """
         files = []
-        
+
         # Cache for .gitignore patterns by directory
         gitignore_patterns: dict[Path, list[str]] = {}
 
@@ -1089,7 +1089,7 @@ class IndexingCoordinator(BaseService):
             """Check if a path should be excluded based on exclude patterns."""
             if patterns is None:
                 patterns = exclude_patterns
-                
+
             try:
                 rel_path = path.relative_to(base_dir)
             except ValueError:
@@ -1165,7 +1165,7 @@ class IndexingCoordinator(BaseService):
                 gitignore_path = current_dir / ".gitignore"
                 if gitignore_path.exists():
                     try:
-                        with open(gitignore_path, 'r', encoding='utf-8', errors='ignore') as f:
+                        with open(gitignore_path, encoding='utf-8', errors='ignore') as f:
                             lines = f.read().splitlines()
                         # Filter out comments and empty lines, convert to exclude patterns
                         # Gitignore patterns are converted to our exclude format:
@@ -1198,7 +1198,7 @@ class IndexingCoordinator(BaseService):
                                         patterns_from_gitignore.append(f"{rel_from_root}/**/{line}")
                                         patterns_from_gitignore.append(f"{rel_from_root}/{line}")
                         gitignore_patterns[current_dir] = patterns_from_gitignore
-                    except (OSError, IOError) as e:
+                    except OSError as e:
                         # Log error but continue - don't fail indexing due to gitignore issues
                         if self.progress_callback:
                             self.progress_callback(f"Warning: Failed to read .gitignore at {gitignore_path}: {e}")
@@ -1206,7 +1206,7 @@ class IndexingCoordinator(BaseService):
                         # Unexpected error - still log but continue
                         if self.progress_callback:
                             self.progress_callback(f"Warning: Unexpected error reading .gitignore at {gitignore_path}: {e}")
-                
+
                 # Combine all applicable gitignore patterns from this dir and parents
                 all_gitignore_patterns = []
                 check_dir = current_dir
@@ -1216,13 +1216,13 @@ class IndexingCoordinator(BaseService):
                     if check_dir == directory:
                         break
                     check_dir = check_dir.parent
-                
+
                 # Get directory contents
                 for entry in current_dir.iterdir():
                     # Skip if path should be excluded by config patterns
                     if should_exclude_path(entry, directory):
                         continue
-                    
+
                     # Skip if path should be excluded by gitignore patterns
                     if all_gitignore_patterns:
                         skip = False
@@ -1322,7 +1322,7 @@ class IndexingCoordinator(BaseService):
             # Remove orphaned files with progress tracking
             orphaned_count = 0
             if orphaned_files:
-                cleanup_task: Optional[TaskID] = None
+                cleanup_task: TaskID | None = None
                 if self.progress:
                     cleanup_task = self.progress.add_task(
                         "  └─ Cleaning orphaned files",
@@ -1330,13 +1330,13 @@ class IndexingCoordinator(BaseService):
                         speed="",
                         info=""
                     )
-                
+
                 for file_path in orphaned_files:
                     if self._db.delete_file_completely(file_path):
                         orphaned_count += 1
                         # Clean up the file lock for orphaned file
                         self._cleanup_file_lock(Path(file_path))
-                    
+
                     if cleanup_task is not None and self.progress:
                         self.progress.advance(cleanup_task, 1)
 

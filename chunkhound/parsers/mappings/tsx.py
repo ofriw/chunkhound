@@ -54,7 +54,7 @@ class TSXMapping(TypeScriptMapping):
         """
         # Get base TypeScript function query
         base_query = super().get_function_query()
-        
+
         # Add TSX-specific patterns for typed React components
         tsx_specific_query = """
         ; React functional components (JSX return)
@@ -94,7 +94,7 @@ class TSXMapping(TypeScriptMapping):
         ) @fc_component.definition
 
         """
-        
+
         return base_query + tsx_specific_query
 
     def get_jsx_element_query(self) -> str:
@@ -193,7 +193,7 @@ class TSXMapping(TypeScriptMapping):
             Tree-sitter query string for finding comments including TSDoc and JSX comments
         """
         base_query = super().get_comment_query()
-        
+
         # Add TSX-specific comment patterns
         tsx_comment_query = """
         ; JSX comments {/* comment */}
@@ -201,7 +201,7 @@ class TSXMapping(TypeScriptMapping):
             (comment) @jsx.comment
         ) @jsx.comment_expression
         """
-        
+
         return base_query + tsx_comment_query
 
     def extract_component_name(self, node: "TSNode | None", source: str) -> str:
@@ -219,11 +219,11 @@ class TSXMapping(TypeScriptMapping):
 
         # Use base TypeScript function name extraction
         name = self.extract_function_name(node, source)
-        
+
         # Check if this appears to be a React component (starts with uppercase)
         if name and name[0].isupper():
             return name
-            
+
         return name
 
     def extract_jsx_element_name(self, node: "TSNode | None", source: str) -> str:
@@ -243,16 +243,16 @@ class TSXMapping(TypeScriptMapping):
         if node.type == "jsx_element":
             opening_tag = self.find_child_by_type(node, "jsx_opening_element")
             if opening_tag:
-                name_node = opening_tag.child(1)  # Skip '<' 
+                name_node = opening_tag.child(1)  # Skip '<'
                 if name_node:
                     return self.get_node_text(name_node, source)
-                    
+
         # Self-closing element
         elif node.type == "jsx_self_closing_element":
             name_node = node.child(1)  # Skip '<'
             if name_node:
                 return self.get_node_text(name_node, source)
-                
+
 
         return self.get_fallback_name(node, "jsx_element")
 
@@ -274,7 +274,7 @@ class TSXMapping(TypeScriptMapping):
             func_node = self.find_child_by_type(node, "identifier")
             if func_node:
                 return self.get_node_text(func_node, source)
-                
+
         # For hook variable declarations
         elif node.type == "variable_declarator":
             value_node = self.find_child_by_type(node, "call_expression")
@@ -342,7 +342,7 @@ class TSXMapping(TypeScriptMapping):
             return {}
 
         types = {}
-        
+
         try:
             # Look for type arguments in hook call
             if node.type == "call_expression":
@@ -352,10 +352,10 @@ class TSXMapping(TypeScriptMapping):
 
             # Look for variable type annotation
             elif node.type == "variable_declarator":
-                type_annotation = self.find_child_by_type(node, "type_annotation") 
+                type_annotation = self.find_child_by_type(node, "type_annotation")
                 if type_annotation:
                     types["variable_type"] = self.get_node_text(type_annotation, source).strip()
-                    
+
                 # Also check the call expression for generic types
                 call_expr = self.find_child_by_type(node, "call_expression")
                 if call_expr:
@@ -388,11 +388,11 @@ class TSXMapping(TypeScriptMapping):
             name = self.extract_function_name(node, source)
             if name and len(name) > 0 and name[0].isupper():
                 return True
-                
+
             # Check for React.FC type annotation
             if "React.FC" in node_text or "FunctionComponent" in node_text:
                 return True
-                
+
         return False
 
     def extract_jsx_props(self, node: "TSNode | None", source: str) -> list[str]:
@@ -409,7 +409,7 @@ class TSXMapping(TypeScriptMapping):
             return []
 
         props = []
-        
+
         # Find JSX opening element or self-closing element
         opening_element = None
         if node.type == "jsx_element":
@@ -451,15 +451,15 @@ class TSXMapping(TypeScriptMapping):
 
         # TSX-specific filtering
         node_text = self.get_node_text(node, source)
-        
+
         # Always include React components
         if self.is_react_component(node, source):
             return True
-            
+
         # Include JSX elements that are substantial
         if node.type in ["jsx_element", "jsx_self_closing_element"]:
             return len(node_text.strip()) > 20
-            
+
         # Include hook usage
         if node.type == "call_expression":
             hook_name = self.extract_hook_name(node, source)
@@ -485,10 +485,10 @@ class TSXMapping(TypeScriptMapping):
         """
         # Remove JSX comment syntax
         text = text.replace("{/*", "").replace("*/}", "")
-        
+
         # Clean up JSX expressions
         text = text.replace("{", " ").replace("}", " ")
-        
+
         # Use base TypeScript cleaning
         return self.clean_comment_text(text)
 

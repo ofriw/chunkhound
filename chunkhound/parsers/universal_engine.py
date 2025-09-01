@@ -2,16 +2,15 @@
 
 from dataclasses import dataclass
 from enum import Enum
-from pathlib import Path
-from typing import Dict, List, Optional, Any
+from typing import Any
 
-from tree_sitter import Language, Parser, Query, Node, Tree
+from tree_sitter import Language, Node, Parser, Query, Tree
 
 
 class UniversalConcept(Enum):
     """Universal semantic concepts found in ALL programming languages."""
     DEFINITION = "definition"     # Functions, classes, types, variables
-    BLOCK = "block"              # Scoped regions, logical groupings  
+    BLOCK = "block"              # Scoped regions, logical groupings
     COMMENT = "comment"          # Documentation, explanations
     IMPORT = "import"            # Dependencies, includes, modules
     STRUCTURE = "structure"      # Hierarchical organization (headers, sections)
@@ -25,7 +24,7 @@ class UniversalChunk:
     content: str
     start_line: int
     end_line: int
-    metadata: Dict[str, Any]
+    metadata: dict[str, Any]
     language_node_type: str  # Original tree-sitter type for debugging
 
 
@@ -36,7 +35,7 @@ class SetupError(Exception):
     missing_dependency: str
     install_command: str
     original_error: str
-    
+
     def __str__(self) -> str:
         return (
             f"Parser {self.parser} setup failed:\n"
@@ -53,7 +52,7 @@ class QueryCompilationError(Exception):
     language: str
     query: str
     error: str
-    
+
     def __str__(self) -> str:
         return (
             f"Query compilation failed for {self.concept} in {self.language}:\n"
@@ -64,7 +63,7 @@ class QueryCompilationError(Exception):
 
 class TreeSitterEngine:
     """Universal tree-sitter parsing engine - works for ALL languages."""
-    
+
     def __init__(self, language_name: str, tree_sitter_language: Language):
         """Initialize with pre-imported tree-sitter language object.
         
@@ -76,11 +75,11 @@ class TreeSitterEngine:
         self._language = tree_sitter_language
         self._parser = Parser()
         self._parser.language = self._language
-    
+
     def parse_to_ast(self, content: str) -> Tree:
         """Parse content to AST - universal across all languages."""
         return self._parser.parse(content.encode('utf-8'))
-    
+
     def compile_query(self, query_string: str) -> Query:
         """Compile tree-sitter query - universal syntax."""
         try:
@@ -93,7 +92,7 @@ class TreeSitterEngine:
                 query=query_string,
                 error=str(e)
             )
-    
+
     def get_node_text(self, node: Node, content: bytes) -> str:
         """Get text content of a node."""
         return content[node.start_byte:node.end_byte].decode('utf-8')

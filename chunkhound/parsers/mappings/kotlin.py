@@ -200,7 +200,7 @@ class KotlinMapping(BaseMapping):
                 type_node = self.find_child_by_type(param_node, "user_type")
                 if not type_node:
                     type_node = self.find_child_by_type(param_node, "type_reference")
-                
+
                 if type_node:
                     param_type = self.get_node_text(type_node, source).strip()
                     parameters.append(param_type)

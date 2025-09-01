@@ -142,8 +142,8 @@ async def search_regex_impl(
     if services and not services.provider.is_connected:
         services.provider.connect()
 
-    # Perform search
-    results, pagination = services.provider.search_regex(
+    # Perform search using SearchService
+    results, pagination = services.search_service.search_regex(
         pattern=pattern,
         page_size=page_size,
         offset=offset,
@@ -214,25 +214,14 @@ async def search_semantic_impl(
     if services and not services.provider.is_connected:
         services.provider.connect()
 
-    # Get embedding for query with timeout
-    try:
-        result = await asyncio.wait_for(
-            embedding_manager.embed_texts([query], provider), timeout=12.0
-        )
-        query_vector = result.embeddings[0]
-    except asyncio.TimeoutError:
-        raise Exception(
-            "Semantic search timed out. This can happen when OpenAI API is experiencing high latency. Please try again."
-        )
-
-    # Perform search
-    results, pagination = services.provider.search_semantic(
-        query_embedding=query_vector,
-        provider=provider,
-        model=model,
+    # Perform search using SearchService
+    results, pagination = await services.search_service.search_semantic(
+        query=query,
         page_size=page_size,
         offset=offset,
         threshold=threshold,
+        provider=provider,
+        model=model,
         path_filter=path_filter,
     )
 
@@ -250,7 +239,7 @@ async def get_stats_impl(services: DatabaseServices, scan_progress: dict | None 
         Dict with database statistics and scan progress
     """
     stats: dict[str, Any] = services.provider.get_stats()
-    
+
     # Map provider field names to MCP API field names
     result = {
         "total_files": stats.get("files", 0),
@@ -259,7 +248,7 @@ async def get_stats_impl(services: DatabaseServices, scan_progress: dict | None 
         "database_size_mb": stats.get("size_mb", 0),
         "total_providers": stats.get("providers", 0),
     }
-    
+
     # Add scan progress if available
     if scan_progress:
         result["initial_scan"] = {
@@ -270,7 +259,7 @@ async def get_stats_impl(services: DatabaseServices, scan_progress: dict | None 
             "completed_at": scan_progress.get("scan_completed_at"),
             "error": scan_progress.get("scan_error")
         }
-    
+
     return result
 
 

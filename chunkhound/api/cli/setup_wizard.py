@@ -7,20 +7,75 @@ from pathlib import Path
 from typing import Any
 
 import httpx
-import questionary
 from pydantic import SecretStr
-from questionary import Choice
+from rich.prompt import Confirm, Prompt
 
 from chunkhound.api.cli.ascii_art import HOUND_LOGO, WELCOME_MESSAGE
 from chunkhound.api.cli.env_detector import (
     detect_provider_config,
-    format_detected_config_summary,
     get_priority_config,
 )
-from chunkhound.api.cli.utils.output import OutputFormatter
+from chunkhound.api.cli.utils.rich_output import RichOutputFormatter
 from chunkhound.core.config.config import Config
 from chunkhound.core.config.embedding_config import EmbeddingConfig
+from chunkhound.core.config.embedding_factory import EmbeddingProviderFactory
 from chunkhound.core.config.openai_utils import is_official_openai_endpoint
+from chunkhound.core.constants import VOYAGE_DEFAULT_MODEL
+
+
+# Simplified Rich-based utility functions
+async def rich_confirm(question: str, default: bool = True) -> bool:
+    """Simple wrapper for Rich confirm prompt."""
+    return Confirm.ask(question, default=default)
+
+
+async def rich_text(question: str, default: str = "", validate=None) -> str:
+    """Simple wrapper for Rich text prompt with validation."""
+    if validate is None:
+        return Prompt.ask(question, default=default) if default else Prompt.ask(question)
+    
+    # Use Rich's validation parameter if it's a simple callable
+    try:
+        return Prompt.ask(question, default=default) if default else Prompt.ask(question)
+    except Exception:
+        # Fallback for complex validation
+        while True:
+            result = Prompt.ask(question, default=default) if default else Prompt.ask(question)
+            validation_result = validate(result)
+            if validation_result is True:
+                return result
+            elif isinstance(validation_result, str):
+                print(f"[red]Error: {validation_result}[/red]")
+            else:
+                print("[red]Invalid input[/red]")
+
+
+async def rich_select(
+    question: str, choices: list[tuple[str, str]] | list[str], default: str = None
+) -> str:
+    """Simplified Rich-based selection using built-in choices functionality."""
+    if not choices:
+        return ""
+
+    # Convert tuples to simple strings for Rich choices
+    if choices and isinstance(choices[0], tuple):
+        # For tuple format (display, value), just use the values
+        choice_values = [choice[1] if isinstance(choice, tuple) else choice for choice in choices]
+    else:
+        choice_values = choices
+
+    # If only one choice, return it
+    if len(choice_values) == 1:
+        return choice_values[0]
+
+    # Use Rich's built-in choices parameter
+    return Prompt.ask(
+        question,
+        choices=choice_values,
+        default=default if default in choice_values else choice_values[0]
+    )
+
+
 
 
 async def _fetch_available_models(
@@ -191,6 +246,61 @@ def _should_run_setup_wizard(validation_errors: list[str]) -> bool:
     return False
 
 
+def _display_detected_configs(
+    configs: dict[str, dict[str, Any] | None], formatter: RichOutputFormatter
+) -> None:
+    """Display detected configurations using Rich components."""
+    import rich.box
+    from rich.table import Table
+
+    table = Table(show_header=False, box=rich.box.ROUNDED, padding=(0, 1))
+    table.add_column("Configuration", style="cyan")
+
+    for provider, config in configs.items():
+        if not config:
+            continue
+
+        if provider == "voyageai":
+            table.add_row("• VoyageAI API key found (VOYAGE_API_KEY)")
+
+        elif provider == "openai":
+            table.add_row("• OpenAI API key found (OPENAI_API_KEY)")
+            if config.get("base_url"):
+                url = config["base_url"]
+                if any(host in url.lower() for host in ["localhost", "127.0.0.1"]):
+                    table.add_row(f"    Local endpoint: {url}")
+                else:
+                    table.add_row(f"    Custom endpoint: {url}")
+            if config.get("organization"):
+                table.add_row(f"    Organization: {config['organization']}")
+
+        elif provider == "local":
+            detection_source = config.get("detected_from", "scan")
+            provider_name = config.get("provider_name", "Unknown")
+            if detection_source == "environment":
+                table.add_row(f"• {provider_name} configured via environment")
+            else:
+                table.add_row(
+                    f"• {provider_name} server detected at {config.get('base_url', 'unknown')}"
+                )
+
+    if formatter.console is not None:
+        formatter.console.print(table)
+    else:
+        print("Environment Configuration Detected")
+        for provider, config in configs.items():
+            if config:
+                if provider == "voyageai":
+                    print("• VoyageAI API key found (VOYAGE_API_KEY)")
+                elif provider == "openai":
+                    print("• OpenAI API key found (OPENAI_API_KEY)")
+                elif provider == "local":
+                    provider_name = config.get("provider_name", "Unknown")
+                    print(
+                        f"• {provider_name} server detected at {config.get('base_url', 'unknown')}"
+                    )
+
+
 async def run_setup_wizard(target_path: Path) -> Config | None:
     """
     Run the interactive setup wizard to create initial configuration.
@@ -201,7 +311,7 @@ async def run_setup_wizard(target_path: Path) -> Config | None:
     Returns:
         Config object if setup completed successfully, None if cancelled
     """
-    formatter = OutputFormatter()
+    formatter = RichOutputFormatter()
 
     # Display welcome screen
     await _display_welcome()
@@ -210,18 +320,38 @@ async def run_setup_wizard(target_path: Path) -> Config | None:
     env_configs = detect_provider_config()
 
     if env_configs:
-        formatter.section_header("Environment Configuration Detected")
-        formatted_summary = format_detected_config_summary(env_configs)
-        print(formatted_summary)
+        # Get only the highest priority configuration
+        priority_config = get_priority_config(env_configs)
 
-        # Offer to use detected configuration
-        use_env = await questionary.confirm(
-            "Would you like to use the detected configuration?", default=True
-        ).unsafe_ask_async()
+        if priority_config:
+            formatter.section_header("Auto-Detected Configuration")
 
-        if use_env:
-            priority_config = get_priority_config(env_configs)
-            if priority_config:
+            # Show only the top priority configuration with clear messaging
+            provider_type = priority_config.get("provider")
+            if provider_type == "voyageai":
+                print("🎯 VoyageAI API key found (VOYAGE_API_KEY)")
+                print("   Best choice for code search with specialized embeddings")
+            elif provider_type == "openai":
+                if priority_config.get("base_url") and any(host in priority_config["base_url"].lower() for host in ["localhost", "127.0.0.1"]):
+                    provider_name = priority_config.get("provider_name", "Local OpenAI-compatible")
+                    print(f"🎯 {provider_name} server detected")
+                    print(f"   Running at: {priority_config.get('base_url', 'unknown')}")
+                else:
+                    print("🎯 OpenAI API key found (OPENAI_API_KEY)")
+                    print("   Reliable embeddings from OpenAI")
+            elif priority_config.get("provider_name"):
+                provider_name = priority_config["provider_name"]
+                print(f"🎯 {provider_name} server detected")
+                print(f"   Running at: {priority_config.get('base_url', 'unknown')}")
+
+            print()
+
+            # Offer to use this specific configuration
+            use_env = await rich_confirm(
+                "Use this configuration and proceed to model selection?", default=True
+            )
+
+            if use_env:
                 # Handle local endpoints that need model name
                 if priority_config.get("provider_name") and not priority_config.get(
                     "model"
@@ -230,55 +360,88 @@ async def run_setup_wizard(target_path: Path) -> Config | None:
                     base_url = priority_config.get("base_url")
                     api_key = priority_config.get("api_key")
 
-                    print(f"\n{provider_name} detected, selecting embedding model...")
+                    print(f"\n{provider_name} detected, configuring...")
 
-                    # Try automatic model detection
-                    model, used_api_key = await _select_compatible_model(
-                        base_url, api_key, formatter
+                    # Use unified configuration flow for auto-detected endpoint
+                    config_data = await _configure_provider_unified(
+                        "openai_compatible",
+                        base_url=base_url,
+                        api_key=api_key,
+                        skip_intro=True,  # Don't show intro for auto-detected
+                        formatter=formatter,
                     )
-                    if not model:
-                        formatter.warning("Model selection cancelled")
+
+                    if config_data:
+                        # Save and return
+                        config_path, status = await _save_configuration(
+                            config_data, target_path, formatter
+                        )
+                        if status == "saved":
+                            formatter.success(f"Configuration saved to {config_path}")
+                            print("\nReady to start indexing your codebase!")
+                            return Config()
+                        elif status == "cancelled":
+                            formatter.info("Configuration not saved")
+                            return None
+                        else:  # status == "error"
+                            formatter.error("Failed to save configuration")
+                            return None
+                    else:
+                        formatter.warning("Configuration cancelled")
                         return None
 
-                    # Create final config without re-prompting for provider
-                    config_data = {
-                        "provider": "openai",  # OpenAI-compatible
-                        "base_url": base_url,
-                        "model": model,
-                    }
-
-                    # Only add API key if one was used
-                    if used_api_key or api_key:
-                        config_data["api_key"] = used_api_key or api_key
-
-                    # Also check for reranking models
-                    rerank_model = await _select_reranking_model(
-                        base_url, used_api_key or api_key, formatter
+                # Check if auto-detected config is complete (has model)
+                # If so, use direct validation. Otherwise, go through configuration flow
+                provider_type = priority_config.get("provider")
+                has_model = priority_config.get("model") is not None
+                
+                if has_model:
+                    # Config is complete - validate and use directly
+                    if await _validate_detected_config(priority_config, formatter):
+                        config_data = priority_config
+                    else:
+                        config_data = None
+                elif provider_type == "voyageai":
+                    # Incomplete VoyageAI config - go through unified flow
+                    config_data = await _configure_provider_unified(
+                        "voyageai",
+                        api_key=priority_config.get("api_key"),
+                        skip_intro=True,
+                        formatter=formatter,
                     )
-                    if rerank_model:
-                        config_data["rerank_model"] = rerank_model
+                elif provider_type == "openai":
+                    # Incomplete OpenAI config - go through unified flow
+                    config_data = await _configure_provider_unified(
+                        "openai",
+                        base_url=priority_config.get("base_url"),
+                        api_key=priority_config.get("api_key"),
+                        skip_intro=True,
+                        formatter=formatter,
+                    )
+                else:
+                    # Other incomplete providers - validate directly (should not happen)
+                    if await _validate_detected_config(priority_config, formatter):
+                        config_data = priority_config
+                    else:
+                        config_data = None
 
-                    # Skip provider selection - go directly to save
-                    config_path = await _save_configuration(
+                if config_data:
+                    config_path, status = await _save_configuration(
                         config_data, target_path, formatter
                     )
-                    if config_path:
+                    if status == "saved":
                         formatter.success(f"Configuration saved to {config_path}")
                         print("\nReady to start indexing your codebase!")
                         return Config()
-                    else:
+                    elif status == "cancelled":
+                        formatter.info("Configuration not saved")
+                        return None
+                    else:  # status == "error"
                         formatter.error("Failed to save configuration")
                         return None
-
-                # Validate other detected configurations (VoyageAI, OpenAI)
-                if await _validate_detected_config(priority_config, formatter):
-                    config_path = await _save_configuration(
-                        priority_config, target_path, formatter
-                    )
-                    if config_path:
-                        formatter.success(f"Configuration saved to {config_path}")
-                        print("\nReady to start indexing your codebase!")
-                        return Config()
+                else:
+                    formatter.warning("Configuration cancelled")
+                    return None
 
     # Continue with normal provider selection if no env config or user declined
     provider_choice = await _select_provider()
@@ -304,15 +467,17 @@ async def run_setup_wizard(target_path: Path) -> Config | None:
         return None
 
     # Save configuration
-    config_path = await _save_configuration(embedding_config, target_path, formatter)
-    if not config_path:
+    config_path, status = await _save_configuration(embedding_config, target_path, formatter)
+    if status == "saved":
+        formatter.success(f"Configuration saved to {config_path}")
+        print("\nReady to start indexing your codebase!")
+        # Return a new config object that will pick up the saved file
+        return Config()
+    elif status == "cancelled":
+        formatter.info("Configuration not saved")
         return None
-
-    formatter.success(f"Configuration saved to {config_path}")
-    print("\nReady to start indexing your codebase!")
-
-    # Return a new config object that will pick up the saved file
-    return Config()
+    else:  # status == "error"
+        return None
 
 
 async def _display_welcome() -> None:
@@ -324,110 +489,29 @@ async def _display_welcome() -> None:
 async def _select_provider() -> str:
     """Interactive provider selection"""
     choices = [
-        Choice("VoyageAI (Recommended - Best for code)", value="voyageai"),
-        Choice("OpenAI", value="openai"),
-        Choice(
-            "OpenAI-compatible (Ollama, LM Studio, etc.)", value="openai_compatible"
-        ),
-        Choice("Skip for now (Regex search only)", value="skip"),
+        ("VoyageAI (Recommended - Best for code)", "voyageai"),
+        ("OpenAI", "openai"),
+        ("OpenAI-compatible (Ollama, LM Studio, etc.)", "openai_compatible"),
     ]
 
-    return await questionary.select(
+    return await rich_select(
         "Select your embedding provider:", choices=choices, default="voyageai"
-    ).unsafe_ask_async()
-
-
-async def _configure_voyageai(formatter: OutputFormatter) -> dict[str, Any] | None:
-    """Configure VoyageAI provider with signup assistance"""
-    formatter.section_header("VoyageAI Configuration")
-    print("Excellent choice! VoyageAI offers specialized code embeddings.\n")
-
-    print("Getting Started:")
-    formatter.bullet_list(
-        [
-            "Visit: https://www.voyageai.com",
-            "Sign up for a free account (includes free credits)",
-            "Find your API key in the dashboard",
-        ]
     )
-    print()
-
-    while True:
-        api_key = await questionary.text(
-            "Enter your VoyageAI API key (or 'open' to visit signup page):",
-            validate=lambda x: True if x.strip() else "API key cannot be empty",
-        ).unsafe_ask_async()
-
-        if api_key.lower() == "open":
-            try:
-                webbrowser.open("https://www.voyageai.com")
-                formatter.info("Opening VoyageAI signup page in your browser...")
-            except Exception:
-                formatter.warning(
-                    "Could not open browser. Please visit "
-                    "https://www.voyageai.com manually."
-                )
-            continue
-
-        # Validate API key
-        if await _validate_voyageai_key(api_key.strip(), formatter):
-            return {
-                "provider": "voyageai",
-                "api_key": api_key.strip(),
-                "model": "voyage-code-3",  # Best model for code
-            }
-        else:
-            formatter.error("Invalid API key. Please try again.")
-            retry = await questionary.confirm(
-                "Would you like to try again?", default=True
-            ).unsafe_ask_async()
-            if not retry:
-                return None
 
 
-async def _configure_openai(formatter: OutputFormatter) -> dict[str, Any] | None:
+async def _configure_voyageai(formatter: RichOutputFormatter) -> dict[str, Any] | None:
+    """Configure VoyageAI provider with signup assistance"""
+    print("Excellent choice! VoyageAI offers specialized code embeddings.\n")
+    return await _configure_provider_unified("voyageai", formatter=formatter)
+
+
+async def _configure_openai(formatter: RichOutputFormatter) -> dict[str, Any] | None:
     """Configure OpenAI provider"""
-    formatter.section_header("OpenAI Configuration")
-    print("You can get an API key from: https://platform.openai.com/api-keys\n")
-
-    while True:
-        api_key = await questionary.text(
-            "Enter your OpenAI API key:",
-            validate=lambda x: True
-            if x.strip().startswith("sk-")
-            else "OpenAI API keys start with 'sk-'",
-        ).unsafe_ask_async()
-
-        # Model selection
-        model = await questionary.select(
-            "Select embedding model:",
-            choices=[
-                Choice(
-                    "text-embedding-3-small (Fast & efficient)",
-                    value="text-embedding-3-small",
-                ),
-                Choice(
-                    "text-embedding-3-large (Higher quality)",
-                    value="text-embedding-3-large",
-                ),
-            ],
-            default="text-embedding-3-small",
-        ).unsafe_ask_async()
-
-        # Validate API key
-        if await _validate_openai_key(api_key.strip(), model, formatter):
-            return {"provider": "openai", "api_key": api_key.strip(), "model": model}
-        else:
-            formatter.error("Invalid API key or model. Please try again.")
-            retry = await questionary.confirm(
-                "Would you like to try again?", default=True
-            ).unsafe_ask_async()
-            if not retry:
-                return None
+    return await _configure_provider_unified("openai", formatter=formatter)
 
 
 async def _configure_openai_compatible(
-    formatter: OutputFormatter,
+    formatter: RichOutputFormatter,
 ) -> dict[str, Any] | None:
     """Configure OpenAI-compatible endpoint"""
     formatter.section_header("OpenAI-Compatible Configuration")
@@ -437,70 +521,21 @@ async def _configure_openai_compatible(
     )
     print()
 
-    endpoint = await questionary.text(
+    base_url = await rich_text(
         "Endpoint URL:",
         default="http://localhost:11434",
         validate=lambda x: True
         if x.strip().startswith(("http://", "https://"))
         else "URL must start with http:// or https://",
-    ).unsafe_ask_async()
-
-    # Smart API key prompting based on endpoint type
-    api_key = None
-    if is_official_openai_endpoint(endpoint.strip()):
-        # Official OpenAI endpoint - API key required
-        api_key = await questionary.text(
-            "API Key (required for official OpenAI endpoint):",
-            validate=lambda x: len(x.strip()) > 0
-            or "API key is required for official OpenAI endpoints",
-        ).unsafe_ask_async()
-    else:
-        # Custom endpoint - try without API key first
-        formatter.info("Custom endpoint detected - will try without API key first")
-
-    # Model selection (may prompt for API key if needed)
-    model, used_api_key = await _select_compatible_model(
-        endpoint.strip(), api_key.strip() if api_key else None, formatter
-    )
-    if not model:
-        return None
-
-    # Update API key if one was provided during model selection
-    if used_api_key and not api_key:
-        api_key = used_api_key
-
-    # Try to detect reranking models
-    rerank_model = await _select_reranking_model(
-        endpoint.strip(),
-        used_api_key or (api_key.strip() if api_key else None),
-        formatter,
     )
 
-    # Test connection
-    config_data = {
-        "provider": "openai",  # OpenAI-compatible uses OpenAI provider
-        "base_url": endpoint.strip(),
-        "model": model,
-    }
-
-    # Only add API key if one was used
-    if used_api_key or (api_key and api_key.strip()):
-        config_data["api_key"] = used_api_key or api_key.strip()
-
-    if rerank_model:
-        config_data["rerank_model"] = rerank_model
-
-    if await _validate_openai_compatible(config_data, formatter):
-        return config_data
-    else:
-        formatter.error(
-            "Could not connect to endpoint. Please check your configuration."
-        )
-        return None
+    return await _configure_provider_unified(
+        "openai_compatible", base_url=base_url.strip(), formatter=formatter
+    )
 
 
 async def _select_compatible_model(
-    base_url: str, api_key: str | None, formatter: OutputFormatter
+    base_url: str, api_key: str | None, formatter: RichOutputFormatter
 ) -> tuple[str | None, str | None]:
     """Select a model from available models or manual entry.
 
@@ -513,19 +548,17 @@ async def _select_compatible_model(
         Tuple of (selected_model, api_key_used)
     """
     # Try to fetch available models
-    formatter.progress_indicator("Detecting available models...")
+    formatter.safe_progress_indicator("Detecting available models...")
     available_models, needs_auth = await _fetch_available_models(base_url, api_key)
 
     # If failed and might need auth, try with API key
     current_api_key = api_key
     if available_models is None and needs_auth and api_key is None:
         formatter.warning("Authentication may be required for this endpoint")
-        retry_key = await questionary.text(
-            "API Key (press Enter to skip):", default=""
-        ).unsafe_ask_async()
+        retry_key = await rich_text("API Key (press Enter to skip):", default="")
 
         if retry_key.strip():
-            formatter.progress_indicator("Retrying with authentication...")
+            formatter.safe_progress_indicator("Retrying with authentication...")
             available_models, _ = await _fetch_available_models(
                 base_url, retry_key.strip()
             )
@@ -539,33 +572,20 @@ async def _select_compatible_model(
         if embedding_models:
             formatter.success(f"Found {len(embedding_models)} embedding models")
 
-            # Create choices for model selection
+            # Create choices for model selection (skip separators)
             choices = []
             for model in embedding_models:
-                choices.append(Choice(f"{model} (embedding)", value=model))
+                choices.append((f"{model} (embedding)", model))
 
-            # Add other models if any
+            # Add other models if any (limit to first 10)
             if other_models:
-                choices.append(
-                    Choice("─── Other Models ───", value=None, disabled=True)
-                )
-                for model in other_models[:10]:  # Limit to first 10
-                    choices.append(Choice(f"{model} (other)", value=model))
-                if len(other_models) > 10:
-                    choices.append(
-                        Choice(
-                            f"... and {len(other_models) - 10} more",
-                            value=None,
-                            disabled=True,
-                        )
-                    )
+                for model in other_models[:10]:
+                    choices.append((f"{model} (other)", model))
 
             # Add manual entry option
-            choices.append(Choice("Enter manually...", value="__manual__"))
+            choices.append(("Enter manually...", "__manual__"))
 
-            selected = await questionary.select(
-                "Select embedding model:", choices=choices
-            ).unsafe_ask_async()
+            selected = await rich_select("Select embedding model:", choices=choices)
 
             if selected == "__manual__":
                 manual_model = await _manual_model_entry()
@@ -610,16 +630,16 @@ async def _manual_model_entry() -> str | None:
     print("  - bge-large-en-v1.5 (BGE)")
     print()
 
-    model = await questionary.text(
+    model = await rich_text(
         "Enter model name:",
         validate=lambda x: True if x.strip() else "Model name cannot be empty",
-    ).unsafe_ask_async()
+    )
 
     return model.strip() if model else None
 
 
 async def _select_reranking_model(
-    base_url: str, api_key: str | None, formatter: OutputFormatter
+    base_url: str, api_key: str | None, formatter: RichOutputFormatter
 ) -> str | None:
     """Automatically select a reranking model if available.
 
@@ -632,7 +652,7 @@ async def _select_reranking_model(
         Selected reranking model name or None if none available
     """
     # Try to detect available models
-    formatter.progress_indicator("Checking for reranking models...")
+    formatter.safe_progress_indicator("Checking for reranking models...")
     available_models, _ = await _fetch_available_models(base_url, api_key)
 
     if available_models:
@@ -641,14 +661,12 @@ async def _select_reranking_model(
         if reranking_models:
             formatter.success(f"Found {len(reranking_models)} reranking models")
 
-            choices = []
-            for model in reranking_models:
-                choices.append(Choice(model, value=model))
+            choices = [(model, model) for model in reranking_models]
 
             # User MUST select a reranking model if available
-            selected = await questionary.select(
+            selected = await rich_select(
                 "Select reranking model (improves search accuracy):", choices=choices
-            ).unsafe_ask_async()
+            )
 
             return selected
         else:
@@ -660,10 +678,10 @@ async def _select_reranking_model(
 
 
 async def _validate_detected_config(
-    config_data: dict[str, Any], formatter: OutputFormatter
+    config_data: dict[str, Any], formatter: RichOutputFormatter
 ) -> bool:
     """Validate configuration detected from environment variables."""
-    formatter.progress_indicator("Validating detected configuration...")
+    formatter.safe_progress_indicator("Validating detected configuration...")
 
     try:
         provider = config_data.get("provider")
@@ -703,14 +721,14 @@ async def _validate_detected_config(
         return False
 
 
-async def _validate_voyageai_key(api_key: str, formatter: OutputFormatter) -> bool:
+async def _validate_voyageai_key(api_key: str, formatter: RichOutputFormatter) -> bool:
     """Test VoyageAI API key with minimal embedding request"""
     try:
         formatter.info("🔄 Validating API key...")
 
         # Create a test configuration
         config = EmbeddingConfig(
-            provider="voyageai", api_key=SecretStr(api_key), model="voyage-code-3"
+            provider="voyageai", api_key=SecretStr(api_key), model=VOYAGE_DEFAULT_MODEL
         )
 
         # Try to create provider and test connection
@@ -729,7 +747,7 @@ async def _validate_voyageai_key(api_key: str, formatter: OutputFormatter) -> bo
 
 
 async def _validate_openai_key(
-    api_key: str, model: str, formatter: OutputFormatter
+    api_key: str, model: str, formatter: RichOutputFormatter
 ) -> bool:
     """Test OpenAI API key with minimal embedding request"""
     try:
@@ -756,7 +774,7 @@ async def _validate_openai_key(
 
 
 async def _validate_openai_compatible(
-    config_data: dict[str, Any], formatter: OutputFormatter
+    config_data: dict[str, Any], formatter: RichOutputFormatter
 ) -> bool:
     """Test OpenAI-compatible endpoint connection"""
     try:
@@ -789,10 +807,315 @@ async def _validate_openai_compatible(
         return False
 
 
+async def _ensure_api_key(
+    provider_type: str,
+    base_url: str | None,
+    api_key: str | None,
+    formatter: RichOutputFormatter,
+) -> str | None:
+    """
+    Ensure we have an API key if needed for the provider.
+
+    Args:
+        provider_type: Type of provider (voyageai, openai, openai_compatible)
+        base_url: Base URL for the provider (relevant for openai_compatible)
+        api_key: Existing API key if any
+        formatter: Output formatter
+
+    Returns:
+        API key string if needed, None if not needed, or None if user cancelled
+    """
+    provider_info = EmbeddingProviderFactory.get_provider_info(provider_type)
+
+    if provider_info["requires_api_key"] == True:
+        # Always require API key
+        if not api_key:
+            api_key = await _prompt_for_api_key(provider_type, formatter)
+        return api_key
+    elif provider_info["requires_api_key"] == "auto":
+        # Test connection first, prompt for key if needed
+        if not api_key:
+            needs_auth = await _test_needs_auth(base_url, formatter)
+            if needs_auth:
+                api_key = await _prompt_for_api_key(provider_type, formatter)
+        return api_key
+
+    return api_key
+
+
+async def _prompt_for_api_key(
+    provider_type: str, formatter: RichOutputFormatter
+) -> str | None:
+    """Prompt user for API key based on provider type."""
+    provider_info = EmbeddingProviderFactory.get_provider_info(provider_type)
+    provider_name = provider_info["display_name"]
+
+    if provider_type == "voyageai":
+        formatter.section_header(f"{provider_name} API Key")
+        print("Getting Started:")
+        formatter.bullet_list(
+            [
+                "Visit: https://www.voyageai.com",
+                "Sign up for a free account (includes free credits)",
+                "Find your API key in the dashboard",
+            ]
+        )
+        print()
+
+        while True:
+            api_key = await rich_text(
+                "Enter your VoyageAI API key (or 'open' to visit signup page):",
+                validate=lambda x: True if x.strip() else "API key cannot be empty",
+            )
+
+            if api_key.lower() == "open":
+                try:
+                    webbrowser.open("https://www.voyageai.com")
+                    formatter.info("Opening VoyageAI signup page in your browser...")
+                except Exception:
+                    formatter.warning(
+                        "Could not open browser. Please visit https://www.voyageai.com manually."
+                    )
+                continue
+
+            return api_key.strip()
+
+    elif provider_type == "openai":
+        formatter.section_header(f"{provider_name} API Key")
+        print("You can get an API key from: https://platform.openai.com/api-keys\n")
+
+        api_key = await rich_text(
+            "Enter your OpenAI API key:",
+            validate=lambda x: True
+            if x.strip().startswith("sk-")
+            else "OpenAI API keys start with 'sk-'",
+        )
+
+        return api_key.strip()
+
+    elif provider_type == "openai_compatible":
+        api_key = await rich_text(
+            "API Key (required for this endpoint):",
+            validate=lambda x: len(x.strip()) > 0 or "API key is required",
+        )
+
+        return api_key.strip()
+
+    return None
+
+
+async def _test_needs_auth(
+    base_url: str | None, formatter: RichOutputFormatter
+) -> bool:
+    """Test if the endpoint needs authentication by making a request without API key."""
+    if not base_url:
+        return False
+
+    try:
+        formatter.safe_progress_indicator("Testing endpoint authentication requirements...")
+
+        # Try to fetch models without API key
+        models, needs_auth = await _fetch_available_models(base_url, None)
+        return needs_auth
+    except Exception:
+        # If we can't test, assume auth is needed to be safe
+        return True
+
+
+async def _select_model_unified(
+    provider_type: str,
+    base_url: str | None,
+    api_key: str | None,
+    formatter: RichOutputFormatter,
+    model_type: str = "embedding",  # "embedding" or "reranking"
+) -> tuple[str | None, str | None]:
+    """
+    Select model - either from API discovery or defaults.
+
+    Args:
+        provider_type: Type of provider
+        base_url: Base URL for API calls
+        api_key: API key for authentication
+        formatter: Output formatter
+        model_type: Type of model to select ("embedding" or "reranking")
+
+    Returns:
+        Tuple of (selected_model, api_key_used)
+    """
+    provider_info = EmbeddingProviderFactory.get_provider_info(provider_type)
+
+    # Try dynamic discovery for openai_compatible
+    if provider_info["supports_model_listing"] and base_url:
+        models, needs_auth = await _fetch_available_models(base_url, api_key)
+
+        # If we need auth and don't have a key, prompt for one
+        if needs_auth and not api_key:
+            api_key = await _prompt_for_api_key(provider_type, formatter)
+            if api_key:
+                # Retry with API key
+                models, _ = await _fetch_available_models(base_url, api_key)
+
+        if models:
+            if model_type == "embedding":
+                filtered, _ = _filter_embedding_models(
+                    models
+                )  # Unpack tuple, take first list
+            else:
+                filtered = _filter_reranking_models(models)
+
+            if filtered:
+                choices = [(model, model) for model in filtered]
+                selected = await rich_select(
+                    f"Select {model_type} model:", choices=choices
+                )
+                return selected, api_key
+
+    # Use defaults for voyageai and openai
+    defaults = (
+        provider_info["default_models"]
+        if model_type == "embedding"
+        else provider_info["default_rerankers"]
+    )
+    if defaults:
+        choices = [(f"{model} - {desc}", model) for model, desc in defaults]
+        default = (
+            provider_info["default_selection"]
+            if model_type == "embedding"
+            else provider_info["default_reranker"]
+        )
+
+        selected = await rich_select(
+            f"Select {model_type} model:", choices=choices, default=default
+        )
+
+        return selected, api_key
+
+    # Manual entry fallback for embedding models only
+    if model_type == "embedding":
+        model = await rich_text(
+            "Enter embedding model name:",
+            validate=lambda x: True if x.strip() else "Model name cannot be empty",
+        )
+        return model.strip(), api_key
+
+    # No reranking model available
+    return None, api_key
+
+
+async def _configure_provider_unified(
+    provider_type: str,
+    base_url: str | None = None,
+    api_key: str | None = None,
+    skip_intro: bool = False,
+    formatter: RichOutputFormatter | None = None,
+) -> dict[str, Any] | None:
+    """
+    Unified provider configuration flow for all provider types.
+
+    Args:
+        provider_type: Type of provider (voyageai, openai, openai_compatible)
+        base_url: Base URL for API calls (relevant for openai_compatible)
+        api_key: Existing API key if any
+        skip_intro: Skip intro messages (for auto-detected flows)
+        formatter: Output formatter
+
+    Returns:
+        Complete configuration dictionary if successful, None if cancelled
+    """
+    if not formatter:
+        formatter = RichOutputFormatter()
+
+    provider_info = EmbeddingProviderFactory.get_provider_info(provider_type)
+
+    if not skip_intro:
+        formatter.section_header(f"{provider_info['display_name']} Configuration")
+
+    # Step 1: Handle API key
+    api_key = await _ensure_api_key(provider_type, base_url, api_key, formatter)
+    if not api_key and provider_info["requires_api_key"] == True:
+        return None
+
+    # Step 2: Select embedding model
+    model, used_api_key = await _select_model_unified(
+        provider_type, base_url, api_key, formatter, model_type="embedding"
+    )
+    if not model:
+        return None
+
+    # Update API key if one was discovered during model selection
+    if used_api_key and not api_key:
+        api_key = used_api_key
+
+    # Step 3: Select reranking model if supported
+    rerank_model = None
+    if provider_info["supports_reranking"]:
+        rerank_model, _ = await _select_model_unified(
+            provider_type, base_url, api_key, formatter, model_type="reranking"
+        )
+
+    # Step 4: Build configuration
+    config_data = {
+        "provider": "openai" if provider_type == "openai_compatible" else provider_type,
+        "model": model,
+    }
+
+    if base_url:
+        config_data["base_url"] = base_url
+    if api_key:
+        config_data["api_key"] = api_key
+    if rerank_model:
+        config_data["rerank_model"] = rerank_model
+
+    # Step 5: Validate configuration
+    if await _validate_provider_config(config_data, formatter):
+        return config_data
+    else:
+        formatter.error("Configuration validation failed. Please try again.")
+        return None
+
+
+async def _validate_provider_config(
+    config_data: dict[str, Any], formatter: RichOutputFormatter
+) -> bool:
+    """Validate provider configuration by testing connection."""
+    provider = config_data.get("provider")
+
+    if provider == "voyageai":
+        api_key = config_data.get("api_key")
+        if not api_key:
+            formatter.error("VoyageAI API key not found")
+            return False
+        return await _validate_voyageai_key(api_key, formatter)
+
+    elif provider == "openai":
+        api_key = config_data.get("api_key")
+        base_url = config_data.get("base_url")
+        model = config_data.get("model", "text-embedding-3-small")
+
+        # Only require API key for official OpenAI endpoints
+        if is_official_openai_endpoint(base_url):
+            if not api_key:
+                formatter.error("OpenAI API key not found")
+                return False
+            # Official OpenAI endpoint
+            return await _validate_openai_key(api_key, model, formatter)
+        else:
+            # Custom/local endpoints don't require API key
+            return await _validate_openai_compatible(config_data, formatter)
+
+    else:
+        formatter.error(f"Unknown provider: {provider}")
+        return False
+
+
 async def _save_configuration(
-    config_data: dict[str, Any], target_path: Path, formatter: OutputFormatter
-) -> Path | None:
-    """Save configuration to .chunkhound.json"""
+    config_data: dict[str, Any], target_path: Path, formatter: RichOutputFormatter
+) -> tuple[Path | None, str]:
+    """Save configuration to .chunkhound.json
+    
+    Returns:
+        Tuple of (config_path, status) where status is "saved", "cancelled", or "error"
+    """
     try:
         config_path = target_path / ".chunkhound.json"
 
@@ -815,19 +1138,19 @@ async def _save_configuration(
         formatter.box_section("Configuration Summary", content)
 
         # Confirm save
-        should_save = await questionary.confirm(
+        should_save = await rich_confirm(
             f"\nSave configuration to {config_path}?", default=True
-        ).unsafe_ask_async()
+        )
 
         if not should_save:
-            return None
+            return None, "cancelled"
 
         # Write configuration file
         with open(config_path, "w") as f:
             json.dump(config, f, indent=2)
 
-        return config_path
+        return config_path, "saved"
 
     except Exception as e:
         formatter.error(f"Failed to save configuration: {e}")
-        return None
+        return None, "error"

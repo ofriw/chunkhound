@@ -13,7 +13,7 @@ from chunkhound.services.directory_indexing_service import DirectoryIndexingServ
 from chunkhound.version import __version__
 
 from ..parsers.run_parser import process_batch_arguments
-from ..utils.rich_output import RichOutputFormatter, format_stats
+from ..utils.rich_output import RichOutputFormatter
 from ..utils.validation import (
     ensure_database_directory,
     validate_file_patterns,
@@ -60,23 +60,23 @@ async def run_command(args: argparse.Namespace, config: Config) -> None:
     try:
         # Configure registry with the Config object
         configure_registry(config)
-        
+
         formatter.success(f"Service layer initialized: {args.db}")
 
         # Create progress manager for modern UI
         with formatter.create_progress_display() as progress_manager:
             # Get the underlying Progress instance for service layers
             progress_instance = progress_manager.get_progress_instance()
-            
+
             # Create indexing coordinator with Progress instance
             indexing_coordinator = create_indexing_coordinator()
             # Pass progress to the coordinator after creation
             if hasattr(indexing_coordinator, 'progress'):
                 indexing_coordinator.progress = progress_instance
-            
+
             # Get initial stats
             initial_stats = await indexing_coordinator.get_stats()
-            formatter.initial_stats_panel(format_stats(initial_stats))
+            formatter.initial_stats_panel(initial_stats)
 
             # Simple progress callback for verbose output
             def progress_callback(message: str):
@@ -91,7 +91,7 @@ async def run_command(args: argparse.Namespace, config: Config) -> None:
                 progress=progress_instance
             )
 
-            # Process directory - service layers will add their own subtasks to progress_instance
+            # Process directory - service layers will add subtasks to progress_instance
             stats = await indexing_service.process_directory(
                 Path(args.path), no_embeddings=args.no_embeddings
             )
@@ -114,7 +114,11 @@ async def run_command(args: argparse.Namespace, config: Config) -> None:
 
 def _print_completion_summary(stats, formatter: RichOutputFormatter) -> None:
     """Print completion summary from IndexingStats using Rich formatting."""
-    stats_dict = format_stats(stats)
+    # Convert stats object to dictionary for Rich display
+    if hasattr(stats, '__dict__'):
+        stats_dict = stats.__dict__
+    else:
+        stats_dict = stats if isinstance(stats, dict) else {}
     formatter.completion_summary(stats_dict, stats.processing_time)
 
 
@@ -162,7 +166,7 @@ def _validate_run_arguments(
             if not provider:
                 formatter.error("No embedding provider configured.")
                 formatter.info("To fix this, you can:")
-                formatter.info("  1. Create a .chunkhound.json config file with embedding settings")
+                formatter.info("  1. Create .chunkhound.json config file with embeddings")
                 formatter.info("  2. Use --no-embeddings to skip embeddings")
                 return False
 

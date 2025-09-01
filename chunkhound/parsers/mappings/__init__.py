@@ -30,7 +30,7 @@ from .yaml import YamlMapping
 
 __all__ = [
     "BaseMapping",
-    "BashMapping", 
+    "BashMapping",
     "CMapping",
     "CppMapping",
     "CSharpMapping",

@@ -6,7 +6,7 @@ for mapping C++ AST nodes to semantic chunks.
 
 from typing import TYPE_CHECKING, Any
 
-from chunkhound.core.types.common import ChunkType, Language
+from chunkhound.core.types.common import Language
 from chunkhound.parsers.mappings.base import BaseMapping
 from chunkhound.parsers.universal_engine import UniversalConcept
 
@@ -423,7 +423,7 @@ class CppMapping(BaseMapping):
 
         # Check if function name matches class name
         func_name = self.extract_function_name(node, source)
-        
+
         # Find the parent class if this is defined inside a class
         parent = node.parent
         while parent:

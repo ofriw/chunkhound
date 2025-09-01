@@ -393,9 +393,9 @@ class MatlabMapping(BaseMapping):
         return cleaned
 
     def create_function_signature(
-        self, 
-        name: str, 
-        parameters: list[str], 
+        self,
+        name: str,
+        parameters: list[str],
         return_values: list[str] | None = None
     ) -> str:
         """Create a MATLAB-style function signature string.
@@ -409,7 +409,7 @@ class MatlabMapping(BaseMapping):
             MATLAB-style function signature
         """
         param_str = ", ".join(parameters) if parameters else ""
-        
+
         if return_values:
             if len(return_values) == 1:
                 return f"{return_values[0]} = {name}({param_str})"
@@ -446,7 +446,7 @@ class MatlabMapping(BaseMapping):
             lines = text.strip().split("\n")
             if len(lines) <= 2:  # Just function declaration and end
                 return False
-            
+
             # Check if body only contains 'end'
             body_lines = [line.strip() for line in lines[1:-1]]  # Skip first and last line
             if all(not line or line.startswith("%") for line in body_lines):

@@ -5,13 +5,13 @@ for the universal concept system. It handles YAML documents, mappings, sequences
 and other structural elements using tree-sitter-yaml.
 """
 
-from typing import Dict, List, Optional, Any
+from typing import Any
 
 from tree_sitter import Node
 
 from chunkhound.core.types.common import Language
-from chunkhound.parsers.universal_engine import UniversalConcept
 from chunkhound.parsers.mappings.base import BaseMapping
+from chunkhound.parsers.universal_engine import UniversalConcept
 
 
 class YamlMapping(BaseMapping):
@@ -45,9 +45,9 @@ class YamlMapping(BaseMapping):
         return ""
 
     # LanguageMapping protocol methods
-    def get_query_for_concept(self, concept: UniversalConcept) -> Optional[str]:
+    def get_query_for_concept(self, concept: UniversalConcept) -> str | None:
         """Get tree-sitter query for universal concept in YAML."""
-        
+
         if concept == UniversalConcept.DEFINITION:
             return """
             (block_mapping_pair
@@ -64,7 +64,7 @@ class YamlMapping(BaseMapping):
                 (flow_node) @item
             ) @definition
             """
-            
+
         elif concept == UniversalConcept.BLOCK:
             return """
             (block_mapping) @definition
@@ -77,12 +77,12 @@ class YamlMapping(BaseMapping):
             
             (document) @definition
             """
-            
+
         elif concept == UniversalConcept.COMMENT:
             return """
             (comment) @definition
             """
-            
+
         elif concept == UniversalConcept.IMPORT:
             # YAML doesn't have explicit imports, but we can look for common patterns
             return """
@@ -92,23 +92,23 @@ class YamlMapping(BaseMapping):
                 (#match? @key "^(include|import|extends|inherit)$")
             ) @definition
             """
-            
+
         elif concept == UniversalConcept.STRUCTURE:
             return """
             (document) @definition
             
             (stream) @definition
             """
-            
+
         # All cases handled above
         return None
 
-    def extract_name(self, concept: UniversalConcept, captures: Dict[str, Node], content: bytes) -> str:
+    def extract_name(self, concept: UniversalConcept, captures: dict[str, Node], content: bytes) -> str:
         """Extract name from captures for this concept."""
-        
+
         # Convert bytes to string for processing
         source = content.decode('utf-8')
-        
+
         if concept == UniversalConcept.DEFINITION:
             # For key-value pairs, use the key as the name
             if "key" in captures:
@@ -119,15 +119,15 @@ class YamlMapping(BaseMapping):
                 if key_text.endswith(':'):
                     key_text = key_text[:-1]
                 return key_text
-            
+
             # For sequence items, use a generic name
             if "item" in captures:
                 item_node = captures["item"]
                 line = item_node.start_point[0] + 1
                 return f"item_line_{line}"
-            
+
             return "unnamed_definition"
-            
+
         elif concept == UniversalConcept.BLOCK:
             # Use location-based naming for blocks
             if "definition" in captures:
@@ -135,30 +135,30 @@ class YamlMapping(BaseMapping):
                 line = node.start_point[0] + 1
                 block_type = node.type.replace('_', ' ')
                 return f"{block_type}_line_{line}"
-            
+
             return "unnamed_block"
-            
+
         elif concept == UniversalConcept.COMMENT:
             # Use location-based naming for comments
             if "definition" in captures:
                 node = captures["definition"]
                 line = node.start_point[0] + 1
                 return f"comment_line_{line}"
-            
+
             return "unnamed_comment"
-            
+
         elif concept == UniversalConcept.IMPORT:
             if "key" in captures and "value" in captures:
                 key_node = captures["key"]
                 value_node = captures["value"]
-                
+
                 key_text = self.get_node_text(key_node, source).strip().strip('"\'')
                 value_text = self.get_node_text(value_node, source).strip().strip('"\'')
-                
+
                 return f"{key_text}_{value_text}"
-            
+
             return "unnamed_import"
-            
+
         elif concept == UniversalConcept.STRUCTURE:
             if "definition" in captures:
                 node = captures["definition"]
@@ -168,18 +168,18 @@ class YamlMapping(BaseMapping):
                     return f"document_{line}"
                 elif node.type == "stream":
                     return "yaml_stream"
-            
+
             return "yaml_structure"
-            
+
         # All cases handled above
         return "unnamed"
 
-    def extract_content(self, concept: UniversalConcept, captures: Dict[str, Node], content: bytes) -> str:
+    def extract_content(self, concept: UniversalConcept, captures: dict[str, Node], content: bytes) -> str:
         """Extract content from captures for this concept."""
-        
+
         # Convert bytes to string for processing
         source = content.decode('utf-8')
-        
+
         if "definition" in captures:
             node = captures["definition"]
             return self.get_node_text(node, source)
@@ -187,40 +187,40 @@ class YamlMapping(BaseMapping):
             # Use the first available capture
             node = list(captures.values())[0]
             return self.get_node_text(node, source)
-        
+
         return ""
 
-    def extract_metadata(self, concept: UniversalConcept, captures: Dict[str, Node], content: bytes) -> Dict[str, Any]:
+    def extract_metadata(self, concept: UniversalConcept, captures: dict[str, Node], content: bytes) -> dict[str, Any]:
         """Extract YAML-specific metadata."""
-        
+
         source = content.decode('utf-8')
         metadata = {}
-        
+
         if concept == UniversalConcept.DEFINITION:
             # Extract definition specific metadata
             def_node = captures.get("definition")
             if def_node:
                 metadata["node_type"] = def_node.type
-                
+
                 # For mapping pairs
                 if "key" in captures and "value" in captures:
                     key_node = captures["key"]
                     value_node = captures["value"]
-                    
+
                     key_text = self.get_node_text(key_node, source).strip().strip('"\'')
                     value_text = self.get_node_text(value_node, source).strip()
-                    
+
                     metadata["kind"] = "mapping_pair"
                     metadata["key"] = key_text
-                    
+
                     # Analyze value type
                     value_type = self._analyze_yaml_value_type(value_node, source)
                     metadata["value_type"] = value_type
-                    
+
                     # Store short values for reference
                     if len(value_text) < 100 and value_type in ["scalar", "string"]:
                         metadata["value"] = value_text.strip('"\'')
-                    
+
                     # Check for common configuration patterns
                     if key_text.lower() in ["name", "title", "id", "version"]:
                         metadata["config_type"] = "identifier"
@@ -228,66 +228,66 @@ class YamlMapping(BaseMapping):
                         metadata["config_type"] = "connection"
                     elif key_text.lower() in ["env", "environment", "stage"]:
                         metadata["config_type"] = "environment"
-                
+
                 # For sequence items
                 elif "item" in captures:
                     item_node = captures["item"]
                     metadata["kind"] = "sequence_item"
-                    
+
                     item_type = self._analyze_yaml_value_type(item_node, source)
                     metadata["item_type"] = item_type
-        
+
         elif concept == UniversalConcept.BLOCK:
             if "definition" in captures:
                 block_node = captures["definition"]
                 metadata["block_type"] = block_node.type
-                
+
                 # Analyze block content
                 if block_node.type in ["block_mapping", "flow_mapping"]:
                     # Count key-value pairs
                     pairs = self._count_mapping_pairs(block_node)
                     metadata["pair_count"] = pairs
                     metadata["structure_type"] = "mapping"
-                
+
                 elif block_node.type in ["block_sequence", "flow_sequence"]:
                     # Count sequence items
                     items = self._count_sequence_items(block_node)
                     metadata["item_count"] = items
                     metadata["structure_type"] = "sequence"
-                
+
                 elif block_node.type == "document":
                     # Analyze document structure
                     metadata["structure_type"] = "document"
                     metadata["has_directives"] = self._has_yaml_directives(block_node, source)
-        
+
         elif concept == UniversalConcept.IMPORT:
             if "key" in captures and "value" in captures:
                 key_node = captures["key"]
                 value_node = captures["value"]
-                
+
                 key_text = self.get_node_text(key_node, source).strip().strip('"\'')
                 value_text = self.get_node_text(value_node, source).strip().strip('"\'')
-                
+
                 metadata["import_type"] = key_text.lower()
                 metadata["import_target"] = value_text
-                
+
                 # Determine if it's a file path or module reference
                 if '/' in value_text or '\\' in value_text or value_text.endswith(('.yaml', '.yml')):
                     metadata["target_type"] = "file"
                 else:
                     metadata["target_type"] = "reference"
-        
+
         elif concept == UniversalConcept.COMMENT:
             if "definition" in captures:
                 comment_node = captures["definition"]
                 comment_text = self.get_node_text(comment_node, source)
-                
+
                 # Clean and analyze comment
                 clean_text = self.clean_comment_text(comment_text)
-                
+
                 # Detect special comment types
                 comment_type = "regular"
-                
+
                 if clean_text:
                     upper_text = clean_text.upper()
                     if any(prefix in upper_text for prefix in ["TODO:", "FIXME:", "HACK:", "NOTE:", "WARNING:"]):
@@ -296,23 +296,23 @@ class YamlMapping(BaseMapping):
                         comment_type = "document_marker"
                     elif len(clean_text) > 50:
                         comment_type = "documentation"
-                
+
                 metadata["comment_type"] = comment_type
-                
+
         elif concept == UniversalConcept.STRUCTURE:
             if "definition" in captures:
                 structure_node = captures["definition"]
                 metadata["structure_type"] = structure_node.type
-                
+
                 # Calculate structure complexity
                 if structure_node.type == "document":
                     depth = self._calculate_yaml_depth(structure_node)
                     metadata["max_depth"] = depth
                 elif structure_node.type == "stream":
-                    doc_count = len([child for child in self.walk_tree(structure_node) 
+                    doc_count = len([child for child in self.walk_tree(structure_node)
                                    if child and child.type == "document"])
                     metadata["document_count"] = doc_count
-        
+
         return metadata
 
     def _analyze_yaml_value_type(self, node: Node, source: str) -> str:
@@ -360,10 +360,10 @@ class YamlMapping(BaseMapping):
     def _calculate_yaml_depth(self, node: Node, current_depth: int = 1) -> int:
         """Calculate maximum nesting depth of YAML structure."""
         max_depth = current_depth
-        
+
         for child in node.children if hasattr(node, 'children') else []:
             if child and child.type in ["block_mapping", "flow_mapping", "block_sequence", "flow_sequence"]:
                 child_depth = self._calculate_yaml_depth(child, current_depth + 1)
                 max_depth = max(max_depth, child_depth)
-        
+
         return max_depth
