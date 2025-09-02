@@ -4,6 +4,7 @@ from typing import Any, Protocol
 
 from tree_sitter import Node
 
+from chunkhound.utils.normalization import normalize_content
 from .universal_engine import (
     QueryCompilationError,
     TreeSitterEngine,
@@ -90,8 +91,9 @@ class ConceptExtractor:
         chunk_content = self.mapping.extract_content(concept, captures, content)
         metadata = self.mapping.extract_metadata(concept, captures, content)
 
-        # Skip empty chunks
-        if not chunk_content:
+        # Skip empty or whitespace-only chunks
+        normalized_content = normalize_content(chunk_content or "")
+        if not normalized_content:
             return None
 
         # Get position from definition node

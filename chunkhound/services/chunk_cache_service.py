@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 
 from chunkhound.core.models.chunk import Chunk
+from chunkhound.utils.normalization import normalize_content
 
 
 @dataclass
@@ -28,7 +29,7 @@ class ChunkCacheService:
         This helps prevent unnecessary chunk regeneration due to insignificant 
         whitespace differences like line endings.
         """
-        return code.replace('\r\n', '\n').replace('\r', '\n').rstrip()
+        return normalize_content(code)
 
     def diff_chunks(
         self, new_chunks: list[Chunk], existing_chunks: list[Chunk]

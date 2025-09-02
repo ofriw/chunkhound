@@ -15,7 +15,7 @@ recursive approach to create chunks that:
 """
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -32,6 +32,7 @@ from chunkhound.core.types.common import (
     LineNumber,
 )
 from chunkhound.interfaces.language_parser import ParseResult
+from chunkhound.utils.normalization import normalize_content
 
 from .concept_extractor import ConceptExtractor
 from .mapping_adapter import MappingAdapter
@@ -172,10 +173,10 @@ class UniversalParser:
             else:
                 raise UnicodeDecodeError('utf-8', b'', 0, 1, f"Could not decode file {file_path}") from e
 
-        # Normalize line endings for consistent parsing and chunk comparison
+        # Normalize content for consistent parsing and chunk comparison
         # Skip for binary and protocol-specific files where CRLF might be semantically significant
         if file_path.suffix.lower() not in ['.pdf', '.png', '.jpg', '.gif', '.zip', '.eml', '.http']:
-            content = content.replace('\r\n', '\n').replace('\r', '\n')
+            content = normalize_content(content)
 
         return self.parse_content(content, file_path, file_id)
 
@@ -223,6 +224,16 @@ class UniversalParser:
         universal_chunks = self.extractor.extract_all_concepts(
             ast_tree.root_node, content_bytes
         )
+
+        # Filter out whitespace-only chunks as secondary safety measure
+        filtered_chunks = []
+        for chunk in universal_chunks:
+            normalized_code = normalize_content(chunk.content)
+            if normalized_code:
+                # Update chunk with normalized content
+                chunk = replace(chunk, content=normalized_code)
+                filtered_chunks.append(chunk)
+        universal_chunks = filtered_chunks
 
         # Apply cAST algorithm for optimal chunking
         optimized_chunks = self._apply_cast_algorithm(
