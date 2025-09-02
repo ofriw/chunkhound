@@ -188,9 +188,21 @@ class ProviderRegistry:
     def _setup_embedding_provider(self) -> None:
         """Create and register the embedding provider if configured."""
         logger.debug("[REGISTRY] Setting up embedding provider")
-        if not self._config or not self._config.embedding:
+        
+        # Skip if no config at all
+        if not self._config:
+            logger.debug("[REGISTRY] No config available, skipping embedding provider setup")
+            return
+            
+        # Skip if embeddings were explicitly disabled
+        if hasattr(self._config, 'embeddings_disabled') and self._config.embeddings_disabled:
+            logger.debug("[REGISTRY] Embeddings explicitly disabled, skipping embedding provider setup")
+            return
+            
+        # Skip if no embedding config found
+        if not self._config.embedding:
             logger.debug("[REGISTRY] No embedding config found, skipping embedding provider setup")
-            return  # No embedding provider needed
+            return
 
         logger.debug(f"[REGISTRY] Found embedding config: provider={self._config.embedding.provider}")
         try:
@@ -207,7 +219,7 @@ class ProviderRegistry:
                 logger.info(f"Registered {self._config.embedding.provider} embedding provider")
         except Exception as e:
             logger.error(f"[REGISTRY] Failed to create embedding provider: {e}")
-            raise  # Re-raise to see the full error
+            raise  # Re-raise to see the actual error
 
     def _setup_language_parsers(self) -> None:
         """Register all available language parsers."""

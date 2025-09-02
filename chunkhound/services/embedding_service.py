@@ -20,6 +20,7 @@ from rich.progress import Progress, TaskID
 from chunkhound.core.types.common import ChunkId
 from chunkhound.interfaces.database_provider import DatabaseProvider
 from chunkhound.interfaces.embedding_provider import EmbeddingProvider
+from chunkhound.utils.normalization import normalize_content
 
 from .base_service import BaseService
 
@@ -374,12 +375,21 @@ class EmbeddingService(BaseService):
             logger.error(f"Failed to get existing embeddings: {e}")
             existing_chunk_ids = set()
 
-        # Filter out chunks that already have embeddings
+        # Filter out chunks that already have embeddings or would be empty after normalization
         filtered_chunks = []
+        skipped_empty = 0
         for chunk_id, text in zip(chunk_ids, chunk_texts):
             if chunk_id not in existing_chunk_ids:
+                # Text is already normalized by IndexingCoordinator
+                if not text.strip():
+                    skipped_empty += 1
+                    logger.debug(f"Skipping chunk {chunk_id}: empty content")
+                    continue
                 filtered_chunks.append((chunk_id, text))
 
+        if skipped_empty > 0:
+            logger.info(f"Skipped {skipped_empty} chunks with empty content after normalization")
+        
         logger.debug(
             f"Filtered {len(filtered_chunks)} chunks (out of {len(chunk_ids)}) need embeddings"
         )
@@ -686,8 +696,8 @@ class EmbeddingService(BaseService):
             all_chunks = filtered_chunks
 
         # Extract chunk IDs with consistent field handling
-        # Use "id" field directly as it's the standard field name across providers
-        all_chunk_ids = [chunk.get("id") for chunk in all_chunks if chunk.get("id") is not None]
+        # Use "chunk_id" field as it's the actual field name in the database
+        all_chunk_ids = [chunk.get("chunk_id") for chunk in all_chunks if chunk.get("chunk_id") is not None]
 
         if not all_chunk_ids:
             return []

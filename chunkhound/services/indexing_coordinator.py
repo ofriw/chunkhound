@@ -963,7 +963,8 @@ class IndexingCoordinator(BaseService):
             valid_chunk_data = []
             empty_count = 0
             for chunk_id, chunk in zip(chunk_ids, chunks):
-                text = chunk.get("code", "").strip()
+                from chunkhound.utils.normalization import normalize_content
+                text = normalize_content(chunk.get("code", ""))
                 if text:  # Only include chunks with actual content
                     valid_chunk_data.append((chunk_id, chunk, text))
                 else:
