@@ -1,6 +1,7 @@
 """Interactive setup wizard for ChunkHound first-time configuration"""
 
 import json
+import subprocess
 import sys
 import webbrowser
 from pathlib import Path
@@ -36,42 +37,42 @@ async def _rich_confirm_interactive(question: str, default: bool = True) -> bool
     from rich.console import Console
     from rich.live import Live
     from rich.text import Text
-    
+
     from .keyboard import KeyboardInput
-    
+
     console = Console()
     # Default to Yes (True) if default is True, No (False) if default is False
     selected = 0 if default else 1  # 0 = Yes, 1 = No
     keyboard_handler = KeyboardInput()
-    
+
     # Show the question
     console.print(f"\n[bold]{question}[/bold]")
     console.print()
-    
+
     def create_display():
         """Create the display with current selection highlighted."""
         text = Text()
-        
+
         # Yes option
         if selected == 0:
             text.append("▶ Yes  ", style="bold cyan")
         else:
             text.append("  Yes  ", style="dim")
-        
-        # No option  
+
+        # No option
         if selected == 1:
             text.append("▶ No", style="bold cyan")
         else:
             text.append("  No", style="dim")
-        
+
         return text
-    
+
     with Live(create_display(), auto_refresh=False, console=console) as live:
         # Main input loop
         while True:
             try:
                 key = keyboard_handler.getkey()
-                
+
                 if key in ["LEFT", "UP"]:
                     selected = 0  # Select Yes
                     live.update(create_display(), refresh=True)
@@ -102,7 +103,7 @@ async def _rich_confirm_interactive(question: str, default: bool = True) -> bool
                     live.stop()
                     raise KeyboardInterrupt("Confirmation cancelled")
                 # Ignore other keys
-                
+
             except KeyboardInterrupt:
                 live.stop()
                 raise
@@ -547,6 +548,10 @@ async def run_setup_wizard(target_path: Path, args=None) -> Config | None:
                         )
                         if status == "saved":
                             formatter.success(f"Configuration saved to {config_path}")
+
+                            # Run agent setup
+                            await _run_agent_setup(target_path, formatter)
+
                             print("\nReady to start indexing your codebase!")
                             return Config(args=args) if args else Config()
                         elif status == "cancelled":
@@ -600,6 +605,10 @@ async def run_setup_wizard(target_path: Path, args=None) -> Config | None:
                     )
                     if status == "saved":
                         formatter.success(f"Configuration saved to {config_path}")
+
+                        # Run agent setup
+                        await _run_agent_setup(target_path, formatter)
+
                         print("\nReady to start indexing your codebase!")
                         return Config(args=args) if args else Config()
                     elif status == "cancelled":
@@ -641,6 +650,10 @@ async def run_setup_wizard(target_path: Path, args=None) -> Config | None:
     )
     if status == "saved":
         formatter.success(f"Configuration saved to {config_path}")
+
+        # Run agent setup
+        await _run_agent_setup(target_path, formatter)
+
         print("\nReady to start indexing your codebase!")
         # Return a new config object that will pick up the saved file
         return Config(args=args) if args else Config()
@@ -668,6 +681,274 @@ async def _select_provider() -> str:
     return await rich_select(
         "Select your embedding provider:", choices=choices, default="voyageai"
     )
+
+
+async def _select_agent() -> str:
+    """Interactive agent selection for MCP setup"""
+    choices = [
+        ("Claude Code - Official Anthropic CLI", "claude_code"),
+        ("VS Code - Microsoft Visual Studio Code", "vscode"),
+        ("Skip - Configure manually later", "skip"),
+    ]
+
+    return await rich_select(
+        "Which AI agent would you like to configure for ChunkHound?",
+        choices=choices,
+        default="claude_code"
+    )
+
+
+async def _setup_claude_code(target_path: Path, formatter: RichOutputFormatter) -> bool:
+    """Setup ChunkHound MCP integration with Claude Code"""
+    formatter.section_header("Claude Code Setup")
+    
+    # Path to .mcp.json file in project root
+    mcp_path = target_path / ".mcp.json"
+    
+    # Read existing configuration
+    config = _read_claude_mcp_config(mcp_path)
+    
+    # Check if ChunkHound is already configured
+    servers = config.setdefault("mcpServers", {})
+    if "ChunkHound" in servers:
+        formatter.warning("ChunkHound MCP server already configured in .mcp.json")
+        
+        overwrite = await rich_confirm(
+            "Overwrite existing ChunkHound configuration?",
+            default=False
+        )
+        if not overwrite:
+            formatter.info("Skipping Claude Code configuration")
+            return True
+    
+    # Add ChunkHound server configuration
+    servers["ChunkHound"] = {
+        "command": "chunkhound",
+        "args": ["mcp"],
+        "env": {}
+    }
+    
+    # Write updated configuration
+    if _write_claude_mcp_config(mcp_path, config):
+        formatter.success(f"✓ ChunkHound MCP server added to {mcp_path}")
+        print("You can now use ChunkHound tools directly in Claude Code!")
+        print("Claude Code will prompt you to approve this project-scoped server on first use.")
+        return True
+    else:
+        formatter.error(f"Failed to write configuration to {mcp_path}")
+        _show_manual_claude_instructions(formatter, mcp_path)
+        return False
+
+
+def _show_claude_installation_instructions(formatter: RichOutputFormatter) -> None:
+    """Show instructions for installing Claude Code"""
+    print("\nTo install Claude Code:")
+    formatter.bullet_list([
+        "Visit: https://claude.ai/download",
+        "Download and install Claude Code",
+        "Create .mcp.json file in your project root with ChunkHound configuration"
+    ])
+
+
+def _show_manual_claude_instructions(formatter: RichOutputFormatter, mcp_path: Path | None = None) -> None:
+    """Show manual configuration instructions for Claude Code"""
+    print("\nTo manually configure ChunkHound in Claude Code:")
+    
+    if mcp_path:
+        formatter.bullet_list([
+            f"Edit or create: {mcp_path}",
+            "Add ChunkHound server configuration:",
+            '  { "mcpServers": { "ChunkHound": { "command": "chunkhound", "args": ["mcp"], "env": {} } } }'
+        ])
+    else:
+        formatter.bullet_list([
+            "Create .mcp.json in your project root",
+            'Add: { "mcpServers": { "ChunkHound": { "command": "chunkhound", "args": ["mcp"], "env": {} } } }',
+            "Claude Code will prompt to approve the server on first use"
+        ])
+
+
+def _detect_vscode_workspace(target_path: Path) -> Path | None:
+    """Detect VS Code workspace by looking for .vscode directory"""
+    # Check current directory first
+    current_vscode = target_path / ".vscode"
+    if current_vscode.exists() and current_vscode.is_dir():
+        return current_vscode
+
+    # Check parent directories up to 3 levels
+    for parent in [target_path.parent, target_path.parent.parent, target_path.parent.parent.parent]:
+        if parent == target_path:  # Avoid infinite loop
+            break
+        vscode_dir = parent / ".vscode"
+        if vscode_dir.exists() and vscode_dir.is_dir():
+            return vscode_dir
+
+    return None
+
+
+def _read_vscode_mcp_config(mcp_path: Path) -> dict[str, Any]:
+    """Read existing VS Code MCP configuration or return empty structure"""
+    if mcp_path.exists():
+        try:
+            with open(mcp_path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except (json.JSONDecodeError, IOError):
+            # If file is corrupted or unreadable, start fresh
+            pass
+
+    return {"servers": {}}
+
+
+def _write_vscode_mcp_config(mcp_path: Path, config: dict[str, Any]) -> bool:
+    """Write VS Code MCP configuration, creating directory if needed"""
+    try:
+        mcp_path.parent.mkdir(exist_ok=True)
+        with open(mcp_path, 'w', encoding='utf-8') as f:
+            json.dump(config, f, indent=2)
+        return True
+    except IOError:
+        return False
+
+
+def _read_claude_mcp_config(mcp_path: Path) -> dict[str, Any]:
+    """Read existing Claude Code .mcp.json configuration or return empty structure"""
+    if mcp_path.exists():
+        try:
+            with open(mcp_path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except (json.JSONDecodeError, IOError):
+            # If file is corrupted or unreadable, start fresh
+            pass
+    
+    return {"mcpServers": {}}
+
+
+def _write_claude_mcp_config(mcp_path: Path, config: dict[str, Any]) -> bool:
+    """Write Claude Code .mcp.json configuration"""
+    try:
+        with open(mcp_path, 'w', encoding='utf-8') as f:
+            json.dump(config, f, indent=2)
+        return True
+    except IOError:
+        return False
+
+
+async def _setup_vscode(target_path: Path, formatter: RichOutputFormatter) -> bool:
+    """Setup ChunkHound MCP integration with VS Code"""
+    formatter.section_header("VS Code Setup")
+
+    # Detect workspace
+    vscode_dir = _detect_vscode_workspace(target_path)
+
+    if vscode_dir:
+        formatter.info(f"✓ VS Code workspace detected: {vscode_dir.parent}")
+        mcp_path = vscode_dir / "mcp.json"
+
+        # Read existing configuration
+        config = _read_vscode_mcp_config(mcp_path)
+
+        # Check if ChunkHound is already configured
+        servers = config.setdefault("servers", {})
+        if "ChunkHound" in servers:
+            formatter.warning("ChunkHound MCP server already configured in VS Code")
+
+            overwrite = await rich_confirm(
+                "Overwrite existing ChunkHound configuration?",
+                default=False
+            )
+            if not overwrite:
+                formatter.info("Skipping VS Code configuration")
+                return True
+
+        # Add ChunkHound server configuration
+        servers["ChunkHound"] = {
+            "command": "chunkhound",
+            "args": ["mcp", "stdio"]
+        }
+
+        # Write updated configuration
+        if _write_vscode_mcp_config(mcp_path, config):
+            formatter.success(f"✓ ChunkHound MCP server added to {mcp_path}")
+            print("You can now use ChunkHound tools in VS Code with GitHub Copilot!")
+            return True
+        else:
+            formatter.error(f"Failed to write configuration to {mcp_path}")
+            _show_manual_vscode_instructions(formatter, mcp_path)
+            return False
+    else:
+        formatter.warning("No VS Code workspace detected")
+
+        # Offer to create workspace configuration
+        create_workspace = await rich_confirm(
+            "Create .vscode/mcp.json in target directory?",
+            default=True
+        )
+
+        if create_workspace:
+            vscode_dir = target_path / ".vscode"
+            mcp_path = vscode_dir / "mcp.json"
+
+            config = {
+                "servers": {
+                    "ChunkHound": {
+                        "command": "chunkhound",
+                        "args": ["mcp", "stdio"]
+                    }
+                }
+            }
+
+            if _write_vscode_mcp_config(mcp_path, config):
+                formatter.success(f"✓ Created VS Code workspace with ChunkHound MCP: {mcp_path}")
+                print("You can now use ChunkHound tools in VS Code with GitHub Copilot!")
+                return True
+            else:
+                formatter.error(f"Failed to create {mcp_path}")
+                _show_manual_vscode_instructions(formatter, mcp_path)
+                return False
+        else:
+            _show_manual_vscode_instructions(formatter)
+            return False
+
+
+def _show_manual_vscode_instructions(formatter: RichOutputFormatter, mcp_path: Path | None = None) -> None:
+    """Show manual configuration instructions for VS Code"""
+    print("\nTo manually configure ChunkHound in VS Code:")
+
+    if mcp_path:
+        formatter.bullet_list([
+            f"Edit: {mcp_path}",
+            "Add ChunkHound server configuration:",
+            '  "ChunkHound": { "command": "chunkhound", "args": ["mcp", "stdio"] }'
+        ])
+    else:
+        formatter.bullet_list([
+            "Create .vscode/mcp.json in your workspace",
+            "Add configuration: { \"servers\": { \"ChunkHound\": { \"command\": \"chunkhound\", \"args\": [\"mcp\", \"stdio\"] } } }",
+            "Restart VS Code to load the MCP server"
+        ])
+
+
+async def _run_agent_setup(target_path: Path, formatter: RichOutputFormatter) -> None:
+    """Run the agent setup step after successful configuration"""
+    formatter.section_header("AI Agent Integration")
+    print("Connect ChunkHound to your preferred AI agent for seamless code search.\n")
+
+    agent_choice = await _select_agent()
+
+    if agent_choice == "skip":
+        formatter.info("Skipped agent setup. You can configure this manually later.")
+        print("\nFor manual setup instructions, run: chunkhound mcp --help")
+        return
+
+    success = False
+    if agent_choice == "claude_code":
+        success = await _setup_claude_code(target_path, formatter)
+    elif agent_choice == "vscode":
+        success = await _setup_vscode(target_path, formatter)
+
+    if not success:
+        formatter.warning("Agent setup incomplete. ChunkHound will still work via command line.")
+        print("Run 'chunkhound mcp' to test the MCP server manually.")
 
 
 async def _configure_voyageai(formatter: RichOutputFormatter) -> dict[str, Any] | None:
