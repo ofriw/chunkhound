@@ -299,8 +299,8 @@ class EmbeddingProviderFactory:
                     "optional": ["model", "rerank_model"],
                     "default_model": VOYAGE_DEFAULT_MODEL,
                     "supported_models": [
-                        "voyage-code-3",
                         "voyage-3.5",
+                        "voyage-code-3",
                         "voyage-3.5-lite",
                         "voyage-3-large",
                     ],
@@ -311,10 +311,10 @@ class EmbeddingProviderFactory:
                     "supports_model_listing": False,
                     "supports_reranking": True,
                     "default_models": [
-                        ("voyage-code-3", "Best for code search (recommended)"),
-                        ("voyage-3.5", "Latest general-purpose, high quality"),
+                        ("voyage-3.5", "Latest general-purpose, (recommended)"),
                         ("voyage-3.5-lite", "Cost-optimized with good accuracy"),
                         ("voyage-3-large", "Previous gen, proven performance"),
+                        ("voyage-code-3", "Previous gen, code optimized"),
                     ],
                     "default_rerankers": [
                         ("rerank-2.5", "Latest reranker, best accuracy"),

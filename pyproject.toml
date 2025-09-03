@@ -38,7 +38,6 @@ dependencies = [
     "tree-sitter-language-pack>=0.7.3",
     "pydantic>=2.0.0",
     "pydantic-settings>=2.0.0",
-    "click>=8.0.0",
     "loguru>=0.6.0",
     "mcp>=1.0.0",
     "fastmcp>=2.0.0",
@@ -67,6 +66,7 @@ dependencies = [
     "httpx>=0.28.1",
     "pymupdf>=1.23.0",
     "rich>=13.0.0",
+    "readchar>=4.2.1",
 ]
 
 [project.optional-dependencies]

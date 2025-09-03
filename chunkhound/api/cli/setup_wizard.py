@@ -8,6 +8,8 @@ from typing import Any
 
 import httpx
 from pydantic import SecretStr
+from rich.console import Console
+from rich.live import Live
 from rich.prompt import Confirm, Prompt
 
 from chunkhound.api.cli.ascii_art import HOUND_LOGO, WELCOME_MESSAGE
@@ -25,22 +27,107 @@ from chunkhound.core.constants import VOYAGE_DEFAULT_MODEL
 
 # Simplified Rich-based utility functions
 async def rich_confirm(question: str, default: bool = True) -> bool:
-    """Simple wrapper for Rich confirm prompt."""
-    return Confirm.ask(question, default=default)
+    """Interactive Rich-based confirmation with arrow key navigation."""
+    return await _rich_confirm_interactive(question, default)
 
 
-async def rich_text(question: str, default: str = "", validate=None) -> str:
+async def _rich_confirm_interactive(question: str, default: bool = True) -> bool:
+    """Interactive yes/no confirmation with arrow key navigation."""
+    from rich.console import Console
+    from rich.live import Live
+    from rich.text import Text
+    
+    from .keyboard import KeyboardInput
+    
+    console = Console()
+    # Default to Yes (True) if default is True, No (False) if default is False
+    selected = 0 if default else 1  # 0 = Yes, 1 = No
+    keyboard_handler = KeyboardInput()
+    
+    # Show the question
+    console.print(f"\n[bold]{question}[/bold]")
+    console.print()
+    
+    def create_display():
+        """Create the display with current selection highlighted."""
+        text = Text()
+        
+        # Yes option
+        if selected == 0:
+            text.append("▶ Yes  ", style="bold cyan")
+        else:
+            text.append("  Yes  ", style="dim")
+        
+        # No option  
+        if selected == 1:
+            text.append("▶ No", style="bold cyan")
+        else:
+            text.append("  No", style="dim")
+        
+        return text
+    
+    with Live(create_display(), auto_refresh=False, console=console) as live:
+        # Main input loop
+        while True:
+            try:
+                key = keyboard_handler.getkey()
+                
+                if key in ["LEFT", "UP"]:
+                    selected = 0  # Select Yes
+                    live.update(create_display(), refresh=True)
+                elif key in ["RIGHT", "DOWN"]:
+                    selected = 1  # Select No
+                    live.update(create_display(), refresh=True)
+                elif key.lower() == "y":  # 'y' shortcut for Yes
+                    live.stop()
+                    console.print("Selected: Yes")
+                    console.print()  # Add spacing
+                    return True
+                elif key.lower() == "n":  # 'n' shortcut for No
+                    live.stop()
+                    console.print("Selected: No")
+                    console.print()  # Add spacing
+                    return False
+                elif key == "ENTER":
+                    live.stop()
+                    result = selected == 0  # True for Yes, False for No
+                    choice_text = "Yes" if result else "No"
+                    console.print(f"Selected: {choice_text}")
+                    console.print()  # Add spacing
+                    return result
+                elif key == "ESC":
+                    live.stop()
+                    raise KeyboardInterrupt("Confirmation cancelled")
+                elif key == "CTRL_C":
+                    live.stop()
+                    raise KeyboardInterrupt("Confirmation cancelled")
+                # Ignore other keys
+                
+            except KeyboardInterrupt:
+                live.stop()
+                raise
+
+
+def rich_text(question: str, default: str = "", validate=None) -> str:
     """Simple wrapper for Rich text prompt with validation."""
     if validate is None:
-        return Prompt.ask(question, default=default) if default else Prompt.ask(question)
-    
+        return (
+            Prompt.ask(question, default=default) if default else Prompt.ask(question)
+        )
+
     # Use Rich's validation parameter if it's a simple callable
     try:
-        return Prompt.ask(question, default=default) if default else Prompt.ask(question)
+        return (
+            Prompt.ask(question, default=default) if default else Prompt.ask(question)
+        )
     except Exception:
         # Fallback for complex validation
         while True:
-            result = Prompt.ask(question, default=default) if default else Prompt.ask(question)
+            result = (
+                Prompt.ask(question, default=default)
+                if default
+                else Prompt.ask(question)
+            )
             validation_result = validate(result)
             if validation_result is True:
                 return result
@@ -53,27 +140,102 @@ async def rich_text(question: str, default: str = "", validate=None) -> str:
 async def rich_select(
     question: str, choices: list[tuple[str, str]] | list[str], default: str = None
 ) -> str:
-    """Simplified Rich-based selection using built-in choices functionality."""
+    """Interactive Rich-based selection with arrow key navigation."""
     if not choices:
         return ""
 
-    # Convert tuples to simple strings for Rich choices
-    if choices and isinstance(choices[0], tuple):
-        # For tuple format (display, value), just use the values
-        choice_values = [choice[1] if isinstance(choice, tuple) else choice for choice in choices]
-    else:
-        choice_values = choices
+    # Normalize choices to (display, value) tuples
+    normalized_choices = []
+    choice_values = []
+
+    for choice in choices:
+        if isinstance(choice, tuple):
+            display, value = choice
+            normalized_choices.append((display, value))
+            choice_values.append(value)
+        else:
+            normalized_choices.append((choice, choice))
+            choice_values.append(choice)
 
     # If only one choice, return it
-    if len(choice_values) == 1:
+    if len(normalized_choices) == 1:
         return choice_values[0]
 
-    # Use Rich's built-in choices parameter
-    return Prompt.ask(
-        question,
-        choices=choice_values,
-        default=default if default in choice_values else choice_values[0]
-    )
+    # Find default index
+    default_index = 0
+    if default and default in choice_values:
+        default_index = choice_values.index(default)
+
+    return await _rich_select_interactive(question, normalized_choices, default_index)
+
+
+async def _rich_select_interactive(
+    question: str, choices: list[tuple[str, str]], default_index: int = 0
+) -> str:
+    """Interactive menu with arrow key navigation using asyncio + Rich."""
+    from rich.table import Table
+
+    from .keyboard import KeyboardInput
+
+    console = Console()
+    selected = max(0, min(default_index, len(choices) - 1))
+    keyboard_handler = KeyboardInput()
+
+    # Show the question
+    console.print(f"\n[bold]{question}[/bold]")
+    console.print()
+
+    def update_display(live):
+        """Update the display with current selection."""
+        table = Table(show_header=False, box=None, padding=(0, 1))
+        for i, (display, _) in enumerate(choices):
+            if i == selected:
+                table.add_row(f"[bold cyan]▶ {display}[/bold cyan]")
+            else:
+                table.add_row(f"  {display}")
+        live.update(table, refresh=True)
+
+    with Live(auto_refresh=False, console=console) as live:
+        # Display initial menu
+        update_display(live)
+
+        # Main input loop
+        while True:
+            try:
+                # Get key input
+                key = keyboard_handler.getkey()
+
+                if key == "UP":
+                    selected = max(0, selected - 1)
+                    update_display(live)
+                elif key == "DOWN":
+                    selected = min(len(choices) - 1, selected + 1)
+                    update_display(live)
+                elif key == "ENTER":
+                    live.stop()
+                    console.print()  # Add spacing
+                    return choices[selected][1]
+                elif key == "ESC":
+                    # With reliable readchar, ESC should work correctly
+                    live.stop()
+                    raise KeyboardInterrupt("Selection cancelled")
+                elif key == "CTRL_C":
+                    live.stop()
+                    raise KeyboardInterrupt("Selection cancelled")
+                elif key.isdigit():
+                    # Allow numeric selection as alternative to arrow keys
+                    digit = int(key)
+                    if 1 <= digit <= len(choices):
+                        selected = digit - 1
+                        live.stop()
+                        console.print()
+                        console.print(f"Selected: {choices[selected][0]}")
+                        return choices[selected][1]
+                # Ignore other keys
+
+            except KeyboardInterrupt:
+                live.stop()
+                raise
 
 
 
@@ -301,7 +463,7 @@ def _display_detected_configs(
                     )
 
 
-async def run_setup_wizard(target_path: Path) -> Config | None:
+async def run_setup_wizard(target_path: Path, args=None) -> Config | None:
     """
     Run the interactive setup wizard to create initial configuration.
 
@@ -314,7 +476,7 @@ async def run_setup_wizard(target_path: Path) -> Config | None:
     formatter = RichOutputFormatter()
 
     # Display welcome screen
-    await _display_welcome()
+    _display_welcome()
 
     # Check for existing environment configuration
     env_configs = detect_provider_config()
@@ -332,10 +494,17 @@ async def run_setup_wizard(target_path: Path) -> Config | None:
                 print("🎯 VoyageAI API key found (VOYAGE_API_KEY)")
                 print("   Best choice for code search with specialized embeddings")
             elif provider_type == "openai":
-                if priority_config.get("base_url") and any(host in priority_config["base_url"].lower() for host in ["localhost", "127.0.0.1"]):
-                    provider_name = priority_config.get("provider_name", "Local OpenAI-compatible")
+                if priority_config.get("base_url") and any(
+                    host in priority_config["base_url"].lower()
+                    for host in ["localhost", "127.0.0.1"]
+                ):
+                    provider_name = priority_config.get(
+                        "provider_name", "Local OpenAI-compatible"
+                    )
                     print(f"🎯 {provider_name} server detected")
-                    print(f"   Running at: {priority_config.get('base_url', 'unknown')}")
+                    print(
+                        f"   Running at: {priority_config.get('base_url', 'unknown')}"
+                    )
                 else:
                     print("🎯 OpenAI API key found (OPENAI_API_KEY)")
                     print("   Reliable embeddings from OpenAI")
@@ -379,7 +548,7 @@ async def run_setup_wizard(target_path: Path) -> Config | None:
                         if status == "saved":
                             formatter.success(f"Configuration saved to {config_path}")
                             print("\nReady to start indexing your codebase!")
-                            return Config()
+                            return Config(args=args) if args else Config()
                         elif status == "cancelled":
                             formatter.info("Configuration not saved")
                             return None
@@ -394,7 +563,7 @@ async def run_setup_wizard(target_path: Path) -> Config | None:
                 # If so, use direct validation. Otherwise, go through configuration flow
                 provider_type = priority_config.get("provider")
                 has_model = priority_config.get("model") is not None
-                
+
                 if has_model:
                     # Config is complete - validate and use directly
                     if await _validate_detected_config(priority_config, formatter):
@@ -432,7 +601,7 @@ async def run_setup_wizard(target_path: Path) -> Config | None:
                     if status == "saved":
                         formatter.success(f"Configuration saved to {config_path}")
                         print("\nReady to start indexing your codebase!")
-                        return Config()
+                        return Config(args=args) if args else Config()
                     elif status == "cancelled":
                         formatter.info("Configuration not saved")
                         return None
@@ -467,12 +636,14 @@ async def run_setup_wizard(target_path: Path) -> Config | None:
         return None
 
     # Save configuration
-    config_path, status = await _save_configuration(embedding_config, target_path, formatter)
+    config_path, status = await _save_configuration(
+        embedding_config, target_path, formatter
+    )
     if status == "saved":
         formatter.success(f"Configuration saved to {config_path}")
         print("\nReady to start indexing your codebase!")
         # Return a new config object that will pick up the saved file
-        return Config()
+        return Config(args=args) if args else Config()
     elif status == "cancelled":
         formatter.info("Configuration not saved")
         return None
@@ -480,7 +651,7 @@ async def run_setup_wizard(target_path: Path) -> Config | None:
         return None
 
 
-async def _display_welcome() -> None:
+def _display_welcome() -> None:
     """Display welcome message with ASCII art"""
     print(HOUND_LOGO)
     print(WELCOME_MESSAGE)
@@ -521,7 +692,7 @@ async def _configure_openai_compatible(
     )
     print()
 
-    base_url = await rich_text(
+    base_url = rich_text(
         "Endpoint URL:",
         default="http://localhost:11434",
         validate=lambda x: True
@@ -555,7 +726,7 @@ async def _select_compatible_model(
     current_api_key = api_key
     if available_models is None and needs_auth and api_key is None:
         formatter.warning("Authentication may be required for this endpoint")
-        retry_key = await rich_text("API Key (press Enter to skip):", default="")
+        retry_key = rich_text("API Key (press Enter to skip):", default="")
 
         if retry_key.strip():
             formatter.safe_progress_indicator("Retrying with authentication...")
@@ -588,7 +759,7 @@ async def _select_compatible_model(
             selected = await rich_select("Select embedding model:", choices=choices)
 
             if selected == "__manual__":
-                manual_model = await _manual_model_entry()
+                manual_model = _manual_model_entry()
                 return (manual_model, current_api_key)
             elif selected:
                 return (selected, current_api_key)
@@ -608,20 +779,20 @@ async def _select_compatible_model(
             if len(other_models) > 10:
                 print(f"  ... and {len(other_models) - 10} more")
 
-            manual_model = await _manual_model_entry()
+            manual_model = _manual_model_entry()
             return (manual_model, current_api_key)
         else:
             formatter.warning("No models found on server")
-            manual_model = await _manual_model_entry()
+            manual_model = _manual_model_entry()
             return (manual_model, current_api_key)
     else:
         # Fall back to manual entry
         formatter.warning("Could not detect available models")
-        manual_model = await _manual_model_entry()
+        manual_model = _manual_model_entry()
         return (manual_model, current_api_key)
 
 
-async def _manual_model_entry() -> str | None:
+def _manual_model_entry() -> str | None:
     """Handle manual model entry with examples."""
     print("\nCommon embedding models:")
     print("  - nomic-embed-text (Nomic)")
@@ -630,7 +801,7 @@ async def _manual_model_entry() -> str | None:
     print("  - bge-large-en-v1.5 (BGE)")
     print()
 
-    model = await rich_text(
+    model = rich_text(
         "Enter model name:",
         validate=lambda x: True if x.strip() else "Model name cannot be empty",
     )
@@ -830,20 +1001,20 @@ async def _ensure_api_key(
     if provider_info["requires_api_key"] == True:
         # Always require API key
         if not api_key:
-            api_key = await _prompt_for_api_key(provider_type, formatter)
+            api_key = _prompt_for_api_key(provider_type, formatter)
         return api_key
     elif provider_info["requires_api_key"] == "auto":
         # Test connection first, prompt for key if needed
         if not api_key:
             needs_auth = await _test_needs_auth(base_url, formatter)
             if needs_auth:
-                api_key = await _prompt_for_api_key(provider_type, formatter)
+                api_key = _prompt_for_api_key(provider_type, formatter)
         return api_key
 
     return api_key
 
 
-async def _prompt_for_api_key(
+def _prompt_for_api_key(
     provider_type: str, formatter: RichOutputFormatter
 ) -> str | None:
     """Prompt user for API key based on provider type."""
@@ -863,7 +1034,7 @@ async def _prompt_for_api_key(
         print()
 
         while True:
-            api_key = await rich_text(
+            api_key = rich_text(
                 "Enter your VoyageAI API key (or 'open' to visit signup page):",
                 validate=lambda x: True if x.strip() else "API key cannot be empty",
             )
@@ -884,7 +1055,7 @@ async def _prompt_for_api_key(
         formatter.section_header(f"{provider_name} API Key")
         print("You can get an API key from: https://platform.openai.com/api-keys\n")
 
-        api_key = await rich_text(
+        api_key = rich_text(
             "Enter your OpenAI API key:",
             validate=lambda x: True
             if x.strip().startswith("sk-")
@@ -894,7 +1065,7 @@ async def _prompt_for_api_key(
         return api_key.strip()
 
     elif provider_type == "openai_compatible":
-        api_key = await rich_text(
+        api_key = rich_text(
             "API Key (required for this endpoint):",
             validate=lambda x: len(x.strip()) > 0 or "API key is required",
         )
@@ -912,7 +1083,9 @@ async def _test_needs_auth(
         return False
 
     try:
-        formatter.safe_progress_indicator("Testing endpoint authentication requirements...")
+        formatter.safe_progress_indicator(
+            "Testing endpoint authentication requirements..."
+        )
 
         # Try to fetch models without API key
         models, needs_auth = await _fetch_available_models(base_url, None)
@@ -950,7 +1123,7 @@ async def _select_model_unified(
 
         # If we need auth and don't have a key, prompt for one
         if needs_auth and not api_key:
-            api_key = await _prompt_for_api_key(provider_type, formatter)
+            api_key = _prompt_for_api_key(provider_type, formatter)
             if api_key:
                 # Retry with API key
                 models, _ = await _fetch_available_models(base_url, api_key)
@@ -992,7 +1165,7 @@ async def _select_model_unified(
 
     # Manual entry fallback for embedding models only
     if model_type == "embedding":
-        model = await rich_text(
+        model = rich_text(
             "Enter embedding model name:",
             validate=lambda x: True if x.strip() else "Model name cannot be empty",
         )
@@ -1112,7 +1285,7 @@ async def _save_configuration(
     config_data: dict[str, Any], target_path: Path, formatter: RichOutputFormatter
 ) -> tuple[Path | None, str]:
     """Save configuration to .chunkhound.json
-    
+
     Returns:
         Tuple of (config_path, status) where status is "saved", "cancelled", or "error"
     """

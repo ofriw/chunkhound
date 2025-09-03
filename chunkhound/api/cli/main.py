@@ -86,7 +86,7 @@ async def async_main() -> None:
             from .setup_wizard import _should_run_setup_wizard, run_setup_wizard
 
             if _should_run_setup_wizard(validation_errors):
-                wizard_config = await run_setup_wizard(Path(args.path))
+                wizard_config = await run_setup_wizard(Path(args.path), args)
 
                 if wizard_config:
                     # Re-validate with new config
