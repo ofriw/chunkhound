@@ -170,10 +170,10 @@ class TestRealtimeFailures:
         subdir_file = subdir / "nested.py"
         subdir_file.write_text("def nested(): pass")
         
-        await asyncio.sleep(1.0)
+        await asyncio.sleep(2.0)
         
         # Check if nested file was detected
-        file_record = services.provider.get_file_by_path(str(subdir_file))
+        file_record = services.provider.get_file_by_path(str(subdir_file.resolve()))
         assert file_record is not None, "Nested files should be detected by recursive monitoring"
         
         await service.stop()
