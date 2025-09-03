@@ -1,11 +1,8 @@
 """Embedding providers for ChunkHound - pluggable vector embedding generation."""
 
-import asyncio
-import time
-from dataclasses import dataclass, field
-from typing import Any, Protocol
+from dataclasses import dataclass
+from typing import Protocol
 
-import aiohttp
 from loguru import logger
 
 # Core domain models

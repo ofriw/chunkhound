@@ -8,15 +8,12 @@ from typing import Any
 from loguru import logger
 
 from chunkhound.core.config.config import Config
-from chunkhound.core.config.embedding_config import EmbeddingConfig
-from chunkhound.core.config.embedding_factory import EmbeddingProviderFactory
-from chunkhound.embeddings import EmbeddingManager
 from chunkhound.registry import configure_registry, create_indexing_coordinator
 from chunkhound.services.directory_indexing_service import DirectoryIndexingService
 from chunkhound.version import __version__
 
 from ..parsers.run_parser import process_batch_arguments
-from ..utils.output import OutputFormatter, format_stats
+from ..utils.rich_output import RichOutputFormatter
 from ..utils.validation import (
     ensure_database_directory,
     validate_file_patterns,
@@ -32,8 +29,8 @@ async def run_command(args: argparse.Namespace, config: Config) -> None:
         args: Parsed command-line arguments
         config: Pre-validated configuration instance
     """
-    # Initialize output formatter
-    formatter = OutputFormatter(verbose=args.verbose)
+    # Initialize Rich output formatter
+    formatter = RichOutputFormatter(verbose=args.verbose)
 
     # Check if local config was found (for logging purposes)
     project_dir = Path(args.path) if hasattr(args, "path") else Path.cwd()
@@ -44,10 +41,13 @@ async def run_command(args: argparse.Namespace, config: Config) -> None:
     # Use database path from config
     db_path = Path(config.database.path)
 
-    # Display startup information
-    formatter.info(f"Starting ChunkHound v{__version__}")
-    formatter.info(f"Processing directory: {args.path}")
-    formatter.info(f"Database: {db_path}")
+    # Display modern startup information
+    formatter.startup_info(
+        version=__version__,
+        directory=str(args.path),
+        database=str(db_path),
+        config=config.__dict__ if hasattr(config, '__dict__') else {}
+    )
 
     # Process and validate batch arguments (includes deprecation warnings)
     process_batch_arguments(args)
@@ -60,29 +60,41 @@ async def run_command(args: argparse.Namespace, config: Config) -> None:
     try:
         # Configure registry with the Config object
         configure_registry(config)
-        indexing_coordinator = create_indexing_coordinator()
 
         formatter.success(f"Service layer initialized: {args.db}")
 
-        # Get initial stats
-        initial_stats = await indexing_coordinator.get_stats()
-        formatter.info(f"Initial stats: {format_stats(initial_stats)}")
+        # Create progress manager for modern UI
+        with formatter.create_progress_display() as progress_manager:
+            # Get the underlying Progress instance for service layers
+            progress_instance = progress_manager.get_progress_instance()
 
-        # Create directory indexing service
-        def progress_callback(message: str):
-            if args.verbose:
-                formatter.info(message)
+            # Create indexing coordinator with Progress instance
+            indexing_coordinator = create_indexing_coordinator()
+            # Pass progress to the coordinator after creation
+            if hasattr(indexing_coordinator, 'progress'):
+                indexing_coordinator.progress = progress_instance
 
-        indexing_service = DirectoryIndexingService(
-            indexing_coordinator=indexing_coordinator,
-            config=config,
-            progress_callback=progress_callback
-        )
+            # Get initial stats
+            initial_stats = await indexing_coordinator.get_stats()
+            formatter.initial_stats_panel(initial_stats)
 
-        # Process directory using shared service
-        stats = await indexing_service.process_directory(
-            Path(args.path), no_embeddings=args.no_embeddings
-        )
+            # Simple progress callback for verbose output
+            def progress_callback(message: str):
+                if args.verbose:
+                    formatter.verbose_info(message)
+
+            # Create indexing service with Progress instance
+            indexing_service = DirectoryIndexingService(
+                indexing_coordinator=indexing_coordinator,
+                config=config,
+                progress_callback=progress_callback,
+                progress=progress_instance
+            )
+
+            # Process directory - service layers will add subtasks to progress_instance
+            stats = await indexing_service.process_directory(
+                Path(args.path), no_embeddings=args.no_embeddings
+            )
 
         # Display results
         _print_completion_summary(stats, formatter)
@@ -100,27 +112,18 @@ async def run_command(args: argparse.Namespace, config: Config) -> None:
         pass
 
 
-def _print_completion_summary(stats, formatter: OutputFormatter) -> None:
-    """Print completion summary from IndexingStats."""
-    formatter.success("Processing complete:")
-    formatter.info(f"   • Processed: {stats.files_processed} files")
-    formatter.info(f"   • Skipped: {stats.files_skipped} files") 
-    formatter.info(f"   • Errors: {stats.files_errors} files")
-    formatter.info(f"   • Total chunks: {stats.chunks_created}")
-    
-    if stats.embeddings_generated > 0:
-        formatter.success(f"Generated {stats.embeddings_generated} embeddings")
-    
-    if stats.cleanup_deleted_files > 0 or stats.cleanup_deleted_chunks > 0:
-        formatter.info("🧹 Cleanup summary:")
-        formatter.info(f"   • Deleted files: {stats.cleanup_deleted_files}")
-        formatter.info(f"   • Removed chunks: {stats.cleanup_deleted_chunks}")
-    
-    formatter.info(f"Processing time: {stats.processing_time:.2f}s")
+def _print_completion_summary(stats, formatter: RichOutputFormatter) -> None:
+    """Print completion summary from IndexingStats using Rich formatting."""
+    # Convert stats object to dictionary for Rich display
+    if hasattr(stats, '__dict__'):
+        stats_dict = stats.__dict__
+    else:
+        stats_dict = stats if isinstance(stats, dict) else {}
+    formatter.completion_summary(stats_dict, stats.processing_time)
 
 
 def _validate_run_arguments(
-    args: argparse.Namespace, formatter: OutputFormatter, config: Any = None
+    args: argparse.Namespace, formatter: RichOutputFormatter, config: Any = None
 ) -> bool:
     """Validate run command arguments.
 
@@ -158,6 +161,14 @@ def _validate_run_arguments(
             api_key = getattr(args, 'api_key', None)
             base_url = getattr(args, 'base_url', None)
             model = getattr(args, 'model', None)
+
+            # If no provider info found, provide helpful error
+            if not provider:
+                formatter.error("No embedding provider configured.")
+                formatter.info("To fix this, you can:")
+                formatter.info("  1. Create .chunkhound.json config file with embeddings")
+                formatter.info("  2. Use --no-embeddings to skip embeddings")
+                return False
         if not validate_provider_args(provider, api_key, base_url, model):
             return False
 

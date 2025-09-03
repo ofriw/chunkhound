@@ -42,7 +42,7 @@ class ProviderRegistry:
     def configure(self, config: Config) -> None:
         """Configure the registry with application settings."""
         self._config = config
-        
+
         # Create and register providers based on configuration
         self._setup_embedding_provider()
         self._setup_database_provider()
@@ -54,7 +54,7 @@ class ProviderRegistry:
         Simplified: Takes actual instances instead of classes.
         """
         self._providers[name] = provider
-        
+
         if not os.environ.get("CHUNKHOUND_MCP_MODE"):
             logger.debug(f"Registered {type(provider).__name__} as {name}")
 
@@ -72,8 +72,11 @@ class ProviderRegistry:
 
     def get_provider(self, name: str) -> Any:
         """Get a provider instance by name."""
+        logger.debug(f"[REGISTRY] Attempting to get provider '{name}', available providers: {list(self._providers.keys())}")
         if name not in self._providers:
+            logger.warning(f"[REGISTRY] No provider registered for {name}, available: {list(self._providers.keys())}")
             raise ValueError(f"No provider registered for {name}")
+        logger.debug(f"[REGISTRY] Successfully retrieved provider '{name}': {type(self._providers[name])}")
         return self._providers[name]
 
     def get_language_parser(self, language: Language) -> Any | None:
@@ -86,14 +89,19 @@ class ProviderRegistry:
 
     def create_indexing_coordinator(self) -> IndexingCoordinator:
         """Create an IndexingCoordinator with all dependencies."""
+        logger.debug("[REGISTRY] Creating IndexingCoordinator")
         database_provider = self.get_provider("database")
         embedding_provider = None
-        
+
         try:
+            logger.debug("[REGISTRY] Attempting to get embedding provider for IndexingCoordinator")
             embedding_provider = self.get_provider("embedding")
-        except ValueError:
+            logger.debug(f"[REGISTRY] Successfully got embedding provider: {type(embedding_provider)}")
+        except ValueError as e:
+            logger.warning(f"[REGISTRY] No embedding provider configured for IndexingCoordinator: {e}")
             pass  # No embedding provider configured
-        
+
+        logger.debug(f"[REGISTRY] Creating IndexingCoordinator with embedding_provider={embedding_provider}")
         return IndexingCoordinator(
             database_provider=database_provider,
             embedding_provider=embedding_provider,
@@ -104,12 +112,12 @@ class ProviderRegistry:
         """Create a SearchService with all dependencies."""
         database_provider = self.get_provider("database")
         embedding_provider = None
-        
+
         try:
             embedding_provider = self.get_provider("embedding")
         except ValueError:
             logger.warning("No embedding provider configured for search service")
-        
+
         return SearchService(
             database_provider=database_provider,
             embedding_provider=embedding_provider
@@ -119,12 +127,12 @@ class ProviderRegistry:
         """Create an EmbeddingService with all dependencies."""
         database_provider = self.get_provider("database")
         embedding_provider = None
-        
+
         try:
             embedding_provider = self.get_provider("embedding")
         except ValueError:
             logger.warning("No embedding provider configured for embedding service")
-        
+
         # Get batch configuration from config
         if self._config and self._config.embedding:
             embedding_batch_size = self._config.embedding.batch_size
@@ -132,11 +140,11 @@ class ProviderRegistry:
         else:
             embedding_batch_size = 1000
             max_concurrent = 8
-            
+
         db_batch_size = 5000
         if self._config and self._config.indexing:
             db_batch_size = self._config.indexing.db_batch_size
-        
+
         return EmbeddingService(
             database_provider=database_provider,
             embedding_provider=embedding_provider,
@@ -157,10 +165,10 @@ class ProviderRegistry:
             provider.connect()
             self.register_provider("database", provider, singleton=True)
             return
-        
+
         provider_type = self._config.database.provider
         db_path = str(self._config.database.path)
-        
+
         # Create the appropriate provider
         if provider_type == "duckdb":
             from chunkhound.providers.database.duckdb_provider import DuckDBProvider
@@ -172,37 +180,58 @@ class ProviderRegistry:
             logger.warning(f"Unknown provider {provider_type}, defaulting to DuckDB")
             from chunkhound.providers.database.duckdb_provider import DuckDBProvider
             provider = DuckDBProvider(db_path, config=self._config.database)
-        
+
         # Connect and register
         provider.connect()
         self.register_provider("database", provider, singleton=True)
 
     def _setup_embedding_provider(self) -> None:
         """Create and register the embedding provider if configured."""
-        if not self._config or not self._config.embedding:
-            return  # No embedding provider needed
+        logger.debug("[REGISTRY] Setting up embedding provider")
         
+        # Skip if no config at all
+        if not self._config:
+            logger.debug("[REGISTRY] No config available, skipping embedding provider setup")
+            return
+            
+        # Skip if embeddings were explicitly disabled
+        if hasattr(self._config, 'embeddings_disabled') and self._config.embeddings_disabled:
+            logger.debug("[REGISTRY] Embeddings explicitly disabled, skipping embedding provider setup")
+            return
+            
+        # Skip if no embedding config found
+        if not self._config.embedding:
+            logger.debug("[REGISTRY] No embedding config found, skipping embedding provider setup")
+            return
+
+        logger.debug(f"[REGISTRY] Found embedding config: provider={self._config.embedding.provider}")
         try:
             # Use the factory to create the provider
+            logger.debug("[REGISTRY] Creating embedding provider from factory")
             provider = EmbeddingProviderFactory.create_provider(self._config.embedding)
-            self.register_provider("embedding", provider, singleton=True)
+            logger.debug(f"[REGISTRY] Created provider: {type(provider)}")
             
+            logger.debug("[REGISTRY] Registering embedding provider")
+            self.register_provider("embedding", provider, singleton=True)
+            logger.debug("[REGISTRY] Successfully registered embedding provider")
+
             if not os.environ.get("CHUNKHOUND_MCP_MODE"):
                 logger.info(f"Registered {self._config.embedding.provider} embedding provider")
         except Exception as e:
-            logger.warning(f"Failed to create embedding provider: {e}")
+            logger.error(f"[REGISTRY] Failed to create embedding provider: {e}")
+            raise  # Re-raise to see the actual error
 
     def _setup_language_parsers(self) -> None:
         """Register all available language parsers."""
         parser_factory = get_parser_factory()
         available_languages = parser_factory.get_available_languages()
-        
+
         for language, is_available in available_languages.items():
             if is_available:
                 try:
                     parser = parser_factory.create_parser(language)
                     self._language_parsers[language] = parser
-                    
+
                     if not os.environ.get("CHUNKHOUND_MCP_MODE"):
                         logger.debug(f"Registered parser for {language.value}")
                 except Exception as e:
@@ -231,7 +260,7 @@ class ProviderRegistry:
 
 
 # Global registry instance
-_registry: Optional[ProviderRegistry] = None
+_registry: ProviderRegistry | None = None
 
 
 def get_registry() -> ProviderRegistry:

@@ -1963,10 +1963,10 @@ class DuckDBProvider(SerialDatabaseProvider):
             target_embedding = None
             dims = None
             table_name = None
-            
+
             # logger.debug(f"Looking for embedding: chunk_id={chunk_id}, provider='{provider}', model='{model}'")
             # logger.debug(f"Available embedding tables: {embedding_tables}")
-            
+
             for table in embedding_tables:
                 result = conn.execute(f"""
                     SELECT embedding
@@ -1974,7 +1974,7 @@ class DuckDBProvider(SerialDatabaseProvider):
                     WHERE chunk_id = ? AND provider = ? AND model = ?
                     LIMIT 1
                 """, [chunk_id, provider, model]).fetchone()
-                
+
                 if result:
                     target_embedding = result[0]
                     # Extract dimensions from table name (e.g., "embeddings_1536" -> 1536)
@@ -1993,7 +1993,7 @@ class DuckDBProvider(SerialDatabaseProvider):
                     """, [chunk_id]).fetchall()
                     # if all_for_chunk:
                     #     logger.debug(f"Table {table} has chunk_id={chunk_id} but with different provider/model: {all_for_chunk}")
-            
+
             if not target_embedding or dims is None:
                 # Show what providers/models are actually available for this chunk
                 all_providers_models = []
@@ -2004,17 +2004,17 @@ class DuckDBProvider(SerialDatabaseProvider):
                         WHERE chunk_id = ?
                     """, [chunk_id]).fetchall()
                     all_providers_models.extend(results)
-                
+
                 logger.warning(f"No embedding found for chunk_id={chunk_id}, provider='{provider}', model='{model}'")
                 logger.warning(f"Available provider/model combinations for this chunk: {all_providers_models}")
                 return []
-            
+
             embedding_type = f"FLOAT[{dims}]"
-            
+
             # Use the embedding to find similar chunks
             similarity_metric = "cosine"  # Default for semantic search
             threshold_condition = f"AND distance <= {threshold}" if threshold is not None else ""
-            
+
             # Query for similar chunks (exclude the original chunk)
             # Cast the target embedding to match the table's embedding type
             query = f"""
@@ -2038,12 +2038,12 @@ class DuckDBProvider(SerialDatabaseProvider):
                 ORDER BY distance ASC
                 LIMIT ?
             """
-            
+
             results = conn.execute(
                 query,
                 [target_embedding, provider, model, chunk_id, limit]
             ).fetchall()
-            
+
             # Format results
             result_list = [
                 {
@@ -2059,9 +2059,9 @@ class DuckDBProvider(SerialDatabaseProvider):
                 }
                 for result in results
             ]
-            
+
             return result_list
-            
+
         except Exception as e:
             logger.error(f"Failed to find similar chunks: {e}")
             return []
@@ -2103,7 +2103,7 @@ class DuckDBProvider(SerialDatabaseProvider):
             query_dims = len(query_embedding)
             table_name = f"embeddings_{query_dims}"
             embedding_type = f"FLOAT[{query_dims}]"
-            
+
             # Check if table exists for these dimensions (reuse existing validation pattern)
             if not self._executor_table_exists(conn, state, table_name):
                 logger.warning(f"No embeddings table found for {query_dims} dimensions ({table_name})")
@@ -2112,16 +2112,16 @@ class DuckDBProvider(SerialDatabaseProvider):
             # Build path filter condition
             path_condition = ""
             query_params = [query_embedding, provider, model, limit]
-            
+
             if path_filter:
                 # Convert relative path to SQL pattern
                 path_pattern = f"%{path_filter}%"
                 path_condition = "AND f.path LIKE ?"
                 query_params.insert(-1, path_pattern)  # Insert before limit
-            
+
             # Build threshold condition
             threshold_condition = f"AND distance <= {threshold}" if threshold is not None else ""
-            
+
             # Query for similar chunks using the provided embedding
             query = f"""
                 SELECT 
@@ -2144,9 +2144,9 @@ class DuckDBProvider(SerialDatabaseProvider):
                 ORDER BY distance ASC
                 LIMIT ?
             """
-            
+
             results = conn.execute(query, query_params).fetchall()
-            
+
             # Format results
             result_list = [
                 {
@@ -2162,9 +2162,9 @@ class DuckDBProvider(SerialDatabaseProvider):
                 }
                 for result in results
             ]
-            
+
             return result_list
-            
+
         except Exception as e:
             logger.error(f"Failed to search by embedding: {e}")
             return []

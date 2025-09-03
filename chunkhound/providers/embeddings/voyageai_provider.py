@@ -6,15 +6,15 @@ from typing import Any
 
 from loguru import logger
 
-from chunkhound.core.exceptions.core import ValidationError
+from chunkhound.core.constants import VOYAGE_DEFAULT_MODEL, VOYAGE_DEFAULT_RERANK_MODEL
 from chunkhound.interfaces.embedding_provider import EmbeddingConfig, RerankResult
 
 from .shared_utils import (
+    chunk_text_by_words,
     estimate_tokens_rough,
-    chunk_text_by_words, 
-    validate_text_input,
-    get_usage_stats_dict,
     get_dimensions_for_model,
+    get_usage_stats_dict,
+    validate_text_input,
 )
 
 try:
@@ -27,14 +27,85 @@ except ImportError:
     logger.warning("VoyageAI not available - install with: uv pip install voyageai")
 
 
+# Official VoyageAI model configuration based on API documentation
+VOYAGE_MODEL_CONFIG = {
+    # Models with 120,000 token limit per batch
+    "voyage-3-large": {
+        "max_tokens_per_batch": 120000,
+        "max_texts_per_batch": 1000,
+        "context_length": 32000,
+        "dimensions": [256, 512, 1024, 2048],
+        "default_dimension": 1024
+    },
+    "voyage-code-3": {
+        "max_tokens_per_batch": 120000,
+        "max_texts_per_batch": 1000,
+        "context_length": 32000,
+        "dimensions": [256, 512, 1024, 2048],
+        "default_dimension": 1024
+    },
+    "voyage-finance-2": {
+        "max_tokens_per_batch": 120000,
+        "max_texts_per_batch": 1000,
+        "context_length": 32000,
+        "dimensions": [1024],
+        "default_dimension": 1024
+    },
+    "voyage-law-2": {
+        "max_tokens_per_batch": 120000,
+        "max_texts_per_batch": 1000,
+        "context_length": 16000,
+        "dimensions": [1024],
+        "default_dimension": 1024
+    },
+    "voyage-multilingual-2": {
+        "max_tokens_per_batch": 120000,
+        "max_texts_per_batch": 1000,
+        "context_length": 32000,
+        "dimensions": [1024],
+        "default_dimension": 1024
+    },
+    "voyage-large-2-instruct": {
+        "max_tokens_per_batch": 120000,
+        "max_texts_per_batch": 1000,
+        "context_length": 16000,
+        "dimensions": [1024],
+        "default_dimension": 1024
+    },
+    # Models with 320,000 token limit per batch
+    "voyage-3.5": {
+        "max_tokens_per_batch": 320000,
+        "max_texts_per_batch": 1000,
+        "context_length": 32000,
+        "dimensions": [256, 512, 1024, 2048],
+        "default_dimension": 1024
+    },
+    "voyage-2": {
+        "max_tokens_per_batch": 320000,
+        "max_texts_per_batch": 1000,
+        "context_length": 4000,
+        "dimensions": [1024],
+        "default_dimension": 1024
+    },
+    # Model with 1,000,000 token limit per batch
+    "voyage-3.5-lite": {
+        "max_tokens_per_batch": 1000000,
+        "max_texts_per_batch": 1000,
+        "context_length": 32000,
+        "dimensions": [256, 512, 1024, 2048],
+        "default_dimension": 1024
+    },
+}
+
+
 class VoyageAIEmbeddingProvider:
     """VoyageAI embedding provider using voyage-3.5 by default."""
 
     def __init__(
         self,
         api_key: str | None = None,
-        model: str = "voyage-3.5",
-        rerank_model: str | None = "rerank-lite-1",
+        model: str = VOYAGE_DEFAULT_MODEL,
+        rerank_model: str | None = VOYAGE_DEFAULT_RERANK_MODEL,
         batch_size: int = 100,
         timeout: int = 30,
         retry_attempts: int = 3,
@@ -58,24 +129,31 @@ class VoyageAIEmbeddingProvider:
 
         self._model = model
         self._rerank_model = rerank_model
-        self._batch_size = min(batch_size, 1000)  # VoyageAI limit
+        
+        # Get model configuration or use defaults
+        model_config = VOYAGE_MODEL_CONFIG.get(model, {
+            "max_tokens_per_batch": 320000,  # Default for unknown models
+            "max_texts_per_batch": 1000,
+            "context_length": 32000,
+            "dimensions": [1024],
+            "default_dimension": 1024
+        })
+        
+        self._batch_size = min(batch_size, model_config["max_texts_per_batch"])
         self._timeout = timeout
         self._retry_attempts = retry_attempts
         self._retry_delay = retry_delay
-        self._max_tokens = max_tokens or 32000  # VoyageAI default context length
+        self._max_tokens = max_tokens or model_config["context_length"]
         self._api_key = api_key
+        self._model_config = model_config
 
         # Initialize client
         self._client = voyageai.Client(api_key=api_key)
 
-        # Model dimension mapping
+        # Model dimension mapping - built from configuration
         self._dimensions_map = {
-            "voyage-3-large": 1024,
-            "voyage-3.5": 1024,
-            "voyage-3.5-lite": 1024,
-            "voyage-code-3": 1024,
-            "voyage-finance-2": 1024,
-            "voyage-law-2": 1024,
+            model_name: config["default_dimension"]
+            for model_name, config in VOYAGE_MODEL_CONFIG.items()
         }
 
         # Usage tracking
@@ -135,7 +213,7 @@ class VoyageAIEmbeddingProvider:
             return []
 
         validated_texts = validate_text_input(texts)
-        
+
         try:
             result = await asyncio.to_thread(
                 self._client.embed,
@@ -144,13 +222,13 @@ class VoyageAIEmbeddingProvider:
                 input_type="document",
                 truncation=True
             )
-            
+
             self._requests_made += 1
             self._tokens_used += result.total_tokens
             self._embeddings_generated += len(texts)
-            
+
             return [embedding for embedding in result.embeddings]
-            
+
         except Exception as e:
             logger.error(f"VoyageAI embedding failed: {e}")
             raise RuntimeError(f"Embedding generation failed: {e}") from e
@@ -169,12 +247,12 @@ class VoyageAIEmbeddingProvider:
 
         batch_size = batch_size or self._batch_size
         batches = [texts[i:i + batch_size] for i in range(0, len(texts), batch_size)]
-        
+
         all_embeddings = []
         for batch in batches:
             embeddings = await self.embed(batch)
             all_embeddings.extend(embeddings)
-            
+
         return all_embeddings
 
     async def embed_streaming(self, texts: list[str]) -> AsyncIterator[list[float]]:
@@ -246,7 +324,7 @@ class VoyageAIEmbeddingProvider:
         """Get usage statistics."""
         return get_usage_stats_dict(
             self._requests_made,
-            self._tokens_used, 
+            self._tokens_used,
             self._embeddings_generated
         )
 
@@ -273,15 +351,15 @@ class VoyageAIEmbeddingProvider:
 
     def get_optimal_batch_size(self) -> int:
         """Get optimal batch size for this provider."""
-        return min(self._batch_size, 100)  # VoyageAI can handle up to 1000, but 100 is optimal
+        return min(self._batch_size, 100)  # 100 is generally optimal for performance
 
     def get_max_tokens_per_batch(self) -> int:
         """Get maximum tokens per batch for this provider."""
-        return self._max_tokens * self._batch_size
+        return self._model_config["max_tokens_per_batch"]
 
     def get_max_documents_per_batch(self) -> int:
         """Get maximum documents per batch for VoyageAI provider."""
-        return 1000  # VoyageAI API limit
+        return self._model_config["max_texts_per_batch"]
 
     # Reranking Operations
     def supports_reranking(self) -> bool:
@@ -302,7 +380,7 @@ class VoyageAIEmbeddingProvider:
             logger.debug(
                 f"VoyageAI reranking {len(documents)} documents with model {self._rerank_model}"
             )
-            
+
             result = await asyncio.to_thread(
                 self._client.rerank,
                 query=query,
@@ -310,14 +388,14 @@ class VoyageAIEmbeddingProvider:
                 model=self._rerank_model,
                 top_k=top_k
             )
-            
+
             self._requests_made += 1
-            
+
             # Check if we got valid results
             if not hasattr(result, 'results') or not result.results:
                 logger.warning(f"VoyageAI rerank returned no results for query: {query[:100]}")
                 return []
-            
+
             rerank_results = []
             for item in result.results:
                 if hasattr(item, 'index') and hasattr(item, 'relevance_score'):
@@ -327,10 +405,10 @@ class VoyageAIEmbeddingProvider:
                     ))
                 else:
                     logger.warning(f"Skipping invalid rerank result: {item}")
-            
+
             logger.debug(f"VoyageAI reranked {len(documents)} documents, got {len(rerank_results)} results")
             return rerank_results
-            
+
         except AttributeError as e:
             logger.error(f"VoyageAI rerank response format error: {e}")
             raise ValueError(f"Invalid rerank response format: {e}") from e

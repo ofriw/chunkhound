@@ -1,8 +1,9 @@
 """LanguageParser protocol for ChunkHound - abstract interface for language parsing implementations."""
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Protocol
+from typing import Any, Protocol
 
 from chunkhound.core.types.common import ChunkType, Language
 

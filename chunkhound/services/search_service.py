@@ -274,7 +274,7 @@ class SearchService(BaseService):
                         if neighbor["chunk_id"] not in seen_chunk_ids:
                             new_candidates.append(self._enhance_search_result(neighbor))
                             seen_chunk_ids.add(neighbor["chunk_id"])
-                    
+
                     # logger.debug(f"Found {len(neighbors)} neighbors for chunk_id={candidate['chunk_id']}, "
                     #            f"{len([n for n in neighbors if n['chunk_id'] not in seen_chunk_ids])} new")
 
@@ -333,7 +333,7 @@ class SearchService(BaseService):
 
             # Check score derivative for termination (track specific chunks, not positions)
             current_top_scores = [result.get("score", 0.0) for result in all_results[:5]]
-            
+
             # Check if any of the originally top chunks have degraded significantly
             score_drops = []
             if top_chunk_scores:  # Only check after first iteration

@@ -11,19 +11,16 @@ All tree-sitter language modules are imported explicitly to avoid dynamic import
 complexity and ensure better error handling during startup.
 """
 
-from pathlib import Path
-from typing import Dict, Optional, Type, Any
 import logging
+from pathlib import Path
+from typing import Any
 
 from chunkhound.core.types.common import Language
-from chunkhound.parsers.universal_parser import UniversalParser, CASTConfig
-from chunkhound.parsers.universal_engine import TreeSitterEngine, SetupError
-from chunkhound.parsers.mappings.base import BaseMapping
 
 # Import all language mappings
 from chunkhound.parsers.mappings import (
     BashMapping,
-    CMapping, 
+    CMapping,
     CppMapping,
     CSharpMapping,
     GoMapping,
@@ -43,8 +40,11 @@ from chunkhound.parsers.mappings import (
     TomlMapping,
     TSXMapping,
     TypeScriptMapping,
-    YamlMapping
+    YamlMapping,
 )
+from chunkhound.parsers.mappings.base import BaseMapping
+from chunkhound.parsers.universal_engine import SetupError, TreeSitterEngine
+from chunkhound.parsers.universal_parser import CASTConfig, UniversalParser
 
 logger = logging.getLogger(__name__)
 
@@ -187,14 +187,14 @@ TSX_AVAILABLE = TYPESCRIPT_AVAILABLE  # TSX uses TypeScript parser
 
 class LanguageConfig:
     """Configuration for a language including its tree-sitter module and mapping."""
-    
-    def __init__(self, tree_sitter_module: Any, mapping_class: Type[BaseMapping], 
+
+    def __init__(self, tree_sitter_module: Any, mapping_class: type[BaseMapping],
                  available: bool, language_name: str):
         self.tree_sitter_module = tree_sitter_module
         self.mapping_class = mapping_class
         self.available = available
         self.language_name = language_name
-        
+
     def get_tree_sitter_language(self):
         """Get the tree-sitter Language object from the module."""
         if not self.available or not self.tree_sitter_module:
@@ -205,7 +205,7 @@ class LanguageConfig:
                 original_error="Tree-sitter module not available"
             )
         from tree_sitter import Language
-        
+
         # Special handling for TypeScript/TSX which have different attribute names
         if self.language_name == "typescript":
             lang_func = self.tree_sitter_module.language_typescript
@@ -227,7 +227,7 @@ class LanguageConfig:
 
 
 # Language configuration mapping
-LANGUAGE_CONFIGS: Dict[Language, LanguageConfig] = {
+LANGUAGE_CONFIGS: dict[Language, LanguageConfig] = {
     Language.PYTHON: LanguageConfig(ts_python, PythonMapping, PYTHON_AVAILABLE, "python"),
     Language.JAVASCRIPT: LanguageConfig(ts_javascript, JavaScriptMapping, JAVASCRIPT_AVAILABLE, "javascript"),
     Language.TYPESCRIPT: LanguageConfig(ts_typescript, TypeScriptMapping, TYPESCRIPT_AVAILABLE, "typescript"),
@@ -253,12 +253,12 @@ LANGUAGE_CONFIGS: Dict[Language, LanguageConfig] = {
 }
 
 # File extension to language mapping
-EXTENSION_TO_LANGUAGE: Dict[str, Language] = {
+EXTENSION_TO_LANGUAGE: dict[str, Language] = {
     # Python
     '.py': Language.PYTHON,
     '.pyi': Language.PYTHON,
     '.pyw': Language.PYTHON,
-    
+
     # JavaScript & TypeScript
     '.js': Language.JAVASCRIPT,
     '.mjs': Language.JAVASCRIPT,
@@ -268,7 +268,7 @@ EXTENSION_TO_LANGUAGE: Dict[str, Language] = {
     '.tsx': Language.TSX,
     '.mts': Language.TYPESCRIPT,
     '.cts': Language.TYPESCRIPT,
-    
+
     # Java & JVM Languages
     '.java': Language.JAVA,
     '.kt': Language.KOTLIN,
@@ -277,7 +277,7 @@ EXTENSION_TO_LANGUAGE: Dict[str, Language] = {
     '.gvy': Language.GROOVY,
     '.gy': Language.GROOVY,
     '.gsh': Language.GROOVY,
-    
+
     # C/C++
     '.c': Language.C,
     '.h': Language.C,
@@ -289,11 +289,11 @@ EXTENSION_TO_LANGUAGE: Dict[str, Language] = {
     '.hxx': Language.CPP,
     '.hh': Language.CPP,
     '.h++': Language.CPP,
-    
+
     # C#
     '.cs': Language.CSHARP,
     '.csx': Language.CSHARP,
-    
+
     # Other languages
     '.go': Language.GO,
     '.rs': Language.RUST,
@@ -302,7 +302,7 @@ EXTENSION_TO_LANGUAGE: Dict[str, Language] = {
     '.zsh': Language.BASH,
     '.fish': Language.BASH,
     '.m': Language.MATLAB,
-    
+
     # Config & Data
     '.json': Language.JSON,
     '.yaml': Language.YAML,
@@ -313,14 +313,14 @@ EXTENSION_TO_LANGUAGE: Dict[str, Language] = {
     '.mdown': Language.MARKDOWN,
     '.mkd': Language.MARKDOWN,
     '.mdx': Language.MARKDOWN,
-    
+
     # Build systems
     'makefile': Language.MAKEFILE,
     'Makefile': Language.MAKEFILE,
     'GNUmakefile': Language.MAKEFILE,
     '.mk': Language.MAKEFILE,
     '.mak': Language.MAKEFILE,
-    
+
     # Text files (fallback)
     '.txt': Language.TEXT,
     '.text': Language.TEXT,
@@ -328,7 +328,7 @@ EXTENSION_TO_LANGUAGE: Dict[str, Language] = {
     '.cfg': Language.TEXT,
     '.conf': Language.TEXT,
     '.ini': Language.TEXT,
-    
+
     # PDF files
     '.pdf': Language.PDF,
 }
@@ -341,18 +341,18 @@ class ParserFactory:
     with the appropriate language configuration. It handles tree-sitter module
     availability and provides fallback options.
     """
-    
-    def __init__(self, default_cast_config: Optional[CASTConfig] = None):
+
+    def __init__(self, default_cast_config: CASTConfig | None = None):
         """Initialize parser factory.
         
         Args:
             default_cast_config: Default cAST configuration for all parsers
         """
         self.default_cast_config = default_cast_config or CASTConfig()
-        self._parser_cache: Dict[Language, UniversalParser] = {}
-        
-    def create_parser(self, language: Language, 
-                     cast_config: Optional[CASTConfig] = None) -> UniversalParser:
+        self._parser_cache: dict[Language, UniversalParser] = {}
+
+    def create_parser(self, language: Language,
+                     cast_config: CASTConfig | None = None) -> UniversalParser:
         """Create a universal parser for the specified language.
         
         Args:
@@ -370,16 +370,15 @@ class ParserFactory:
         cache_key = language
         if cache_key in self._parser_cache:
             return self._parser_cache[cache_key]
-            
+
         if language not in LANGUAGE_CONFIGS:
             raise ValueError(f"Unsupported language: {language}")
-            
+
         config = LANGUAGE_CONFIGS[language]
         cast_config = cast_config or self.default_cast_config
-        
+
         # Import TreeSitterEngine here to avoid circular imports
-        from chunkhound.parsers.universal_engine import TreeSitterEngine
-        
+
         # Special handling for text and PDF files (no tree-sitter required)
         if language in (Language.TEXT, Language.PDF):
             # Text and PDF mappings don't need tree-sitter engine
@@ -388,7 +387,7 @@ class ParserFactory:
             parser = UniversalParser(None, mapping, cast_config)  # type: ignore
             self._parser_cache[cache_key] = parser
             return parser
-        
+
         if not config.available:
             raise SetupError(
                 parser=config.language_name,
@@ -396,23 +395,23 @@ class ParserFactory:
                 install_command=f"pip install tree-sitter-{config.language_name.lower()}",
                 original_error="Tree-sitter module not available"
             )
-        
+
         try:
             # Get tree-sitter language object
             ts_language = config.get_tree_sitter_language()
-            
+
             # Create engine and mapping
             engine = TreeSitterEngine(config.language_name, ts_language)
             mapping = config.mapping_class()
-            
+
             # Create parser
             parser = UniversalParser(engine, mapping, cast_config)
-            
+
             # Cache for future use
             self._parser_cache[cache_key] = parser
-            
+
             return parser
-            
+
         except Exception as e:
             raise SetupError(
                 parser=config.language_name,
@@ -420,9 +419,9 @@ class ParserFactory:
                 install_command=f"pip install tree-sitter-{config.language_name.lower()}",
                 original_error=str(e)
             ) from e
-    
-    def create_parser_for_file(self, file_path: Path, 
-                              cast_config: Optional[CASTConfig] = None) -> UniversalParser:
+
+    def create_parser_for_file(self, file_path: Path,
+                              cast_config: CASTConfig | None = None) -> UniversalParser:
         """Create a parser appropriate for the given file.
         
         Args:
@@ -438,7 +437,7 @@ class ParserFactory:
         """
         language = self.detect_language(file_path)
         return self.create_parser(language, cast_config)
-    
+
     def detect_language(self, file_path: Path) -> Language:
         """Detect the programming language of a file based on its extension.
         
@@ -452,39 +451,39 @@ class ParserFactory:
         extension = file_path.suffix.lower()
         if extension in EXTENSION_TO_LANGUAGE:
             return EXTENSION_TO_LANGUAGE[extension]
-            
+
         # Check by filename (for files like Makefile)
         filename = file_path.name
         if filename in EXTENSION_TO_LANGUAGE:
             return EXTENSION_TO_LANGUAGE[filename]
-            
+
         # Check by stem (for files like Makefile.debug)
         stem = file_path.stem.lower()
         if stem in ['makefile', 'gnumakefile']:
             return Language.MAKEFILE
-            
+
         # Fallback to text for unknown files
         return Language.TEXT
-    
-    def get_available_languages(self) -> Dict[Language, bool]:
+
+    def get_available_languages(self) -> dict[Language, bool]:
         """Get a dictionary of all languages and their availability status.
         
         Returns:
             Dictionary mapping Language to availability boolean
         """
         return {
-            language: config.available 
+            language: config.available
             for language, config in LANGUAGE_CONFIGS.items()
         }
-    
-    def get_supported_extensions(self) -> Dict[str, Language]:
+
+    def get_supported_extensions(self) -> dict[str, Language]:
         """Get all supported file extensions and their associated languages.
         
         Returns:
             Dictionary mapping file extensions to Language enum values
         """
         return EXTENSION_TO_LANGUAGE.copy()
-    
+
     def is_language_available(self, language: Language) -> bool:
         """Check if a specific language is available (tree-sitter module installed).
         
@@ -495,8 +494,8 @@ class ParserFactory:
             True if the language is supported and available
         """
         return LANGUAGE_CONFIGS.get(language, LanguageConfig(None, TextMapping, False, "unknown")).available
-    
-    def get_missing_dependencies(self) -> Dict[Language, str]:
+
+    def get_missing_dependencies(self) -> dict[Language, str]:
         """Get a list of missing dependencies for unavailable languages.
         
         Returns:
@@ -507,12 +506,12 @@ class ParserFactory:
             if not config.available and language not in (Language.TEXT, Language.PDF):
                 missing[language] = f"pip install tree-sitter-{config.language_name.lower()}"
         return missing
-    
+
     def clear_cache(self) -> None:
         """Clear the parser cache to free memory."""
         self._parser_cache.clear()
-    
-    def get_statistics(self) -> Dict[str, Any]:
+
+    def get_statistics(self) -> dict[str, Any]:
         """Get factory statistics.
         
         Returns:
@@ -521,7 +520,7 @@ class ParserFactory:
         available_count = sum(1 for config in LANGUAGE_CONFIGS.values() if config.available)
         total_count = len(LANGUAGE_CONFIGS)
         cached_count = len(self._parser_cache)
-        
+
         return {
             'total_languages': total_count,
             'available_languages': available_count,
@@ -533,10 +532,10 @@ class ParserFactory:
 
 
 # Global factory instance for convenience
-_global_factory: Optional[ParserFactory] = None
+_global_factory: ParserFactory | None = None
 
 
-def get_parser_factory(cast_config: Optional[CASTConfig] = None) -> ParserFactory:
+def get_parser_factory(cast_config: CASTConfig | None = None) -> ParserFactory:
     """Get the global parser factory instance.
     
     Args:
@@ -551,8 +550,8 @@ def get_parser_factory(cast_config: Optional[CASTConfig] = None) -> ParserFactor
     return _global_factory
 
 
-def create_parser_for_file(file_path: Path, 
-                          cast_config: Optional[CASTConfig] = None) -> UniversalParser:
+def create_parser_for_file(file_path: Path,
+                          cast_config: CASTConfig | None = None) -> UniversalParser:
     """Convenience function to create a parser for a file.
     
     Args:
@@ -566,8 +565,8 @@ def create_parser_for_file(file_path: Path,
     return factory.create_parser_for_file(file_path, cast_config)
 
 
-def create_parser_for_language(language: Language, 
-                              cast_config: Optional[CASTConfig] = None) -> UniversalParser:
+def create_parser_for_language(language: Language,
+                              cast_config: CASTConfig | None = None) -> UniversalParser:
     """Convenience function to create a parser for a language.
     
     Args:

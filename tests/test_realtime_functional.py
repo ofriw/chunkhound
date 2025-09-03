@@ -36,7 +36,6 @@ class TestRealtimeFunctional:
         config = Config(
             args=fake_args,
             database={"path": str(db_path), "provider": "duckdb"},
-            embedding={"provider": "openai", "model": "text-embedding-3-small"},
             indexing={"include": ["*.py", "*.js"], "exclude": ["*.log"]}
         )
         

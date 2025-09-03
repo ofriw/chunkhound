@@ -6,13 +6,13 @@ it uses Python's built-in tomllib/toml module with custom structure detection.
 """
 
 import sys
-from typing import Dict, List, Optional, Any
+from typing import Any
 
 from tree_sitter import Node
 
 from chunkhound.core.types.common import Language
-from chunkhound.parsers.universal_engine import UniversalConcept
 from chunkhound.parsers.mappings.base import BaseMapping
+from chunkhound.parsers.universal_engine import UniversalConcept
 
 # Handle tomllib availability (Python 3.11+)
 if sys.version_info >= (3, 11):
@@ -56,7 +56,7 @@ class TomlMapping(BaseMapping):
         return ""
 
     # LanguageMapping protocol methods
-    def get_query_for_concept(self, concept: UniversalConcept) -> Optional[str]:
+    def get_query_for_concept(self, concept: UniversalConcept) -> str | None:
         """Get tree-sitter query for universal concept in TOML.
         
         Returns valid tree-sitter queries that work with tree-sitter-toml grammar.
@@ -68,42 +68,42 @@ class TomlMapping(BaseMapping):
                 
                 (pair) @definition
             """
-            
+
         elif concept == UniversalConcept.BLOCK:
             # Match string values and other content blocks
             return """
                 (string) @definition
             """
-            
+
         elif concept == UniversalConcept.STRUCTURE:
             # No document-level captures - let cAST handle structure
             return ""
-            
+
         elif concept == UniversalConcept.COMMENT:
             # Match TOML comments
             return """
                 (comment) @definition
             """
-            
+
         elif concept == UniversalConcept.IMPORT:
-            # TOML doesn't have imports, but we provide empty query for consistency  
+            # TOML doesn't have imports, but we provide empty query for consistency
             return ""
-            
+
         else:
             return None
 
-    def extract_name(self, concept: UniversalConcept, captures: Dict[str, Node], content: bytes) -> str:
+    def extract_name(self, concept: UniversalConcept, captures: dict[str, Node], content: bytes) -> str:
         """Extract name from captures for this concept."""
-        
+
         # Convert bytes to string for TOML parsing
         source = content.decode('utf-8')
-        
+
         if not HAS_TOMLLIB:
             return "toml_unavailable"
-        
+
         try:
             data = tomllib.loads(source)
-            
+
             if concept == UniversalConcept.DEFINITION:
                 # For TOML tables and key-value pairs
                 if isinstance(data, dict):
@@ -114,36 +114,36 @@ class TomlMapping(BaseMapping):
                                 return f"definition_{data[key]['name']}"
                             elif isinstance(data[key], str):
                                 return f"definition_{data[key]}"
-                    
+
                     # Use first key as name
                     first_key = next(iter(data.keys()), None)
                     if first_key:
                         return f"definition_{first_key}"
-                
+
                 return "toml_definition"
-                
+
             elif concept == UniversalConcept.BLOCK:
                 # Look for table structures
                 if isinstance(data, dict):
                     # Count nested tables
                     table_count = sum(1 for v in data.values() if isinstance(v, dict))
                     if table_count > 0:
-                        return f"toml_tables"
+                        return "toml_tables"
                     else:
-                        return f"toml_kvpairs"
-                
+                        return "toml_kvpairs"
+
                 return "toml_block"
-                
+
             elif concept == UniversalConcept.STRUCTURE:
                 return "toml_document"
-                
+
         except Exception:
             # Handle TOML parsing errors
             pass
-        
+
         return "unnamed"
 
-    def extract_content(self, concept: UniversalConcept, captures: Dict[str, Node], content: bytes) -> str:
+    def extract_content(self, concept: UniversalConcept, captures: dict[str, Node], content: bytes) -> str:
         """Extract content from captures for this concept.
         
         Always returns the original source text to preserve searchable content,
@@ -152,44 +152,44 @@ class TomlMapping(BaseMapping):
         # Always return original source text to preserve searchable strings
         return content.decode('utf-8')
 
-    def extract_metadata(self, concept: UniversalConcept, captures: Dict[str, Node], content: bytes) -> Dict[str, Any]:
+    def extract_metadata(self, concept: UniversalConcept, captures: dict[str, Node], content: bytes) -> dict[str, Any]:
         """Extract TOML-specific metadata."""
-        
+
         source = content.decode('utf-8')
         metadata = {}
-        
+
         if not HAS_TOMLLIB:
             metadata["parser_unavailable"] = True
             metadata["parser_note"] = "tomllib/tomli not available"
             return metadata
-        
+
         try:
             data = tomllib.loads(source)
             # Store parsed data in metadata for structured access if needed
             metadata["parsed_toml"] = data
-            
+
             if concept == UniversalConcept.DEFINITION:
                 if isinstance(data, dict):
                     metadata["data_type"] = "table"
                     metadata["key_count"] = len(data)
-                    
+
                     # Analyze key and value types
                     value_types = set()
                     table_keys = []
                     scalar_keys = []
                     array_keys = []
-                    
+
                     for key, value in data.items():
                         value_type = type(value).__name__
                         value_types.add(value_type)
-                        
+
                         if isinstance(value, dict):
                             table_keys.append(key)
                         elif isinstance(value, list):
                             array_keys.append(key)
                         else:
                             scalar_keys.append(key)
-                    
+
                     metadata["value_types"] = list(value_types)
                     if table_keys:
                         metadata["table_keys"] = table_keys
@@ -197,7 +197,7 @@ class TomlMapping(BaseMapping):
                         metadata["array_keys"] = array_keys
                     if scalar_keys:
                         metadata["scalar_keys"] = scalar_keys
-                    
+
                     # Detect common TOML file types
                     if 'package' in data or 'project' in data:
                         metadata["toml_type"] = "project_config"
@@ -207,49 +207,49 @@ class TomlMapping(BaseMapping):
                         metadata["toml_type"] = "app_config"
                     elif 'build-system' in data or 'dependencies' in data:
                         metadata["toml_type"] = "build_config"
-                    
+
                     # Analyze nested structure depth
                     max_depth = self._calculate_toml_depth(data)
                     metadata["max_depth"] = max_depth
-            
+
             elif concept == UniversalConcept.BLOCK:
                 metadata["toml_type"] = type(data).__name__
-                
+
                 if isinstance(data, dict):
                     # Count different types of content
                     metadata["nested_tables"] = sum(1 for v in data.values() if isinstance(v, dict))
                     metadata["arrays"] = sum(1 for v in data.values() if isinstance(v, list))
-                    metadata["scalars"] = sum(1 for v in data.values() 
+                    metadata["scalars"] = sum(1 for v in data.values()
                                            if not isinstance(v, (dict, list)))
-                    
+
                     # Detect array of tables pattern
                     array_of_tables = []
                     for key, value in data.items():
                         if isinstance(value, list) and value and isinstance(value[0], dict):
                             array_of_tables.append(key)
-                    
+
                     if array_of_tables:
                         metadata["array_of_tables"] = array_of_tables
-            
+
             elif concept == UniversalConcept.STRUCTURE:
                 metadata["root_type"] = type(data).__name__
-                
+
                 # Calculate overall document statistics
                 total_keys = self._count_toml_keys(data)
                 metadata["total_keys"] = total_keys
-                
+
                 max_depth = self._calculate_toml_depth(data)
                 metadata["max_depth"] = max_depth
-                
+
                 # Detect comments in source (since we can't parse them structurally)
                 comment_count = source.count('#')
                 if comment_count > 0:
                     metadata["comment_lines"] = comment_count
-        
+
         except Exception as e:
             metadata["parse_error"] = str(e)
             metadata["is_valid_toml"] = False
-        
+
         return metadata
 
     def _calculate_toml_depth(self, data: Any, current_depth: int = 1) -> int:
@@ -278,11 +278,11 @@ class TomlMapping(BaseMapping):
         else:
             return 0
 
-    def _extract_toml_comments(self, source: str) -> List[Dict[str, Any]]:
+    def _extract_toml_comments(self, source: str) -> list[dict[str, Any]]:
         """Extract comments from TOML source (simple line-based extraction)."""
         comments = []
         lines = source.split('\n')
-        
+
         for line_num, line in enumerate(lines, 1):
             stripped = line.strip()
             if stripped.startswith('#'):
@@ -291,5 +291,5 @@ class TomlMapping(BaseMapping):
                     "content": stripped[1:].strip(),
                     "full_line": line
                 })
-        
+
         return comments

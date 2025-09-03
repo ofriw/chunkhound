@@ -1,46 +1,47 @@
 """Universal concept extraction using language-specific mappings."""
 
-from typing import Dict, List, Optional, Protocol, Any
+from typing import Any, Protocol
 
-from tree_sitter import Node, Tree
+from tree_sitter import Node
 
+from chunkhound.utils.normalization import normalize_content
 from .universal_engine import (
+    QueryCompilationError,
     TreeSitterEngine,
-    UniversalConcept,
     UniversalChunk,
-    QueryCompilationError
+    UniversalConcept,
 )
 
 
 class LanguageMapping(Protocol):
     """Protocol for language-specific tree-sitter mappings."""
-    
-    def get_query_for_concept(self, concept: UniversalConcept) -> Optional[str]:
+
+    def get_query_for_concept(self, concept: UniversalConcept) -> str | None:
         """Get tree-sitter query for universal concept in this language."""
         ...
-    
-    def extract_name(self, concept: UniversalConcept, captures: Dict[str, Node], content: bytes) -> str:
+
+    def extract_name(self, concept: UniversalConcept, captures: dict[str, Node], content: bytes) -> str:
         """Extract name from captures for this concept."""
         ...
-    
-    def extract_content(self, concept: UniversalConcept, captures: Dict[str, Node], content: bytes) -> str:
+
+    def extract_content(self, concept: UniversalConcept, captures: dict[str, Node], content: bytes) -> str:
         """Extract content from captures for this concept."""
         ...
-    
-    def extract_metadata(self, concept: UniversalConcept, captures: Dict[str, Node], content: bytes) -> Dict[str, Any]:
+
+    def extract_metadata(self, concept: UniversalConcept, captures: dict[str, Node], content: bytes) -> dict[str, Any]:
         """Extract language-specific metadata."""
         ...
 
 
 class ConceptExtractor:
     """Extracts universal concepts using language-specific mappings."""
-    
+
     def __init__(self, engine: TreeSitterEngine, mapping: LanguageMapping):
         self.engine = engine
         self.mapping = mapping
-        self._compiled_queries: Dict[UniversalConcept, Any] = {}
+        self._compiled_queries: dict[UniversalConcept, Any] = {}
         self._compile_all_queries()
-    
+
     def _compile_all_queries(self) -> None:
         """Compile all concept queries for this language - fail fast."""
         for concept in UniversalConcept:
@@ -55,15 +56,15 @@ class ConceptExtractor:
                         query=query_template,
                         error=str(e)
                     )
-    
-    def extract_concept(self, ast_root: Node, content: bytes, concept: UniversalConcept) -> List[UniversalChunk]:
+
+    def extract_concept(self, ast_root: Node, content: bytes, concept: UniversalConcept) -> list[UniversalChunk]:
         """Extract all instances of a universal concept."""
         if concept not in self._compiled_queries:
             return []
-        
+
         query = self._compiled_queries[concept]
         chunks = []
-        
+
         for match in query.matches(ast_root):
             # match is a tuple: (pattern_index, captures_dict)
             _, captures_dict = match
@@ -72,36 +73,37 @@ class ConceptExtractor:
             chunk = self._build_universal_chunk(concept, captures, content)
             if chunk:  # Some extractions may return None
                 chunks.append(chunk)
-        
+
         return chunks
-    
-    def extract_all_concepts(self, ast_root: Node, content: bytes) -> List[UniversalChunk]:
+
+    def extract_all_concepts(self, ast_root: Node, content: bytes) -> list[UniversalChunk]:
         """Extract all universal concepts from the AST."""
         all_chunks = []
         for concept in UniversalConcept:
             concept_chunks = self.extract_concept(ast_root, content, concept)
             all_chunks.extend(concept_chunks)
         return all_chunks
-    
-    def _build_universal_chunk(self, concept: UniversalConcept, captures: Dict[str, Node], content: bytes) -> Optional[UniversalChunk]:
+
+    def _build_universal_chunk(self, concept: UniversalConcept, captures: dict[str, Node], content: bytes) -> UniversalChunk | None:
         """Convert language-specific captures to universal chunk."""
         # Use mapping to extract universal fields from language-specific captures
         name = self.mapping.extract_name(concept, captures, content)
         chunk_content = self.mapping.extract_content(concept, captures, content)
         metadata = self.mapping.extract_metadata(concept, captures, content)
-        
-        # Skip empty chunks
-        if not chunk_content:
+
+        # Skip empty or whitespace-only chunks
+        normalized_content = normalize_content(chunk_content or "")
+        if not normalized_content:
             return None
-        
+
         # Get position from definition node
         def_node = captures.get('definition') or captures.get('node') or list(captures.values())[0] if captures else None
         if not def_node:
             return None
-            
+
         start_line = def_node.start_point[0] + 1
         end_line = def_node.end_point[0] + 1
-        
+
         return UniversalChunk(
             concept=concept,
             name=name,

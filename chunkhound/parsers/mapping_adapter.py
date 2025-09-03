@@ -5,12 +5,13 @@ the ConceptExtractor's LanguageMapping protocol by converting traditional
 queries (get_function_query, get_class_query, etc.) to universal concepts.
 """
 
-from typing import Dict, Optional, Any
+from typing import Any
+
 from tree_sitter import Node
 
-from chunkhound.parsers.universal_engine import UniversalConcept
 from chunkhound.parsers.concept_extractor import LanguageMapping
 from chunkhound.parsers.mappings.base import BaseMapping
+from chunkhound.parsers.universal_engine import UniversalConcept
 
 
 class MappingAdapter(LanguageMapping):
@@ -32,7 +33,7 @@ class MappingAdapter(LanguageMapping):
         """
         self.base_mapping = base_mapping
 
-    def get_query_for_concept(self, concept: UniversalConcept) -> Optional[str]:
+    def get_query_for_concept(self, concept: UniversalConcept) -> str | None:
         """Get tree-sitter query for universal concept using BaseMapping methods.
 
         Args:
@@ -93,7 +94,7 @@ class MappingAdapter(LanguageMapping):
             return None
 
     def extract_name(
-        self, concept: UniversalConcept, captures: Dict[str, Node], content: bytes
+        self, concept: UniversalConcept, captures: dict[str, Node], content: bytes
     ) -> str:
         """Extract name from captures using BaseMapping methods.
 
@@ -153,7 +154,7 @@ class MappingAdapter(LanguageMapping):
             return f"unnamed_{concept.value}"
 
     def extract_content(
-        self, concept: UniversalConcept, captures: Dict[str, Node], content: bytes
+        self, concept: UniversalConcept, captures: dict[str, Node], content: bytes
     ) -> str:
         """Extract content from captures.
 
@@ -180,8 +181,8 @@ class MappingAdapter(LanguageMapping):
             return ""
 
     def extract_metadata(
-        self, concept: UniversalConcept, captures: Dict[str, Node], content: bytes
-    ) -> Dict[str, Any]:
+        self, concept: UniversalConcept, captures: dict[str, Node], content: bytes
+    ) -> dict[str, Any]:
         """Extract metadata from captures.
 
         Args:
@@ -225,7 +226,7 @@ class MappingAdapter(LanguageMapping):
 
         return metadata
 
-    def _find_definition_node(self, captures: Dict[str, Node]) -> Optional[Node]:
+    def _find_definition_node(self, captures: dict[str, Node]) -> Node | None:
         """Find the main definition node from captures.
 
         Args:
@@ -256,13 +257,13 @@ class MappingAdapter(LanguageMapping):
         FILE_LEVEL_NODES = {
             # File-level nodes
             "module",
-            "source_file", 
+            "source_file",
             "program",
             "translation_unit",
             "compilation_unit",
             # Large container nodes that can contain massive amounts of code
             "class_body",
-            "struct_body", 
+            "struct_body",
             "interface_body",
             "namespace_body",
             "enum_body",
@@ -286,7 +287,7 @@ class MappingAdapter(LanguageMapping):
         # This prevents extracting entire files as single chunks
         return None
 
-    def _is_function_node(self, captures: Dict[str, Node], node: Node) -> bool:
+    def _is_function_node(self, captures: dict[str, Node], node: Node) -> bool:
         """Check if a node represents a function definition.
 
         Args:
@@ -320,7 +321,7 @@ class MappingAdapter(LanguageMapping):
 
         return False
 
-    def _is_class_node(self, captures: Dict[str, Node], node: Node) -> bool:
+    def _is_class_node(self, captures: dict[str, Node], node: Node) -> bool:
         """Check if a node represents a class definition.
 
         Args:

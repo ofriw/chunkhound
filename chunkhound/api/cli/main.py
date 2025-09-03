@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import multiprocessing
 import sys
+from pathlib import Path
 
 from loguru import logger
 
@@ -35,7 +36,7 @@ def setup_logging(verbose: bool = False) -> None:
     else:
         logger.add(
             sys.stderr,
-            level="INFO",
+            level="WARNING",
             format=(
                 "<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | "
                 "<level>{message}</level>"
@@ -80,9 +81,41 @@ async def async_main() -> None:
     config, validation_errors = create_validated_config(args, args.command)
 
     if validation_errors:
-        for error in validation_errors:
-            logger.error(f"Error: {error}")
-        sys.exit(1)
+        # Check if we can offer interactive setup wizard for index command
+        if args.command in [None, "index"]:
+            from .setup_wizard import _should_run_setup_wizard, run_setup_wizard
+
+            if _should_run_setup_wizard(validation_errors):
+                wizard_config = await run_setup_wizard(Path(args.path), args)
+
+                if wizard_config:
+                    # Re-validate with new config
+                    config, validation_errors = create_validated_config(
+                        args, args.command
+                    )
+                else:
+                    # Wizard was run but returned None (user cancelled save)
+                    # Exit gracefully without showing original validation errors
+                    logger.info("Setup cancelled by user")
+                    sys.exit(0)
+
+        # If we still have errors after wizard (or wizard was skipped/cancelled)
+        if validation_errors:
+            # Check if this is an embedding-related error
+            embedding_error = any("embedding provider" in str(e).lower() for e in validation_errors)
+            
+            # Log all errors to stderr
+            for error in validation_errors:
+                logger.error(f"Error: {error}")
+            
+            # If embedding error and not in interactive mode, show helpful messages to stdout
+            if embedding_error and args.command in [None, "index"]:
+                # Use print() for stdout output to match test expectations
+                print("To fix this, you can:")
+                print("  1. Create a .chunkhound.json config file with embeddings")
+                print("  2. Use --no-embeddings to skip embeddings")
+            
+            sys.exit(1)
 
     try:
         if args.command == "index":
@@ -135,7 +168,15 @@ def main() -> None:
                 "variable, or in config file."
             )
         else:
-            logger.error(f"Unexpected error: {e}")
+            error_type = type(e).__name__
+            logger.error(f"Unexpected error ({error_type}): {e}")
+
+            # Add additional context for common terminal/Rich issues
+            if "color format" in str(e).lower() or "wrong color" in str(e).lower():
+                logger.error(
+                    "This appears to be a terminal compatibility issue. "
+                    "Try running with CHUNKHOUND_NO_RICH=1 environment variable."
+                )
         sys.exit(1)
 
 

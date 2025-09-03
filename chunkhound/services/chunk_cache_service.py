@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 
 from chunkhound.core.models.chunk import Chunk
+from chunkhound.utils.normalization import normalize_content
 
 
 @dataclass
@@ -22,10 +23,18 @@ class ChunkCacheService:
         """Initialize chunk cache service."""
         pass
 
+    def _normalize_code_for_comparison(self, code: str) -> str:
+        """Normalize code content for comparison while preserving semantic meaning.
+        
+        This helps prevent unnecessary chunk regeneration due to insignificant 
+        whitespace differences like line endings.
+        """
+        return normalize_content(code)
+
     def diff_chunks(
         self, new_chunks: list[Chunk], existing_chunks: list[Chunk]
     ) -> ChunkDiff:
-        """Compare chunks by direct string comparison to identify changes.
+        """Compare chunks by normalized content comparison to identify changes.
 
         Args:
             new_chunks: Newly parsed chunks from file
@@ -34,20 +43,22 @@ class ChunkCacheService:
         Returns:
             ChunkDiff object categorizing chunk changes
         """
-        # Build content lookup for existing chunks using direct string comparison
-        # Use chunk content as key, but handle potential duplicates by using lists
+        # Build content lookup for existing chunks using normalized comparison
+        # Use normalized content as key, but handle potential duplicates by using lists
         existing_by_content: dict[str, list[Chunk]] = {}
         for chunk in existing_chunks:
-            if chunk.code not in existing_by_content:
-                existing_by_content[chunk.code] = []
-            existing_by_content[chunk.code].append(chunk)
+            normalized_code = self._normalize_code_for_comparison(chunk.code)
+            if normalized_code not in existing_by_content:
+                existing_by_content[normalized_code] = []
+            existing_by_content[normalized_code].append(chunk)
 
         # Build content lookup for new chunks
         new_by_content: dict[str, list[Chunk]] = {}
         for chunk in new_chunks:
-            if chunk.code not in new_by_content:
-                new_by_content[chunk.code] = []
-            new_by_content[chunk.code].append(chunk)
+            normalized_code = self._normalize_code_for_comparison(chunk.code)
+            if normalized_code not in new_by_content:
+                new_by_content[normalized_code] = []
+            new_by_content[normalized_code].append(chunk)
 
         # Find intersections and differences using content strings
         existing_content = set(existing_by_content.keys())

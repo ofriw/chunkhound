@@ -17,8 +17,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from loguru import logger
-
 from chunkhound.core.config import EmbeddingProviderFactory
 from chunkhound.core.config.config import Config
 from chunkhound.database_factory import DatabaseServices, create_services
@@ -157,7 +155,7 @@ class MCPServerBase(ABC):
             # Start real-time indexing service
             self.debug_log("Starting real-time indexing service")
             self.realtime_indexing = RealtimeIndexingService(self.services, self.config)
-            
+
             # Start monitoring and wait for it to be ready
             monitoring_task = asyncio.create_task(self.realtime_indexing.start(target_path))
 
@@ -174,15 +172,15 @@ class MCPServerBase(ABC):
             # Wait for monitoring to be ready (with timeout)
             await asyncio.wait_for(self.realtime_indexing.monitoring_ready.wait(), timeout=10.0)
             self.debug_log("Monitoring confirmed ready, starting initial scan")
-            
+
             # Add small delay to ensure any startup files are captured by monitoring
             await asyncio.sleep(1.0)
-            
+
             # Now perform the initial scan
             self._scan_progress["is_scanning"] = True
             self._scan_progress["scan_started_at"] = datetime.now().isoformat()
             await self._background_initial_scan(target_path)
-            
+
         except asyncio.TimeoutError:
             self.debug_log("Monitoring setup timeout - proceeding with initial scan anyway")
             # Still do the scan even if monitoring isn't ready
@@ -194,7 +192,7 @@ class MCPServerBase(ABC):
         """Perform initial directory scan in background without blocking startup."""
         try:
             self.debug_log("Starting background initial directory scan")
-            
+
             # Progress callback to update scan state
             def progress_callback(message: str):
                 # Parse progress messages to update counters
@@ -206,20 +204,20 @@ class MCPServerBase(ABC):
                         self._scan_progress["files_processed"] = int(match.group(1))
                         self._scan_progress["chunks_created"] = int(match.group(2))
                 self.debug_log(message)
-            
+
             # Create indexing service for background scan
             indexing_service = DirectoryIndexingService(
                 indexing_coordinator=self.services.indexing_coordinator,
                 config=self.config,
                 progress_callback=progress_callback
             )
-            
+
             # Perform scan with lower priority
             stats = await indexing_service.process_directory(
-                target_path, 
+                target_path,
                 no_embeddings=False
             )
-            
+
             # Update final stats
             self._scan_progress.update({
                 "files_processed": stats.files_processed,
@@ -228,9 +226,9 @@ class MCPServerBase(ABC):
                 "scan_completed_at": datetime.now().isoformat()
             })
             self._scan_complete = True
-            
+
             self.debug_log(f"Background scan completed: {stats.files_processed} files, {stats.chunks_created} chunks")
-            
+
         except Exception as e:
             self.debug_log(f"Background initial scan failed: {e}")
             self._scan_progress["is_scanning"] = False

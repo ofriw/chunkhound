@@ -1,12 +1,12 @@
 """DuckDB file repository implementation for ChunkHound - handles file CRUD operations."""
 
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
 from chunkhound.core.models import File
 from chunkhound.core.types.common import Language
-from pathlib import Path
 
 if TYPE_CHECKING:
     from chunkhound.providers.database.duckdb.connection_manager import (

@@ -6,13 +6,13 @@ it uses Python's built-in json module with custom structure detection.
 """
 
 import json
-from typing import Dict, List, Optional, Any
+from typing import Any
 
 from tree_sitter import Node
 
 from chunkhound.core.types.common import Language
-from chunkhound.parsers.universal_engine import UniversalConcept
 from chunkhound.parsers.mappings.base import BaseMapping
+from chunkhound.parsers.universal_engine import UniversalConcept
 
 
 class JsonMapping(BaseMapping):
@@ -44,7 +44,7 @@ class JsonMapping(BaseMapping):
         return ""
 
     # LanguageMapping protocol methods
-    def get_query_for_concept(self, concept: UniversalConcept) -> Optional[str]:
+    def get_query_for_concept(self, concept: UniversalConcept) -> str | None:
         """Get tree-sitter query for universal concept in JSON.
         
         Returns valid tree-sitter queries that work with tree-sitter-json grammar.
@@ -64,7 +64,7 @@ class JsonMapping(BaseMapping):
                 
                 (null) @definition
             """
-            
+
         elif concept == UniversalConcept.BLOCK:
             # Match small container structures
             return """
@@ -72,31 +72,31 @@ class JsonMapping(BaseMapping):
                 
                 (array) @definition
             """
-            
+
         elif concept == UniversalConcept.STRUCTURE:
             # No document-level captures - let cAST handle structure
             return ""
-            
+
         elif concept == UniversalConcept.COMMENT:
             # JSON doesn't have comments, but we provide empty query for consistency
             return ""
-            
+
         elif concept == UniversalConcept.IMPORT:
-            # JSON doesn't have imports, but we provide empty query for consistency  
+            # JSON doesn't have imports, but we provide empty query for consistency
             return ""
-            
+
         else:
             return None
 
-    def extract_name(self, concept: UniversalConcept, captures: Dict[str, Node], content: bytes) -> str:
+    def extract_name(self, concept: UniversalConcept, captures: dict[str, Node], content: bytes) -> str:
         """Extract name from captures for this concept."""
-        
+
         # Convert bytes to string for JSON parsing
         source = content.decode('utf-8')
-        
+
         try:
             data = json.loads(source)
-            
+
             if concept == UniversalConcept.DEFINITION:
                 # For JSON objects with identifiable keys
                 if isinstance(data, dict):
@@ -104,12 +104,12 @@ class JsonMapping(BaseMapping):
                     for key in ['name', 'id', 'title', 'key', 'label']:
                         if key in data and isinstance(data[key], str):
                             return f"definition_{data[key]}"
-                    
+
                     # Use first key as name
                     first_key = next(iter(data.keys()), None)
                     if first_key:
                         return f"definition_{first_key}"
-                
+
                 elif isinstance(data, list) and data:
                     # For arrays, use first element if it has a name
                     first_item = data[0]
@@ -118,69 +118,69 @@ class JsonMapping(BaseMapping):
                             if key in first_item and isinstance(first_item[key], str):
                                 return f"array_{first_item[key]}"
                     return "array_definition"
-                
+
                 return "json_definition"
-                
+
             elif concept == UniversalConcept.BLOCK:
                 if isinstance(data, dict):
-                    return f"object_block"
+                    return "object_block"
                 elif isinstance(data, list):
-                    return f"array_block"
+                    return "array_block"
                 return "json_block"
-                
+
             elif concept == UniversalConcept.STRUCTURE:
                 return "json_document"
-                
+
         except json.JSONDecodeError:
             pass
-        
+
         return "unnamed"
 
-    def extract_content(self, concept: UniversalConcept, captures: Dict[str, Node], content: bytes) -> str:
+    def extract_content(self, concept: UniversalConcept, captures: dict[str, Node], content: bytes) -> str:
         """Extract content from captures for this concept."""
-        
+
         # Get the specific node to extract
         def_node = captures.get('definition') or captures.get('block') or captures.get('node')
         if not def_node and captures:
             def_node = list(captures.values())[0]
-        
+
         if not def_node:
             return ""
-        
+
         # Decode source
         source = content.decode('utf-8')
-        
+
         # Return ONLY this node's content, not the entire file
         # This allows cAST merging to work properly
         node_content = source[def_node.start_byte:def_node.end_byte]
-        
+
         return node_content
 
-    def extract_metadata(self, concept: UniversalConcept, captures: Dict[str, Node], content: bytes) -> Dict[str, Any]:
+    def extract_metadata(self, concept: UniversalConcept, captures: dict[str, Node], content: bytes) -> dict[str, Any]:
         """Extract JSON-specific metadata."""
-        
+
         source = content.decode('utf-8')
         metadata = {}
-        
+
         try:
             data = json.loads(source)
-            
+
             if concept == UniversalConcept.DEFINITION:
                 if isinstance(data, dict):
                     metadata["data_type"] = "object"
                     metadata["key_count"] = len(data)
-                    
+
                     # Analyze key types and patterns
                     key_types = set()
                     value_types = set()
-                    
+
                     for key, value in data.items():
                         key_types.add(type(key).__name__)
                         value_types.add(type(value).__name__)
-                    
+
                     metadata["key_types"] = list(key_types)
                     metadata["value_types"] = list(value_types)
-                    
+
                     # Check for common schemas
                     if any(key in data for key in ['name', 'version', 'description']):
                         metadata["schema_hint"] = "package"
@@ -188,18 +188,18 @@ class JsonMapping(BaseMapping):
                         metadata["schema_hint"] = "document"
                     elif any(key in data for key in ['host', 'port', 'database']):
                         metadata["schema_hint"] = "config"
-                
+
                 elif isinstance(data, list):
                     metadata["data_type"] = "array"
                     metadata["item_count"] = len(data)
-                    
+
                     if data:
                         # Analyze array item types
                         item_types = set()
                         for item in data:
                             item_types.add(type(item).__name__)
                         metadata["item_types"] = list(item_types)
-                        
+
                         # Check if it's an array of objects with consistent schema
                         if all(isinstance(item, dict) for item in data):
                             if data:
@@ -207,28 +207,28 @@ class JsonMapping(BaseMapping):
                                 if all(set(item.keys()) == keys for item in data[1:]):
                                     metadata["schema_consistent"] = True
                                     metadata["object_keys"] = list(keys)
-            
+
             elif concept == UniversalConcept.BLOCK:
                 metadata["json_type"] = type(data).__name__
-                
+
                 if isinstance(data, dict):
                     metadata["nested_objects"] = sum(1 for v in data.values() if isinstance(v, dict))
                     metadata["nested_arrays"] = sum(1 for v in data.values() if isinstance(v, list))
                 elif isinstance(data, list):
                     metadata["nested_objects"] = sum(1 for item in data if isinstance(item, dict))
                     metadata["nested_arrays"] = sum(1 for item in data if isinstance(item, list))
-            
+
             elif concept == UniversalConcept.STRUCTURE:
                 metadata["root_type"] = type(data).__name__
-                
+
                 # Calculate depth and complexity
                 depth = self._calculate_json_depth(data)
                 metadata["max_depth"] = depth
-                
+
                 # Count total elements
                 total_elements = self._count_json_elements(data)
                 metadata["total_elements"] = total_elements
-        
+
         except json.JSONDecodeError as e:
             metadata["parse_error"] = str(e)
             metadata["is_valid_json"] = False
@@ -238,7 +238,7 @@ class JsonMapping(BaseMapping):
                 metadata["formatted_json"] = json.dumps(data, indent=2)
             except:
                 pass  # Skip if formatting fails
-        
+
         return metadata
 
     def _calculate_json_depth(self, data: Any, current_depth: int = 1) -> int:

@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
+from chunkhound.core.constants import VOYAGE_DEFAULT_MODEL, VOYAGE_DEFAULT_RERANK_MODEL
 from .embedding_config import EmbeddingConfig
 
 if TYPE_CHECKING:
@@ -105,7 +106,9 @@ class EmbeddingProviderFactory:
     def _create_voyageai_provider(config: dict[str, Any]) -> "EmbeddingProvider":
         """Create VoyageAI embedding provider."""
         try:
-            from chunkhound.providers.embeddings.voyageai_provider import VoyageAIEmbeddingProvider
+            from chunkhound.providers.embeddings.voyageai_provider import (
+                VoyageAIEmbeddingProvider,
+            )
         except ImportError as e:
             raise ImportError(
                 "Failed to import VoyageAI provider. "
@@ -148,7 +151,7 @@ class EmbeddingProviderFactory:
         Returns:
             List of supported provider names
         """
-        return ["openai", "voyageai"]
+        return ["openai", "voyageai", "openai_compatible"]
 
     @staticmethod
     def validate_provider_dependencies(provider: str) -> tuple[bool, str | None]:
@@ -169,7 +172,9 @@ class EmbeddingProviderFactory:
             if provider == "openai":
                 from chunkhound.embeddings import create_openai_provider
             elif provider == "voyageai":
-                from chunkhound.providers.embeddings.voyageai_provider import VoyageAIEmbeddingProvider
+                from chunkhound.providers.embeddings.voyageai_provider import (
+                    VoyageAIEmbeddingProvider,
+                )
 
             return True, None
 
@@ -265,12 +270,79 @@ class EmbeddingProviderFactory:
                     "description": "OpenAI text embedding API",
                     "requires": ["api_key"],
                     "optional": ["base_url", "model"],
-                    "default_model": "text-embedding-3-small",
+                    "default_model": "text-embedding-3-large",
                     "supported_models": [
                         "text-embedding-3-small",
                         "text-embedding-3-large",
                         "text-embedding-ada-002",
                     ],
+                    # UI-specific metadata for setup wizard
+                    "display_name": "OpenAI",
+                    "base_url": "https://api.openai.com",
+                    "requires_api_key": True,
+                    "supports_model_listing": False,
+                    "supports_reranking": False,
+                    "default_models": [
+                        ("text-embedding-3-large", "Higher quality"),
+                        ("text-embedding-3-small", "Fast & efficient"),
+                    ],
+                    "default_rerankers": [],
+                    "default_selection": "text-embedding-3-large",
+                    "default_reranker": None,
+                }
+            )
+        elif provider == "voyageai":
+            info.update(
+                {
+                    "description": "VoyageAI specialized embedding API",
+                    "requires": ["api_key"],
+                    "optional": ["model", "rerank_model"],
+                    "default_model": VOYAGE_DEFAULT_MODEL,
+                    "supported_models": [
+                        "voyage-3.5",
+                        "voyage-code-3",
+                        "voyage-3.5-lite",
+                        "voyage-3-large",
+                    ],
+                    # UI-specific metadata for setup wizard
+                    "display_name": "VoyageAI",
+                    "base_url": None,  # Uses SDK, no direct endpoint
+                    "requires_api_key": True,
+                    "supports_model_listing": False,
+                    "supports_reranking": True,
+                    "default_models": [
+                        ("voyage-3.5", "Latest general-purpose, (recommended)"),
+                        ("voyage-3.5-lite", "Cost-optimized with good accuracy"),
+                        ("voyage-3-large", "Previous gen, proven performance"),
+                        ("voyage-code-3", "Previous gen, code optimized"),
+                    ],
+                    "default_rerankers": [
+                        ("rerank-2.5", "Latest reranker, best accuracy"),
+                        ("rerank-2.5-lite", "Lighter, cost-effective"),
+                        ("rerank-2", "Previous gen, great for code"),
+                    ],
+                    "default_selection": VOYAGE_DEFAULT_MODEL,
+                    "default_reranker": VOYAGE_DEFAULT_RERANK_MODEL,
+                }
+            )
+        elif provider == "openai_compatible":
+            info.update(
+                {
+                    "description": "OpenAI-compatible API server",
+                    "requires": [],  # May or may not need API key
+                    "optional": ["api_key", "base_url", "model"],
+                    "default_model": None,
+                    "supported_models": [],  # Discovered dynamically
+                    # UI-specific metadata for setup wizard
+                    "display_name": "OpenAI-Compatible",
+                    "base_url": None,  # User provides
+                    "requires_api_key": "auto",  # Test connection first
+                    "supports_model_listing": True,
+                    "supports_reranking": True,
+                    "default_models": [],  # Discovered dynamically
+                    "default_rerankers": [],  # Discovered dynamically
+                    "default_selection": None,
+                    "default_reranker": None,
                 }
             )
 

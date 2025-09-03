@@ -8,14 +8,20 @@ same chunking patterns as TextMapping.
 
 import re
 from pathlib import Path
-from typing import Any, List, Optional
+from typing import Any
 
 from tree_sitter import Node
 
-from chunkhound.core.types.common import Language, FileId, ChunkType, LineNumber, FilePath
 from chunkhound.core.models.chunk import Chunk
+from chunkhound.core.types.common import (
+    ChunkType,
+    FileId,
+    FilePath,
+    Language,
+    LineNumber,
+)
 from chunkhound.parsers.mappings.base import BaseMapping
-from chunkhound.parsers.universal_engine import UniversalConcept, UniversalChunk
+from chunkhound.parsers.universal_engine import UniversalConcept
 
 try:
     import fitz  # type: ignore  # PyMuPDF
@@ -33,8 +39,8 @@ class PDFMapping(BaseMapping):
         super().__init__(Language.PDF)
 
     def parse_pdf_content(
-        self, content_bytes: bytes, file_path: Optional[Path], file_id: Optional[FileId]
-    ) -> List[Chunk]:
+        self, content_bytes: bytes, file_path: Path | None, file_id: FileId | None
+    ) -> list[Chunk]:
         """Parse PDF content and extract semantic chunks.
         
         This method handles the complete PDF parsing workflow:
