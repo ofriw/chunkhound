@@ -587,7 +587,7 @@ def quicksort(arr):
             
             # Get API key and provider configuration
             api_key, provider_name = get_api_key_for_tests()
-            model = "text-embedding-3-small" if provider_name == "openai" else "voyage-3.5"
+            model = "text-embedding-3-small" if provider_name == "openai" else "voyage-code-3"
             
             # Configure embedding based on available API key
             embedding_config = {

@@ -39,7 +39,7 @@ class TestMCPIntegration:
         # Configure embedding based on available API key
         embedding_config = None
         if api_key and provider:
-            model = "text-embedding-3-small" if provider == "openai" else "voyage-3.5"
+            model = "text-embedding-3-small" if provider == "openai" else "voyage-code-3"
             embedding_config = {
                 "provider": provider,
                 "api_key": api_key,
@@ -65,7 +65,7 @@ class TestMCPIntegration:
                 embedding_provider = OpenAIEmbeddingProvider(api_key=api_key, model="text-embedding-3-small")
             elif provider == "voyageai":
                 from chunkhound.providers.embeddings.voyageai_provider import VoyageAIEmbeddingProvider
-                embedding_provider = VoyageAIEmbeddingProvider(api_key=api_key, model="voyage-3.5")
+                embedding_provider = VoyageAIEmbeddingProvider(api_key=api_key, model="voyage-code-3")
             else:
                 embedding_provider = None
             

@@ -88,6 +88,7 @@ class ProviderRegistry:
         """Create an IndexingCoordinator with all dependencies."""
         database_provider = self.get_provider("database")
         embedding_provider = None
+        embedding_service = create_embedding_service()
         
         try:
             embedding_provider = self.get_provider("embedding")
@@ -98,6 +99,7 @@ class ProviderRegistry:
             database_provider=database_provider,
             embedding_provider=embedding_provider,
             language_parsers=self._language_parsers,
+            embedding_service=embedding_service,
         )
 
     def create_search_service(self) -> SearchService:

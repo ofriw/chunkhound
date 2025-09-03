@@ -19,6 +19,7 @@ from chunkhound.core.types.common import FileId, FilePath, Language
 from chunkhound.interfaces.database_provider import DatabaseProvider
 from chunkhound.interfaces.embedding_provider import EmbeddingProvider
 from chunkhound.parsers.universal_parser import UniversalParser
+from chunkhound.services.embedding_service import EmbeddingService
 
 from .base_service import BaseService
 from .chunk_cache_service import ChunkCacheService
@@ -41,6 +42,7 @@ class IndexingCoordinator(BaseService):
         database_provider: DatabaseProvider,
         embedding_provider: EmbeddingProvider | None = None,
         language_parsers: dict[Language, UniversalParser] | None = None,
+        embedding_service: EmbeddingService | None = None,
     ):
         """Initialize indexing coordinator.
 
@@ -51,6 +53,7 @@ class IndexingCoordinator(BaseService):
         """
         super().__init__(database_provider)
         self._embedding_provider = embedding_provider
+        self._embedding_service = embedding_service
         self._language_parsers = language_parsers or {}
 
         # Performance optimization: shared instances
@@ -894,23 +897,7 @@ class IndexingCoordinator(BaseService):
             }
 
         try:
-            # Use EmbeddingService for embedding generation
-            from .embedding_service import EmbeddingService
-
-            # Get optimization frequency from config or use default
-            optimization_batch_frequency = 1000
-            if hasattr(self._db, "_config") and self._db._config:
-                optimization_batch_frequency = getattr(
-                    self._db._config.embedding, "optimization_batch_frequency", 1000
-                )
-
-            embedding_service = EmbeddingService(
-                database_provider=self._db,
-                embedding_provider=self._embedding_provider,
-                optimization_batch_frequency=optimization_batch_frequency,
-            )
-
-            return await embedding_service.generate_missing_embeddings(
+            return await self._embedding_service.generate_missing_embeddings(
                 exclude_patterns=exclude_patterns
             )
 

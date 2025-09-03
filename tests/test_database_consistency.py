@@ -25,7 +25,7 @@ async def consistency_services(tmp_path):
     # Standard embedding config
     embedding_config = None
     if api_key and provider:
-        model = "text-embedding-3-small" if provider == "openai" else "voyage-3.5"
+        model = "text-embedding-3-small" if provider == "openai" else "voyage-code-3"
         embedding_config = {
             "provider": provider,
             "api_key": api_key,

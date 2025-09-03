@@ -176,7 +176,7 @@ class EmbeddingConfig(BaseSettings):
         
         # Provider defaults
         if self.provider == "voyageai":
-            return "voyage-3.5"
+            return "voyage-code-3"
         else:  # openai
             return "text-embedding-3-small"
 

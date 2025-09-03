@@ -76,7 +76,7 @@ def get_reranking_providers() -> list[tuple[str, type, dict[str, Any]]]:
             VoyageAIEmbeddingProvider,
             {
                 "api_key": api_key,
-                "model": "voyage-3.5",
+                "model": "voyage-code-3",
                 "batch_size": 100,
                 "timeout": 30,
                 "retry_attempts": 3,

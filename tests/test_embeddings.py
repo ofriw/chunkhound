@@ -98,8 +98,8 @@ async def test_real_embedding_api():
         expected_dims = 1536
     elif provider_name == "voyageai":
         from chunkhound.providers.embeddings.voyageai_provider import VoyageAIEmbeddingProvider
-        provider = VoyageAIEmbeddingProvider(api_key=api_key, model="voyage-3.5")
-        expected_dims = 1024  # voyage-3.5 dimensions
+        provider = VoyageAIEmbeddingProvider(api_key=api_key, model="voyage-code-3")
+        expected_dims = 1024  # voyage-code-3 dimensions
     else:
         pytest.skip(f"Unknown provider: {provider_name}")
     
@@ -426,7 +426,7 @@ async def test_real_api():
             provider = OpenAIEmbeddingProvider(api_key=api_key)
         elif provider_name == "voyageai":
             from chunkhound.providers.embeddings.voyageai_provider import VoyageAIEmbeddingProvider
-            provider = VoyageAIEmbeddingProvider(api_key=api_key, model="voyage-3.5")
+            provider = VoyageAIEmbeddingProvider(api_key=api_key, model="voyage-code-3")
         else:
             print(f"❌ Unknown provider: {provider_name}")
             return False

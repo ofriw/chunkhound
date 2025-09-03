@@ -642,10 +642,6 @@ class OpenAIEmbeddingProvider:
         """Get list of supported distance metrics."""
         return ["cosine", "l2", "ip"]  # OpenAI embeddings work with multiple metrics
 
-    def get_optimal_batch_size(self) -> int:
-        """Get optimal batch size for this provider."""
-        return self._batch_size
-
     def get_max_tokens_per_batch(self) -> int:
         """Get maximum tokens per batch for this provider."""
         if self._model in self._model_config:

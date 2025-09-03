@@ -28,12 +28,12 @@ except ImportError:
 
 
 class VoyageAIEmbeddingProvider:
-    """VoyageAI embedding provider using voyage-3.5 by default."""
+    """VoyageAI embedding provider using voyage-code-3 by default."""
 
     def __init__(
         self,
         api_key: str | None = None,
-        model: str = "voyage-3.5",
+        model: str = "voyage-code-3",
         rerank_model: str | None = "rerank-lite-1",
         batch_size: int = 100,
         timeout: int = 30,
@@ -271,17 +271,13 @@ class VoyageAIEmbeddingProvider:
         """Get list of supported distance metrics."""
         return ["cosine"]  # VoyageAI uses cosine similarity
 
-    def get_optimal_batch_size(self) -> int:
-        """Get optimal batch size for this provider."""
-        return min(self._batch_size, 100)  # VoyageAI can handle up to 1000, but 100 is optimal
-
     def get_max_tokens_per_batch(self) -> int:
         """Get maximum tokens per batch for this provider."""
         return self._max_tokens * self._batch_size
 
     def get_max_documents_per_batch(self) -> int:
         """Get maximum documents per batch for VoyageAI provider."""
-        return 1000  # VoyageAI API limit
+        return self.batch_size
 
     # Reranking Operations
     def supports_reranking(self) -> bool:

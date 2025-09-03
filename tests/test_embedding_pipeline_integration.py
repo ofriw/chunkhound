@@ -25,7 +25,7 @@ async def pipeline_services(tmp_path):
         pytest.skip("No embedding API key available for pipeline integration test")
     
     # Standard embedding config
-    model = "text-embedding-3-small" if provider == "openai" else "voyage-3.5"
+    model = "text-embedding-3-small" if provider == "openai" else "voyage-code-3"
     embedding_config = {
         "provider": provider,
         "api_key": api_key,
