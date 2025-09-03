@@ -100,6 +100,9 @@ class DuckDBProvider(SerialDatabaseProvider):
         Returns:
             DuckDB connection object
         """
+        # Suppress known SWIG warning from DuckDB Python bindings
+        import warnings
+        warnings.filterwarnings("ignore", message=".*swigvarlink.*", category=DeprecationWarning)
         import duckdb
 
         # Create a NEW connection for the executor thread

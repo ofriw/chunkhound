@@ -10,6 +10,12 @@ ARCHITECTURE: Global state required for stdio communication model
 import asyncio
 import logging
 import sys
+import warnings
+
+# CRITICAL: Suppress SWIG warnings that break JSON-RPC protocol in CI
+# The DuckDB Python bindings generate a DeprecationWarning that goes to stdout
+# in some environments (Ubuntu CI with Python 3.12), breaking MCP protocol
+warnings.filterwarnings("ignore", message=".*swigvarlink.*", category=DeprecationWarning)
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
