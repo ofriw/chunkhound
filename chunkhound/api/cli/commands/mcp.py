@@ -113,8 +113,8 @@ def _show_mcp_setup_instructions_if_first_run(args: argparse.Namespace) -> None:
         import pyperclip
         pyperclip.copy(json.dumps(config_snippet, indent=2))
         print("\n📋 Configuration copied to clipboard!")
-    except ImportError:
-        pass  # pyperclip is optional
+    except (ImportError, Exception):
+        pass  # pyperclip is optional and may fail in headless environments
 
     print(f"\nStarting MCP server for {project_path.name}...")
     print("Ready for connections from Claude Desktop or other MCP clients.\n")
