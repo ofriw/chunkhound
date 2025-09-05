@@ -1,7 +1,6 @@
 """Interactive setup wizard for ChunkHound first-time configuration"""
 
 import json
-import subprocess
 import sys
 import webbrowser
 from pathlib import Path
@@ -11,12 +10,11 @@ import httpx
 from pydantic import SecretStr
 from rich.console import Console
 from rich.live import Live
-from rich.prompt import Confirm, Prompt
+from rich.prompt import Prompt
 
 from chunkhound.api.cli.ascii_art import HOUND_LOGO, WELCOME_MESSAGE
 from chunkhound.api.cli.env_detector import (
-    detect_provider_config,
-    get_priority_config,
+    _detect_local_endpoints,
     _normalize_endpoint_url,
 )
 from chunkhound.api.cli.utils.rich_output import RichOutputFormatter
@@ -175,7 +173,6 @@ async def _rich_select_interactive(
     question: str, choices: list[tuple[str, str]], default_index: int = 0
 ) -> str:
     """Interactive menu with arrow key navigation using asyncio + Rich."""
-    from rich.table import Table
 
     from .keyboard import KeyboardInput
 
@@ -190,6 +187,7 @@ async def _rich_select_interactive(
     def create_display():
         """Create the display text with current selection."""
         from rich.text import Text
+
         text = Text()
         for i, (display, _) in enumerate(choices):
             if i == selected:
@@ -203,7 +201,6 @@ async def _rich_select_interactive(
         return text
 
     with Live(create_display(), auto_refresh=False, console=console) as live:
-
         # Main input loop
         while True:
             try:
@@ -241,8 +238,6 @@ async def _rich_select_interactive(
             except KeyboardInterrupt:
                 live.stop()
                 raise
-
-
 
 
 async def _fetch_available_models(
@@ -483,148 +478,6 @@ async def run_setup_wizard(target_path: Path, args=None) -> Config | None:
     # Display welcome screen
     _display_welcome()
 
-    # Check for existing environment configuration
-    env_configs = detect_provider_config()
-
-    if env_configs:
-        # Get only the highest priority configuration
-        priority_config = get_priority_config(env_configs)
-
-        if priority_config:
-            formatter.section_header("Auto-Detected Configuration")
-
-            # Show only the top priority configuration with clear messaging
-            provider_type = priority_config.get("provider")
-            if provider_type == "voyageai":
-                print("🎯 VoyageAI API key found (VOYAGE_API_KEY)")
-                print("   Best choice for code search with specialized embeddings")
-            elif provider_type == "openai":
-                if priority_config.get("base_url") and any(
-                    host in priority_config["base_url"].lower()
-                    for host in ["localhost", "127.0.0.1"]
-                ):
-                    provider_name = priority_config.get(
-                        "provider_name", "Local OpenAI-compatible"
-                    )
-                    print(f"🎯 {provider_name} server detected")
-                    print(
-                        f"   Running at: {priority_config.get('base_url', 'unknown')}"
-                    )
-                else:
-                    print("🎯 OpenAI API key found (OPENAI_API_KEY)")
-                    print("   Reliable embeddings from OpenAI")
-            elif priority_config.get("provider_name"):
-                provider_name = priority_config["provider_name"]
-                print(f"🎯 {provider_name} server detected")
-                print(f"   Running at: {priority_config.get('base_url', 'unknown')}")
-
-            print()
-
-            # Offer to use this specific configuration
-            use_env = await rich_confirm(
-                "Use this configuration and proceed to model selection?", default=True
-            )
-
-            if use_env:
-                # Handle local endpoints that need model name
-                if priority_config.get("provider_name") and not priority_config.get(
-                    "model"
-                ):
-                    provider_name = priority_config["provider_name"]
-                    base_url = priority_config.get("base_url")
-                    api_key = priority_config.get("api_key")
-
-                    print(f"\n{provider_name} detected, configuring...")
-
-                    # Use unified configuration flow for auto-detected endpoint
-                    config_data = await _configure_provider_unified(
-                        "openai_compatible",
-                        base_url=base_url,
-                        api_key=api_key,
-                        skip_intro=True,  # Don't show intro for auto-detected
-                        formatter=formatter,
-                    )
-
-                    if config_data:
-                        # Save and return
-                        config_path, status = await _save_configuration(
-                            config_data, target_path, formatter
-                        )
-                        if status == "saved":
-                            formatter.success(f"Configuration saved to {config_path}")
-
-                            # Run agent setup
-                            await _run_agent_setup(target_path, formatter)
-
-                            print("\nReady to start indexing your codebase!")
-                            return Config(args=args) if args else Config()
-                        elif status == "cancelled":
-                            formatter.info("Configuration not saved")
-                            return None
-                        else:  # status == "error"
-                            formatter.error("Failed to save configuration")
-                            return None
-                    else:
-                        formatter.warning("Configuration cancelled")
-                        return None
-
-                # Check if auto-detected config is complete (has model)
-                # If so, use direct validation. Otherwise, go through configuration flow
-                provider_type = priority_config.get("provider")
-                has_model = priority_config.get("model") is not None
-
-                if has_model:
-                    # Config is complete - validate and use directly
-                    if await _validate_detected_config(priority_config, formatter):
-                        config_data = priority_config
-                    else:
-                        config_data = None
-                elif provider_type == "voyageai":
-                    # Incomplete VoyageAI config - go through unified flow
-                    config_data = await _configure_provider_unified(
-                        "voyageai",
-                        api_key=priority_config.get("api_key"),
-                        skip_intro=True,
-                        formatter=formatter,
-                    )
-                elif provider_type == "openai":
-                    # Incomplete OpenAI config - go through unified flow
-                    config_data = await _configure_provider_unified(
-                        "openai",
-                        base_url=priority_config.get("base_url"),
-                        api_key=priority_config.get("api_key"),
-                        skip_intro=True,
-                        formatter=formatter,
-                    )
-                else:
-                    # Other incomplete providers - validate directly (should not happen)
-                    if await _validate_detected_config(priority_config, formatter):
-                        config_data = priority_config
-                    else:
-                        config_data = None
-
-                if config_data:
-                    config_path, status = await _save_configuration(
-                        config_data, target_path, formatter
-                    )
-                    if status == "saved":
-                        formatter.success(f"Configuration saved to {config_path}")
-
-                        # Run agent setup
-                        await _run_agent_setup(target_path, formatter)
-
-                        print("\nReady to start indexing your codebase!")
-                        return Config(args=args) if args else Config()
-                    elif status == "cancelled":
-                        formatter.info("Configuration not saved")
-                        return None
-                    else:  # status == "error"
-                        formatter.error("Failed to save configuration")
-                        return None
-                else:
-                    formatter.warning("Configuration cancelled")
-                    return None
-
     # Continue with normal provider selection if no env config or user declined
     provider_choice = await _select_provider()
     if provider_choice == "skip":
@@ -698,45 +551,42 @@ async def _select_agent() -> str:
     return await rich_select(
         "Which AI agent would you like to configure for ChunkHound?",
         choices=choices,
-        default="claude_code"
+        default="claude_code",
     )
 
 
 async def _setup_claude_code(target_path: Path, formatter: RichOutputFormatter) -> bool:
     """Setup ChunkHound MCP integration with Claude Code"""
     formatter.section_header("Claude Code Setup")
-    
+
     # Path to .mcp.json file in project root
     mcp_path = target_path / ".mcp.json"
-    
+
     # Read existing configuration
     config = _read_claude_mcp_config(mcp_path)
-    
+
     # Check if ChunkHound is already configured
     servers = config.setdefault("mcpServers", {})
     if "ChunkHound" in servers:
         formatter.warning("ChunkHound MCP server already configured in .mcp.json")
-        
+
         overwrite = await rich_confirm(
-            "Overwrite existing ChunkHound configuration?",
-            default=False
+            "Overwrite existing ChunkHound configuration?", default=False
         )
         if not overwrite:
             formatter.info("Skipping Claude Code configuration")
             return True
-    
+
     # Add ChunkHound server configuration
-    servers["ChunkHound"] = {
-        "command": "chunkhound",
-        "args": ["mcp"],
-        "env": {}
-    }
-    
+    servers["ChunkHound"] = {"command": "chunkhound", "args": ["mcp"], "env": {}}
+
     # Write updated configuration
     if _write_claude_mcp_config(mcp_path, config):
         formatter.success(f"✓ ChunkHound MCP server added to {mcp_path}")
         print("You can now use ChunkHound tools directly in Claude Code!")
-        print("Claude Code will prompt you to approve this project-scoped server on first use.")
+        print(
+            "Claude Code will prompt you to approve this project-scoped server on first use."
+        )
         return True
     else:
         formatter.error(f"Failed to write configuration to {mcp_path}")
@@ -747,29 +597,37 @@ async def _setup_claude_code(target_path: Path, formatter: RichOutputFormatter) 
 def _show_claude_installation_instructions(formatter: RichOutputFormatter) -> None:
     """Show instructions for installing Claude Code"""
     print("\nTo install Claude Code:")
-    formatter.bullet_list([
-        "Visit: https://claude.ai/download",
-        "Download and install Claude Code",
-        "Create .mcp.json file in your project root with ChunkHound configuration"
-    ])
+    formatter.bullet_list(
+        [
+            "Visit: https://claude.ai/download",
+            "Download and install Claude Code",
+            "Create .mcp.json file in your project root with ChunkHound configuration",
+        ]
+    )
 
 
-def _show_manual_claude_instructions(formatter: RichOutputFormatter, mcp_path: Path | None = None) -> None:
+def _show_manual_claude_instructions(
+    formatter: RichOutputFormatter, mcp_path: Path | None = None
+) -> None:
     """Show manual configuration instructions for Claude Code"""
     print("\nTo manually configure ChunkHound in Claude Code:")
-    
+
     if mcp_path:
-        formatter.bullet_list([
-            f"Edit or create: {mcp_path}",
-            "Add ChunkHound server configuration:",
-            '  { "mcpServers": { "ChunkHound": { "command": "chunkhound", "args": ["mcp"], "env": {} } } }'
-        ])
+        formatter.bullet_list(
+            [
+                f"Edit or create: {mcp_path}",
+                "Add ChunkHound server configuration:",
+                '  { "mcpServers": { "ChunkHound": { "command": "chunkhound", "args": ["mcp"], "env": {} } } }',
+            ]
+        )
     else:
-        formatter.bullet_list([
-            "Create .mcp.json in your project root",
-            'Add: { "mcpServers": { "ChunkHound": { "command": "chunkhound", "args": ["mcp"], "env": {} } } }',
-            "Claude Code will prompt to approve the server on first use"
-        ])
+        formatter.bullet_list(
+            [
+                "Create .mcp.json in your project root",
+                'Add: { "mcpServers": { "ChunkHound": { "command": "chunkhound", "args": ["mcp"], "env": {} } } }',
+                "Claude Code will prompt to approve the server on first use",
+            ]
+        )
 
 
 def _detect_vscode_workspace(target_path: Path) -> Path | None:
@@ -780,7 +638,11 @@ def _detect_vscode_workspace(target_path: Path) -> Path | None:
         return current_vscode
 
     # Check parent directories up to 3 levels
-    for parent in [target_path.parent, target_path.parent.parent, target_path.parent.parent.parent]:
+    for parent in [
+        target_path.parent,
+        target_path.parent.parent,
+        target_path.parent.parent.parent,
+    ]:
         if parent == target_path:  # Avoid infinite loop
             break
         vscode_dir = parent / ".vscode"
@@ -794,9 +656,9 @@ def _read_vscode_mcp_config(mcp_path: Path) -> dict[str, Any]:
     """Read existing VS Code MCP configuration or return empty structure"""
     if mcp_path.exists():
         try:
-            with open(mcp_path, 'r', encoding='utf-8') as f:
+            with open(mcp_path, encoding="utf-8") as f:
                 return json.load(f)
-        except (json.JSONDecodeError, IOError):
+        except (OSError, json.JSONDecodeError):
             # If file is corrupted or unreadable, start fresh
             pass
 
@@ -807,10 +669,10 @@ def _write_vscode_mcp_config(mcp_path: Path, config: dict[str, Any]) -> bool:
     """Write VS Code MCP configuration, creating directory if needed"""
     try:
         mcp_path.parent.mkdir(exist_ok=True)
-        with open(mcp_path, 'w', encoding='utf-8') as f:
+        with open(mcp_path, "w", encoding="utf-8") as f:
             json.dump(config, f, indent=2)
         return True
-    except IOError:
+    except OSError:
         return False
 
 
@@ -818,22 +680,22 @@ def _read_claude_mcp_config(mcp_path: Path) -> dict[str, Any]:
     """Read existing Claude Code .mcp.json configuration or return empty structure"""
     if mcp_path.exists():
         try:
-            with open(mcp_path, 'r', encoding='utf-8') as f:
+            with open(mcp_path, encoding="utf-8") as f:
                 return json.load(f)
-        except (json.JSONDecodeError, IOError):
+        except (OSError, json.JSONDecodeError):
             # If file is corrupted or unreadable, start fresh
             pass
-    
+
     return {"mcpServers": {}}
 
 
 def _write_claude_mcp_config(mcp_path: Path, config: dict[str, Any]) -> bool:
     """Write Claude Code .mcp.json configuration"""
     try:
-        with open(mcp_path, 'w', encoding='utf-8') as f:
+        with open(mcp_path, "w", encoding="utf-8") as f:
             json.dump(config, f, indent=2)
         return True
-    except IOError:
+    except OSError:
         return False
 
 
@@ -857,18 +719,14 @@ async def _setup_vscode(target_path: Path, formatter: RichOutputFormatter) -> bo
             formatter.warning("ChunkHound MCP server already configured in VS Code")
 
             overwrite = await rich_confirm(
-                "Overwrite existing ChunkHound configuration?",
-                default=False
+                "Overwrite existing ChunkHound configuration?", default=False
             )
             if not overwrite:
                 formatter.info("Skipping VS Code configuration")
                 return True
 
         # Add ChunkHound server configuration
-        servers["ChunkHound"] = {
-            "command": "chunkhound",
-            "args": ["mcp", "stdio"]
-        }
+        servers["ChunkHound"] = {"command": "chunkhound", "args": ["mcp", "stdio"]}
 
         # Write updated configuration
         if _write_vscode_mcp_config(mcp_path, config):
@@ -884,8 +742,7 @@ async def _setup_vscode(target_path: Path, formatter: RichOutputFormatter) -> bo
 
         # Offer to create workspace configuration
         create_workspace = await rich_confirm(
-            "Create .vscode/mcp.json in target directory?",
-            default=True
+            "Create .vscode/mcp.json in target directory?", default=True
         )
 
         if create_workspace:
@@ -894,16 +751,17 @@ async def _setup_vscode(target_path: Path, formatter: RichOutputFormatter) -> bo
 
             config = {
                 "servers": {
-                    "ChunkHound": {
-                        "command": "chunkhound",
-                        "args": ["mcp", "stdio"]
-                    }
+                    "ChunkHound": {"command": "chunkhound", "args": ["mcp", "stdio"]}
                 }
             }
 
             if _write_vscode_mcp_config(mcp_path, config):
-                formatter.success(f"✓ Created VS Code workspace with ChunkHound MCP: {mcp_path}")
-                print("You can now use ChunkHound tools in VS Code with GitHub Copilot!")
+                formatter.success(
+                    f"✓ Created VS Code workspace with ChunkHound MCP: {mcp_path}"
+                )
+                print(
+                    "You can now use ChunkHound tools in VS Code with GitHub Copilot!"
+                )
                 return True
             else:
                 formatter.error(f"Failed to create {mcp_path}")
@@ -914,22 +772,28 @@ async def _setup_vscode(target_path: Path, formatter: RichOutputFormatter) -> bo
             return False
 
 
-def _show_manual_vscode_instructions(formatter: RichOutputFormatter, mcp_path: Path | None = None) -> None:
+def _show_manual_vscode_instructions(
+    formatter: RichOutputFormatter, mcp_path: Path | None = None
+) -> None:
     """Show manual configuration instructions for VS Code"""
     print("\nTo manually configure ChunkHound in VS Code:")
 
     if mcp_path:
-        formatter.bullet_list([
-            f"Edit: {mcp_path}",
-            "Add ChunkHound server configuration:",
-            '  "ChunkHound": { "command": "chunkhound", "args": ["mcp", "stdio"] }'
-        ])
+        formatter.bullet_list(
+            [
+                f"Edit: {mcp_path}",
+                "Add ChunkHound server configuration:",
+                '  "ChunkHound": { "command": "chunkhound", "args": ["mcp", "stdio"] }',
+            ]
+        )
     else:
-        formatter.bullet_list([
-            "Create .vscode/mcp.json in your workspace",
-            "Add configuration: { \"servers\": { \"ChunkHound\": { \"command\": \"chunkhound\", \"args\": [\"mcp\", \"stdio\"] } } }",
-            "Restart VS Code to load the MCP server"
-        ])
+        formatter.bullet_list(
+            [
+                "Create .vscode/mcp.json in your workspace",
+                'Add configuration: { "servers": { "ChunkHound": { "command": "chunkhound", "args": ["mcp", "stdio"] } } }',
+                "Restart VS Code to load the MCP server",
+            ]
+        )
 
 
 async def _run_agent_setup(target_path: Path, formatter: RichOutputFormatter) -> None:
@@ -951,7 +815,9 @@ async def _run_agent_setup(target_path: Path, formatter: RichOutputFormatter) ->
         success = await _setup_vscode(target_path, formatter)
 
     if not success:
-        formatter.warning("Agent setup incomplete. ChunkHound will still work via command line.")
+        formatter.warning(
+            "Agent setup incomplete. ChunkHound will still work via command line."
+        )
         print("Run 'chunkhound mcp' to test the MCP server manually.")
 
 
@@ -971,15 +837,54 @@ async def _configure_openai_compatible(
 ) -> dict[str, Any] | None:
     """Configure OpenAI-compatible endpoint"""
     formatter.section_header("OpenAI-Compatible Configuration")
-    print("Common providers:")
+
+    # Check for running local servers first
+    local_endpoint = _detect_local_endpoints()
+
+    if local_endpoint:
+        provider_name = local_endpoint["provider_name"]
+        detected_url = local_endpoint["base_url"]
+
+        print(f"🎯 Found {provider_name} running locally!")
+        print("   Benefits of local servers:")
+        formatter.bullet_list(
+            [
+                "Complete privacy - your code never leaves your machine",
+                "No API costs or rate limits",
+                "Works offline",
+                "Full control over models and performance",
+            ]
+        )
+        print()
+
+        use_detected = await rich_confirm(
+            f"Use {provider_name} at {detected_url}?", default=True
+        )
+
+        if use_detected:
+            return await _configure_provider_unified(
+                "openai_compatible", base_url=detected_url, formatter=formatter
+            )
+
+    # If no local server detected or user declined, show manual entry
+    print("Common OpenAI-compatible providers:")
     formatter.bullet_list(
-        ["Ollama: http://localhost:11434/v1", "LM Studio: http://localhost:1234/v1"]
+        [
+            "Ollama: http://localhost:11434/v1",
+            "LM Studio: http://localhost:1234/v1",
+            "vLLM: http://localhost:8000/v1",
+            "Any OpenAI-compatible API endpoint",
+        ]
     )
     print()
 
+    # Only provide a default URL if no local server was detected
+    # If user declined a detected server, leave field empty
+    default_url = ""
+
     base_url = rich_text(
         "Endpoint URL:",
-        default="http://localhost:11434",
+        default=default_url,
         validate=lambda x: True
         if x.strip().startswith(("http://", "https://"))
         else "URL must start with http:// or https://",
