@@ -17,6 +17,7 @@ from chunkhound.api.cli.ascii_art import HOUND_LOGO, WELCOME_MESSAGE
 from chunkhound.api.cli.env_detector import (
     detect_provider_config,
     get_priority_config,
+    _normalize_endpoint_url,
 )
 from chunkhound.api.cli.utils.rich_output import RichOutputFormatter
 from chunkhound.core.config.config import Config
@@ -186,19 +187,22 @@ async def _rich_select_interactive(
     console.print(f"\n[bold]{question}[/bold]")
     console.print()
 
-    def update_display(live):
-        """Update the display with current selection."""
-        table = Table(show_header=False, box=None, padding=(0, 1))
+    def create_display():
+        """Create the display text with current selection."""
+        from rich.text import Text
+        text = Text()
         for i, (display, _) in enumerate(choices):
             if i == selected:
-                table.add_row(f"[bold cyan]▶ {display}[/bold cyan]")
+                text.append("▶ ", style="bold cyan")
+                text.append(display, style="bold cyan")
             else:
-                table.add_row(f"  {display}")
-        live.update(table, refresh=True)
+                text.append("  ")
+                text.append(display)
+            if i < len(choices) - 1:  # Add newline except for last item
+                text.append("\n")
+        return text
 
-    with Live(auto_refresh=False, console=console) as live:
-        # Display initial menu
-        update_display(live)
+    with Live(create_display(), auto_refresh=False, console=console) as live:
 
         # Main input loop
         while True:
@@ -208,10 +212,10 @@ async def _rich_select_interactive(
 
                 if key == "UP":
                     selected = max(0, selected - 1)
-                    update_display(live)
+                    live.update(create_display(), refresh=True)
                 elif key == "DOWN":
                     selected = min(len(choices) - 1, selected + 1)
-                    update_display(live)
+                    live.update(create_display(), refresh=True)
                 elif key == "ENTER":
                     live.stop()
                     console.print()  # Add spacing
@@ -969,7 +973,7 @@ async def _configure_openai_compatible(
     formatter.section_header("OpenAI-Compatible Configuration")
     print("Common providers:")
     formatter.bullet_list(
-        ["Ollama: http://localhost:11434", "LM Studio: http://localhost:1234"]
+        ["Ollama: http://localhost:11434/v1", "LM Studio: http://localhost:1234/v1"]
     )
     print()
 
@@ -981,8 +985,9 @@ async def _configure_openai_compatible(
         else "URL must start with http:// or https://",
     )
 
+    normalized_url = _normalize_endpoint_url(base_url.strip())
     return await _configure_provider_unified(
-        "openai_compatible", base_url=base_url.strip(), formatter=formatter
+        "openai_compatible", base_url=normalized_url, formatter=formatter
     )
 
 
