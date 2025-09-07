@@ -734,7 +734,17 @@ class OpenAIEmbeddingProvider:
 
             # Make API request with timeout using httpx directly
             # since OpenAI client doesn't support custom endpoints well
-            async with httpx.AsyncClient(timeout=self._timeout) as client:
+            
+            # Apply consistent SSL handling (same pattern as setup wizard and client init)
+            from chunkhound.core.config.openai_utils import is_official_openai_endpoint
+            client_kwargs = {"timeout": self._timeout}
+            if not is_official_openai_endpoint(self._base_url):
+                # For custom endpoints, disable SSL verification
+                # These often use self-signed certificates (corporate servers, Ollama)
+                client_kwargs["verify"] = False
+                logger.debug(f"SSL verification disabled for rerank endpoint: {rerank_endpoint}")
+            
+            async with httpx.AsyncClient(**client_kwargs) as client:
                 headers = {"Content-Type": "application/json"}
                 response = await client.post(
                     rerank_endpoint,

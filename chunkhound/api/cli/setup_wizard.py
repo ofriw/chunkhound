@@ -481,8 +481,19 @@ async def _fetch_available_models(
         if api_key and api_key.strip():
             headers["Authorization"] = f"Bearer {api_key.strip()}"
 
-        # Make request with short timeout
-        async with httpx.AsyncClient(timeout=3.0) as client:
+        # Configure HTTP client with SSL handling (same pattern as OpenAI provider)
+        client_kwargs = {"timeout": 10.0}  # Increased timeout for corporate networks
+        
+        # Apply SSL verification logic - reuse existing pattern
+        is_openai_official = is_official_openai_endpoint(base_url)
+        if not is_openai_official:
+            # For custom endpoints, disable SSL verification
+            # These often use self-signed certificates (corporate servers, Ollama)
+            client_kwargs["verify"] = False
+            logger.debug(f"SSL verification disabled for custom endpoint: {base_url}")
+
+        # Make request with SSL configuration
+        async with httpx.AsyncClient(**client_kwargs) as client:
             response = await client.get(models_url, headers=headers)
             response.raise_for_status()
 
