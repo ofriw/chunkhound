@@ -1480,9 +1480,18 @@ async def _ensure_api_key(
     elif provider_info["requires_api_key"] == "auto":
         # Test connection first, prompt for key if needed
         if not api_key:
-            needs_auth = await _test_needs_auth(base_url, formatter)
-            if needs_auth:
+            # If user already declined a detected key, always give them the option to enter their own
+            if already_declined:
                 api_key = await _prompt_for_api_key(provider_type, formatter, already_declined)
+                # Return whatever the user enters (could be None if they skip, which is valid for auto providers)
+                return api_key
+            else:
+                needs_auth = await _test_needs_auth(base_url, formatter)
+                if needs_auth:
+                    api_key = await _prompt_for_api_key(provider_type, formatter, already_declined)
+                    # For openai_compatible, API key is optional - allow empty
+                    if not api_key and provider_type != "openai_compatible":
+                        return None
         return api_key
 
     return api_key
@@ -1623,14 +1632,14 @@ async def _select_model_unified(
 
     # Try dynamic discovery for openai_compatible
     if provider_info["supports_model_listing"] and base_url:
+        formatter.safe_progress_indicator("Detecting available models...")
         models, needs_auth = await _fetch_available_models(base_url, api_key)
 
-        # If we need auth and don't have a key, prompt for one
+        # If we still need auth, the API key resolution in _configure_provider_unified failed
+        # In this case, we should not try to prompt again - just proceed without dynamic discovery
         if needs_auth and not api_key:
-            api_key = await _prompt_for_api_key(provider_type, formatter)
-            if api_key:
-                # Retry with API key
-                models, _ = await _fetch_available_models(base_url, api_key)
+            formatter.warning("Could not authenticate with endpoint - proceeding with manual entry")
+            models = None
 
         if models:
             if model_type == "embedding":
@@ -1709,7 +1718,7 @@ async def _configure_provider_unified(
     if not skip_intro:
         formatter.section_header(f"{provider_info['display_name']} Configuration")
 
-    # Step 1: Handle API key
+    # Step 1: Handle API key - ensure we have credentials before model discovery
     api_key = await _ensure_api_key(provider_type, base_url, api_key, formatter, already_declined_key)
     if not api_key and provider_info["requires_api_key"] is True:
         return None
