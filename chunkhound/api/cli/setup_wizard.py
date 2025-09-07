@@ -1,6 +1,8 @@
 """Interactive setup wizard for ChunkHound first-time configuration"""
 
 import json
+import logging
+import os
 import sys
 import webbrowser
 from pathlib import Path
@@ -24,6 +26,118 @@ from chunkhound.core.config.embedding_factory import EmbeddingProviderFactory
 from chunkhound.core.config.openai_utils import is_official_openai_endpoint
 from chunkhound.core.constants import VOYAGE_DEFAULT_MODEL
 
+logger = logging.getLogger(__name__)
+
+# Global console for consistent colored output
+_console = Console()
+
+
+def console_print(message: str, style: str = None) -> None:
+    """Print with colors using Rich console or fallback to plain print."""
+    try:
+        if style:
+            _console.print(f"[{style}]{message}[/{style}]")
+        else:
+            _console.print(message)
+    except Exception:
+        # Fallback to plain print if Rich fails
+        print(message)
+
+
+# Browser opening helper
+def _open_url_on_empty_input(
+    url: str, provider_name: str, formatter: RichOutputFormatter
+) -> bool:
+    """Open URL in browser when user provides empty input.
+
+    Args:
+        url: URL to open
+        provider_name: Provider name for user messages
+        formatter: Rich formatter for messages
+
+    Returns:
+        True if URL was opened or attempted, False otherwise
+    """
+    try:
+        webbrowser.open(url)
+        formatter.info(f"Opening {provider_name} page in your browser...")
+        return True
+    except Exception:
+        formatter.warning(f"Could not open browser. Please visit {url} manually.")
+        return True  # Still count as attempted
+
+
+# Input pre-fill helper for fallback mode
+def _input_with_prefill(prompt: str, prefill_text: str = "") -> str:
+    """Input with pre-filled text using readline (if available).
+
+    Args:
+        prompt: The input prompt to display
+        prefill_text: Text to pre-fill in the input buffer
+
+    Returns:
+        User input string
+    """
+    try:
+        import readline
+
+        def startup_hook():
+            readline.insert_text(prefill_text)
+
+        readline.set_startup_hook(startup_hook)
+        try:
+            return input(prompt)
+        finally:
+            readline.set_startup_hook(None)  # Critical: remove hook
+    except ImportError:
+        # readline not available (e.g., Windows), fall back to regular input
+        return input(prompt)
+
+
+# Validation helper functions
+def _validate_api_key_format(key: str, prefix: str) -> bool | str:
+    """Validate API key format.
+
+    Args:
+        key: API key to validate
+        prefix: Expected prefix (e.g., 'sk-', 'pa-')
+
+    Returns:
+        True if valid, error message string if invalid
+    """
+    if key.strip().startswith(prefix):
+        return True
+    return f"API keys for this provider start with '{prefix}'"
+
+
+def _validate_url_format(url: str) -> bool | str:
+    """Validate URL format.
+
+    Args:
+        url: URL to validate
+
+    Returns:
+        True if valid, error message string if invalid
+    """
+    if url.strip().startswith(("http://", "https://")):
+        return True
+    return "URL must start with http:// or https://"
+
+
+def _validate_non_empty(text: str, field_name: str = "Field") -> bool | str:
+    """Validate that text is not empty.
+
+    Args:
+        text: Text to validate
+        field_name: Name of field for error message
+
+    Returns:
+        True if valid, error message string if invalid
+    """
+    if text.strip():
+        return True
+    return f"{field_name} cannot be empty"
+
 
 # Simplified Rich-based utility functions
 async def rich_confirm(question: str, default: bool = True) -> bool:
@@ -33,13 +147,12 @@ async def rich_confirm(question: str, default: bool = True) -> bool:
 
 async def _rich_confirm_interactive(question: str, default: bool = True) -> bool:
     """Interactive yes/no confirmation with arrow key navigation."""
-    from rich.console import Console
     from rich.live import Live
     from rich.text import Text
 
     from .keyboard import KeyboardInput
 
-    console = Console()
+    console = _console
     # Default to Yes (True) if default is True, No (False) if default is False
     selected = 0 if default else 1  # 0 = Yes, 1 = No
     keyboard_handler = KeyboardInput()
@@ -108,33 +221,135 @@ async def _rich_confirm_interactive(question: str, default: bool = True) -> bool
                 raise
 
 
-def rich_text(question: str, default: str = "", validate=None) -> str:
-    """Simple wrapper for Rich text prompt with validation."""
-    if validate is None:
-        return (
-            Prompt.ask(question, default=default) if default else Prompt.ask(question)
-        )
+async def _rich_text_interactive(
+    question: str, default: str = "", validate=None, password: bool = False
+) -> str:
+    """Interactive text input with arrow key support."""
+    from .keyboard import KeyboardInput
+    from .utils.text_input import TextInputState, create_text_input_display
 
-    # Use Rich's validation parameter if it's a simple callable
+    console = _console
+    keyboard_handler = KeyboardInput()
+    console.show_cursor(False)
+
+    # Initialize state
+    state = TextInputState(default)
+
+    def create_display():
+        """Create the display with current state."""
+        return create_text_input_display(question, state, password)
+
+    def handle_validation(text: str) -> bool:
+        """Handle validation and update state. Returns True if valid."""
+        if not validate:
+            return True
+
+        try:
+            validation_result = validate(text)
+            if validation_result is True:
+                return True
+            elif isinstance(validation_result, str):
+                state.validation_error = validation_result
+                return False
+            else:
+                state.validation_error = "Invalid input"
+                return False
+        except Exception as e:
+            state.validation_error = f"Validation error: {e}"
+            return False
+
     try:
-        return (
-            Prompt.ask(question, default=default) if default else Prompt.ask(question)
-        )
-    except Exception:
-        # Fallback for complex validation
-        while True:
-            result = (
-                Prompt.ask(question, default=default)
-                if default
-                else Prompt.ask(question)
+        with Live(create_display(), auto_refresh=False, console=console) as live:
+            while True:
+                try:
+                    key = keyboard_handler.getkey()
+
+                    if key in ["LEFT", "RIGHT", "HOME", "END"]:
+                        state.move_cursor(key)
+                        live.update(create_display(), refresh=True)
+                    elif key in ["BACKSPACE", "DELETE"]:
+                        state.delete_char(key)
+                        live.update(create_display(), refresh=True)
+                    elif key == "ENTER":
+                        if handle_validation(state.text):
+                            console.print()  # Add spacing
+                            return state.text
+                        else:
+                            live.update(create_display(), refresh=True)
+                    elif key in ["ESC", "CTRL_C"]:
+                        raise KeyboardInterrupt("Text input cancelled")
+                    elif len(key) == 1 and key.isprintable():
+                        state.insert_char(key)
+                        live.update(create_display(), refresh=True)
+                    # Ignore other keys
+
+                except KeyboardInterrupt:
+                    raise
+    finally:
+        console.show_cursor(True)
+
+
+async def rich_text(question: str, default: str = "", validate=None) -> str:
+    """Simple wrapper for Rich text prompt with validation and arrow key support."""
+    try:
+        # Use our custom interactive text input
+        return await _rich_text_interactive(question, default, validate)
+    except Exception as e:
+        # Log the actual error for debugging
+        logger.debug(f"Rich mode failed with {type(e).__name__}: {e}")
+
+        # Show debug info if requested
+        if os.getenv("CHUNKHOUND_DEBUG"):
+            console_print(f"Debug: Rich mode failed - {type(e).__name__}: {e}", "yellow")
+
+        # Fallback to standard input with readline pre-fill when possible
+        console_print("Using standard input mode...", "dim")
+
+        def handle_fallback_input():
+            """Handle input in fallback mode with proper pre-fill support."""
+            # Check if this looks like a sensitive value (API key, token, etc.)
+            is_sensitive = default and (
+                len(default) > 20
+                or any(default.startswith(p) for p in ["sk-", "pa-", "xai-", "key-"])
             )
+
+            if default and is_sensitive:
+                # For sensitive values, try readline pre-fill first
+                try:
+                    import readline
+
+                    return _input_with_prefill(f"{question}: ", default)
+                except ImportError:
+                    # readline not available (Windows), use clear messaging
+                    console_print("API key detected from environment variable", "dim")
+                    result = input(
+                        f"{question} (press Enter to use detected key, "
+                        "or enter new key): "
+                    )
+                    return result if result.strip() else default
+            elif default:
+                # For non-sensitive defaults, use Rich's normal behavior
+                return Prompt.ask(question, default=default)
+            else:
+                # No default, use regular input
+                return input(f"{question}: ")
+
+        if validate is None:
+            return handle_fallback_input()
+
+        # Handle validation in fallback mode
+        while True:
+            result = handle_fallback_input()
+            if not validate:
+                return result
+
             validation_result = validate(result)
             if validation_result is True:
                 return result
             elif isinstance(validation_result, str):
-                print(f"[red]Error: {validation_result}[/red]")
+                console_print(f"Error: {validation_result}", "red")
             else:
-                print("[red]Invalid input[/red]")
+                console_print("Invalid input", "red")
 
 
 async def rich_select(
@@ -176,7 +391,7 @@ async def _rich_select_interactive(
 
     from .keyboard import KeyboardInput
 
-    console = Console()
+    console = _console
     selected = max(0, min(default_index, len(choices) - 1))
     keyboard_handler = KeyboardInput()
 
@@ -824,12 +1039,56 @@ async def _run_agent_setup(target_path: Path, formatter: RichOutputFormatter) ->
 async def _configure_voyageai(formatter: RichOutputFormatter) -> dict[str, Any] | None:
     """Configure VoyageAI provider with signup assistance"""
     print("Excellent choice! VoyageAI offers specialized code embeddings.\n")
-    return await _configure_provider_unified("voyageai", formatter=formatter)
+
+    # Check for existing API key
+    from .env_detector import _detect_voyageai
+
+    detected_config = _detect_voyageai()
+    api_key = None
+    already_declined = False
+
+    if detected_config and detected_config.get("api_key"):
+        use_detected = await rich_confirm(
+            "Found VoyageAI API key in environment. Use it?", default=True
+        )
+        if use_detected:
+            api_key = detected_config["api_key"]
+        else:
+            already_declined = True
+
+    return await _configure_provider_unified(
+        "voyageai", 
+        api_key=api_key, 
+        formatter=formatter,
+        already_declined_key=already_declined
+    )
 
 
 async def _configure_openai(formatter: RichOutputFormatter) -> dict[str, Any] | None:
     """Configure OpenAI provider"""
-    return await _configure_provider_unified("openai", formatter=formatter)
+
+    # Check for existing API key
+    from .env_detector import _detect_openai
+
+    detected_config = _detect_openai()
+    api_key = None
+    already_declined = False
+
+    if detected_config and detected_config.get("api_key"):
+        use_detected = await rich_confirm(
+            "Found OpenAI API key in environment. Use it?", default=True
+        )
+        if use_detected:
+            api_key = detected_config["api_key"]
+        else:
+            already_declined = True
+
+    return await _configure_provider_unified(
+        "openai", 
+        api_key=api_key, 
+        formatter=formatter,
+        already_declined_key=already_declined
+    )
 
 
 async def _configure_openai_compatible(
@@ -882,17 +1141,39 @@ async def _configure_openai_compatible(
     # If user declined a detected server, leave field empty
     default_url = ""
 
-    base_url = rich_text(
+    base_url = await rich_text(
         "Endpoint URL:",
         default=default_url,
-        validate=lambda x: True
-        if x.strip().startswith(("http://", "https://"))
-        else "URL must start with http:// or https://",
+        validate=_validate_url_format,
     )
 
     normalized_url = _normalize_endpoint_url(base_url.strip())
+
+    # Check for existing API key in environment for the configured URL
+    from .env_detector import _detect_openai
+
+    detected_config = _detect_openai()
+    detected_api_key = None
+    already_declined_key = False
+
+    if detected_config and detected_config.get("api_key"):
+        # Check if the detected config has a compatible base URL or no base URL
+        detected_base_url = detected_config.get("base_url")
+        if not detected_base_url or detected_base_url == normalized_url:
+            use_detected = await rich_confirm(
+                "Found API key in environment. Use it?", default=True
+            )
+            if use_detected:
+                detected_api_key = detected_config["api_key"]
+            else:
+                already_declined_key = True
+
     return await _configure_provider_unified(
-        "openai_compatible", base_url=normalized_url, formatter=formatter
+        "openai_compatible",
+        base_url=normalized_url,
+        api_key=detected_api_key,
+        formatter=formatter,
+        already_declined_key=already_declined_key,
     )
 
 
@@ -917,7 +1198,7 @@ async def _select_compatible_model(
     current_api_key = api_key
     if available_models is None and needs_auth and api_key is None:
         formatter.warning("Authentication may be required for this endpoint")
-        retry_key = rich_text("API Key (press Enter to skip):", default="")
+        retry_key = await rich_text("API Key (press Enter to skip):", default="")
 
         if retry_key.strip():
             formatter.safe_progress_indicator("Retrying with authentication...")
@@ -950,7 +1231,7 @@ async def _select_compatible_model(
             selected = await rich_select("Select embedding model:", choices=choices)
 
             if selected == "__manual__":
-                manual_model = _manual_model_entry()
+                manual_model = await _manual_model_entry()
                 return (manual_model, current_api_key)
             elif selected:
                 return (selected, current_api_key)
@@ -970,20 +1251,20 @@ async def _select_compatible_model(
             if len(other_models) > 10:
                 print(f"  ... and {len(other_models) - 10} more")
 
-            manual_model = _manual_model_entry()
+            manual_model = await _manual_model_entry()
             return (manual_model, current_api_key)
         else:
             formatter.warning("No models found on server")
-            manual_model = _manual_model_entry()
+            manual_model = await _manual_model_entry()
             return (manual_model, current_api_key)
     else:
         # Fall back to manual entry
         formatter.warning("Could not detect available models")
-        manual_model = _manual_model_entry()
+        manual_model = await _manual_model_entry()
         return (manual_model, current_api_key)
 
 
-def _manual_model_entry() -> str | None:
+async def _manual_model_entry() -> str | None:
     """Handle manual model entry with examples."""
     print("\nCommon embedding models:")
     print("  - nomic-embed-text (Nomic)")
@@ -992,9 +1273,9 @@ def _manual_model_entry() -> str | None:
     print("  - bge-large-en-v1.5 (BGE)")
     print()
 
-    model = rich_text(
+    model = await rich_text(
         "Enter model name:",
-        validate=lambda x: True if x.strip() else "Model name cannot be empty",
+        validate=lambda x: _validate_non_empty(x, "Model name"),
     )
 
     return model.strip() if model else None
@@ -1174,6 +1455,7 @@ async def _ensure_api_key(
     base_url: str | None,
     api_key: str | None,
     formatter: RichOutputFormatter,
+    already_declined: bool = False,
 ) -> str | None:
     """
     Ensure we have an API key if needed for the provider.
@@ -1183,32 +1465,39 @@ async def _ensure_api_key(
         base_url: Base URL for the provider (relevant for openai_compatible)
         api_key: Existing API key if any
         formatter: Output formatter
+        already_declined: True if user already declined a detected key
 
     Returns:
         API key string if needed, None if not needed, or None if user cancelled
     """
     provider_info = EmbeddingProviderFactory.get_provider_info(provider_type)
 
-    if provider_info["requires_api_key"] == True:
+    if provider_info["requires_api_key"] is True:
         # Always require API key
         if not api_key:
-            api_key = _prompt_for_api_key(provider_type, formatter)
+            api_key = await _prompt_for_api_key(provider_type, formatter, already_declined)
         return api_key
     elif provider_info["requires_api_key"] == "auto":
         # Test connection first, prompt for key if needed
         if not api_key:
             needs_auth = await _test_needs_auth(base_url, formatter)
             if needs_auth:
-                api_key = _prompt_for_api_key(provider_type, formatter)
+                api_key = await _prompt_for_api_key(provider_type, formatter, already_declined)
         return api_key
 
     return api_key
 
 
-def _prompt_for_api_key(
-    provider_type: str, formatter: RichOutputFormatter
+async def _prompt_for_api_key(
+    provider_type: str, formatter: RichOutputFormatter, already_declined: bool = False
 ) -> str | None:
-    """Prompt user for API key based on provider type."""
+    """Prompt user for API key based on provider type.
+    
+    Args:
+        provider_type: Type of provider
+        formatter: Output formatter
+        already_declined: True if user already declined a detected key
+    """
     provider_info = EmbeddingProviderFactory.get_provider_info(provider_type)
     provider_name = provider_info["display_name"]
 
@@ -1224,20 +1513,25 @@ def _prompt_for_api_key(
         )
         print()
 
+        url_opened = False  # Track if we've opened the URL
+
         while True:
-            api_key = rich_text(
-                "Enter your VoyageAI API key (or 'open' to visit signup page):",
-                validate=lambda x: True if x.strip() else "API key cannot be empty",
+
+            def validate_key(x):
+                if not x.strip() and not url_opened:
+                    return True  # Allow empty field first time
+                return _validate_api_key_format(x, "pa-")
+
+            api_key = await rich_text(
+                "Enter your VoyageAI API key:",
+                default="",  # No pre-filling - detection handled at higher level
+                validate=validate_key,
             )
 
-            if api_key.lower() == "open":
-                try:
-                    webbrowser.open("https://www.voyageai.com")
-                    formatter.info("Opening VoyageAI signup page in your browser...")
-                except Exception:
-                    formatter.warning(
-                        "Could not open browser. Please visit https://www.voyageai.com manually."
-                    )
+            if not api_key.strip() and not url_opened:
+                url_opened = _open_url_on_empty_input(
+                    "https://www.voyageai.com", "VoyageAI", formatter
+                )
                 continue
 
             return api_key.strip()
@@ -1246,22 +1540,41 @@ def _prompt_for_api_key(
         formatter.section_header(f"{provider_name} API Key")
         print("You can get an API key from: https://platform.openai.com/api-keys\n")
 
-        api_key = rich_text(
-            "Enter your OpenAI API key:",
-            validate=lambda x: True
-            if x.strip().startswith("sk-")
-            else "OpenAI API keys start with 'sk-'",
-        )
+        url_opened = False  # Track if we've opened the URL
 
-        return api_key.strip()
+        while True:
+
+            def validate_key(x):
+                if not x.strip() and not url_opened:
+                    return True  # Allow empty field first time
+                return _validate_api_key_format(x, "sk-")
+
+            api_key = await rich_text(
+                "Enter your OpenAI API key:",
+                default="",  # No pre-filling - detection handled at higher level
+                validate=validate_key,
+            )
+
+            if not api_key.strip() and not url_opened:
+                url_opened = _open_url_on_empty_input(
+                    "https://platform.openai.com/api-keys", "OpenAI", formatter
+                )
+                continue
+
+            return api_key.strip()
 
     elif provider_type == "openai_compatible":
-        api_key = rich_text(
-            "API Key (required for this endpoint):",
-            validate=lambda x: len(x.strip()) > 0 or "API key is required",
+        formatter.section_header(f"{provider_name} API Key")
+        print("API key is optional for most OpenAI-compatible endpoints.")
+        print("Leave empty if your endpoint doesn't require authentication.\n")
+
+        api_key = await rich_text(
+            "API Key (optional, press Enter to skip):",
+            default="",  # No pre-filling - detection handled at higher level
+            validate=lambda x: True,  # No validation - allow any input including empty
         )
 
-        return api_key.strip()
+        return api_key.strip() if api_key.strip() else None
 
     return None
 
@@ -1314,7 +1627,7 @@ async def _select_model_unified(
 
         # If we need auth and don't have a key, prompt for one
         if needs_auth and not api_key:
-            api_key = _prompt_for_api_key(provider_type, formatter)
+            api_key = await _prompt_for_api_key(provider_type, formatter)
             if api_key:
                 # Retry with API key
                 models, _ = await _fetch_available_models(base_url, api_key)
@@ -1356,9 +1669,9 @@ async def _select_model_unified(
 
     # Manual entry fallback for embedding models only
     if model_type == "embedding":
-        model = rich_text(
+        model = await rich_text(
             "Enter embedding model name:",
-            validate=lambda x: True if x.strip() else "Model name cannot be empty",
+            validate=lambda x: _validate_non_empty(x, "Model name"),
         )
         return model.strip(), api_key
 
@@ -1372,6 +1685,7 @@ async def _configure_provider_unified(
     api_key: str | None = None,
     skip_intro: bool = False,
     formatter: RichOutputFormatter | None = None,
+    already_declined_key: bool = False,
 ) -> dict[str, Any] | None:
     """
     Unified provider configuration flow for all provider types.
@@ -1382,6 +1696,7 @@ async def _configure_provider_unified(
         api_key: Existing API key if any
         skip_intro: Skip intro messages (for auto-detected flows)
         formatter: Output formatter
+        already_declined_key: True if user already declined a detected key
 
     Returns:
         Complete configuration dictionary if successful, None if cancelled
@@ -1395,8 +1710,8 @@ async def _configure_provider_unified(
         formatter.section_header(f"{provider_info['display_name']} Configuration")
 
     # Step 1: Handle API key
-    api_key = await _ensure_api_key(provider_type, base_url, api_key, formatter)
-    if not api_key and provider_info["requires_api_key"] == True:
+    api_key = await _ensure_api_key(provider_type, base_url, api_key, formatter, already_declined_key)
+    if not api_key and provider_info["requires_api_key"] is True:
         return None
 
     # Step 2: Select embedding model
