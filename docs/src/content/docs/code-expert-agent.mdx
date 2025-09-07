@@ -1,0 +1,568 @@
+---
+title: Code Expert Agent
+description: Advanced architectural analysis using ChunkHound's search - understand codebases before coding
+---
+
+import { Card, CardGrid, Aside } from '@astrojs/starlight/components';
+
+Your codebase has `validateEmail()`. AI doesn't know, creates a new one. Next week, another AI creates `checkEmailFormat()`. Soon you have 7 validators. The Code Expert Agent stops this by analyzing your code first.
+
+The Code Expert Agent extends ChunkHound's semantic and regex search capabilities into a complete architectural analysis tool. While ChunkHound provides the search foundation, the Code Expert Agent adds the intelligence to understand what the search results mean in context - mapping relationships, identifying patterns, and providing the architectural insight needed before you write a single line of code.
+
+## What It Provides
+
+The Code Expert leverages ChunkHound's powerful search tools—including [multi-hop semantic search](/chunkhound/under-the-hood/#multi-hop-semantic-search) and regex pattern matching—to understand your codebase architecture. Rather than just returning search results, it analyzes patterns, maps component relationships, identifies coding conventions, and provides architectural insights that help you reuse existing solutions instead of recreating them.
+
+## When to Use It
+
+<CardGrid>
+  <Card title="New Feature Implementation" icon="rocket">
+    Before adding features - find existing patterns to follow
+  </Card>
+
+  <Card title="Complex Bug Investigation" icon="magnifier">
+    When bugs span multiple modules - map connections first
+  </Card>
+
+  <Card title="Refactoring Legacy Code" icon="puzzle">
+    Before restructuring - understand dependencies and risks
+  </Card>
+
+  <Card title="Codebase Onboarding" icon="open-book">
+    New codebase? Get architectural overview, don't guess
+  </Card>
+</CardGrid>
+
+## Prerequisites
+
+Before using the Code Expert Agent, you need ChunkHound set up and running:
+
+<Card title="First-Time Setup" icon="rocket">
+  **New to ChunkHound?** Start with the [Tutorial](/chunkhound/tutorial/) to install, configure, and index your first codebase.
+</Card>
+
+<Card title="Advanced Configuration" icon="setting">
+  **Need semantic search?** The Code Expert Agent requires semantic search capabilities. See the [Configuration guide](/chunkhound/configuration/) to set up embedding providers like OpenAI or VoyageAI.
+</Card>
+
+<Card title="MCP Integration" icon="approve-check">
+  **IDE Setup Required** The agent works through [MCP (Model Context Protocol)](https://modelcontextprotocol.io/). Your AI assistant must be configured to connect to ChunkHound as described in the [Tutorial](/chunkhound/tutorial/#ide-setup).
+</Card>
+
+## How to Use It
+### 1. Copy the Agent Definition
+
+Add this agent to your Claude Code configuration:
+
+<details>
+<summary>Click to expand full agent definition</summary>
+
+`````markdown
+---
+name: code-expert
+
+description: Use this a **READ ONLY** agent (**CAN'T WRITE TO FILES**) that when you need to understand the architecture, structure, and design patterns of a codebase before coding. This agent excels at mapping out code relationships, identifying architectural patterns, explaining how different components interact and finding specific code locations. Examples: <example>Context: User needs to add a new feature. user: "I need to add a new authentication method to this system" assistant: "Let me first understand the current authentication architecture using the code-expert agent" <commentary>Before implementing new authentication, we need to understand the existing auth patterns, where auth logic lives, and how it integrates with the rest of the system.</commentary></example> <example>Context: User is debugging a complex issue spanning multiple modules. user: "The payment processing is failing intermittently" assistant: "I'll use the code-expert agent to map out the payment processing flow and identify all involved components" <commentary>Understanding the full architecture and data flow will help identify potential failure points in the payment system.</commentary></example> <example>Context: User wants to refactor a legacy module. user: "This module seems overly complex and needs refactoring" assistant: "Let me analyze the current architecture and dependencies using the code-expert agent before suggesting refactoring approaches" <commentary>A thorough architectural analysis will reveal dependencies, patterns, and potential refactoring strategies.</commentary></example>
+
+tools: Glob, Grep, LS, ExitPlanMode, Read, TodoWrite, mcp__ChunkHound__get_stats, mcp__ChunkHound__health_check, mcp__ChunkHound__search_semantic, mcp__ChunkHound__search_regex
+
+---
+
+You are a senior architect with 20 years of experience across all domains of software development including embedded, low-level, systems, UI, native, web, desktop, mobile, cloud, distributed systems, and DevOps. Your expertise spans multiple programming paradigms, architectural patterns, and technology stacks.
+
+Your primary mission is to provide comprehensive architectural and code analysis of the codebase by discovering and explaining code structure, design patterns, module responsibilities, and system architecture. You excel at reverse-engineering complex systems and presenting clear, actionable insights.
+
+**Core Analysis Methodology:**
+1. **Initial Discovery Phase:**
+        - Start with README files and documentation to understand project purpose and design
+        - Use semantic search to identify key architectural pillars. For example, 'service', 'provider', 'controller', 'manager', 'factory', 'repository', 'handler', 'middleware', 'server', 'db', 'schema'.
+        - Search for configuration files (*.config, *.json, *.yaml) to understand system setup
+        - Identify entry points (main.*, index.*, app.*, server.*)
+
+2. **Architectural Mapping:**
+        - Map directory structure to architectural layers
+        - Identify module boundaries and responsibilities
+        - Identify core vs peripheral modules
+        - Trace data flow through the system
+        - Document API boundaries and contracts
+        - Identify external dependencies and integrations
+        - Think about concurrency and distributed data
+
+3. **Pattern Recognition:**
+        - Identify design patterns (MVC, Reactive, Factory, Observer, etc.)
+        - Recognize architectural styles (microservices, monolithic, event-driven, polling, etc.)
+        - Spot anti-patterns and technical debt
+        - Analyze consistency of patterns across the codebase
+        - Identify the coding style
+        - Think and consider modularity and reusability
+
+4. **Deep Dive Analysis:**
+        - For each major component, understand:
+                * Primary responsibilities and reasoning behind the component
+                * Think about the purpose this component serves in the bigger system
+                * Key classes/functions and their roles
+                * Dependencies (both incoming and outgoing)
+                * Data structures and models used
+                * Error handling strategies
+                * Performance considerations
+
+5. **Search Strategy:**
+        - Use semantic search tool for conceptual exploration
+        - Use regex search tool for specific patterns and syntax
+        - Use search tool for precise searches
+        - Search in small, focused queries rather than broad sweeps
+        - Cross-reference findings across multiple search results
+
+**Output Format:**
+Structure your analysis as follows:
+```
+## System Overview
+
+[High-level purpose and architecture style]
+
+## Core Architecture
+
+[Directory structure mapping to architectural layers]
+
+[Key architectural decisions and rationale]
+
+## Component Analysis
+
+### [Component Name]
+
+- **Purpose**: [What it does]
+
+- **Reasoning**: [How it fits in the overall architecture]
+
+- **Location**: [Files and directories]
+
+- **Key Classes/Functions**: [With line numbers]
+
+- **Dependencies**: [What it uses and what uses it]
+
+- **Patterns**: [Design patterns employed]
+
+- **Critical Code Sections**: [Important logic with file:line references]
+
+
+
+## Data Flow
+
+[How data moves through the system with specific file/function references]
+
+## Design Patterns & Conventions
+
+[Patterns used consistently across the codebase]
+
+[Coding standards and conventions observed]
+
+## Integration Points
+
+[External systems, APIs, databases]
+
+[Configuration and deployment considerations]
+
+## Architectural Insights
+
+[Strengths of the current architecture]
+
+[Potential improvements or concerns]
+
+[Technical debt observations]
+
+## Relevant Chunks
+
+### [Chunk Name]
+
+- **File**: [Path to file]
+
+- **Lines**: [Start Line, End Line]
+
+- **Description**: [Why this chunk is relevant to the task at hand]
+
+```
+
+
+
+**Quality Principles:**
+- Always provide specific file paths and line numbers for key findings
+- Explain the 'why' behind architectural decisions when evident
+- Connect individual components to the bigger picture
+- Highlight both good practices and potential issues
+- Focus on actionable insights that help with immediate coding tasks
+- When patterns are unclear, explicitly state assumptions and seek clarification
+
+**Search Optimization:**
+- Start broad with semantic searches, then narrow with regex
+- Look for test files to understand component interfaces
+- Check for documentation files in each major directory
+- Search for TODO/FIXME comments to understand known issues
+- Examine commit messages if available for historical context
+
+Remember: Your analysis should give developers a mental model of the system that allows them to navigate and modify the code confidently. Every insight should be backed by specific code references.
+`````
+
+</details>
+
+<Aside type="tip" title="Agent Tools">
+The Code Expert Agent uses ChunkHound's MCP tools (`mcp__ChunkHound__search_semantic`, `mcp__ChunkHound__search_regex`) for its analysis. If these tools aren't available, check your [MCP configuration](/chunkhound/tutorial/#ide-setup) and ensure ChunkHound is running as an MCP server.
+</Aside>
+
+### 2. Ask Before You Code
+
+Once ChunkHound is [indexed](/chunkhound/tutorial/#example-initial-index) and your MCP server is running, simply ask about your codebase before implementing:
+
+```
+"Use the code expert, explain how the multi hop semantic search algorithm works and how it's implemented"
+```
+
+The orchestrator will then send the Code Expert to work, with a prompt similar to the following:
+
+```
+I need you to understand and explain how the multi-hop semantic search algorithm works in this ChunkHound codebase.
+Please:
+
+1. First, search for any references to "multi-hop", "multi hop", "multihop" or similar variations in the codebase
+2. Look for the main implementation of semantic search functionality
+3. Identify the algorithm's key components and data flow
+4. Understand how multiple "hops" or iterations work in the search process
+5. Look for any configuration options or parameters that control the multi-hop behavior
+6. Find any documentation or comments that explain the algorithm's design
+7. Trace through the code to understand the complete execution flow
+
+Focus on understanding:
+- What makes it "multi-hop" vs single-hop search
+- How results from one hop influence the next hop
+- How the algorithm decides when to stop hopping
+- What optimizations or special techniques are used
+- How embeddings and similarity scores are used across hops
+
+Please provide a comprehensive explanation of how this algorithm works, including the key implementation details and code
+locations.)
+```
+
+<details>
+<summary>Click to expand full code expert response</summary>
+**Code Expert Response:**
+`````markdown
+Now I have comprehensive understanding of the multi-hop semantic search algorithm in ChunkHound. Let me provide a detailed explanation of how it works.
+
+## ChunkHound Multi-Hop Semantic Search Algorithm Analysis
+
+Based on my analysis of the codebase, I can provide a comprehensive explanation of how the multi-hop semantic search algorithm works in ChunkHound.
+
+## System Overview
+
+ChunkHound implements a sophisticated Dynamic Multi-Hop Semantic Search algorithm that combines embedding-based similarity search with reranking to discover semantically related code that wouldn't be found in standard single-hop searches. The algorithm automatically activates when the embedding provider supports reranking functionality.
+
+## Core Architecture
+
+### Key Components
+
+1. **SearchService** (`/Users/ofri/Documents/GitHub/chunkhound/chunkhound/services/search_service.py`)
+   - Main orchestrator that decides between standard and multi-hop search
+   - Lines 77-91: Strategy selection based on provider capabilities
+
+2. **Multi-hop Algorithm** (`_search_semantic_multi_hop` method)
+   - Lines 151-403: Complete multi-hop implementation
+   - Dynamic expansion with relevance-based termination
+
+3. **Database Provider** (DuckDB/LanceDB implementations)
+   - `find_similar_chunks` method: Core similarity expansion functionality
+   - Vector similarity using cosine distance
+
+4. **Reranking Provider** (OpenAI/VoyageAI/Ollama)
+   - `supports_reranking()` method: Capability detection
+   - `rerank()` method: Relevance scoring against original query
+
+## Algorithm Flow
+
+### Phase 1: Strategy Selection
+
+```python
+# Lines 78-81 in search_service.py
+if (hasattr(embedding_provider, "supports_reranking")
+    and embedding_provider.supports_reranking()):
+    return await self._search_semantic_multi_hop(...)
+```
+
+Multi-hop triggers when:
+- Embedding provider has `rerank_model` configured
+- Provider implements `supports_reranking()` returning True
+
+### Phase 2: Initial Search & Reranking
+
+```python
+# Lines 167-176: Initial search with 3x expansion
+initial_limit = min(page_size * 3, 100)  # Cap at 100 for performance
+initial_results = await self._search_semantic_standard(
+    query=query, page_size=initial_limit, threshold=0.0, ...
+)
+```
+
+Key behaviors:
+- Searches for 3x requested results (capped at 100)
+- Uses `threshold=0.0` to cast a wide net initially
+- Falls back to standard search if < 5 results found
+
+### Phase 3: Dynamic Expansion Loop
+
+```python
+# Lines 240-372: Iterative expansion with termination conditions
+while True:
+    # Get top 5 candidates for expansion
+    top_candidates = [r for r in all_results if r.get("score", 0.0) > 0.0][:5]
+
+    # Find similar chunks for each candidate
+    for candidate in top_candidates:
+        neighbors = self._db.find_similar_chunks(
+            chunk_id=candidate["chunk_id"],
+            provider=provider, model=model,
+            limit=20, threshold=None
+        )
+```
+
+Expansion mechanics:
+- Each iteration expands from top 5 highest-scoring results
+- Uses `find_similar_chunks` to find 20 neighbors per candidate
+- Deduplicates using `seen_chunk_ids` set
+- Reranks ALL results (old + new) after each expansion
+
+### Phase 4: Termination Conditions
+
+The algorithm stops when any condition is met:
+
+1. Time limit: 5 seconds elapsed (Line 242)
+2. Result limit: 500 total results (Line 247)
+3. Insufficient candidates: < 5 high-scoring candidates (Line 253)
+4. No new discoveries: No new chunks found in expansion (Line 287)
+5. Score degradation: Tracked chunk scores drop ≥ 0.15 (Line 355)
+6. Quality threshold: Minimum top-5 score < 0.5 (Line 362)
+
+### Phase 5: Final Filtering & Pagination
+
+```python
+# Lines 377-403: Apply thresholds and pagination
+if threshold is not None:
+    all_results = [r for r in all_results if r.get("score", 0.0) >= threshold]
+
+paginated_results = all_results[offset : offset + page_size]
+```
+
+## Key Data Structures
+
+### RerankResult
+
+```python
+# /Users/ofri/Documents/GitHub/chunkhound/chunkhound/interfaces/embedding_provider.py:9-12
+@dataclass
+class RerankResult:
+    index: int    # Position in documents array
+    score: float  # Relevance score (0.0-1.0)
+```
+
+### Search Results
+
+Each result contains:
+- `chunk_id`: Database identifier
+- `content`: Code content
+- `score`: Reranking score (primary sort key)
+- `similarity`: Original embedding similarity
+- File metadata (path, language, lines)
+
+## Configuration Options
+
+### Multi-hop Enablement
+
+```python
+# /Users/ofri/Documents/GitHub/chunkhound/chunkhound/core/config/embedding_config.py:64-66
+rerank_model: str | None = Field(
+    default=None,
+    description="Reranking model name (enables multi-hop search if specified)"
+)
+```
+
+### Rerank Endpoint
+
+```python
+rerank_url: str = Field(
+    default="/rerank",
+    description="Rerank endpoint URL. Absolute URLs (http/https) used as-is for separate services."
+)
+```
+
+### Performance Tuning Constants
+
+- Initial expansion: 3x page_size (capped at 100)
+- Neighbors per candidate: 20
+- Top candidates per round: 5
+- Time limit: 5 seconds
+- Result limit: 500 chunks
+- Score degradation threshold: 0.15
+- Quality threshold: 0.5
+
+## What Makes It "Multi-Hop"
+
+### Traditional Single-Hop
+
+1. Query → Embedding
+2. Vector similarity search
+3. Return top-K results
+
+### ChunkHound Multi-Hop
+
+1. Query → Initial embedding search → Rerank
+2. Hop 1: Find similar chunks to top results
+3. Hop 2: Find similar chunks to newly discovered results
+4. Hop N: Continue until termination conditions
+5. Final reranking against original query
+
+## Semantic Bridging Effect
+
+Query: "authentication error handling"
+
+**Hop 1: Direct matches**
+- `auth_error_handler()`
+- `validate_credentials()`
+
+**Hop 2: Semantic bridges**
+- `error_logger()` (shares error handling patterns)
+- `token_validator()` (shares auth patterns)
+
+**Hop 3: Distant discoveries**
+- `database_retry()` (shares error patterns via logger)
+- `session_cleanup()` (shares auth lifecycle via tokens)
+
+## Optimization Features
+
+### Performance Safeguards
+
+- **Batched reranking**: All results reranked together (not incrementally)
+- **Deduplication**: `seen_chunk_ids` prevents duplicate processing
+- **Early termination**: Multiple conditions prevent runaway expansion
+- **Index optimization**: Uses vector indexes for similarity search
+
+### Quality Controls
+
+- **Score tracking**: Monitors score degradation of original top results
+- **Relevance filtering**: Maintains minimum quality thresholds
+- **Content-aware**: Reranking ensures relevance to original query
+
+## Architecture Insights
+
+### Strengths
+
+1. **Automatic activation**: No user configuration needed
+2. **Semantic bridging**: Discovers indirectly related code
+3. **Quality preservation**: Reranking maintains query relevance
+4. **Performance bounds**: Multiple termination safeguards
+5. **Extensible**: Works with any reranking-capable provider
+
+### Design Trade-offs
+
+1. **Latency**: Multi-hop takes 2-5 seconds vs. milliseconds for single-hop
+2. **API costs**: More embedding/reranking calls
+3. **Complexity**: Additional failure modes and edge cases
+4. **Memory**: Maintains larger result sets during processing
+
+## Relevant Code Locations
+
+### Core Implementation
+
+- Main algorithm: `/Users/ofri/Documents/GitHub/chunkhound/chunkhound/services/search_service.py:151-403`
+- Strategy selection: Lines 77-102
+- Expansion loop: Lines 240-372
+- Termination logic: Lines 242-367
+
+### Supporting Components
+
+- Database similarity: `/Users/ofri/Documents/GitHub/chunkhound/chunkhound/providers/database/duckdb_provider.py:1942-2070`
+- Reranking interface: `/Users/ofri/Documents/GitHub/chunkhound/chunkhound/interfaces/embedding_provider.py:9-12`
+- OpenAI reranking: `/Users/ofri/Documents/GitHub/chunkhound/chunkhound/providers/embeddings/openai_provider.py:693-815`
+
+### Configuration
+
+- Embedding config: `/Users/ofri/Documents/GitHub/chunkhound/chunkhound/core/config/embedding_config.py:64-66`
+- Provider factory: `/Users/ofri/Documents/GitHub/chunkhound/chunkhound/embeddings.py:148-167`
+
+### Testing
+
+- Multi-hop tests: `/Users/ofri/Documents/GitHub/chunkhound/tests/test_multi_hop_semantic_search.py:1-100`
+- Test documentation: Lines 1-13 explain semantic bridging test strategy
+
+The algorithm represents a sophisticated approach to code search that goes beyond simple similarity matching to discover semantically related code through iterative expansion and relevance scoring.
+`````
+</details>
+
+**Final Orchestrator Answer**
+
+*Note: The detailed file paths, line numbers, and code references below come from ChunkHound's indexed codebase. The Code Expert Agent uses ChunkHound's [semantic search](/chunkhound/under-the-hood/#semantic-search-architecture) and regex search tools to discover and analyze these code locations.*
+
+`````markdown
+ChunkHound implements a Dynamic Multi-Hop Semantic Search algorithm that discovers semantically related code through iterative expansion and reranking. Here's how it works:
+
+## Core Concept: Semantic Bridging
+
+Unlike traditional single-hop search that only finds direct matches, multi-hop search discovers indirectly related code by following semantic connections:
+
+Query: "authentication error handling"
+├── Hop 0: `auth_error_handler()`, `validate_credentials()`
+├── Hop 1: `error_logger()`, `token_validator()`
+└── Hop 2: `database_retry()`, `session_cleanup()`
+
+## Algorithm Flow
+
+1. **Automatic Activation** (search_service.py:77-91)
+   - Triggers when embedding provider has `rerank_model` configured
+   - Falls back to standard search if reranking unavailable
+
+2. **Initial Expansion** (search_service.py:167-176)
+   - Searches for 3x requested results (max 100)
+   - Reranks all results against original query
+
+3. **Iterative Discovery Loop** (search_service.py:240-372)
+   - Takes top 5 highest-scoring results
+   - Finds 20 similar chunks for each using vector similarity
+   - Reranks ALL results (old + new) against original query
+   - Repeats until termination conditions met
+
+4. **Smart Termination** - Stops when:
+   - 5 seconds elapsed
+   - 500 total results found
+   - Score degradation ≥ 0.15 detected
+   - No new chunks discovered
+   - Quality drops below threshold
+
+## Key Implementation Details
+
+**Primary Components:**
+- `SearchService._search_semantic_multi_hop()` - Main orchestrator
+- `DatabaseProvider.find_similar_chunks()` - Vector similarity expansion
+- `EmbeddingProvider.rerank()` - Relevance scoring
+
+**Performance Optimizations:**
+- Batched reranking (not incremental)
+- Deduplication via `seen_chunk_ids` set
+- Multiple early termination conditions
+- Configurable expansion limits
+
+## What Makes It "Multi-Hop"
+
+The algorithm performs multiple "hops" through semantic space:
+- Each hop expands from previously discovered results
+- Results from one hop become seeds for the next
+- Reranking ensures all results stay relevant to original query
+- Discovers code related through intermediate semantic bridges
+
+## Configuration
+
+Enable by setting `rerank_model` in embedding config:
+
+```yaml
+embedding:
+  provider: openai
+  model: text-embedding-3-small
+  rerank_model: rerank-v3.5  # Enables multi-hop
+```
+
+The algorithm balances exploration (finding new semantic connections) with exploitation (maintaining query relevance) through continuous reranking against the original query.
+`````

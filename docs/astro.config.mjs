@@ -31,6 +31,7 @@ export default defineConfig({
 			sidebar: [
 				{ label: 'Tutorial', slug: 'tutorial' },
 				{ label: 'Configuration', slug: 'configuration' },
+				{ label: 'Code Expert Agent', slug: 'code-expert-agent' },
 				{ label: 'Under the Hood', slug: 'under-the-hood' },
 				{ label: 'Changelog', link: '/changelog' },
 			],
