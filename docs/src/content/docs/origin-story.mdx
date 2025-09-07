@@ -1,0 +1,90 @@
+---
+title: Origin Story
+description: How ChunkHound bootstrapped itself from empty repository to self-improving codebase search in one extraordinary day.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+What if a tool could help build itself? Not just metaphorically, but literally — where each new capability makes the next improvement easier to discover, understand, and implement.
+
+This is the story of ChunkHound's bootstrap.
+
+## June 4, 2025: The Genesis
+
+**10:41 AM** — Empty repository. Just a LICENSE file and .gitignore. The typical beginning of any software project.
+
+**10:47 AM** — Six minutes later, 772 lines materialize: complete project skeleton, comprehensive technical specification, database schemas, CLI interfaces. Not prototypes or sketches — production-ready architecture with a clear vision of "code-grep on steroids."
+
+**1:46 PM** — OpenAI embeddings integration lands. Another 1,099 lines. The tool can now convert code into vectors, store them in DuckDB, and search semantically. It's functional.
+
+**2:42 PM** — Full FastAPI web server with test suite. ChunkHound can serve search results over HTTP.
+
+**5:34 PM** — Plot twist. Complete architectural pivot from web API to MCP (Model Context Protocol) server. 1,101 lines deleted, 1,604 added. Bold decision executed with surgical precision.
+
+**End of day** — 14 commits. Roughly 3,600 lines of code. From empty repository to working prototype in under six hours.
+
+<Aside type="note">
+Every single line was written by Claude, working with human guidance. Not templates or boilerplate — original architecture, original code, original documentation.
+</Aside>
+
+## The Bootstrap Effect
+
+Here's where it gets interesting.
+
+**Day 1**: Python parsing was built in from the start. ChunkHound could understand its own code structure from hour one.
+
+**Day 2-3**: File watching capabilities. Java parser support. Process coordination to handle concurrent access. The tool was rapidly becoming more sophisticated.
+
+**Day 4-5**: ChunkHound could fully index and search its own codebase. The feedback loop was complete.
+
+**June 11**: Version 1.0.0 — the first stable release. One week from conception to production-ready tool.
+
+Now every new feature became easier to implement. Need to add a new language parser? Search for existing parser patterns. Working on database optimizations? Find similar performance improvements. Debugging edge cases? Search for related fixes.
+
+The tool wasn't just growing — it was helping itself grow.
+
+## Human In The Loop
+
+This wasn't autopilot development. Every decision involved human guidance:
+
+- Architecture choices: "Make it MCP-compatible for editor integration"
+- Performance targets: "Batch embeddings for speed, optimize for large codebases"
+- Quality standards: "Match production patterns, include comprehensive tests"
+
+But the implementation was pure AI generation. No copy-paste from Stack Overflow. No manual typing. Claude generated every function, every test, every documentation page — including this one.
+
+[The human](https://github.com/ofriw) provided vision and validation. The AI executed with unprecedented velocity.
+
+## Three Months of Development
+
+From June to September 2025, ChunkHound accumulated 723 commits and grew to include:
+
+- 20+ language parsers (Python, Java, TypeScript, C#, Rust...)
+- Multiple embedding providers (VoyageAI, OpenAI, OpenAI-Compatible)
+- Real-time file watching and incremental updates
+- Extensive test coverage
+- This documentation site
+
+Each improvement made the next one easier to find and implement. The tool had become capable of helping improve itself.
+
+## What ChunkHound Represents
+
+ChunkHound's development reflects broader trends in AI-assisted programming. Studies show developers using AI tools can complete tasks [55% faster](https://github.blog/news-insights/research/research-quantifying-github-copilots-impact-on-developer-productivity-and-happiness/), and there's a growing movement of fully AI-generated software projects proving this acceleration is sustainable.
+
+ChunkHound joins examples like the [Vehicle Expiry Tracker](https://medium.com/@sakkyb/how-i-built-a-saas-product-with-100-ai-generated-code-5728e0c97c8d) (a B2B SaaS built in two weeks), Simon Willison's [collection of 77 AI-generated tools](https://simonw.substack.com/p/how-i-use-llms-to-help-me-write-code), and various iOS apps developed with [95% AI-generated code](https://spaquet.medium.com/first-attempt-at-a-100-genai-generated-app-3fcaa483b8cf). Four months of active development and 723+ commits later, ChunkHound demonstrates that this approach can produce robust, evolving software.
+
+ChunkHound demonstrates one approach to this collaboration: **human vision and guidance + AI implementation and iteration = accelerated development cycles**.
+
+This isn't about replacing human developers—it's about exploring new models of software creation. The human provided architectural decisions, quality standards, and strategic direction. The AI handled implementation details, pattern matching, and iterative refinement.
+
+The result is a tool that exemplifies its own creation story: a search system that helps developers find patterns, understand codebases, and build software more effectively.
+
+## References
+
+- [GitHub Research: Quantifying GitHub Copilot's Impact on Developer Productivity](https://github.blog/news-insights/research/research-quantifying-github-copilots-impact-on-developer-productivity-and-happiness/)
+- [Vehicle Expiry Tracker: Building a SaaS with 100% AI-Generated Code](https://medium.com/@sakkyb/how-i-built-a-saas-product-with-100-ai-generated-code-5728e0c97c8d)
+- [Simon Willison: How I Use LLMs to Help Me Write Code](https://simonw.substack.com/p/how-i-use-llms-to-help-me-write-code)
+- [100% GenAI Generated iOS App: First Attempt](https://spaquet.medium.com/first-attempt-at-a-100-genai-generated-app-3fcaa483b8cf)
+- [Academic Review: AI-Driven Innovations in Software Engineering](https://www.mdpi.com/2076-3417/15/3/1344)
+
+The bootstrap is complete. The feedback loop is running. And we're just getting started.
