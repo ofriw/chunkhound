@@ -503,11 +503,15 @@ async def _fetch_available_models(
     except httpx.HTTPStatusError as e:
         # Check if it's an authentication error
         if e.response.status_code in [401, 403]:
-            return (None, True)  # Authentication required
-        return (None, False)  # Other HTTP error
+            return (None, True)  # Definitely needs authentication
+        elif e.response.status_code in [200, 404]:
+            return (None, False)  # Clear no-auth cases (success or not found)
+        else:
+            # Other HTTP errors (500, etc.) - assume auth needed to be safe
+            return (None, True)
     except Exception:
-        # Network or other error
-        return (None, False)
+        # Network or parsing error - assume auth needed to be safe
+        return (None, True)
 
 
 def _filter_embedding_models(models: list[str]) -> tuple[list[str], list[str]]:
