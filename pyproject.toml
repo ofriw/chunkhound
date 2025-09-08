@@ -77,6 +77,19 @@ dev = [
     "black>=23.0.0",
     "ruff>=0.1.0",
     "mypy>=1.6.0",
+    # PTY testing dependencies for setup wizard tests
+    "pexpect>=4.8.0; sys_platform != 'win32'",
+    "wexpect>=4.0.0; sys_platform == 'win32'", 
+    "pywinpty>=2.0.0; sys_platform == 'win32'",
+]
+test = [
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.21.0", 
+    "pytest-timeout>=2.1.0",
+    # PTY testing dependencies for CI/CD
+    "pexpect>=4.8.0; sys_platform != 'win32'",
+    "wexpect>=4.0.0; sys_platform == 'win32'",
+    "pywinpty>=2.0.0; sys_platform == 'win32'",
 ]
 
 [project.scripts]
@@ -141,6 +154,9 @@ addopts = [
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "integration: marks tests as integration tests",
+    "unit: marks tests as unit tests",
+    "pty: marks tests that require PTY support",
+    "wizard: marks setup wizard tests",
 ]
 
 [dependency-groups]
