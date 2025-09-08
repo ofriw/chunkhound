@@ -458,7 +458,7 @@ requires-dist = [
     { name = "rich", specifier = ">=13.0.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.1.0" },
     { name = "tiktoken", specifier = ">=0.9.0" },
-    { name = "tree-sitter", specifier = ">=0.20.0,<0.24.0" },
+    { name = "tree-sitter", specifier = ">=0.23.0,<0.24.0" },
     { name = "tree-sitter-bash", specifier = ">=0.21.0,<0.25.0" },
     { name = "tree-sitter-c", specifier = ">=0.21.0,<0.23.0" },
     { name = "tree-sitter-cpp", specifier = ">=0.21.0,<0.24.0" },

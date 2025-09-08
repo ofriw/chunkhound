@@ -7,7 +7,10 @@ on:
 
 jobs:
   tests:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os: [ubuntu-20.04, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     
     steps:
@@ -22,3 +25,23 @@ jobs:
         
       - name: Run test suite
         run: uv run pytest tests/ -v
+        
+      - name: Test parser loading (Ubuntu 20 specific)
+        if: matrix.os == 'ubuntu-20.04'
+        run: |
+          echo "Testing critical parsers load on Ubuntu 20..."
+          uv run python -c "
+          from chunkhound.parsers.parser_factory import ParserFactory
+          from chunkhound.core.models import Language
+          
+          # Test critical parsers that commonly fail on Ubuntu 20
+          test_languages = [Language.PYTHON, Language.JAVASCRIPT, Language.GO]
+          for lang in test_languages:
+              try:
+                  parser = ParserFactory.create_parser(lang)
+                  print(f'✓ {lang.value} parser loaded successfully')
+              except Exception as e:
+                  print(f'✗ {lang.value} parser failed: {e}')
+                  exit(1)
+          print('All critical parsers loaded successfully on Ubuntu 20!')
+          "
