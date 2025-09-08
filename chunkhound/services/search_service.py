@@ -39,12 +39,14 @@ class SearchService(BaseService):
         provider: str | None = None,
         model: str | None = None,
         path_filter: str | None = None,
+        force_strategy: str | None = None,
     ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         """Perform semantic search using vector similarity.
 
         Automatically selects the best search strategy:
         - Multi-hop + reranking if provider supports reranking
         - Standard single-hop otherwise
+        - Can be overridden with force_strategy parameter
 
         Args:
             query: Natural language search query
@@ -55,6 +57,7 @@ class SearchService(BaseService):
             model: Optional specific model to use
             path_filter: Optional relative path to limit search scope
                 (e.g., 'src/', 'tests/')
+            force_strategy: Optional strategy override ('single_hop', 'multi_hop')
 
         Returns:
             Tuple of (results, pagination_metadata)
@@ -74,11 +77,27 @@ class SearchService(BaseService):
 
             # logger.debug(f"Search using provider='{search_provider}', model='{search_model}'")
 
-            # Choose search strategy based on provider capabilities
-            if (
-                hasattr(embedding_provider, "supports_reranking")
-                and embedding_provider.supports_reranking()
-            ):
+            # Choose search strategy based on force_strategy or provider capabilities
+            use_multi_hop = False
+            
+            if force_strategy == "multi_hop":
+                use_multi_hop = True
+            elif force_strategy == "single_hop":
+                use_multi_hop = False
+            else:
+                # Auto-select based on provider capabilities
+                use_multi_hop = (
+                    hasattr(embedding_provider, "supports_reranking")
+                    and embedding_provider.supports_reranking()
+                )
+
+            if use_multi_hop:
+                # Ensure provider actually supports reranking for multi-hop
+                if not (hasattr(embedding_provider, "supports_reranking") and embedding_provider.supports_reranking()):
+                    logger.warning("Multi-hop strategy requested but provider doesn't support reranking, falling back to single-hop")
+                    use_multi_hop = False
+
+            if use_multi_hop:
                 logger.debug(f"Using multi-hop search with reranking for: '{query}'")
                 return await self._search_semantic_multi_hop(
                     query=query,

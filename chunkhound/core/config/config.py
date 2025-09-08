@@ -260,6 +260,11 @@ class Config(BaseModel):
             if self.embedding and not self.embedding.is_provider_configured():
                 errors.append("Embedding provider not properly configured")
 
+        # For search command, embedding is optional but must be valid if present
+        elif command == "search":
+            if self.embedding and not self.embedding.is_provider_configured():
+                errors.append("Embedding provider not properly configured")
+
         return errors
 
     def get_missing_config(self) -> list[str]:
