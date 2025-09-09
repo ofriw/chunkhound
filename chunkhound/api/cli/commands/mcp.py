@@ -93,7 +93,7 @@ def _show_mcp_setup_instructions_if_first_run(args: argparse.Namespace) -> None:
     marker_path.parent.mkdir(exist_ok=True)
 
     # Show setup instructions
-    print("\n🔌 MCP Server Configuration")
+    print("\n[MCP] Server Configuration")
     print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     print("\nTo use ChunkHound in Claude Desktop or VS Code:")
     print("\nAdd to ~/.claude/claude_desktop_config.json:")

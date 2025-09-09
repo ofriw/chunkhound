@@ -1,41 +1,54 @@
 """Unix/Linux terminal input provider."""
 
 import os
-import sys
 import select
-import termios
-import tty
 import signal
+import sys
+
+try:
+    import termios
+    HAS_TERMIOS = True
+except ImportError:
+    # termios is Unix-only, not available on Windows
+    HAS_TERMIOS = False
 from typing import Any
 
-from .base import BaseTerminalProvider
 from ..core import TERMINAL_CONTROL_SEQUENCES
 from ..exceptions import TerminalSetupError
+from .base import BaseTerminalProvider
 
 
 class UnixTerminalProvider(BaseTerminalProvider):
     """Unix/Linux terminal input provider using termios and select."""
-    
+
     def __init__(self, config):
         """Initialize Unix terminal provider.
         
         Args:
             config: Terminal configuration
+            
+        Raises:
+            ImportError: If termios module is not available (Windows)
         """
+        if not HAS_TERMIOS:
+            raise ImportError(
+                "termios module not available - Unix terminal provider cannot be used on this platform"
+            )
+
         super().__init__(config)
         self._stdin_fd = None  # Lazy initialization
         self._original_signal_handler = None
-        
+
     def _get_stdin_fd(self):
         """Get stdin file descriptor with lazy initialization."""
         if self._stdin_fd is None:
             self._stdin_fd = sys.stdin.fileno()
         return self._stdin_fd
-        
+
     def _get_platform_name(self) -> str:
         """Get the platform name for this provider."""
         return "unix"
-    
+
     def _save_terminal_state(self) -> Any:
         """Save current terminal state for later restoration.
         
@@ -50,7 +63,7 @@ class UnixTerminalProvider(BaseTerminalProvider):
                 platform="unix",
                 reason=f"Failed to get terminal attributes: {e}"
             ) from e
-    
+
     def _restore_terminal_state(self, state: Any) -> None:
         """Restore terminal to saved state.
         
@@ -62,55 +75,55 @@ class UnixTerminalProvider(BaseTerminalProvider):
         except (termios.error, OSError):
             # Best effort - don't raise exceptions during cleanup
             pass
-    
+
     def _enter_raw_mode(self) -> None:
         """Put terminal into character-at-a-time mode while keeping output processing."""
         try:
             # Get current terminal attributes
             attrs = termios.tcgetattr(self._get_stdin_fd())
-            
+
             # Disable canonical mode and echo (like setraw does)
             attrs[3] &= ~(termios.ICANON | termios.ECHO | termios.ISIG)
             # Disable input processing that interferes with raw input
             attrs[0] &= ~(termios.IXON | termios.IXOFF | termios.ICRNL)
-            
+
             # CRITICAL: Keep OPOST enabled for output processing
             # This allows \n to work as newline (not just line feed)
             # Ensure ONLCR is set for \n -> \r\n translation
             attrs[1] |= (termios.OPOST | termios.ONLCR)
-            
+
             # Set VMIN=1, VTIME=0 for immediate single-char input
             attrs[6][termios.VMIN] = 1
             attrs[6][termios.VTIME] = 0
-            
+
             termios.tcsetattr(self._get_stdin_fd(), termios.TCSADRAIN, attrs)
         except (termios.error, OSError) as e:
             raise TerminalSetupError(
                 operation="enter_raw_mode",
-                platform="unix", 
+                platform="unix",
                 reason=f"Failed to set raw mode: {e}"
             ) from e
-    
+
     def _configure_terminal(self) -> None:
         """Apply Unix-specific terminal configuration."""
         try:
             # Send terminal control sequences to normalize behavior
             if self.config.disable_bracketed_paste:
                 self._write_to_terminal(TERMINAL_CONTROL_SEQUENCES["disable_bracketed_paste"])
-            
+
             if self.config.normalize_cursor_mode:
                 self._write_to_terminal(TERMINAL_CONTROL_SEQUENCES["normal_cursor_mode"])
-            
+
             # Set up signal handler for cleanup
             self._setup_signal_handler()
-            
+
         except Exception as e:
             raise TerminalSetupError(
                 operation="configure_terminal",
                 platform="unix",
                 reason=f"Failed to configure terminal: {e}"
             ) from e
-    
+
     def _write_to_terminal(self, sequence: str) -> None:
         """Write control sequence to terminal.
         
@@ -123,7 +136,7 @@ class UnixTerminalProvider(BaseTerminalProvider):
         except OSError:
             # If we can't write control sequences, continue anyway
             pass
-    
+
     def _setup_signal_handler(self) -> None:
         """Set up signal handler for cleanup."""
         def signal_handler(signum, frame):
@@ -132,9 +145,9 @@ class UnixTerminalProvider(BaseTerminalProvider):
             if self._original_signal_handler:
                 signal.signal(signal.SIGINT, self._original_signal_handler)
             raise KeyboardInterrupt()
-        
+
         self._original_signal_handler = signal.signal(signal.SIGINT, signal_handler)
-    
+
     def _read_raw_char(self) -> str:
         """Read a single raw character from terminal.
         
@@ -188,7 +201,7 @@ class UnixTerminalProvider(BaseTerminalProvider):
             # Read first byte with blocking mode (VMIN=1, VTIME=0)
             first_byte = os.read(self._get_stdin_fd(), 1)
             first_char = first_byte.decode('utf-8', errors='replace')
-            
+
             if first_char == '\x1b':  # ESC character
                 # Switch to timeout mode to check for continuation
                 self._set_timeout_mode()
@@ -208,10 +221,10 @@ class UnixTerminalProvider(BaseTerminalProvider):
             else:
                 # Regular character
                 return first_char
-                
+
         except (OSError, UnicodeDecodeError):
             return ""
-    
+
     def _has_raw_input(self, timeout: float | None = None) -> bool:
         """Check if raw input is available.
         
@@ -235,9 +248,9 @@ class UnixTerminalProvider(BaseTerminalProvider):
                 # Timeout check
                 ready, _, _ = select.select([stdin_fd], [], [], timeout)
                 return bool(ready)
-        except (OSError, select.error):
+        except OSError:
             return False
-    
+
     def cleanup(self) -> None:
         """Restore terminal to original state with Unix-specific cleanup."""
         # Flush input buffer to prevent leftover characters from appearing in terminal
@@ -248,7 +261,7 @@ class UnixTerminalProvider(BaseTerminalProvider):
             except (termios.error, OSError):
                 # Best effort - continue with cleanup even if flush fails
                 pass
-        
+
         # Restore signal handler
         if self._original_signal_handler is not None:
             try:
@@ -256,7 +269,7 @@ class UnixTerminalProvider(BaseTerminalProvider):
                 self._original_signal_handler = None
             except (OSError, ValueError):
                 pass
-        
+
         # Send control sequences to restore terminal behavior
         if self._is_setup:
             try:
@@ -264,14 +277,14 @@ class UnixTerminalProvider(BaseTerminalProvider):
                     # Re-enable bracketed paste if it was originally on
                     # (This is debatable - we might want to leave it disabled)
                     pass
-                    
+
                 if self.config.normalize_cursor_mode:
                     # Could restore to application cursor mode, but safer to leave in normal mode
                     pass
-                    
+
             except Exception:
                 pass
-        
+
         # Call parent cleanup to restore terminal attributes
         super().cleanup()
 
@@ -282,22 +295,22 @@ class UnixTerminalProviderLegacy(UnixTerminalProvider):
     This version uses more conservative approaches that may work better
     on older Ubuntu versions or systems with limited terminal capabilities.
     """
-    
+
     def _configure_terminal(self) -> None:
         """Apply conservative Unix terminal configuration."""
         try:
             # Only send essential control sequences
             if self.config.disable_bracketed_paste:
                 self._write_to_terminal(TERMINAL_CONTROL_SEQUENCES["disable_bracketed_paste"])
-            
+
             # Don't normalize cursor mode on legacy systems
             # Set up signal handler
             self._setup_signal_handler()
-            
-        except Exception as e:
+
+        except Exception:
             # On legacy systems, continue even if configuration fails
             pass
-    
+
     def _read_raw_char(self) -> str:
         """Read with more conservative approach for legacy systems."""
         try:
@@ -312,5 +325,5 @@ class UnixTerminalProviderLegacy(UnixTerminalProvider):
                         # Fallback to latin-1 for non-UTF8 systems
                         return char_bytes.decode('latin-1', errors='replace')
             return ""
-        except (OSError, IOError):
+        except OSError:
             return ""
