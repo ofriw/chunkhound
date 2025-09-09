@@ -11,6 +11,42 @@ import json
 
 
 @pytest.fixture
+def event_loop():
+    """
+    Custom event loop fixture that ensures proper cleanup of async resources.
+    
+    This fixture helps prevent PytestUnraisableExceptionWarning by ensuring
+    all pending tasks are properly cancelled before closing the event loop.
+    """
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    
+    try:
+        yield loop
+    finally:
+        # Ensure all pending tasks are cancelled
+        pending_tasks = [task for task in asyncio.all_tasks(loop) if not task.done()]
+        
+        if pending_tasks:
+            # Cancel all pending tasks
+            for task in pending_tasks:
+                task.cancel()
+            
+            # Wait for cancelled tasks to finish
+            if pending_tasks:
+                loop.run_until_complete(
+                    asyncio.gather(*pending_tasks, return_exceptions=True)
+                )
+        
+        # Close the loop properly
+        try:
+            loop.close()
+        except RuntimeError:
+            # Loop might already be closed
+            pass
+
+
+@pytest.fixture
 def temp_project_dir():
     """Create a temporary project directory for testing."""
     temp_dir = Path(tempfile.mkdtemp())

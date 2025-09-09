@@ -71,18 +71,31 @@ class RerankServerManager:
             
         logger.info("Stopping mock rerank server")
         
-        # Try graceful shutdown
-        self.process.terminate()
         try:
-            await asyncio.wait_for(self.process.wait(), timeout=5.0)
-            logger.info("Mock rerank server stopped gracefully")
-        except asyncio.TimeoutError:
-            # Force kill if graceful shutdown fails
-            logger.warning("Graceful shutdown failed, force killing rerank server")
-            self.process.kill()
-            await self.process.wait()
-        
-        self.process = None
+            # Try graceful shutdown first
+            self.process.terminate()
+            try:
+                await asyncio.wait_for(self.process.wait(), timeout=5.0)
+                logger.info("Mock rerank server stopped gracefully")
+            except asyncio.TimeoutError:
+                # Force kill if graceful shutdown fails
+                logger.warning("Graceful shutdown failed, force killing rerank server")
+                self.process.kill()
+                try:
+                    await asyncio.wait_for(self.process.wait(), timeout=2.0)
+                except asyncio.TimeoutError:
+                    logger.error("Failed to kill rerank server process")
+        except Exception as e:
+            logger.error(f"Error stopping rerank server: {e}")
+            # Ensure process is killed even if other steps fail
+            try:
+                self.process.kill()
+                await self.process.wait()
+            except Exception:
+                pass
+        finally:
+            # Always clear the process reference
+            self.process = None
     
     async def is_running(self) -> bool:
         """Check if the reranking server is running and responsive."""

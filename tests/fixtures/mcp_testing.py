@@ -55,19 +55,43 @@ class MCPServerTestFixture:
     async def stop_mcp_server(self):
         """Stop MCP server gracefully."""
         if self.process:
-            self.process.terminate()
             try:
-                await asyncio.wait_for(
-                    asyncio.create_task(self._wait_for_process()), timeout=5
-                )
-            except asyncio.TimeoutError:
-                self.process.kill()
-                await asyncio.create_task(self._wait_for_process())
+                # First try graceful termination
+                self.process.terminate()
+                try:
+                    await asyncio.wait_for(self._wait_for_process(), timeout=5.0)
+                except asyncio.TimeoutError:
+                    # Force kill if graceful termination fails
+                    self.process.kill()
+                    await asyncio.wait_for(self._wait_for_process(), timeout=2.0)
+            except Exception:
+                # Ensure process is killed even if other steps fail
+                try:
+                    self.process.kill()
+                except Exception:
+                    pass
+            finally:
+                # Ensure we wait for final cleanup
+                if self.process and self.process.poll() is None:
+                    try:
+                        self.process.wait()
+                    except Exception:
+                        pass
+                self.process = None
 
     async def _wait_for_process(self):
-        """Wait for process to exit."""
-        while self.process and self.process.poll() is None:
-            await asyncio.sleep(0.1)
+        """Wait for process to exit using proper asyncio subprocess waiting."""
+        if not self.process:
+            return
+        
+        # Use a more efficient waiting approach
+        loop = asyncio.get_event_loop()
+        
+        def check_process():
+            return self.process.poll() is not None
+        
+        while not check_process():
+            await asyncio.sleep(0.05)  # Reduced polling interval
 
 
 
