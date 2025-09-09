@@ -465,6 +465,35 @@ sys.exit(asyncio.run(test()))
                     await proc.wait()
 
 
+class TestParserLoading:
+    """Test that all parsers can be loaded and created."""
+
+    def test_all_parsers_load(self):
+        """Test that all supported language parsers can be created."""
+        from chunkhound.core.types.common import Language
+        from chunkhound.parsers.parser_factory import get_parser_factory
+        
+        factory = get_parser_factory()
+        failed_parsers = []
+        
+        # Test all languages except UNKNOWN (not a real parser)
+        for language in Language:
+            if language == Language.UNKNOWN:
+                continue
+                
+            try:
+                parser = factory.create_parser(language)
+                assert parser is not None, f"Parser for {language.value} was None"
+            except Exception as e:
+                failed_parsers.append((language.value, str(e)))
+        
+        if failed_parsers:
+            error_msg = "Failed to create parsers (install missing dependencies):\n"
+            for language, error in failed_parsers:
+                error_msg += f"  - {language}: {error}\n"
+            pytest.fail(error_msg)
+
+
 class TestTypeAnnotations:
     """Test for specific type annotation patterns that have caused issues."""
 

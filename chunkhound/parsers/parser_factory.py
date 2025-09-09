@@ -137,8 +137,18 @@ except ImportError:
     GROOVY_AVAILABLE = False
 
 try:
-    import tree_sitter_matlab as ts_matlab
-    MATLAB_AVAILABLE = True
+    from tree_sitter_language_pack import get_language
+    _matlab_lang = get_language('matlab')
+    if _matlab_lang:
+        # Create a module-like wrapper for compatibility with LanguageConfig
+        class _MatlabLanguageWrapper:
+            def language(self):
+                return _matlab_lang
+        ts_matlab = _MatlabLanguageWrapper()
+        MATLAB_AVAILABLE = True
+    else:
+        ts_matlab = None
+        MATLAB_AVAILABLE = False
 except ImportError:
     ts_matlab = None
     MATLAB_AVAILABLE = False
@@ -223,7 +233,12 @@ class LanguageConfig:
         else:
             # Standard case - most tree-sitter modules use .language function
             lang_func = self.tree_sitter_module.language
-            return Language(lang_func() if callable(lang_func) else lang_func)
+            result = lang_func() if callable(lang_func) else lang_func
+            # If result is already a Language object, return as-is
+            if isinstance(result, Language):
+                return result
+            else:
+                return Language(result)
 
 
 # Language configuration mapping

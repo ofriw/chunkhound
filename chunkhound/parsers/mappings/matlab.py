@@ -49,9 +49,9 @@ class MatlabMapping(BaseMapping):
         """
         return """
             (function_definition
-                name: (identifier) @function_name
-                output: (function_output)? @function_output
-                arguments: (function_arguments)? @function_arguments
+                (function_output)? @function_output
+                (identifier) @function_name
+                (function_arguments)? @function_arguments
             ) @function_def
         """
 
@@ -65,8 +65,8 @@ class MatlabMapping(BaseMapping):
         """
         return """
             (class_definition
-                name: (identifier) @class_name
-                superclass: (superclass_list)? @superclasses
+                (identifier) @class_name
+                (superclasses)? @superclasses
             ) @class_def
         """
 
@@ -80,14 +80,12 @@ class MatlabMapping(BaseMapping):
         """
         return """
             (class_definition
-                body: (
-                    (methods_block
-                        (function_definition
-                            name: (identifier) @method_name
-                            output: (function_output)? @method_output
-                            arguments: (function_arguments)? @method_arguments
-                        ) @method_def
-                    )
+                (methods
+                    (function_definition
+                        (function_output)? @method_output
+                        (identifier) @method_name
+                        (function_arguments)? @method_arguments
+                    ) @method_def
                 )
             )
         """
@@ -133,9 +131,9 @@ class MatlabMapping(BaseMapping):
             Tree-sitter query string for finding MATLAB property definitions
         """
         return """
-            (properties_block
-                (property_definition
-                    name: (identifier) @property_name
+            (properties
+                (property
+                    (identifier) @property_name
                 ) @property_def
             )
         """
@@ -267,8 +265,8 @@ class MatlabMapping(BaseMapping):
 
         superclasses: list[str] = []
 
-        # Find the superclass_list node
-        superclass_node = self.find_child_by_type(node, "superclass_list")
+        # Find the superclasses node
+        superclass_node = self.find_child_by_type(node, "superclasses")
         if not superclass_node:
             # Try alternative approach - parse class definition line
             class_text = self.get_node_text(node, source)
@@ -307,10 +305,10 @@ class MatlabMapping(BaseMapping):
 
         properties: list[str] = []
 
-        # Find all properties_block nodes within the class
-        for properties_block in self.find_nodes_by_type(node, "properties_block"):
+        # Find all properties nodes within the class
+        for properties_block in self.find_nodes_by_type(node, "properties"):
             # Find property definitions within each block
-            for property_def in self.find_nodes_by_type(properties_block, "property_definition"):
+            for property_def in self.find_nodes_by_type(properties_block, "property"):
                 # Extract the property name
                 name_node = self.find_child_by_type(property_def, "identifier")
                 if name_node:
