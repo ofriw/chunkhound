@@ -141,7 +141,13 @@ addopts = [
     "--verbose",
     "--tb=short",
     "--strict-markers",
-    "--disable-warnings",
+]
+filterwarnings = [
+    # Suppress SWIG-related warnings from tree-sitter bindings
+    "ignore:builtin type.*has no __module__ attribute:DeprecationWarning",
+    # Suppress asyncio subprocess transport cleanup warnings in tests
+    "ignore:Exception ignored in.*BaseSubprocessTransport:pytest.PytestUnraisableExceptionWarning",
+    # Allow other warnings to be displayed
 ]
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
