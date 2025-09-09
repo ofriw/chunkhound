@@ -11,8 +11,48 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 import pytest
+import gc
+import time
+import platform
 from chunkhound.core.config.config import Config
-from chunkhound.registry import configure_registry
+from chunkhound.registry import configure_registry, get_registry
+
+
+def _cleanup_registry_and_connections():
+    """Clean up registry and database connections for Windows compatibility."""
+    try:
+        registry = get_registry()
+        
+        # Try to close database provider if it has a close method
+        try:
+            db_provider = registry.get_provider("database")
+            if hasattr(db_provider, 'close'):
+                db_provider.close()
+            elif hasattr(db_provider, 'cleanup'):
+                db_provider.cleanup()
+            # For serial providers, try to close the underlying executor connection
+            elif hasattr(db_provider, '_executor') and hasattr(db_provider._executor, '_connection'):
+                if hasattr(db_provider._executor._connection, 'close'):
+                    db_provider._executor._connection.close()
+        except (ValueError, AttributeError):
+            # No database provider or connection to clean up
+            pass
+            
+        # Clear registry providers
+        registry._providers.clear()
+        registry._language_parsers.clear()
+        registry._config = None
+        
+    except Exception:
+        # Best effort cleanup - don't fail the test if cleanup fails
+        pass
+    
+    # Force garbage collection to help with Windows file locking
+    gc.collect()
+    
+    # On Windows, give a brief moment for file handles to be released
+    if platform.system() == "Windows":
+        time.sleep(0.1)
 
 
 def test_embedding_config_initializes_cleanly(clean_environment):
@@ -94,6 +134,8 @@ def test_embedding_config_initializes_cleanly(clean_environment):
                     )
                     
         finally:
+            # Clean up database connections and registry before directory cleanup
+            _cleanup_registry_and_connections()
             os.chdir(original_cwd)
 
 
@@ -134,4 +176,6 @@ def test_config_loading_from_json_file(clean_environment):
             assert config.embedding.model == "text-embedding-3-small"
             
         finally:
+            # Clean up any registry state
+            _cleanup_registry_and_connections()
             os.chdir(original_cwd)

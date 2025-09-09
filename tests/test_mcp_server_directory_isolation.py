@@ -20,6 +20,9 @@ from chunkhound.database_factory import create_database_with_dependencies
 from chunkhound.core.config.config import Config
 from .test_utils import get_api_key_for_tests
 
+# Import Windows-safe subprocess utilities
+from tests.utils.windows_subprocess import create_subprocess_exec_safe, get_safe_subprocess_env
+
 
 class MCPStdioClient:
     """Real MCP client for stdio communication testing."""
@@ -253,10 +256,10 @@ Run the application with proper configuration.
                 "CHUNKHOUND_DATABASE__PATH": str(db_path)
             })
             
-            index_process = await asyncio.create_subprocess_exec(
+            index_process = await create_subprocess_exec_safe(
                 "uv", "run", "chunkhound", "index", str(project_dir), "--no-embeddings",
-                cwd=project_dir,  # Index from project directory
-                env=index_env,
+                cwd=str(project_dir),  # Index from project directory
+                env=get_safe_subprocess_env(index_env),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
@@ -318,10 +321,10 @@ Run the application with proper configuration.
             # Critical: Start from test_cwd, not project_dir - pass target path as argument
             mcp_cmd = ["uv", "run", "chunkhound", "mcp", "--stdio", str(project_dir)]
             print(f"Running command: {' '.join(mcp_cmd)} from cwd: {test_cwd}")
-            mcp_process = await asyncio.create_subprocess_exec(  
+            mcp_process = await create_subprocess_exec_safe(  
                 *mcp_cmd,
-                cwd=test_cwd,  # Different from project_dir!
-                env=mcp_env,
+                cwd=str(test_cwd),  # Different from project_dir!
+                env=get_safe_subprocess_env(mcp_env),
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE

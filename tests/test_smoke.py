@@ -19,6 +19,9 @@ import asyncio
 import pytest
 from pathlib import Path
 
+# Import Windows-safe subprocess utilities
+from tests.utils.windows_subprocess import create_subprocess_exec_safe, get_safe_subprocess_env
+
 # Add parent directory to path to import chunkhound
 sys.path.insert(0, str(Path(__file__).parent.parent))
 import chunkhound
@@ -131,7 +134,7 @@ class TestServerStartup:
                 s.bind(("127.0.0.1", 0))
                 free_port = s.getsockname()[1]
             
-            proc = await asyncio.create_subprocess_exec(
+            proc = await create_subprocess_exec_safe(
                 "uv",
                 "run",
                 "chunkhound",
@@ -142,7 +145,7 @@ class TestServerStartup:
                 str(free_port),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-                env={**os.environ, "CHUNKHOUND_MCP_MODE": "1"},  # Suppress logs
+                env=get_safe_subprocess_env({**os.environ, "CHUNKHOUND_MCP_MODE": "1"}),  # Suppress logs
             )
 
             try:
@@ -187,7 +190,7 @@ class TestServerStartup:
             test_port = find_free_port()
 
             # Start server with specific port
-            proc = await asyncio.create_subprocess_exec(
+            proc = await create_subprocess_exec_safe(
                 "uv",
                 "run",
                 "chunkhound",
@@ -200,7 +203,7 @@ class TestServerStartup:
                 str(test_port),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-                env={**os.environ, "CHUNKHOUND_MCP_MODE": "1"},
+                env=get_safe_subprocess_env({**os.environ, "CHUNKHOUND_MCP_MODE": "1"}),
             )
 
             try:
@@ -247,7 +250,7 @@ class TestServerStartup:
     @pytest.mark.asyncio
     async def test_mcp_stdio_server_help(self):
         """Test that MCP stdio server responds to help."""
-        proc = await asyncio.create_subprocess_exec(
+        proc = await create_subprocess_exec_safe(
             "uv",
             "run",
             "chunkhound",
@@ -256,6 +259,7 @@ class TestServerStartup:
             "--help",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            env=get_safe_subprocess_env(),
         )
 
         stdout, stderr = await proc.communicate()
@@ -378,12 +382,12 @@ sys.exit(asyncio.run(test()))
             config_path.write_text(json.dumps(config))
             
             # Start MCP server (it will auto-index on startup)
-            mcp_env = os.environ.copy()
+            mcp_env = get_safe_subprocess_env(os.environ)
             mcp_env["CHUNKHOUND_MCP_MODE"] = "1"
             
-            proc = await asyncio.create_subprocess_exec(
+            proc = await create_subprocess_exec_safe(
                 "uv", "run", "chunkhound", "mcp", str(temp_path),
-                cwd=temp_path,
+                cwd=str(temp_path),
                 env=mcp_env,
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,

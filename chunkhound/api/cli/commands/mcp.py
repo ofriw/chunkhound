@@ -3,8 +3,30 @@
 import argparse
 import json
 import os
+import platform
 import sys
 from pathlib import Path
+
+
+def _safe_print(text: str) -> None:
+    """Print text with safe encoding for all platforms."""
+    try:
+        # On Windows, ensure UTF-8 encoding for console output
+        if platform.system() == "Windows":
+            # Try to encode as UTF-8 first
+            try:
+                print(text.encode('utf-8').decode('utf-8'))
+            except (UnicodeEncodeError, UnicodeDecodeError):
+                # Fallback to ASCII-safe version
+                safe_text = text.encode('ascii', errors='replace').decode('ascii')
+                print(safe_text)
+        else:
+            # Unix systems typically handle UTF-8 better
+            print(text)
+    except Exception:
+        # Final fallback - strip any non-ASCII characters
+        safe_text = ''.join(c if ord(c) < 128 else '?' for c in text)
+        print(safe_text)
 
 
 async def mcp_command(args: argparse.Namespace, config) -> None:
@@ -53,12 +75,20 @@ async def mcp_command(args: argparse.Namespace, config) -> None:
         if hasattr(args, "db") and args.db:
             cmd.extend(["--db", str(args.db)])
 
+        # Set up environment with UTF-8 encoding for Windows compatibility
+        env = os.environ.copy()
+        if platform.system() == "Windows":
+            env["PYTHONIOENCODING"] = "utf-8"
+            env["PYTHONLEGACYWINDOWSSTDIO"] = "1"
+
         process = subprocess.run(
             cmd,
             stdin=sys.stdin,
             stdout=sys.stdout,
             stderr=sys.stderr,
-            env=os.environ.copy(),
+            env=env,
+            encoding="utf-8",
+            errors="replace",  # Handle encoding errors gracefully
         )
         sys.exit(process.returncode)
     else:
@@ -92,11 +122,11 @@ def _show_mcp_setup_instructions_if_first_run(args: argparse.Namespace) -> None:
     # Create marker directory if needed
     marker_path.parent.mkdir(exist_ok=True)
 
-    # Show setup instructions
-    print("\n[MCP] Server Configuration")
-    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-    print("\nTo use ChunkHound in Claude Desktop or VS Code:")
-    print("\nAdd to ~/.claude/claude_desktop_config.json:")
+    # Show setup instructions with cross-platform safe output
+    _safe_print("\n[MCP] Server Configuration")
+    _safe_print("=" * 30)  # Use ASCII characters instead of Unicode
+    _safe_print("\nTo use ChunkHound in Claude Desktop or VS Code:")
+    _safe_print("\nAdd to ~/.claude/claude_desktop_config.json:")
 
     config_snippet = {
         "mcpServers": {
@@ -107,17 +137,18 @@ def _show_mcp_setup_instructions_if_first_run(args: argparse.Namespace) -> None:
         }
     }
 
-    print(json.dumps(config_snippet, indent=2))
+    _safe_print(json.dumps(config_snippet, indent=2))
 
     try:
         import pyperclip
         pyperclip.copy(json.dumps(config_snippet, indent=2))
-        print("\n📋 Configuration copied to clipboard!")
+        # Use ASCII clipboard icon instead of Unicode
+        _safe_print("\n[COPIED] Configuration copied to clipboard!")
     except (ImportError, Exception):
         pass  # pyperclip is optional and may fail in headless environments
 
-    print(f"\nStarting MCP server for {project_path.name}...")
-    print("Ready for connections from Claude Desktop or other MCP clients.\n")
+    _safe_print(f"\nStarting MCP server for {project_path.name}...")
+    _safe_print("Ready for connections from Claude Desktop or other MCP clients.\n")
 
     # Create marker file
     try:
