@@ -260,7 +260,7 @@ build_ubuntu() {
 
     # CRITICAL: Build Docker image using Ubuntu 16.04 Dockerfile for maximum GLIBC compatibility
     # Ubuntu 16.04 is the MINIMUM SYSTEM REQUIREMENT - do not regress this version
-    local build_cmd="docker build --platform linux/amd64 -f Dockerfile.ubuntu20 --tag $docker_tag"
+    local build_cmd="docker build --platform linux/amd64 --tag $docker_tag"
 
     if [[ "$VERBOSE" == true ]]; then
         $build_cmd .
