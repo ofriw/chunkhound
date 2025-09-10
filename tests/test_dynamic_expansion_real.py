@@ -128,7 +128,7 @@ async def indexed_codebase(request):
         
     finally:
         shutil.rmtree(temp_dir)
-        db.disconnect()
+        db.close()
 
 
 @pytest.mark.parametrize("indexed_codebase", get_reranking_providers(), indirect=True)

@@ -1,9 +1,9 @@
 """Windows-compatible subprocess utilities for tests."""
 
 import asyncio
-import platform
-import os
 from typing import Dict, Optional, Any
+
+from chunkhound.utils.windows_constants import get_utf8_env
 
 
 async def create_subprocess_exec_safe(
@@ -21,17 +21,7 @@ async def create_subprocess_exec_safe(
     on Windows, preventing Unicode encoding errors that break JSON-RPC protocols.
     """
     # Set up environment with UTF-8 encoding for Windows compatibility
-    if env is None:
-        env = os.environ.copy()
-    else:
-        env = env.copy()
-    
-    if platform.system() == "Windows":
-        # Force UTF-8 encoding for subprocess I/O
-        env["PYTHONIOENCODING"] = "utf-8"
-        env["PYTHONLEGACYWINDOWSSTDIO"] = "1"
-        # Disable Unicode console output that causes encoding issues
-        env["PYTHONUTF8"] = "1"
+    env = get_utf8_env(env)
     
     return await asyncio.create_subprocess_exec(
         *args,
@@ -46,15 +36,4 @@ async def create_subprocess_exec_safe(
 
 def get_safe_subprocess_env(base_env: Optional[Dict[str, str]] = None) -> Dict[str, str]:
     """Get environment variables with Windows-safe encoding settings."""
-    if base_env is None:
-        env = os.environ.copy()
-    else:
-        env = base_env.copy()
-    
-    if platform.system() == "Windows":
-        # Force UTF-8 encoding for subprocess I/O
-        env["PYTHONIOENCODING"] = "utf-8"
-        env["PYTHONLEGACYWINDOWSSTDIO"] = "1"
-        env["PYTHONUTF8"] = "1"
-    
-    return env
+    return get_utf8_env(base_env)

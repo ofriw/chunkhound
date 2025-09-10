@@ -82,7 +82,7 @@ class TestQADeterministic:
             pass
         
         try:
-            services.provider.disconnect()
+            services.provider.close()
         except Exception:
             pass
             

@@ -21,6 +21,7 @@ from pathlib import Path
 
 # Import Windows-safe subprocess utilities
 from tests.utils.windows_subprocess import create_subprocess_exec_safe, get_safe_subprocess_env
+from tests.utils.windows_compat import windows_safe_tempdir
 
 # Add parent directory to path to import chunkhound
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -291,7 +292,7 @@ class TestServerStartup:
             config_path.write_text(json.dumps(config))
             
             # Test that the server starts without crashing
-            proc = await asyncio.create_subprocess_exec(
+            proc = await create_subprocess_exec_safe(
                 "uv",
                 "run",
                 "python", "-c",
@@ -351,11 +352,9 @@ sys.exit(asyncio.run(test()))
     @pytest.mark.asyncio
     async def test_mcp_stdio_protocol_handshake(self):
         """Test MCP stdio server completes full protocol handshake with tool discovery."""
-        import tempfile
         import json
         
-        with tempfile.TemporaryDirectory() as temp_dir:
-            temp_path = Path(temp_dir)
+        with windows_safe_tempdir() as temp_path:
             
             # Create minimal test content (server will auto-index on startup)
             test_file = temp_path / "test.py"
