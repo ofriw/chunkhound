@@ -22,6 +22,7 @@ import time
 from pathlib import Path
 
 import pytest
+from tests.utils.windows_compat import windows_safe_tempdir, database_cleanup_context
 
 
 class TestMCPInitializationTimeout:
@@ -39,8 +40,7 @@ class TestMCPInitializationTimeout:
         It's skipped in CI due to GitHub Actions I/O performance limitations.
         Run locally to verify performance fixes.
         """
-        with tempfile.TemporaryDirectory() as temp_dir:
-            temp_path = Path(temp_dir)
+        with windows_safe_tempdir() as temp_path:
             
             # Create many files to simulate a large codebase that takes time to scan
             # This reproduces the VS Code issue with large directories like /home/e197460/Documents/genesis/InfraDomain
@@ -161,11 +161,13 @@ CONFIGURATION_{i} = {{
             }
             config_path.write_text(json.dumps(config))
             
-            # Start MCP server (it will auto-index on startup which should cause timeout)
-            mcp_env = os.environ.copy()
-            mcp_env["CHUNKHOUND_MCP_MODE"] = "1"
-            
-            proc = await asyncio.create_subprocess_exec(
+            # Use database cleanup context to ensure proper resource management
+            with database_cleanup_context():
+                # Start MCP server (it will auto-index on startup which should cause timeout)
+                mcp_env = os.environ.copy()
+                mcp_env["CHUNKHOUND_MCP_MODE"] = "1"
+                
+                proc = await asyncio.create_subprocess_exec(
                 "uv", "run", "chunkhound", "mcp", str(temp_path),
                 cwd=temp_path,
                 env=mcp_env,
@@ -226,8 +228,7 @@ CONFIGURATION_{i} = {{
         
         This verifies normal behavior and will help validate the fix.
         """
-        with tempfile.TemporaryDirectory() as temp_dir:
-            temp_path = Path(temp_dir)
+        with windows_safe_tempdir() as temp_path:
             
             # Create just a few files - should initialize quickly
             test_file = temp_path / "test.py"
@@ -244,11 +245,13 @@ CONFIGURATION_{i} = {{
             }
             config_path.write_text(json.dumps(config))
             
-            # Start MCP server
-            mcp_env = os.environ.copy()
-            mcp_env["CHUNKHOUND_MCP_MODE"] = "1"
-            
-            proc = await asyncio.create_subprocess_exec(
+            # Use database cleanup context to ensure proper resource management
+            with database_cleanup_context():
+                # Start MCP server
+                mcp_env = os.environ.copy()
+                mcp_env["CHUNKHOUND_MCP_MODE"] = "1"
+                
+                proc = await asyncio.create_subprocess_exec(
                 "uv", "run", "chunkhound", "mcp", str(temp_path),
                 cwd=temp_path,
                 env=mcp_env,
@@ -298,8 +301,7 @@ CONFIGURATION_{i} = {{
         
         This verifies the server doesn't crash, just takes too long for VS Code.
         """
-        with tempfile.TemporaryDirectory() as temp_dir:
-            temp_path = Path(temp_dir)
+        with windows_safe_tempdir() as temp_path:
             
             # Create moderate number of files - enough to delay but not excessive
             for i in range(50):
@@ -317,11 +319,13 @@ CONFIGURATION_{i} = {{
             }
             config_path.write_text(json.dumps(config))
             
-            # Start MCP server
-            mcp_env = os.environ.copy()
-            mcp_env["CHUNKHOUND_MCP_MODE"] = "1"
-            
-            proc = await asyncio.create_subprocess_exec(
+            # Use database cleanup context to ensure proper resource management
+            with database_cleanup_context():
+                # Start MCP server
+                mcp_env = os.environ.copy()
+                mcp_env["CHUNKHOUND_MCP_MODE"] = "1"
+                
+                proc = await asyncio.create_subprocess_exec(
                 "uv", "run", "chunkhound", "mcp", str(temp_path),
                 cwd=temp_path,
                 env=mcp_env,
@@ -380,8 +384,7 @@ CONFIGURATION_{i} = {{
         It's skipped in CI due to GitHub Actions I/O performance limitations.
         Run locally to verify watchdog performance fixes.
         """
-        with tempfile.TemporaryDirectory() as temp_dir:
-            temp_path = Path(temp_dir)
+        with windows_safe_tempdir() as temp_path:
             
             # Create deeply nested directory structure
             # Watchdog blocks on directory traversal, not file count
@@ -413,11 +416,13 @@ CONFIGURATION_{i} = {{
             }
             config_path.write_text(json.dumps(config))
             
-            # Start MCP server with deep directory structure
-            mcp_env = os.environ.copy()
-            mcp_env["CHUNKHOUND_MCP_MODE"] = "1"
-            
-            proc = await asyncio.create_subprocess_exec(
+            # Use database cleanup context to ensure proper resource management
+            with database_cleanup_context():
+                # Start MCP server with deep directory structure
+                mcp_env = os.environ.copy()
+                mcp_env["CHUNKHOUND_MCP_MODE"] = "1"
+                
+                proc = await asyncio.create_subprocess_exec(
                 "uv", "run", "chunkhound", "mcp", str(temp_path),
                 cwd=temp_path,
                 env=mcp_env,

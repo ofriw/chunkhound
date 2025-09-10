@@ -18,10 +18,12 @@ from pathlib import Path
 
 from chunkhound.database_factory import create_database_with_dependencies
 from chunkhound.core.config.config import Config
+from chunkhound.utils.windows_constants import IS_WINDOWS, WINDOWS_FILE_HANDLE_DELAY
 from .test_utils import get_api_key_for_tests
 
 # Import Windows-safe subprocess utilities
 from tests.utils.windows_subprocess import create_subprocess_exec_safe, get_safe_subprocess_env
+from tests.utils.windows_compat import path_contains, windows_safe_tempdir, database_cleanup_context
 
 
 class MCPStdioClient:
@@ -447,8 +449,8 @@ Run the application with proper configuration.
                 for result in fibonacci_results:
                     if "calculate_fibonacci" in result.get("content", ""):
                         file_path = result["file_path"]
-                        assert str(project_dir) in file_path, f"File should be from project_dir: {file_path}"
-                        assert str(test_cwd) not in file_path, f"File should not be from test_cwd: {file_path}"
+                        assert path_contains(project_dir, file_path), f"File should be from project_dir: {file_path}"
+                        assert not path_contains(test_cwd, file_path), f"File should not be from test_cwd: {file_path}"
                         found_fibonacci = True
                         break
                 
@@ -468,7 +470,7 @@ Run the application with proper configuration.
                     if "test_isolated_app_67890" in result.get("content", ""):
                         file_path = result["file_path"]
                         assert "utils.py" in file_path
-                        assert str(project_dir) in file_path
+                        assert path_contains(project_dir, file_path)
                         found_app_id = True
                         break
                 
@@ -488,7 +490,7 @@ Run the application with proper configuration.
                     if "unique_feature_identifier_99999" in result.get("content", ""):
                         file_path = result["file_path"]
                         assert "README.md" in file_path
-                        assert str(project_dir) in file_path
+                        assert path_contains(project_dir, file_path)
                         found_readme = True
                         break
                         
@@ -532,8 +534,19 @@ def should_not_appear():
                     await mcp_process.wait()
                     
         finally:
+            # Use Windows-safe cleanup
+            from tests.utils.windows_compat import cleanup_database_resources
+            cleanup_database_resources()
+            
             import shutil
-            shutil.rmtree(temp_base, ignore_errors=True)
+            try:
+                shutil.rmtree(temp_base, ignore_errors=True)
+            except Exception as e:
+                # Windows may need extra time for file handles to be released
+                import time
+                if IS_WINDOWS:
+                    time.sleep(WINDOWS_FILE_HANDLE_DELAY)
+                    shutil.rmtree(temp_base, ignore_errors=True)
 
     @pytest.mark.asyncio
     @pytest.mark.skipif(get_api_key_for_tests()[0] is None, reason="No API key available")
@@ -642,14 +655,28 @@ def quicksort(arr):
                 # Should find sorting-related content from target project
                 for result in semantic_results:
                     file_path = result["file_path"]
-                    assert str(project_dir) in file_path
-                    assert str(test_cwd) not in file_path
+                    assert path_contains(project_dir, file_path)
+                    assert not path_contains(test_cwd, file_path)
                     
                 print("✓ Semantic search respects directory isolation")
                     
             finally:
-                services.provider.disconnect()
+                if hasattr(services.provider, 'close'):
+                    services.provider.close()
+                else:
+                    services.provider.disconnect()
                     
         finally:
+            # Use Windows-safe cleanup
+            from tests.utils.windows_compat import cleanup_database_resources
+            cleanup_database_resources()
+            
             import shutil
-            shutil.rmtree(temp_base, ignore_errors=True)
+            try:
+                shutil.rmtree(temp_base, ignore_errors=True)
+            except Exception as e:
+                # Windows may need extra time for file handles to be released
+                import time
+                if IS_WINDOWS:
+                    time.sleep(WINDOWS_FILE_HANDLE_DELAY)
+                    shutil.rmtree(temp_base, ignore_errors=True)
