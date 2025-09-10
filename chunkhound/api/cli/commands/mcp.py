@@ -3,16 +3,17 @@
 import argparse
 import json
 import os
-import platform
 import sys
 from pathlib import Path
+
+from chunkhound.utils.windows_constants import IS_WINDOWS
 
 
 def _safe_print(text: str) -> None:
     """Print text with safe encoding for all platforms."""
     try:
         # On Windows, ensure UTF-8 encoding for console output
-        if platform.system() == "Windows":
+        if IS_WINDOWS:
             # Try to encode as UTF-8 first
             try:
                 print(text.encode('utf-8').decode('utf-8'))
@@ -76,10 +77,8 @@ async def mcp_command(args: argparse.Namespace, config) -> None:
             cmd.extend(["--db", str(args.db)])
 
         # Set up environment with UTF-8 encoding for Windows compatibility
-        env = os.environ.copy()
-        if platform.system() == "Windows":
-            env["PYTHONIOENCODING"] = "utf-8"
-            env["PYTHONLEGACYWINDOWSSTDIO"] = "1"
+        from chunkhound.utils.windows_constants import get_utf8_env
+        env = get_utf8_env()
 
         process = subprocess.run(
             cmd,
