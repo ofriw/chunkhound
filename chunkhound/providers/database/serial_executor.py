@@ -10,6 +10,8 @@ from typing import Any
 
 from loguru import logger
 
+from chunkhound.utils.windows_constants import IS_WINDOWS, WINDOWS_FILE_HANDLE_DELAY
+
 # Task-local transaction state to ensure proper isolation in async contexts
 _transaction_context = contextvars.ContextVar("transaction_active", default=False)
 
@@ -172,12 +174,43 @@ class SerialDatabaseExecutor:
         )
 
     def shutdown(self, wait: bool = True) -> None:
-        """Shutdown the executor.
+        """Shutdown the executor with proper cleanup.
 
         Args:
             wait: Whether to wait for pending operations to complete
         """
-        self._db_executor.shutdown(wait=wait)
+        try:
+            # Force close any thread-local connections first
+            self._force_close_connections()
+            
+            # Shutdown the executor
+            self._db_executor.shutdown(wait=wait)
+            
+            # Windows-specific: Small delay to allow file handles to be released
+            if IS_WINDOWS:
+                time.sleep(WINDOWS_FILE_HANDLE_DELAY)
+                
+        except Exception as e:
+            logger.error(f"Error during executor shutdown: {e}")
+
+    def _force_close_connections(self) -> None:
+        """Force close any thread-local database connections."""
+        def close_connection():
+            try:
+                if hasattr(_executor_local, "connection"):
+                    conn = _executor_local.connection
+                    if conn and hasattr(conn, "close"):
+                        conn.close()
+                        logger.debug("Forced close of thread-local connection")
+            except Exception as e:
+                logger.error(f"Error force-closing connection: {e}")
+        
+        # Submit the close operation to the executor thread
+        try:
+            future = self._db_executor.submit(close_connection)
+            future.result(timeout=2.0)  # Short timeout for cleanup
+        except Exception as e:
+            logger.error(f"Error during force connection close: {e}")
 
     def clear_thread_local(self) -> None:
         """Clear thread-local storage (for cleanup).

@@ -246,7 +246,11 @@ class MCPServerBase(ABC):
 
         if self.services and self.services.provider.is_connected:
             self.debug_log("Closing database connection")
-            self.services.provider.disconnect()
+            # Use new close() method for proper cleanup, with fallback to disconnect()
+            if hasattr(self.services.provider, 'close'):
+                self.services.provider.close()
+            else:
+                self.services.provider.disconnect()
             self._initialized = False
 
     def ensure_services(self) -> DatabaseServices:

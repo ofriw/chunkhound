@@ -124,6 +124,13 @@ class SerialDatabaseProvider(ABC):
             logger.error(f"{self.__class__.__name__} connection failed: {e}")
             raise
 
+    def close(self) -> None:
+        """Close database connection and cleanup resources.
+        
+        This is the primary method tests and external code should use for cleanup.
+        """
+        self.disconnect(skip_checkpoint=False)
+
     def disconnect(self, skip_checkpoint: bool = False) -> None:
         """Close database connection with optional checkpointing."""
         try:
@@ -132,7 +139,7 @@ class SerialDatabaseProvider(ABC):
         finally:
             # Clear thread-local storage
             self._executor.clear_thread_local()
-            # Shutdown executor
+            # Shutdown executor with Windows-specific handling
             self._executor.shutdown(wait=True)
 
     def _execute_in_db_thread_sync(self, operation_name: str, *args, **kwargs) -> Any:
