@@ -207,13 +207,14 @@ class Config(BaseModel):
         """Validate the configuration after initialization."""
         # Ensure database path is set
         if not self.database.path:
-            # Try to detect project root from target_dir or auto-detect
-            from chunkhound.utils.project_detection import find_project_root
-
             # Use the target_dir if it was provided during initialization
-            start_path = self.target_dir
-            project_root = find_project_root(start_path)
-
+            # This respects the CLI argument precedence established in __init__
+            if self.target_dir:
+                project_root = self.target_dir
+            else:
+                # Only fall back to find_project_root for cases without CLI args
+                from chunkhound.utils.project_detection import find_project_root
+                project_root = find_project_root(None)
             # Set default database path in project root
             self.database.path = project_root / ".chunkhound" / "db"
 
