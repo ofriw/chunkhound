@@ -101,8 +101,12 @@ if __name__ == "__main__":
         config_path.write_text(json.dumps(config))
 
         # Index the project files
+        index_cmd = ["uv", "run", "chunkhound", "index", str(project_dir)]
+        if not (api_key and provider):
+            index_cmd.append("--no-embeddings")
+        
         index_result = subprocess.run(
-            ["uv", "run", "chunkhound", "index", str(project_dir)],
+            index_cmd,
             capture_output=True,
             text=True,
             timeout=30,
