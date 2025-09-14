@@ -1081,6 +1081,8 @@ class IndexingCoordinator(BaseService):
         Returns:
             List of file paths that match include patterns and don't match exclude patterns
         """
+        # Resolve directory path once at the beginning for consistent comparison
+        directory = directory.resolve()
         files = []
 
         # Cache for .gitignore patterns by directory
@@ -1094,8 +1096,9 @@ class IndexingCoordinator(BaseService):
             try:
                 rel_path = path.relative_to(base_dir)
             except ValueError:
-                # Path is not under base directory, use absolute path
+                # Path is not under base directory, use absolute path as fallback
                 rel_path = path
+
 
             for exclude_pattern in patterns:
                 # Handle ** patterns that fnmatch doesn't support properly
@@ -1126,11 +1129,8 @@ class IndexingCoordinator(BaseService):
 
         def should_include_file(file_path: Path) -> bool:
             """Check if a file matches any of the include patterns."""
-            try:
-                rel_path = file_path.relative_to(directory)
-            except ValueError:
-                # File is not under base directory, use absolute path
-                rel_path = file_path
+            # With directory resolved at start, all paths from iterdir will be consistent
+            rel_path = file_path.relative_to(directory)
 
             for pattern in patterns:
                 rel_path_str = str(rel_path)
