@@ -101,8 +101,12 @@ if __name__ == "__main__":
         config_path.write_text(json.dumps(config))
 
         # Index the project files
+        index_cmd = ["uv", "run", "chunkhound", "index", str(project_dir)]
+        if not (api_key and provider):
+            index_cmd.append("--no-embeddings")
+
         index_result = subprocess.run(
-            ["uv", "run", "chunkhound", "index", str(project_dir)],
+            index_cmd,
             capture_output=True,
             text=True,
             timeout=30,
@@ -206,6 +210,9 @@ if __name__ == "__main__":
             error_output = result.stderr + result.stdout
             assert error_output, "Should have error message"
 
+    @pytest.mark.skipif(
+        get_api_key_for_tests()[0] is None, reason="No API key available"
+    )
     def test_search_semantic_basic(self, cli_project_setup):
         """Test basic semantic search via CLI (if embedding provider available)."""
         project_dir = cli_project_setup
