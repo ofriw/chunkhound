@@ -449,8 +449,10 @@ Run the application with proper configuration.
                 for result in fibonacci_results:
                     if "calculate_fibonacci" in result.get("content", ""):
                         file_path = result["file_path"]
-                        assert path_contains(project_dir, file_path), f"File should be from project_dir: {file_path}"
-                        assert not path_contains(test_cwd, file_path), f"File should not be from test_cwd: {file_path}"
+                        # Search should return relative path from indexed project directory
+                        assert file_path == "main.py", f"Expected 'main.py', got: {file_path}"
+                        # Verify it's a relative path (not absolute)
+                        assert not Path(file_path).is_absolute(), f"File path should be relative: {file_path}"
                         found_fibonacci = True
                         break
                 
@@ -469,8 +471,10 @@ Run the application with proper configuration.
                 for result in app_results:
                     if "test_isolated_app_67890" in result.get("content", ""):
                         file_path = result["file_path"]
-                        assert "utils.py" in file_path
-                        assert path_contains(project_dir, file_path)
+                        # Search should return relative path from indexed project directory
+                        assert file_path == "utils.py", f"Expected 'utils.py', got: {file_path}"
+                        # Verify it's a relative path (not absolute)
+                        assert not Path(file_path).is_absolute(), f"File path should be relative: {file_path}"
                         found_app_id = True
                         break
                 
@@ -489,8 +493,10 @@ Run the application with proper configuration.
                 for result in readme_results:
                     if "unique_feature_identifier_99999" in result.get("content", ""):
                         file_path = result["file_path"]
-                        assert "README.md" in file_path
-                        assert path_contains(project_dir, file_path)
+                        # Search should return relative path from indexed project directory
+                        assert file_path == "README.md", f"Expected 'README.md', got: {file_path}"
+                        # Verify it's a relative path (not absolute)
+                        assert not Path(file_path).is_absolute(), f"File path should be relative: {file_path}"
                         found_readme = True
                         break
                         
@@ -655,8 +661,10 @@ def quicksort(arr):
                 # Should find sorting-related content from target project
                 for result in semantic_results:
                     file_path = result["file_path"]
-                    assert path_contains(project_dir, file_path)
-                    assert not path_contains(test_cwd, file_path)
+                    # Search should return relative path from indexed project directory
+                    assert file_path == "algorithms.py", f"Expected 'algorithms.py', got: {file_path}"
+                    # Verify it's a relative path (not absolute)
+                    assert not Path(file_path).is_absolute(), f"File path should be relative: {file_path}"
                     
                 print("✓ Semantic search respects directory isolation")
                     

@@ -22,6 +22,7 @@ from loguru import logger
 
 from chunkhound.core.models import Chunk, Embedding, File
 from chunkhound.core.types.common import ChunkType, Language
+from chunkhound.core.utils import normalize_path_for_lookup
 
 # Import existing components that will be used by the provider
 from chunkhound.embeddings import EmbeddingManager
@@ -976,9 +977,9 @@ class DuckDBProvider(SerialDatabaseProvider):
                 RETURNING id
             """,
                 [
-                    str(Path(file.path).resolve()),
-                    file.name if hasattr(file, "name") else file.path.name,
-                    file.extension if hasattr(file, "extension") else file.path.suffix,
+                    file.path,  # Store path as-is (now relative with forward slashes)
+                    file.name if hasattr(file, "name") else Path(file.path).name,
+                    file.extension if hasattr(file, "extension") else Path(file.path).suffix,
                     file.size_bytes if hasattr(file, "size_bytes") else None,
                     file.mtime if hasattr(file, "mtime") else None,
                     file.language.value if file.language else None,
@@ -1009,15 +1010,15 @@ class DuckDBProvider(SerialDatabaseProvider):
         self, conn: Any, state: dict[str, Any], path: str, as_model: bool
     ) -> dict[str, Any] | File | None:
         """Executor method for get_file_by_path - runs in DB thread."""
-        # Resolve path to handle symlinks and ensure consistent lookups
-        resolved_path = str(Path(path).resolve())
+        # Normalize path to handle both absolute and relative paths
+        lookup_path = normalize_path_for_lookup(path)
         result = conn.execute(
             """
             SELECT id, path, name, extension, size, modified_time, language, created_at, updated_at
             FROM files
             WHERE path = ?
         """,
-            [resolved_path],
+            [lookup_path],
         ).fetchone()
 
         if result is None:
@@ -1112,10 +1113,10 @@ class DuckDBProvider(SerialDatabaseProvider):
         track_operation(state)
 
         # Get file ID first
-        # Resolve path to handle symlinks and ensure consistent lookups
-        resolved_path = str(Path(file_path).resolve())
+        # Normalize path to handle both absolute and relative paths
+        normalized_path = normalize_path_for_lookup(file_path)
         result = conn.execute(
-            "SELECT id FROM files WHERE path = ?", [resolved_path]
+            "SELECT id FROM files WHERE path = ?", [normalized_path]
         ).fetchone()
 
         if not result:
@@ -1620,7 +1621,7 @@ class DuckDBProvider(SerialDatabaseProvider):
                     "start_line": row[5],
                     "end_line": row[6],
                     "chunk_language": row[7],
-                    "file_path": row[8],
+                    "file_path": str(Path(row[8])),  # Convert to native OS path separators
                     "file_language": row[9],
                 }
             )
@@ -1759,7 +1760,7 @@ class DuckDBProvider(SerialDatabaseProvider):
 
             if normalized_path is not None:
                 query += " AND f.path LIKE ?"
-                params.append(f"%/{normalized_path}%")
+                params.append(f"{normalized_path}%")  # Simple prefix match on relative paths
 
             # Get total count for pagination
             # Build count query separately to avoid string replacement issues
@@ -1779,7 +1780,7 @@ class DuckDBProvider(SerialDatabaseProvider):
 
             if normalized_path is not None:
                 count_query += " AND f.path LIKE ?"
-                count_params.append(f"%/{normalized_path}%")
+                count_params.append(f"{normalized_path}%")  # Simple prefix match on relative paths
 
             total_count = conn.execute(count_query, count_params).fetchone()[0]
 
@@ -1796,7 +1797,7 @@ class DuckDBProvider(SerialDatabaseProvider):
                     "chunk_type": result[3],
                     "start_line": result[4],
                     "end_line": result[5],
-                    "file_path": result[6],
+                    "file_path": str(Path(result[6])),  # Convert to native OS path separators
                     "language": result[7],
                     "similarity": result[8],
                 }
@@ -1867,7 +1868,7 @@ class DuckDBProvider(SerialDatabaseProvider):
 
             if normalized_path is not None:
                 where_conditions.append("f.path LIKE ?")
-                params.append(f"%/{normalized_path}%")
+                params.append(f"{normalized_path}%")  # Simple prefix match on relative paths
 
             where_clause = " AND ".join(where_conditions)
 
@@ -1909,7 +1910,7 @@ class DuckDBProvider(SerialDatabaseProvider):
                     "chunk_type": result[3],
                     "start_line": result[4],
                     "end_line": result[5],
-                    "file_path": result[6],
+                    "file_path": str(Path(result[6])),  # Convert to native OS path separators
                     "language": result[7],
                 }
                 for result in results
@@ -2056,7 +2057,7 @@ class DuckDBProvider(SerialDatabaseProvider):
                     "chunk_type": result[3],
                     "start_line": result[4],
                     "end_line": result[5],
-                    "file_path": result[6],
+                    "file_path": str(Path(result[6])),  # Convert to native OS path separators
                     "language": result[7],
                     "score": 1.0 - result[8],  # Convert distance to similarity score
                 }
@@ -2159,7 +2160,7 @@ class DuckDBProvider(SerialDatabaseProvider):
                     "chunk_type": result[3],
                     "start_line": result[4],
                     "end_line": result[5],
-                    "file_path": result[6],
+                    "file_path": str(Path(result[6])),  # Convert to native OS path separators
                     "language": result[7],
                     "score": 1.0 - result[8],  # Convert distance to similarity score
                 }
@@ -2212,7 +2213,7 @@ class DuckDBProvider(SerialDatabaseProvider):
                     "chunk_type": result[3],
                     "start_line": result[4],
                     "end_line": result[5],
-                    "file_path": result[6],
+                    "file_path": str(Path(result[6])),  # Convert to native OS path separators
                     "language": result[7],
                 }
                 for result in results

@@ -23,7 +23,7 @@ class File:
 
     Attributes:
         id: Unique file identifier (None for new files)
-        path: Absolute path to the file
+        path: Relative path to the file (with forward slashes for cross-platform compatibility)
         mtime: Last modification time as Unix timestamp
         language: Programming language of the file
         size_bytes: File size in bytes
@@ -86,7 +86,7 @@ class File:
             stat = file_path.stat()
 
             return cls(
-                path=FilePath(str(file_path.resolve())),
+                path=FilePath(str(file_path)),
                 mtime=Timestamp(stat.st_mtime),
                 language=Language.from_file_extension(file_path),
                 size_bytes=stat.st_size,
@@ -208,12 +208,8 @@ class File:
 
     @property
     def relative_path(self) -> str:
-        """Get relative path from current working directory."""
-        try:
-            return str(Path(self.path).relative_to(Path.cwd()))
-        except ValueError:
-            # File is outside current directory
-            return self.path
+        """Get relative path (path is already stored as relative)."""
+        return self.path
 
     def is_supported_language(self) -> bool:
         """Check if the file's language is supported by ChunkHound.

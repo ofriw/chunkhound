@@ -74,7 +74,7 @@ class DuckDBFileRepository:
                     RETURNING id
                 """,
                     [
-                        str(Path(file.path).resolve()),
+                        file.path,
                         file.name,
                         file.extension,
                         file.size_bytes,
@@ -110,15 +110,15 @@ class DuckDBFileRepository:
                 )
             else:
                 # Fallback for tests
-                # Resolve path to handle symlinks and ensure consistent lookups
-                from pathlib import Path
-                resolved_path = str(Path(path).resolve())
+                # Normalize path to handle both absolute and relative paths
+                from chunkhound.core.utils import normalize_path_for_lookup
+                lookup_path = normalize_path_for_lookup(path)
                 result = self.connection_manager.connection.execute(
                     """
                     SELECT id, path, name, extension, size, modified_time, language, created_at, updated_at
                     FROM files WHERE path = ?
                 """,
-                    [resolved_path],
+                    [lookup_path],
                 ).fetchone()
 
             if not result:

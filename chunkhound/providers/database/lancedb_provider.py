@@ -11,6 +11,7 @@ from loguru import logger
 
 from chunkhound.core.models import Chunk, Embedding, File
 from chunkhound.core.types.common import ChunkType, Language
+from chunkhound.core.utils import normalize_path_for_lookup
 
 # Import existing components that will be used by the provider
 from chunkhound.embeddings import EmbeddingManager
@@ -282,9 +283,8 @@ class LanceDBProvider(SerialDatabaseProvider):
         if not self._files_table:
             self._executor_create_schema(conn, state)
 
-        # Normalize path to canonical absolute path to prevent duplicates from different representations
-        # Use resolve() to handle symlinks (e.g., /var -> /private/var on macOS)
-        normalized_path = str(Path(file.path).resolve())
+        # Store path as-is (now relative with forward slashes from IndexingCoordinator)
+        normalized_path = file.path
 
         # Prepare file data
         file_data = {
@@ -337,9 +337,8 @@ class LanceDBProvider(SerialDatabaseProvider):
             return None
 
         try:
-            # Normalize path to canonical absolute path for consistent lookups
-            # Use resolve() to handle symlinks (e.g., /var -> /private/var on macOS)
-            normalized_path = str(Path(path).resolve())
+            # Normalize path to handle both absolute and relative paths
+            normalized_path = normalize_path_for_lookup(path)
 
             results = (
                 self._files_table.search()
@@ -1032,7 +1031,7 @@ class LanceDBProvider(SerialDatabaseProvider):
                     {
                         "id": chunk["id"],
                         "file_id": chunk["file_id"],
-                        "file_path": file_paths.get(chunk["file_id"], ""),
+                        "file_path": str(Path(file_paths.get(chunk["file_id"], ""))),  # Convert to native OS path separators
                         "content": chunk["content"],
                         "start_line": chunk["start_line"],
                         "end_line": chunk["end_line"],
@@ -1167,7 +1166,7 @@ class LanceDBProvider(SerialDatabaseProvider):
                     "chunk_type": result.get("chunk_type", ""),
                     "start_line": result.get("start_line", 0),
                     "end_line": result.get("end_line", 0),
-                    "file_path": file_path,
+                    "file_path": str(Path(file_path)),  # Convert to native OS path separators
                     "language": result.get("language", ""),
                     "similarity": similarity,
                 }
@@ -1251,7 +1250,7 @@ class LanceDBProvider(SerialDatabaseProvider):
                     "chunk_type": result.get("chunk_type", ""),
                     "start_line": result.get("start_line", 0),
                     "end_line": result.get("end_line", 0),
-                    "file_path": file_path,
+                    "file_path": str(Path(file_path)),  # Convert to native OS path separators
                     "language": result.get("language", ""),
                 }
                 formatted_results.append(formatted_result)

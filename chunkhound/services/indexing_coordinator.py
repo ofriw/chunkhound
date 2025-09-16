@@ -69,6 +69,25 @@ class IndexingCoordinator(BaseService):
         self._file_locks: dict[str, asyncio.Lock] = {}
         self._locks_lock = None  # Will be initialized when first needed
 
+        # Base directory tracking for relative path storage
+        self._base_directory: Path | None = None
+
+    def _get_base_directory(self, file_path: Path | None = None) -> Path:
+        """Get base directory for relative path calculation.
+
+        Uses the explicitly set base directory if available,
+        otherwise uses the file's parent directory for single-file operations.
+        """
+        if self._base_directory is None:
+            if file_path is not None:
+                # For single-file operations, use the file's parent directory
+                return file_path.parent
+            else:
+                # Fallback to current working directory
+                return Path.cwd()
+        return self._base_directory
+
+
     def add_language_parser(self, language: Language, parser: UniversalParser) -> None:
         """Add or update a language parser.
 
@@ -250,7 +269,9 @@ class IndexingCoordinator(BaseService):
                 }
 
             # Check for existing file to determine if this is an update or new file
-            existing_file = self._db.get_file_by_path(str(file_path))
+            base_dir = self._get_base_directory(file_path)
+            relative_path = file_path.relative_to(base_dir)
+            existing_file = self._db.get_file_by_path(relative_path.as_posix())
 
             # SECTION: Smart_Chunk_Update (PERFORMANCE_CRITICAL)
             # PATTERN: Diff-based updates preserve unchanged embeddings
@@ -700,6 +721,9 @@ class IndexingCoordinator(BaseService):
             Dictionary with processing statistics
         """
         try:
+            # Set base directory for relative path storage
+            self._base_directory = directory.resolve()
+
             # Phase 1: Discovery - Discover files in directory
             files = self._discover_files(directory, patterns, exclude_patterns)
 
@@ -788,7 +812,9 @@ class IndexingCoordinator(BaseService):
     ) -> int:
         """Store or update file record in database."""
         # Check if file already exists
-        existing_file = self._db.get_file_by_path(str(file_path))
+        base_dir = self._get_base_directory(file_path)
+        relative_path = file_path.relative_to(base_dir)
+        existing_file = self._db.get_file_by_path(relative_path.as_posix())
 
         if existing_file:
             # Update existing file with new metadata
@@ -799,9 +825,11 @@ class IndexingCoordinator(BaseService):
                 )
                 return file_id
 
-        # Create new File model instance
+        # Create new File model instance with relative path
+        base_dir = self._get_base_directory(file_path)
+        relative_path = file_path.relative_to(base_dir)
         file_model = File(
-            path=FilePath(str(file_path)),
+            path=FilePath(relative_path.as_posix()),
             size_bytes=file_stat.st_size,
             mtime=file_stat.st_mtime,
             language=language,
@@ -868,8 +896,16 @@ class IndexingCoordinator(BaseService):
             Number of chunks removed
         """
         try:
+            # Convert path to relative format for database lookup
+            file_path_obj = Path(file_path)
+            if file_path_obj.is_absolute():
+                base_dir = self._get_base_directory(file_path_obj)
+                relative_path = file_path_obj.relative_to(base_dir).as_posix()
+            else:
+                relative_path = file_path_obj.as_posix()
+
             # Get file record to get chunk count before deletion
-            file_record = self._db.get_file_by_path(file_path)
+            file_record = self._db.get_file_by_path(relative_path)
             if not file_record:
                 return 0
 
@@ -883,7 +919,7 @@ class IndexingCoordinator(BaseService):
             chunk_count = len(chunks) if chunks else 0
 
             # Delete the file completely (this will also delete chunks and embeddings)
-            success = self._db.delete_file_completely(file_path)
+            success = self._db.delete_file_completely(relative_path)
 
             # Clean up the file lock since the file no longer exists
             if success:
@@ -1270,19 +1306,18 @@ class IndexingCoordinator(BaseService):
             Number of orphaned files cleaned up
         """
         try:
-            # Create set of absolute paths for fast lookup
+            # Create set of relative paths for fast lookup
+            base_dir = self._get_base_directory()
             current_file_paths = {
-                str(file_path.resolve()) for file_path in current_files
+                file_path.relative_to(base_dir).as_posix() for file_path in current_files
             }
 
-            # Get all files in database that are under this directory
-            directory_str = str(directory.resolve())
+            # Get all files in database (stored as relative paths)
             query = """
                 SELECT id, path
                 FROM files
-                WHERE path LIKE ? || '%'
             """
-            db_files = self._db.execute_query(query, [directory_str])
+            db_files = self._db.execute_query(query, [])
 
             # Find orphaned files (in DB but not on disk or excluded by patterns)
             orphaned_files = []
@@ -1300,19 +1335,12 @@ class IndexingCoordinator(BaseService):
                 # Check if file should be excluded based on current patterns
                 should_exclude = False
 
-                # Convert to Path for relative path calculation
-                file_path_obj = Path(file_path)
-                try:
-                    rel_path = file_path_obj.relative_to(directory)
-                except ValueError:
-                    # File is not under the directory, use absolute path
-                    rel_path = file_path_obj
+                # File path is already relative (stored as relative with forward slashes)
+                rel_path = Path(file_path)
 
                 for exclude_pattern in patterns_to_check:
-                    # Check both relative and absolute paths
-                    if fnmatch(str(rel_path), exclude_pattern) or fnmatch(
-                        file_path, exclude_pattern
-                    ):
+                    # Check relative path pattern
+                    if fnmatch(str(rel_path), exclude_pattern):
                         should_exclude = True
                         break
 
