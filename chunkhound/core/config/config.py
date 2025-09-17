@@ -205,6 +205,19 @@ class Config(BaseModel):
     @model_validator(mode="after")
     def validate_config(self) -> "Config":
         """Validate the configuration after initialization."""
+        # Ensure target_dir is always set and resolved (never None)
+        if self.target_dir is None:
+            from chunkhound.utils.project_detection import find_project_root
+            detected_root = find_project_root(None)
+            # Fallback to current working directory if no project root found
+            resolved_target = detected_root.resolve() if detected_root else Path.cwd().resolve()
+            # Use object.__setattr__ to avoid Pydantic validation recursion
+            object.__setattr__(self, 'target_dir', resolved_target)
+        else:
+            # Ensure target_dir is resolved to canonical path (handles symlinks)
+            # Use object.__setattr__ to avoid Pydantic validation recursion
+            object.__setattr__(self, 'target_dir', self.target_dir.resolve())
+
         # Ensure database path is set
         if not self.database.path:
             # Try to detect project root from target_dir or auto-detect
@@ -217,8 +230,8 @@ class Config(BaseModel):
             # Set default database path in project root
             self.database.path = project_root / ".chunkhound" / "db"
 
-        # Ensure database path is absolute
-        if self.database.path and not self.database.path.is_absolute():
+        # Ensure database path is resolved to canonical form (handles symlinks)
+        if self.database.path:
             self.database.path = self.database.path.resolve()
 
         return self

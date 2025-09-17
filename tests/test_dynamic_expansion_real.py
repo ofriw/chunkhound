@@ -29,19 +29,20 @@ from .provider_configs import get_reranking_providers
 
 
 @pytest.fixture
-async def indexed_codebase(request):
+async def indexed_codebase(request, tmp_path):
     """Index real ChunkHound files for multi-hop testing."""
-    db = DuckDBProvider(":memory:")
+    from pathlib import Path
+    db = DuckDBProvider(":memory:", base_directory=tmp_path)
     db.connect()
-    
+
     provider_name, provider_class, provider_config = request.param
     embedding_provider = provider_class(**provider_config)
-    
+
     if not embedding_provider.supports_reranking():
         pytest.skip(f"{provider_name} does not support reranking")
-    
+
     parser = create_parser_for_language(Language.PYTHON)
-    coordinator = IndexingCoordinator(db, embedding_provider, {Language.PYTHON: parser})
+    coordinator = IndexingCoordinator(db, tmp_path, embedding_provider, {Language.PYTHON: parser})
     
     # Index files that form multi-hop chains based on our search discoveries
     critical_files = [
@@ -102,21 +103,19 @@ async def indexed_codebase(request):
         "chunkhound/database_factory.py",
     ]
     
-    temp_dir = Path(tempfile.mkdtemp())
-    
-    try:
-        indexed_count = 0
-        for file_path in critical_files:
-            full_path = Path(__file__).parent.parent / file_path
-            if full_path.exists():
-                try:
-                    content = full_path.read_text(encoding='utf-8')
-                    temp_file = temp_dir / full_path.name
-                    temp_file.write_text(content)
-                    await coordinator.process_file(temp_file)
-                    indexed_count += 1
-                except Exception as e:
-                    print(f"Warning: Could not process {file_path}: {e}")
+    # Use the fixture tmp_path instead of creating a separate temp directory
+    indexed_count = 0
+    for file_path in critical_files:
+        full_path = Path(__file__).parent.parent / file_path
+        if full_path.exists():
+            try:
+                content = full_path.read_text(encoding='utf-8')
+                temp_file = tmp_path / full_path.name
+                temp_file.write_text(content)
+                await coordinator.process_file(temp_file)
+                indexed_count += 1
+            except Exception as e:
+                print(f"Warning: Could not process {file_path}: {e}")
         
         if indexed_count < 10:
             pytest.skip(f"Not enough files indexed ({indexed_count}), need at least 10 for meaningful tests")
@@ -124,11 +123,9 @@ async def indexed_codebase(request):
         stats = db.get_stats()
         print(f"Indexed codebase stats: {stats}")
         
-        yield db, embedding_provider
-        
-    finally:
-        shutil.rmtree(temp_dir)
-        db.close()
+    yield db, embedding_provider
+
+    db.close()
 
 
 @pytest.mark.parametrize("indexed_codebase", get_reranking_providers(), indirect=True)

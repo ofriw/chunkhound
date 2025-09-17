@@ -30,10 +30,10 @@ pytestmark = pytest.mark.skipif(not PYMUPDF_AVAILABLE, reason="PyMuPDF not avail
 @pytest.fixture
 def pdf_services(tmp_path):
     """Create services for PDF indexing without embeddings."""
-    db = DuckDBProvider(":memory:")
+    db = DuckDBProvider(":memory:", base_directory=tmp_path)
     db.connect()
     parser = create_parser_for_language(Language.PDF)
-    coordinator = IndexingCoordinator(db, None, {Language.PDF: parser})
+    coordinator = IndexingCoordinator(db, tmp_path, None, {Language.PDF: parser})
     search_service = SearchService(db)
     return {
         "db": db,

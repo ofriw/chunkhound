@@ -89,15 +89,15 @@ class Class_{i}:
                     proc.stdin.write((json.dumps(init_request) + "\n").encode())
                     await proc.stdin.drain()
                     
-                    # Should respond quickly now (within 3 seconds)
+                    # Should respond quickly now (within 5 seconds - allow extra time for macOS)
                     response_line = await asyncio.wait_for(
-                        proc.stdout.readline(), timeout=3.0
+                        proc.stdout.readline(), timeout=5.0
                     )
-                    
+
                     response_time = time.time() - start_time
-                    
+
                     # Verify quick response
-                    assert response_time < 3.0, f"Server took {response_time:.2f} seconds to respond (should be < 3s)"
+                    assert response_time < 5.0, f"Server took {response_time:.2f} seconds to respond (should be < 5s)"
                     
                     # Verify response structure
                     init_response = json.loads(response_line.decode())

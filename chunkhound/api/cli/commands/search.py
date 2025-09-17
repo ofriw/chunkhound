@@ -17,6 +17,12 @@ from chunkhound.core.config.embedding_factory import EmbeddingProviderFactory
 from ..utils.rich_output import RichOutputFormatter
 
 
+def format_path_native(path: str) -> str:
+    """Convert stored forward-slash path to native platform format."""
+    import os
+    return path.replace('/', os.sep) if path else path
+
+
 async def search_command(args: argparse.Namespace, config: Config) -> None:
     """Execute the search command using the service layer.
 
@@ -183,11 +189,13 @@ def _format_search_results(
     # Display each result
     for i, result_item in enumerate(results, 1):
         file_path = result_item.get("file_path", "unknown")
+        # Convert to native path format for display
+        native_path = format_path_native(file_path)
         chunk_id = result_item.get("chunk_id", "")
         content = result_item.get("content", "")
-        
+
         # Display result header
-        formatter.info(f"\n[{offset + i}] {file_path}")
+        formatter.info(f"\n[{offset + i}] {native_path}")
         
         # Show similarity score for semantic search
         if not is_regex:

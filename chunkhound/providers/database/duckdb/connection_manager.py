@@ -24,6 +24,7 @@ except ImportError:
 # Suppress known SWIG warning from DuckDB Python bindings
 # This warning appears in CI environments and doesn't affect functionality
 import warnings
+
 warnings.filterwarnings("ignore", message=".*swigvarlink.*", category=DeprecationWarning)
 
 import duckdb

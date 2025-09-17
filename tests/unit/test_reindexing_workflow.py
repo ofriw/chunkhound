@@ -13,12 +13,12 @@ from chunkhound.services.indexing_coordinator import IndexingCoordinator
 
 
 @pytest.fixture
-def real_components():
+def real_components(tmp_path):
     """Real system components for testing."""
-    db = DuckDBProvider(":memory:")
+    db = DuckDBProvider(":memory:", base_directory=tmp_path)
     db.connect()  # Initialize database schema
     parser = create_parser_for_language(Language.PYTHON)
-    coordinator = IndexingCoordinator(db, None, {Language.PYTHON: parser})
+    coordinator = IndexingCoordinator(db, tmp_path, None, {Language.PYTHON: parser})
     return {"db": db, "parser": parser, "coordinator": coordinator}
 
 

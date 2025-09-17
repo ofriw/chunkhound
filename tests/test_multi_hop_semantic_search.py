@@ -30,24 +30,24 @@ from .provider_configs import get_reranking_providers
 
 
 @pytest.fixture
-async def content_aware_test_data(request):
+async def content_aware_test_data(request, tmp_path):
     """Create database with semantically related code structures for multi-hop testing."""
-    db = DuckDBProvider(":memory:")
+    db = DuckDBProvider(":memory:", base_directory=tmp_path)
     db.connect()
-    
+
     # Get provider configuration from parametrization
     provider_name, provider_class, provider_config = request.param
-    
+
     # Create provider from configuration
     embedding_provider = provider_class(**provider_config)
-    
+
     # Verify provider supports reranking (required for multi-hop tests)
     if not embedding_provider.supports_reranking():
         pytest.skip(f"{provider_name} provider does not support reranking")
-    
+
     # Create parser for Python - CAST will chunk at function/class boundaries
-    parser = create_parser_for_language(Language.PYTHON) 
-    coordinator = IndexingCoordinator(db, embedding_provider, {Language.PYTHON: parser})
+    parser = create_parser_for_language(Language.PYTHON)
+    coordinator = IndexingCoordinator(db, tmp_path, embedding_provider, {Language.PYTHON: parser})
     
     
     # Create semantic bridging test corpus with graduated semantic distances
@@ -77,14 +77,11 @@ async def content_aware_test_data(request):
                 continue
     
     # Index all files - CAST will create separate chunks for each function
-    import tempfile, shutil
-    temp_dir = Path(tempfile.mkdtemp())
-    
-    try:
-        for filename, content in test_files.items():
-            file_path = temp_dir / filename
-            file_path.write_text(content)
-            await coordinator.process_file(file_path)
+    # Use the fixture tmp_path instead of creating a separate temp directory
+    for filename, content in test_files.items():
+        file_path = tmp_path / filename
+        file_path.write_text(content)
+        await coordinator.process_file(file_path)
         
         # Verify we actually created chunks
         stats = db.get_stats()
@@ -115,15 +112,13 @@ async def content_aware_test_data(request):
                                                  key=lambda x: x[1], 
                                                  reverse=True)[:20]
         
-        yield db, content_analysis, (provider_name, provider_class, provider_config)
-    finally:
-        shutil.rmtree(temp_dir, ignore_errors=True)
+    yield db, content_analysis, (provider_name, provider_class, provider_config)
 
 
 @pytest.fixture
-async def simple_test_database():
+async def simple_test_database(tmp_path):
     """Create a simple test database for mock-based tests."""
-    db = DuckDBProvider(":memory:")
+    db = DuckDBProvider(":memory:", base_directory=tmp_path)
     db.connect()
     yield db
 

@@ -65,7 +65,8 @@ class TestQADeterministic:
         # Create services - real MCP server components
         services = create_services(db_path, config)
         services.provider.connect()
-        
+
+
         # Initialize realtime indexing service
         realtime_service = RealtimeIndexingService(services, config)
         await realtime_service.start(watch_dir)

@@ -8,6 +8,7 @@ Simplified from 540 lines to ~250 lines by:
 """
 
 import os
+from pathlib import Path
 from typing import Any, Optional
 
 from loguru import logger
@@ -101,9 +102,13 @@ class ProviderRegistry:
             logger.warning(f"[REGISTRY] No embedding provider configured for IndexingCoordinator: {e}")
             pass  # No embedding provider configured
 
+        # Get base directory from config (guaranteed to be set) or fallback to cwd
+        base_directory = self._config.target_dir if self._config else Path.cwd()
+
         logger.debug(f"[REGISTRY] Creating IndexingCoordinator with embedding_provider={embedding_provider}")
         return IndexingCoordinator(
             database_provider=database_provider,
+            base_directory=base_directory,
             embedding_provider=embedding_provider,
             language_parsers=self._language_parsers,
         )
@@ -161,7 +166,8 @@ class ProviderRegistry:
         if not self._config:
             # Default to DuckDB if no config
             from chunkhound.providers.database.duckdb_provider import DuckDBProvider
-            provider = DuckDBProvider(db_path=".chunkhound/db")
+            from pathlib import Path
+            provider = DuckDBProvider(db_path=".chunkhound/db", base_directory=Path.cwd())
             provider.connect()
             self.register_provider("database", provider, singleton=True)
             return
@@ -169,17 +175,20 @@ class ProviderRegistry:
         provider_type = self._config.database.provider
         db_path = str(self._config.database.path)
 
+        # Get base directory from config (guaranteed to be set)
+        base_directory = self._config.target_dir
+
         # Create the appropriate provider
         if provider_type == "duckdb":
             from chunkhound.providers.database.duckdb_provider import DuckDBProvider
-            provider = DuckDBProvider(db_path, config=self._config.database)
+            provider = DuckDBProvider(db_path, base_directory, config=self._config.database)
         elif provider_type == "lancedb":
             from chunkhound.providers.database.lancedb_provider import LanceDBProvider
-            provider = LanceDBProvider(db_path, config=self._config.database)
+            provider = LanceDBProvider(db_path, base_directory, config=self._config.database)
         else:
             logger.warning(f"Unknown provider {provider_type}, defaulting to DuckDB")
             from chunkhound.providers.database.duckdb_provider import DuckDBProvider
-            provider = DuckDBProvider(db_path, config=self._config.database)
+            provider = DuckDBProvider(db_path, base_directory, config=self._config.database)
 
         # Connect and register
         provider.connect()

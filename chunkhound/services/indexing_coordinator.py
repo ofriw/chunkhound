@@ -39,6 +39,7 @@ class IndexingCoordinator(BaseService):
     def __init__(
         self,
         database_provider: DatabaseProvider,
+        base_directory: Path,
         embedding_provider: EmbeddingProvider | None = None,
         language_parsers: dict[Language, UniversalParser] | None = None,
         progress: Progress | None = None,
@@ -47,6 +48,7 @@ class IndexingCoordinator(BaseService):
 
         Args:
             database_provider: Database provider for persistence
+            base_directory: Base directory for path normalization (always set)
             embedding_provider: Optional embedding provider for vector generation
             language_parsers: Optional mapping of language to parser implementations
             progress: Optional Rich Progress instance for hierarchical progress display
@@ -69,23 +71,9 @@ class IndexingCoordinator(BaseService):
         self._file_locks: dict[str, asyncio.Lock] = {}
         self._locks_lock = None  # Will be initialized when first needed
 
-        # Base directory tracking for relative path storage
-        self._base_directory: Path | None = None
+        # Base directory for path normalization (immutable after initialization)
+        self._base_directory: Path = base_directory
 
-    def _get_base_directory(self, file_path: Path | None = None) -> Path:
-        """Get base directory for relative path calculation.
-
-        Uses the explicitly set base directory if available,
-        otherwise uses the file's parent directory for single-file operations.
-        """
-        if self._base_directory is None:
-            if file_path is not None:
-                # For single-file operations, use the file's parent directory
-                return file_path.parent
-            else:
-                # Fallback to current working directory
-                return Path.cwd()
-        return self._base_directory
 
 
     def add_language_parser(self, language: Language, parser: UniversalParser) -> None:
@@ -187,6 +175,8 @@ class IndexingCoordinator(BaseService):
         Returns:
             Dictionary with processing results including status, chunks, and embeddings
         """
+        # CRITICAL: Resolve file path at entry to handle symlinks consistently
+        file_path = file_path.resolve()
 
         # CRITICAL: File-level locking prevents concurrent modification
         # PATTERN: All processing happens inside the lock
@@ -269,7 +259,7 @@ class IndexingCoordinator(BaseService):
                 }
 
             # Check for existing file to determine if this is an update or new file
-            base_dir = self._get_base_directory(file_path)
+            base_dir = self._base_directory
             relative_path = file_path.relative_to(base_dir)
             existing_file = self._db.get_file_by_path(relative_path.as_posix())
 
@@ -721,8 +711,7 @@ class IndexingCoordinator(BaseService):
             Dictionary with processing statistics
         """
         try:
-            # Set base directory for relative path storage
-            self._base_directory = directory.resolve()
+
 
             # Phase 1: Discovery - Discover files in directory
             files = self._discover_files(directory, patterns, exclude_patterns)
@@ -812,7 +801,7 @@ class IndexingCoordinator(BaseService):
     ) -> int:
         """Store or update file record in database."""
         # Check if file already exists
-        base_dir = self._get_base_directory(file_path)
+        base_dir = self._base_directory
         relative_path = file_path.relative_to(base_dir)
         existing_file = self._db.get_file_by_path(relative_path.as_posix())
 
@@ -826,7 +815,7 @@ class IndexingCoordinator(BaseService):
                 return file_id
 
         # Create new File model instance with relative path
-        base_dir = self._get_base_directory(file_path)
+        base_dir = self._base_directory
         relative_path = file_path.relative_to(base_dir)
         file_model = File(
             path=FilePath(relative_path.as_posix()),
@@ -899,7 +888,7 @@ class IndexingCoordinator(BaseService):
             # Convert path to relative format for database lookup
             file_path_obj = Path(file_path)
             if file_path_obj.is_absolute():
-                base_dir = self._get_base_directory(file_path_obj)
+                base_dir = self._base_directory
                 relative_path = file_path_obj.relative_to(base_dir).as_posix()
             else:
                 relative_path = file_path_obj.as_posix()
@@ -1307,7 +1296,7 @@ class IndexingCoordinator(BaseService):
         """
         try:
             # Create set of relative paths for fast lookup
-            base_dir = self._get_base_directory()
+            base_dir = self._base_directory
             current_file_paths = {
                 file_path.relative_to(base_dir).as_posix() for file_path in current_files
             }

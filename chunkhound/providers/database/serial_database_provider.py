@@ -38,6 +38,7 @@ class SerialDatabaseProvider(ABC):
     def __init__(
         self,
         db_path: Path | str,
+        base_directory: Path,
         embedding_manager: EmbeddingManager | None = None,
         config: "DatabaseConfig | None" = None,
     ):
@@ -45,6 +46,7 @@ class SerialDatabaseProvider(ABC):
 
         Args:
             db_path: Path to database file or directory
+            base_directory: Base directory for path normalization (always set)
             embedding_manager: Optional embedding manager for vector generation
             config: Database configuration for provider-specific settings
         """
@@ -65,6 +67,9 @@ class SerialDatabaseProvider(ABC):
 
         # File discovery cache for performance optimization
         self._file_discovery_cache = FileDiscoveryCache()
+
+        # Base directory for path normalization (immutable after initialization)
+        self._base_directory: Path = base_directory
 
     @abstractmethod
     def _create_connection(self) -> Any:
@@ -149,6 +154,10 @@ class SerialDatabaseProvider(ABC):
     async def _execute_in_db_thread(self, operation_name: str, *args, **kwargs) -> Any:
         """Execute operation asynchronously in DB thread."""
         return await self._executor.execute_async(self, operation_name, *args, **kwargs)
+
+    def get_base_directory(self) -> Path:
+        """Get the current base directory for path normalization."""
+        return self._base_directory
 
     def _initialize_shared_instances(self):
         """Initialize service layer components and legacy compatibility objects."""

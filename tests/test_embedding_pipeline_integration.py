@@ -37,9 +37,11 @@ async def pipeline_services(tmp_path):
         database={"path": str(db_path), "provider": "duckdb"},
         embedding=embedding_config
     )
+    # Set target_dir after initialization since it's an excluded field
+    config.target_dir = tmp_path
     
     # Standard service creation
-    services = create_services(db_path, config.to_dict())
+    services = create_services(db_path, config)
     yield services
 
 

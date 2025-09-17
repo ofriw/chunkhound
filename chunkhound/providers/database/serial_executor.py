@@ -118,6 +118,10 @@ class SerialDatabaseExecutor:
             # Update last activity time for ALL operations
             state["last_activity_time"] = time.time()
 
+            # Include base directory if provider has it
+            if hasattr(provider, 'get_base_directory'):
+                state["base_directory"] = provider.get_base_directory()
+
             # Execute operation - look for method named _executor_{operation_name}
             op_func = getattr(provider, f"_executor_{operation_name}")
             return op_func(conn, state, *args, **kwargs)
@@ -161,6 +165,10 @@ class SerialDatabaseExecutor:
             # Update last activity time for ALL operations
             state["last_activity_time"] = time.time()
 
+            # Include base directory if provider has it
+            if hasattr(provider, 'get_base_directory'):
+                state["base_directory"] = provider.get_base_directory()
+
             # Execute operation - look for method named _executor_{operation_name}
             op_func = getattr(provider, f"_executor_{operation_name}")
             return op_func(conn, state, *args, **kwargs)
@@ -182,14 +190,14 @@ class SerialDatabaseExecutor:
         try:
             # Force close any thread-local connections first
             self._force_close_connections()
-            
+
             # Shutdown the executor
             self._db_executor.shutdown(wait=wait)
-            
+
             # Windows-specific: Small delay to allow file handles to be released
             if IS_WINDOWS:
                 time.sleep(WINDOWS_FILE_HANDLE_DELAY)
-                
+
         except Exception as e:
             logger.error(f"Error during executor shutdown: {e}")
 
@@ -204,7 +212,7 @@ class SerialDatabaseExecutor:
                         logger.debug("Forced close of thread-local connection")
             except Exception as e:
                 logger.error(f"Error force-closing connection: {e}")
-        
+
         # Submit the close operation to the executor thread
         try:
             future = self._db_executor.submit(close_connection)

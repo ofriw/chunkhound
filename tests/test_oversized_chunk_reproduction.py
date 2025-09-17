@@ -250,6 +250,7 @@ def very_long_function_that_might_not_be_chunked_properly():
             # Index and analyze
             coordinator = IndexingCoordinator(
                 database_provider=services.provider,
+                base_directory=temp_dir,
                 embedding_provider=mock_provider
             )
             

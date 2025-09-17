@@ -10,6 +10,7 @@ across server types.
 
 import asyncio
 import json
+import os
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, TypedDict, cast
@@ -27,6 +28,14 @@ from chunkhound.version import __version__
 MAX_RESPONSE_TOKENS = 20000
 MIN_RESPONSE_TOKENS = 1000
 MAX_ALLOWED_TOKENS = 25000
+
+
+def _convert_paths_to_native(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Convert file paths in search results to native platform format."""
+    for result in results:
+        if "file_path" in result and result["file_path"]:
+            result["file_path"] = result["file_path"].replace('/', os.sep)
+    return results
 
 
 # Type definitions for return values
@@ -150,7 +159,10 @@ async def search_regex_impl(
         path_filter=path_filter,
     )
 
-    return cast(SearchResponse, {"results": results, "pagination": pagination})
+    # Convert file paths to native platform format
+    native_results = _convert_paths_to_native(results)
+
+    return cast(SearchResponse, {"results": native_results, "pagination": pagination})
 
 
 async def search_semantic_impl(
@@ -225,7 +237,10 @@ async def search_semantic_impl(
         path_filter=path_filter,
     )
 
-    return cast(SearchResponse, {"results": results, "pagination": pagination})
+    # Convert file paths to native platform format
+    native_results = _convert_paths_to_native(results)
+
+    return cast(SearchResponse, {"results": native_results, "pagination": pagination})
 
 
 async def get_stats_impl(services: DatabaseServices, scan_progress: dict | None = None) -> dict[str, Any]:

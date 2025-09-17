@@ -58,6 +58,7 @@ class DuckDBProvider(SerialDatabaseProvider):
     def __init__(
         self,
         db_path: Path | str,
+        base_directory: Path,
         embedding_manager: "EmbeddingManager | None" = None,
         config: "DatabaseConfig | None" = None,
     ):
@@ -65,11 +66,12 @@ class DuckDBProvider(SerialDatabaseProvider):
 
         Args:
             db_path: Path to DuckDB database file or ":memory:" for in-memory database
+            base_directory: Base directory for path normalization
             embedding_manager: Optional embedding manager for vector generation
             config: Database configuration for provider-specific settings
         """
         # Initialize base class
-        super().__init__(db_path, embedding_manager, config)
+        super().__init__(db_path, base_directory, embedding_manager, config)
 
         self.provider_type = "duckdb"  # Identify this as DuckDB provider
 
@@ -1011,7 +1013,9 @@ class DuckDBProvider(SerialDatabaseProvider):
     ) -> dict[str, Any] | File | None:
         """Executor method for get_file_by_path - runs in DB thread."""
         # Normalize path to handle both absolute and relative paths
-        lookup_path = normalize_path_for_lookup(path)
+        from chunkhound.core.utils import normalize_path_for_lookup
+        base_dir = state.get('base_directory')
+        lookup_path = normalize_path_for_lookup(path, base_dir)
         result = conn.execute(
             """
             SELECT id, path, name, extension, size, modified_time, language, created_at, updated_at
@@ -1114,7 +1118,8 @@ class DuckDBProvider(SerialDatabaseProvider):
 
         # Get file ID first
         # Normalize path to handle both absolute and relative paths
-        normalized_path = normalize_path_for_lookup(file_path)
+        base_dir = state.get('base_directory')
+        normalized_path = normalize_path_for_lookup(file_path, base_dir)
         result = conn.execute(
             "SELECT id FROM files WHERE path = ?", [normalized_path]
         ).fetchone()

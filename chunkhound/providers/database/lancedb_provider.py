@@ -11,7 +11,6 @@ from loguru import logger
 
 from chunkhound.core.models import Chunk, Embedding, File
 from chunkhound.core.types.common import ChunkType, Language
-from chunkhound.core.utils import normalize_path_for_lookup
 
 # Import existing components that will be used by the provider
 from chunkhound.embeddings import EmbeddingManager
@@ -78,6 +77,7 @@ class LanceDBProvider(SerialDatabaseProvider):
     def __init__(
         self,
         db_path: Path | str,
+        base_directory: Path,
         embedding_manager: EmbeddingManager | None = None,
         config: "DatabaseConfig | None" = None,
     ):
@@ -85,6 +85,7 @@ class LanceDBProvider(SerialDatabaseProvider):
 
         Args:
             db_path: Path to LanceDB database directory
+            base_directory: Base directory for path normalization
             embedding_manager: Optional embedding manager for vector generation
             config: Database configuration for provider-specific settings
         """
@@ -94,7 +95,7 @@ class LanceDBProvider(SerialDatabaseProvider):
         ).absolute()
 
         # Initialize base class
-        super().__init__(absolute_db_path, embedding_manager, config)
+        super().__init__(absolute_db_path, base_directory, embedding_manager, config)
 
         self.index_type = config.lancedb_index_type if config else None
         self.connection: Any | None = (
@@ -338,8 +339,9 @@ class LanceDBProvider(SerialDatabaseProvider):
 
         try:
             # Normalize path to handle both absolute and relative paths
-            normalized_path = normalize_path_for_lookup(path)
-
+            from chunkhound.core.utils import normalize_path_for_lookup
+            base_dir = state.get('base_directory')
+            normalized_path = normalize_path_for_lookup(path, base_dir)
             results = (
                 self._files_table.search()
                 .where(f"path = '{normalized_path}'")

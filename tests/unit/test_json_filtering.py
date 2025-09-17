@@ -11,21 +11,22 @@ from chunkhound.parsers.parser_factory import create_parser_for_language
 
 
 @pytest.fixture
-def real_components():
+def real_components(tmp_path):
     """Real system components for testing."""
-    db = DuckDBProvider(":memory:")
+    db = DuckDBProvider(":memory:", base_directory=tmp_path)
     db.connect()
-    
+
     # Create parsers for JSON and other languages
     json_parser = create_parser_for_language(Language.JSON)
     python_parser = create_parser_for_language(Language.PYTHON)
-    
+
     coordinator = IndexingCoordinator(
-        db, 
-        None, 
+        db,
+        tmp_path,
+        None,
         {Language.JSON: json_parser, Language.PYTHON: python_parser}
     )
-    
+
     return {"db": db, "coordinator": coordinator}
 
 

@@ -41,7 +41,8 @@ class TestRealtimeFunctional:
         
         services = create_services(db_path, config)
         services.provider.connect()
-        
+
+
         realtime_service = RealtimeIndexingService(services, config)
         
         yield realtime_service, watch_dir, temp_dir, services
