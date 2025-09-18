@@ -103,11 +103,13 @@ class YamlMapping(BaseMapping):
         # All cases handled above
         return None
 
-    def extract_name(self, concept: UniversalConcept, captures: dict[str, Node], content: bytes) -> str:
+    def extract_name(
+        self, concept: UniversalConcept, captures: dict[str, Node], content: bytes
+    ) -> str:
         """Extract name from captures for this concept."""
 
         # Convert bytes to string for processing
-        source = content.decode('utf-8')
+        source = content.decode("utf-8")
 
         if concept == UniversalConcept.DEFINITION:
             # For key-value pairs, use the key as the name
@@ -115,8 +117,8 @@ class YamlMapping(BaseMapping):
                 key_node = captures["key"]
                 key_text = self.get_node_text(key_node, source).strip()
                 # Clean up YAML key format
-                key_text = key_text.strip('"\'')
-                if key_text.endswith(':'):
+                key_text = key_text.strip("\"'")
+                if key_text.endswith(":"):
                     key_text = key_text[:-1]
                 return key_text
 
@@ -133,7 +135,7 @@ class YamlMapping(BaseMapping):
             if "definition" in captures:
                 node = captures["definition"]
                 line = node.start_point[0] + 1
-                block_type = node.type.replace('_', ' ')
+                block_type = node.type.replace("_", " ")
                 return f"{block_type}_line_{line}"
 
             return "unnamed_block"
@@ -152,8 +154,8 @@ class YamlMapping(BaseMapping):
                 key_node = captures["key"]
                 value_node = captures["value"]
 
-                key_text = self.get_node_text(key_node, source).strip().strip('"\'')
-                value_text = self.get_node_text(value_node, source).strip().strip('"\'')
+                key_text = self.get_node_text(key_node, source).strip().strip("\"'")
+                value_text = self.get_node_text(value_node, source).strip().strip("\"'")
 
                 return f"{key_text}_{value_text}"
 
@@ -174,11 +176,13 @@ class YamlMapping(BaseMapping):
         # All cases handled above
         return "unnamed"
 
-    def extract_content(self, concept: UniversalConcept, captures: dict[str, Node], content: bytes) -> str:
+    def extract_content(
+        self, concept: UniversalConcept, captures: dict[str, Node], content: bytes
+    ) -> str:
         """Extract content from captures for this concept."""
 
         # Convert bytes to string for processing
-        source = content.decode('utf-8')
+        source = content.decode("utf-8")
 
         if "definition" in captures:
             node = captures["definition"]
@@ -190,10 +194,12 @@ class YamlMapping(BaseMapping):
 
         return ""
 
-    def extract_metadata(self, concept: UniversalConcept, captures: dict[str, Node], content: bytes) -> dict[str, Any]:
+    def extract_metadata(
+        self, concept: UniversalConcept, captures: dict[str, Node], content: bytes
+    ) -> dict[str, Any]:
         """Extract YAML-specific metadata."""
 
-        source = content.decode('utf-8')
+        source = content.decode("utf-8")
         metadata = {}
 
         if concept == UniversalConcept.DEFINITION:
@@ -207,7 +213,7 @@ class YamlMapping(BaseMapping):
                     key_node = captures["key"]
                     value_node = captures["value"]
 
-                    key_text = self.get_node_text(key_node, source).strip().strip('"\'')
+                    key_text = self.get_node_text(key_node, source).strip().strip("\"'")
                     value_text = self.get_node_text(value_node, source).strip()
 
                     metadata["kind"] = "mapping_pair"
@@ -219,7 +225,7 @@ class YamlMapping(BaseMapping):
 
                     # Store short values for reference
                     if len(value_text) < 100 and value_type in ["scalar", "string"]:
-                        metadata["value"] = value_text.strip('"\'')
+                        metadata["value"] = value_text.strip("\"'")
 
                     # Check for common configuration patterns
                     if key_text.lower() in ["name", "title", "id", "version"]:
@@ -258,21 +264,27 @@ class YamlMapping(BaseMapping):
                 elif block_node.type == "document":
                     # Analyze document structure
                     metadata["structure_type"] = "document"
-                    metadata["has_directives"] = self._has_yaml_directives(block_node, source)
+                    metadata["has_directives"] = self._has_yaml_directives(
+                        block_node, source
+                    )
 
         elif concept == UniversalConcept.IMPORT:
             if "key" in captures and "value" in captures:
                 key_node = captures["key"]
                 value_node = captures["value"]
 
-                key_text = self.get_node_text(key_node, source).strip().strip('"\'')
-                value_text = self.get_node_text(value_node, source).strip().strip('"\'')
+                key_text = self.get_node_text(key_node, source).strip().strip("\"'")
+                value_text = self.get_node_text(value_node, source).strip().strip("\"'")
 
                 metadata["import_type"] = key_text.lower()
                 metadata["import_target"] = value_text
 
                 # Determine if it's a file path or module reference
-                if '/' in value_text or '\\' in value_text or value_text.endswith(('.yaml', '.yml')):
+                if (
+                    "/" in value_text
+                    or "\\" in value_text
+                    or value_text.endswith((".yaml", ".yml"))
+                ):
                     metadata["target_type"] = "file"
                 else:
                     metadata["target_type"] = "reference"
@@ -290,7 +302,10 @@ class YamlMapping(BaseMapping):
 
                 if clean_text:
                     upper_text = clean_text.upper()
-                    if any(prefix in upper_text for prefix in ["TODO:", "FIXME:", "HACK:", "NOTE:", "WARNING:"]):
+                    if any(
+                        prefix in upper_text
+                        for prefix in ["TODO:", "FIXME:", "HACK:", "NOTE:", "WARNING:"]
+                    ):
                         comment_type = "annotation"
                     elif clean_text.startswith("---") or clean_text.startswith("..."):
                         comment_type = "document_marker"
@@ -309,8 +324,13 @@ class YamlMapping(BaseMapping):
                     depth = self._calculate_yaml_depth(structure_node)
                     metadata["max_depth"] = depth
                 elif structure_node.type == "stream":
-                    doc_count = len([child for child in self.walk_tree(structure_node)
-                                   if child and child.type == "document"])
+                    doc_count = len(
+                        [
+                            child
+                            for child in self.walk_tree(structure_node)
+                            if child and child.type == "document"
+                        ]
+                    )
                     metadata["document_count"] = doc_count
 
         return metadata
@@ -355,14 +375,19 @@ class YamlMapping(BaseMapping):
     def _has_yaml_directives(self, document_node: Node, source: str) -> bool:
         """Check if document has YAML directives (like %YAML, %TAG)."""
         doc_text = self.get_node_text(document_node, source)
-        return doc_text.strip().startswith('%')
+        return doc_text.strip().startswith("%")
 
     def _calculate_yaml_depth(self, node: Node, current_depth: int = 1) -> int:
         """Calculate maximum nesting depth of YAML structure."""
         max_depth = current_depth
 
-        for child in node.children if hasattr(node, 'children') else []:
-            if child and child.type in ["block_mapping", "flow_mapping", "block_sequence", "flow_sequence"]:
+        for child in node.children if hasattr(node, "children") else []:
+            if child and child.type in [
+                "block_mapping",
+                "flow_mapping",
+                "block_sequence",
+                "flow_sequence",
+            ]:
                 child_depth = self._calculate_yaml_depth(child, current_depth + 1)
                 max_depth = max(max_depth, child_depth)
 

@@ -74,7 +74,7 @@ class HttpMCPServer(MCPServerBase):
                         embedding_manager=self.embedding_manager,
                         initialization_complete=init_event,
                         debug_mode=self.debug_mode,
-                        scan_progress=self._scan_progress
+                        scan_progress=self._scan_progress,
                     )
 
                     # Convert TextContent list to dict for FastMCP
@@ -155,4 +155,5 @@ async def main() -> None:
 
 if __name__ == "__main__":
     import asyncio
+
     asyncio.run(main())

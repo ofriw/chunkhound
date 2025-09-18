@@ -114,6 +114,7 @@ class OpenAIEmbeddingProvider:
 
         # Only require API key for official OpenAI API
         from chunkhound.core.config.openai_utils import is_official_openai_endpoint
+
         is_openai_official = is_official_openai_endpoint(self._base_url)
         if is_openai_official and not self._api_key:
             raise ValueError("OpenAI API key is required for official OpenAI API")
@@ -137,11 +138,13 @@ class OpenAIEmbeddingProvider:
                 # Create httpx client with SSL verification disabled
                 http_client = httpx.AsyncClient(
                     timeout=httpx.Timeout(timeout=self._timeout),
-                    verify=False  # Disable SSL for custom endpoints
+                    verify=False,  # Disable SSL for custom endpoints
                 )
                 client_kwargs["http_client"] = http_client
 
-                logger.debug(f"SSL verification disabled for custom endpoint: {self._base_url}")
+                logger.debug(
+                    f"SSL verification disabled for custom endpoint: {self._base_url}"
+                )
 
         # IMPORTANT: Create the client in async context to avoid TaskGroup errors on Ubuntu
         # This ensures the event loop is running when the client initializes its httpx instance
@@ -296,7 +299,9 @@ class OpenAIEmbeddingProvider:
 
         except Exception as e:
             # CRITICAL: Log EVERY exception that passes through here to trace execution path
-            logger.error(f"[DEBUG-TRACE] Exception caught in OpenAI embed() method: {type(e).__name__}: {str(e)[:200]}")
+            logger.error(
+                f"[DEBUG-TRACE] Exception caught in OpenAI embed() method: {type(e).__name__}: {str(e)[:200]}"
+            )
             self._usage_stats["errors"] += 1
             # Log details of oversized chunks for root cause analysis
             text_sizes = [len(text) for text in validated_texts]
@@ -306,20 +311,31 @@ class OpenAIEmbeddingProvider:
             # Find and log oversized chunks with their content preview
             oversized_chunks = []
             for i, text in enumerate(validated_texts):
-                if len(text) > 100000:  # Chunks over 100k chars are definitely problematic
+                if (
+                    len(text) > 100000
+                ):  # Chunks over 100k chars are definitely problematic
                     preview = text[:200] + "..." if len(text) > 200 else text
-                    oversized_chunks.append(f"#{i}: {len(text)} chars, starts: {preview}")
+                    oversized_chunks.append(
+                        f"#{i}: {len(text)} chars, starts: {preview}"
+                    )
 
             if oversized_chunks:
-                logger.error("[OpenAI-Provider] OVERSIZED CHUNKS FOUND:\n" + "\n".join(oversized_chunks[:3]))  # Limit to first 3
+                logger.error(
+                    "[OpenAI-Provider] OVERSIZED CHUNKS FOUND:\n"
+                    + "\n".join(oversized_chunks[:3])
+                )  # Limit to first 3
 
-            logger.error(f"[OpenAI-Provider] Failed to generate embeddings (texts: {len(validated_texts)}, total_chars: {total_chars}, max_chars: {max_chars}): {e}")
+            logger.error(
+                f"[OpenAI-Provider] Failed to generate embeddings (texts: {len(validated_texts)}, total_chars: {total_chars}, max_chars: {max_chars}): {e}"
+            )
 
             # Add debug logging to trace the error
             debug_file = "/tmp/chunkhound_openai_debug.log"
             try:
                 with open(debug_file, "a") as f:
-                    f.write(f"[{datetime.now().isoformat()}] OPENAI-PROVIDER ERROR: texts={len(validated_texts)}, max_chars={max_chars}, error={e}\n")
+                    f.write(
+                        f"[{datetime.now().isoformat()}] OPENAI-PROVIDER ERROR: texts={len(validated_texts)}, max_chars={max_chars}, error={e}\n"
+                    )
                     f.flush()
             except:
                 pass
@@ -438,8 +454,12 @@ class OpenAIEmbeddingProvider:
                     # Handle token limit exceeded errors
                     error_message = str(rate_error)
                     if (
-                        ("maximum context length" in error_message and "tokens" in error_message) or
-                        ("tokens" in error_message and "max" in error_message and "per request" in error_message)
+                        "maximum context length" in error_message
+                        and "tokens" in error_message
+                    ) or (
+                        "tokens" in error_message
+                        and "max" in error_message
+                        and "per request" in error_message
                     ):
                         total_tokens = self.estimate_batch_tokens(texts)
                         token_limit = (
@@ -695,10 +715,7 @@ class OpenAIEmbeddingProvider:
         return self._rerank_model is not None
 
     async def rerank(
-        self,
-        query: str,
-        documents: list[str],
-        top_k: int | None = None
+        self, query: str, documents: list[str], top_k: int | None = None
     ) -> list[RerankResult]:
         """Rerank documents using configured rerank model."""
         await self._ensure_client()
@@ -708,21 +725,17 @@ class OpenAIEmbeddingProvider:
             raise ValueError("base_url is required for reranking operations")
 
         # Build full rerank endpoint URL
-        if self._rerank_url.startswith(('http://', 'https://')):
+        if self._rerank_url.startswith(("http://", "https://")):
             # Full URL - use as-is for separate reranking service
             rerank_endpoint = self._rerank_url
         else:
             # Relative path - combine with base_url
-            base_url = self._base_url.rstrip('/')
-            rerank_url = self._rerank_url.lstrip('/')
+            base_url = self._base_url.rstrip("/")
+            rerank_url = self._rerank_url.lstrip("/")
             rerank_endpoint = f"{base_url}/{rerank_url}"
 
         # Prepare request payload
-        payload = {
-            "model": self._rerank_model,
-            "query": query,
-            "documents": documents
-        }
+        payload = {"model": self._rerank_model, "query": query, "documents": documents}
         if top_k is not None:
             payload["top_n"] = top_k
 
@@ -734,22 +747,23 @@ class OpenAIEmbeddingProvider:
 
             # Make API request with timeout using httpx directly
             # since OpenAI client doesn't support custom endpoints well
-            
+
             # Apply consistent SSL handling (same pattern as setup wizard and client init)
             from chunkhound.core.config.openai_utils import is_official_openai_endpoint
+
             client_kwargs = {"timeout": self._timeout}
             if not is_official_openai_endpoint(self._base_url):
                 # For custom endpoints, disable SSL verification
                 # These often use self-signed certificates (corporate servers, Ollama)
                 client_kwargs["verify"] = False
-                logger.debug(f"SSL verification disabled for rerank endpoint: {rerank_endpoint}")
-            
+                logger.debug(
+                    f"SSL verification disabled for rerank endpoint: {rerank_endpoint}"
+                )
+
             async with httpx.AsyncClient(**client_kwargs) as client:
                 headers = {"Content-Type": "application/json"}
                 response = await client.post(
-                    rerank_endpoint,
-                    json=payload,
-                    headers=headers
+                    rerank_endpoint, json=payload, headers=headers
                 )
                 response.raise_for_status()
                 response_data = response.json()
@@ -774,27 +788,33 @@ class OpenAIEmbeddingProvider:
                     continue
 
                 try:
-                    rerank_results.append(RerankResult(
-                        index=int(result["index"]),
-                        score=float(result["relevance_score"])
-                    ))
+                    rerank_results.append(
+                        RerankResult(
+                            index=int(result["index"]),
+                            score=float(result["relevance_score"]),
+                        )
+                    )
                 except (ValueError, TypeError) as e:
                     logger.warning(f"Skipping result {i}: invalid data types - {e}")
                     continue
 
             # Update usage statistics
             self._usage_stats["requests_made"] += 1
-            self._usage_stats["documents_reranked"] = (
-                self._usage_stats.get("documents_reranked", 0) + len(documents)
-            )
+            self._usage_stats["documents_reranked"] = self._usage_stats.get(
+                "documents_reranked", 0
+            ) + len(documents)
 
-            logger.debug(f"Successfully reranked {len(documents)} documents, got {len(rerank_results)} results")
+            logger.debug(
+                f"Successfully reranked {len(documents)} documents, got {len(rerank_results)} results"
+            )
             return rerank_results
 
         except httpx.ConnectError as e:
             # Connection failed - service not available
             self._usage_stats["errors"] += 1
-            logger.error(f"Failed to connect to rerank service at {rerank_endpoint}: {e}")
+            logger.error(
+                f"Failed to connect to rerank service at {rerank_endpoint}: {e}"
+            )
             raise
         except httpx.TimeoutException as e:
             # Request timed out
@@ -804,7 +824,9 @@ class OpenAIEmbeddingProvider:
         except httpx.HTTPStatusError as e:
             # HTTP error response from service
             self._usage_stats["errors"] += 1
-            logger.error(f"Rerank service returned error {e.response.status_code}: {e.response.text}")
+            logger.error(
+                f"Rerank service returned error {e.response.status_code}: {e.response.text}"
+            )
             raise
         except ValueError as e:
             # Invalid response format

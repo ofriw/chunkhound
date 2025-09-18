@@ -11,7 +11,7 @@ from .terminal import TerminalInput, TerminalInputTimeout, TerminalError, Keys
 
 class KeyboardInput:
     """Cross-platform keyboard input handler.
-    
+
     Provides the same API as the original readchar-based implementation
     but uses our custom terminal module for better cross-platform support.
     """
@@ -30,7 +30,7 @@ class KeyboardInput:
 
         Returns:
             String representing the key pressed:
-            - "UP", "DOWN", "LEFT", "RIGHT" for arrow keys  
+            - "UP", "DOWN", "LEFT", "RIGHT" for arrow keys
             - "ENTER" for Enter key
             - "ESC" for Escape key
             - "BACKSPACE" for Backspace
@@ -42,10 +42,10 @@ class KeyboardInput:
             if not self._setup_done:
                 self._terminal.setup()
                 self._setup_done = True
-            
+
             # Get key from terminal
             key = self._terminal.getkey(timeout)
-            
+
             # Map our terminal module keys to expected format
             if key == Keys.UP:
                 return "UP"
@@ -94,17 +94,17 @@ class KeyboardInput:
 
             # Handle single characters and control sequences
             if len(key) == 1:
-                if key == '\r' or key == '\n':
+                if key == "\r" or key == "\n":
                     return "ENTER"
-                elif key == '\x1b':
+                elif key == "\x1b":
                     return "ESC"
-                elif key == '\x7f' or key == '\x08':
+                elif key == "\x7f" or key == "\x08":
                     return "BACKSPACE"
-                elif key == '\x03':
+                elif key == "\x03":
                     return "CTRL_C"
-                elif key == '\x04':
+                elif key == "\x04":
                     return "CTRL_D"
-                elif key == '\t':
+                elif key == "\t":
                     return "TAB"
                 else:
                     return key
@@ -136,7 +136,7 @@ class KeyboardInput:
 
     def cleanup(self) -> None:
         """Clean up terminal state.
-        
+
         This should be called when the application exits to restore
         normal terminal behavior.
         """
@@ -156,6 +156,7 @@ class KeyboardInput:
 # Global keyboard instance for convenience (lazy initialization)
 _keyboard_instance = None
 
+
 def _get_keyboard():
     """Get or create the global keyboard instance."""
     global _keyboard_instance
@@ -163,18 +164,20 @@ def _get_keyboard():
         _keyboard_instance = KeyboardInput()
     return _keyboard_instance
 
+
 # Create a proxy object that behaves like KeyboardInput
 class _KeyboardProxy:
     """Proxy object for lazy keyboard initialization."""
-    
+
     def getkey(self, timeout: float | None = None) -> str:
         """Get key from lazy-initialized keyboard instance."""
         return _get_keyboard().getkey(timeout)
-    
+
     def cleanup(self) -> None:
         """Clean up lazy-initialized keyboard instance."""
         if _keyboard_instance is not None:
             _keyboard_instance.cleanup()
+
 
 # Global keyboard instance that won't cause import errors
 keyboard = _KeyboardProxy()

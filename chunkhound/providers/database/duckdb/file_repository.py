@@ -111,7 +111,10 @@ class DuckDBFileRepository:
                 # Fallback for tests
                 # Normalize path to handle both absolute and relative paths
                 from chunkhound.core.utils import normalize_path_for_lookup
-                base_dir = self._provider.get_base_directory() if self._provider else None
+
+                base_dir = (
+                    self._provider.get_base_directory() if self._provider else None
+                )
                 lookup_path = normalize_path_for_lookup(path, base_dir)
                 result = self.connection_manager.connection.execute(
                     """

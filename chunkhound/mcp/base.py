@@ -68,7 +68,7 @@ class MCPServerBase(ABC):
             "chunks_created": 0,
             "is_scanning": False,
             "scan_started_at": None,
-            "scan_completed_at": None
+            "scan_completed_at": None,
         }
 
         # Set MCP mode to suppress stderr output that interferes with JSON-RPC
@@ -78,17 +78,19 @@ class MCPServerBase(ABC):
         """Log debug message to file if debug mode is enabled."""
         if self.debug_mode:
             # Write to debug file instead of stderr to preserve JSON-RPC protocol
-            debug_file = os.getenv("CHUNKHOUND_DEBUG_FILE", "/tmp/chunkhound_mcp_debug.log")
+            debug_file = os.getenv(
+                "CHUNKHOUND_DEBUG_FILE", "/tmp/chunkhound_mcp_debug.log"
+            )
             try:
                 with open(debug_file, "a") as f:
                     from datetime import datetime
+
                     timestamp = datetime.now().isoformat()
                     f.write(f"[{timestamp}] [MCP] {message}\n")
                     f.flush()
             except Exception:
                 # Silently fail if we can't write to debug file
                 pass
-
 
     async def initialize(self) -> None:
         """Initialize services and database connection.
@@ -144,7 +146,7 @@ class MCPServerBase(ABC):
             self.services.provider.connect()
 
             # Determine target path for scanning and watching
-            if self.args and hasattr(self.args, 'path'):
+            if self.args and hasattr(self.args, "path"):
                 target_path = Path(self.args.path)
                 self.debug_log(f"Using direct path from args: {target_path}")
             else:
@@ -152,26 +154,33 @@ class MCPServerBase(ABC):
                 target_path = self.config.target_dir or db_path.parent.parent
                 self.debug_log(f"Using fallback path resolution: {target_path}")
 
-
             # Start real-time indexing service
             self.debug_log("Starting real-time indexing service")
             self.realtime_indexing = RealtimeIndexingService(self.services, self.config)
 
             # Start monitoring and wait for it to be ready
-            monitoring_task = asyncio.create_task(self.realtime_indexing.start(target_path))
+            monitoring_task = asyncio.create_task(
+                self.realtime_indexing.start(target_path)
+            )
 
             # Mark as initialized immediately (tools available)
             self._initialized = True
             self.debug_log("Service initialization complete")
 
             # Schedule background scan AFTER monitoring is confirmed ready
-            asyncio.create_task(self._coordinated_initial_scan(target_path, monitoring_task))
+            asyncio.create_task(
+                self._coordinated_initial_scan(target_path, monitoring_task)
+            )
 
-    async def _coordinated_initial_scan(self, target_path: Path, monitoring_task: asyncio.Task) -> None:
+    async def _coordinated_initial_scan(
+        self, target_path: Path, monitoring_task: asyncio.Task
+    ) -> None:
         """Perform initial scan after monitoring is confirmed ready."""
         try:
             # Wait for monitoring to be ready (with timeout)
-            await asyncio.wait_for(self.realtime_indexing.monitoring_ready.wait(), timeout=10.0)
+            await asyncio.wait_for(
+                self.realtime_indexing.monitoring_ready.wait(), timeout=10.0
+            )
             self.debug_log("Monitoring confirmed ready, starting initial scan")
 
             # Add small delay to ensure any startup files are captured by monitoring
@@ -183,7 +192,9 @@ class MCPServerBase(ABC):
             await self._background_initial_scan(target_path)
 
         except asyncio.TimeoutError:
-            self.debug_log("Monitoring setup timeout - proceeding with initial scan anyway")
+            self.debug_log(
+                "Monitoring setup timeout - proceeding with initial scan anyway"
+            )
             # Still do the scan even if monitoring isn't ready
             self._scan_progress["is_scanning"] = True
             self._scan_progress["scan_started_at"] = datetime.now().isoformat()
@@ -200,7 +211,8 @@ class MCPServerBase(ABC):
                 if "files processed" in message:
                     # Extract numbers from progress messages
                     import re
-                    match = re.search(r'(\d+) files processed.*?(\d+) chunks', message)
+
+                    match = re.search(r"(\d+) files processed.*?(\d+) chunks", message)
                     if match:
                         self._scan_progress["files_processed"] = int(match.group(1))
                         self._scan_progress["chunks_created"] = int(match.group(2))
@@ -210,25 +222,28 @@ class MCPServerBase(ABC):
             indexing_service = DirectoryIndexingService(
                 indexing_coordinator=self.services.indexing_coordinator,
                 config=self.config,
-                progress_callback=progress_callback
+                progress_callback=progress_callback,
             )
 
             # Perform scan with lower priority
             stats = await indexing_service.process_directory(
-                target_path,
-                no_embeddings=False
+                target_path, no_embeddings=False
             )
 
             # Update final stats
-            self._scan_progress.update({
-                "files_processed": stats.files_processed,
-                "chunks_created": stats.chunks_created,
-                "is_scanning": False,
-                "scan_completed_at": datetime.now().isoformat()
-            })
+            self._scan_progress.update(
+                {
+                    "files_processed": stats.files_processed,
+                    "chunks_created": stats.chunks_created,
+                    "is_scanning": False,
+                    "scan_completed_at": datetime.now().isoformat(),
+                }
+            )
             self._scan_complete = True
 
-            self.debug_log(f"Background scan completed: {stats.files_processed} files, {stats.chunks_created} chunks")
+            self.debug_log(
+                f"Background scan completed: {stats.files_processed} files, {stats.chunks_created} chunks"
+            )
 
         except Exception as e:
             self.debug_log(f"Background initial scan failed: {e}")
@@ -248,7 +263,7 @@ class MCPServerBase(ABC):
         if self.services and self.services.provider.is_connected:
             self.debug_log("Closing database connection")
             # Use new close() method for proper cleanup, with fallback to disconnect()
-            if hasattr(self.services.provider, 'close'):
+            if hasattr(self.services.provider, "close"):
                 self.services.provider.close()
             else:
                 self.services.provider.disconnect()

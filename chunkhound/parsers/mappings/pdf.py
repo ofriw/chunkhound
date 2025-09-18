@@ -42,17 +42,17 @@ class PDFMapping(BaseMapping):
         self, content_bytes: bytes, file_path: Path | None, file_id: FileId | None
     ) -> list[Chunk]:
         """Parse PDF content and extract semantic chunks.
-        
+
         This method handles the complete PDF parsing workflow:
         1. Extract text from PDF using PyMuPDF
         2. Create chunks organized by pages and paragraphs
         3. Apply proper naming and metadata
-        
+
         Args:
             content_bytes: PDF file content as bytes
             file_path: Optional file path for metadata
             file_id: Optional file ID for chunk association
-            
+
         Returns:
             List of Chunk objects with optimal boundaries
         """

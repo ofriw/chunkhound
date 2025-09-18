@@ -300,7 +300,9 @@ async def rich_text(question: str, default: str = "", validate=None) -> str:
 
         # Show debug info if requested
         if os.getenv("CHUNKHOUND_DEBUG"):
-            console_print(f"Debug: Rich mode failed - {type(e).__name__}: {e}", "yellow")
+            console_print(
+                f"Debug: Rich mode failed - {type(e).__name__}: {e}", "yellow"
+            )
 
         # Fallback to standard input with readline pre-fill when possible
         console_print("Using standard input mode...", "dim")
@@ -483,7 +485,7 @@ async def _fetch_available_models(
 
         # Configure HTTP client with SSL handling (same pattern as OpenAI provider)
         client_kwargs = {"timeout": 10.0}  # Increased timeout for corporate networks
-        
+
         # Apply SSL verification logic - reuse existing pattern
         is_openai_official = is_official_openai_endpoint(base_url)
         if not is_openai_official:
@@ -1072,10 +1074,10 @@ async def _configure_voyageai(formatter: RichOutputFormatter) -> dict[str, Any] 
             already_declined = True
 
     return await _configure_provider_unified(
-        "voyageai", 
-        api_key=api_key, 
+        "voyageai",
+        api_key=api_key,
         formatter=formatter,
-        already_declined_key=already_declined
+        already_declined_key=already_declined,
     )
 
 
@@ -1099,10 +1101,10 @@ async def _configure_openai(formatter: RichOutputFormatter) -> dict[str, Any] | 
             already_declined = True
 
     return await _configure_provider_unified(
-        "openai", 
-        api_key=api_key, 
+        "openai",
+        api_key=api_key,
         formatter=formatter,
-        already_declined_key=already_declined
+        already_declined_key=already_declined,
     )
 
 
@@ -1490,20 +1492,26 @@ async def _ensure_api_key(
     if provider_info["requires_api_key"] is True:
         # Always require API key
         if not api_key:
-            api_key = await _prompt_for_api_key(provider_type, formatter, already_declined)
+            api_key = await _prompt_for_api_key(
+                provider_type, formatter, already_declined
+            )
         return api_key
     elif provider_info["requires_api_key"] == "auto":
         # Test connection first, prompt for key if needed
         if not api_key:
             # If user already declined a detected key, always give them the option to enter their own
             if already_declined:
-                api_key = await _prompt_for_api_key(provider_type, formatter, already_declined)
+                api_key = await _prompt_for_api_key(
+                    provider_type, formatter, already_declined
+                )
                 # Return whatever the user enters (could be None if they skip, which is valid for auto providers)
                 return api_key
             else:
                 needs_auth = await _test_needs_auth(base_url, formatter)
                 if needs_auth:
-                    api_key = await _prompt_for_api_key(provider_type, formatter, already_declined)
+                    api_key = await _prompt_for_api_key(
+                        provider_type, formatter, already_declined
+                    )
                     # For openai_compatible, API key is optional - allow empty
                     if not api_key and provider_type != "openai_compatible":
                         return None
@@ -1516,7 +1524,7 @@ async def _prompt_for_api_key(
     provider_type: str, formatter: RichOutputFormatter, already_declined: bool = False
 ) -> str | None:
     """Prompt user for API key based on provider type.
-    
+
     Args:
         provider_type: Type of provider
         formatter: Output formatter
@@ -1653,7 +1661,9 @@ async def _select_model_unified(
         # If we still need auth, the API key resolution in _configure_provider_unified failed
         # In this case, we should not try to prompt again - just proceed without dynamic discovery
         if needs_auth and not api_key:
-            formatter.warning("Could not authenticate with endpoint - proceeding with manual entry")
+            formatter.warning(
+                "Could not authenticate with endpoint - proceeding with manual entry"
+            )
             models = None
 
         if models:
@@ -1734,7 +1744,9 @@ async def _configure_provider_unified(
         formatter.section_header(f"{provider_info['display_name']} Configuration")
 
     # Step 1: Handle API key - ensure we have credentials before model discovery
-    api_key = await _ensure_api_key(provider_type, base_url, api_key, formatter, already_declined_key)
+    api_key = await _ensure_api_key(
+        provider_type, base_url, api_key, formatter, already_declined_key
+    )
     if not api_key and provider_info["requires_api_key"] is True:
         return None
 

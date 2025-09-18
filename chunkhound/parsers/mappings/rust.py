@@ -509,9 +509,7 @@ class RustMapping(BaseMapping):
 
         return parameters
 
-    def _extract_function_return_type(
-        self, func_node: Node, source: str
-    ) -> str | None:
+    def _extract_function_return_type(self, func_node: Node, source: str) -> str | None:
         """Extract return type from a Rust function node."""
 
         # Look for -> after parameters

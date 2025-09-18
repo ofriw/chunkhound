@@ -76,7 +76,9 @@ class Config(BaseModel):
         if target_dir is None:
             from chunkhound.utils.project_detection import find_project_root
 
-            target_dir = find_project_root(getattr(args, 'path', None) if args else None)
+            target_dir = find_project_root(
+                getattr(args, "path", None) if args else None
+            )
 
         # 2. Load config file if found
         if config_file and config_file.exists():
@@ -208,15 +210,18 @@ class Config(BaseModel):
         # Ensure target_dir is always set and resolved (never None)
         if self.target_dir is None:
             from chunkhound.utils.project_detection import find_project_root
+
             detected_root = find_project_root(None)
             # Fallback to current working directory if no project root found
-            resolved_target = detected_root.resolve() if detected_root else Path.cwd().resolve()
+            resolved_target = (
+                detected_root.resolve() if detected_root else Path.cwd().resolve()
+            )
             # Use object.__setattr__ to avoid Pydantic validation recursion
-            object.__setattr__(self, 'target_dir', resolved_target)
+            object.__setattr__(self, "target_dir", resolved_target)
         else:
             # Ensure target_dir is resolved to canonical path (handles symlinks)
             # Use object.__setattr__ to avoid Pydantic validation recursion
-            object.__setattr__(self, 'target_dir', self.target_dir.resolve())
+            object.__setattr__(self, "target_dir", self.target_dir.resolve())
 
         # Ensure database path is set
         if not self.database.path:
@@ -308,5 +313,3 @@ class Config(BaseModel):
             True if fully configured, False otherwise
         """
         return self.embedding is not None and self.embedding.is_provider_configured()
-
-

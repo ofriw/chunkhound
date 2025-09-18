@@ -92,11 +92,14 @@ class EmbeddingService(BaseService):
             # Debug log entry point to confirm our code executes
             import os
             from datetime import datetime
+
             debug_file = os.getenv("CHUNKHOUND_DEBUG_FILE", "/tmp/chunkhound_debug.log")
             timestamp = datetime.now().isoformat()
             try:
                 with open(debug_file, "a") as f:
-                    f.write(f"[{timestamp}] [ENTRY] Starting embedding generation for {len(chunk_ids)} chunks\n")
+                    f.write(
+                        f"[{timestamp}] [ENTRY] Starting embedding generation for {len(chunk_ids)} chunks\n"
+                    )
                     f.flush()
             except Exception:
                 pass
@@ -128,16 +131,21 @@ class EmbeddingService(BaseService):
             # Debug log to trace execution path
             import os
             from datetime import datetime
+
             debug_file = os.getenv("CHUNKHOUND_DEBUG_FILE", "/tmp/chunkhound_debug.log")
             timestamp = datetime.now().isoformat()
             try:
                 with open(debug_file, "a") as f:
-                    f.write(f"[{timestamp}] [TOP-LEVEL] Failed to generate embeddings (chunks: {len(chunk_sizes)}, total_chars: {total_chars}, max_chars: {max_size}): {e}\n")
+                    f.write(
+                        f"[{timestamp}] [TOP-LEVEL] Failed to generate embeddings (chunks: {len(chunk_sizes)}, total_chars: {total_chars}, max_chars: {max_size}): {e}\n"
+                    )
                     f.flush()
             except Exception:
                 pass
 
-            logger.error(f"[EmbSvc-L101] Failed to generate embeddings (chunks: {len(chunk_sizes)}, total_chars: {total_chars}, max_chars: {max_size}): {e}")
+            logger.error(
+                f"[EmbSvc-L101] Failed to generate embeddings (chunks: {len(chunk_sizes)}, total_chars: {total_chars}, max_chars: {max_size}): {e}"
+            )
             return 0
 
     async def generate_missing_embeddings(
@@ -388,8 +396,10 @@ class EmbeddingService(BaseService):
                 filtered_chunks.append((chunk_id, text))
 
         if skipped_empty > 0:
-            logger.info(f"Skipped {skipped_empty} chunks with empty content after normalization")
-        
+            logger.info(
+                f"Skipped {skipped_empty} chunks with empty content after normalization"
+            )
+
         logger.debug(
             f"Filtered {len(filtered_chunks)} chunks (out of {len(chunk_ids)}) need embeddings"
         )
@@ -488,30 +498,35 @@ class EmbeddingService(BaseService):
                     # Debug log to trace execution path
                     import os
                     from datetime import datetime
-                    debug_file = os.getenv("CHUNKHOUND_DEBUG_FILE", "/tmp/chunkhound_debug.log")
+
+                    debug_file = os.getenv(
+                        "CHUNKHOUND_DEBUG_FILE", "/tmp/chunkhound_debug.log"
+                    )
                     timestamp = datetime.now().isoformat()
                     try:
                         with open(debug_file, "a") as f:
-                            f.write(f"[{timestamp}] [BATCH-PROCESS] Batch {batch_num + 1} failed (chunks: {len(batch)}, max_chars: {max_size}): {e}\n")
+                            f.write(
+                                f"[{timestamp}] [BATCH-PROCESS] Batch {batch_num + 1} failed (chunks: {len(batch)}, max_chars: {max_size}): {e}\n"
+                            )
                             f.flush()
                     except Exception:
                         pass
 
-                    logger.error(f"[EmbSvc-BatchProcess] Batch {batch_num + 1} failed (chunks: {len(batch)}, max_chars: {max_size}): {e}")
+                    logger.error(
+                        f"[EmbSvc-BatchProcess] Batch {batch_num + 1} failed (chunks: {len(batch)}, max_chars: {max_size}): {e}"
+                    )
                     return 0
 
         # Create progress task for embedding generation if requested
         embed_task: TaskID | None = None
         if show_progress and self.progress:
             embed_task = self.progress.add_task(
-                "    └─ Generating embeddings",
-                total=len(chunk_data),
-                speed="",
-                info=""
+                "    └─ Generating embeddings", total=len(chunk_data), speed="", info=""
             )
 
         # Process batches with optional progress tracking
         import threading
+
         update_lock = threading.Lock()
         processed_count = 0
 
@@ -533,8 +548,7 @@ class EmbeddingService(BaseService):
                         if task_obj.elapsed and task_obj.elapsed > 0:
                             speed = processed_count / task_obj.elapsed
                             self.progress.update(
-                                embed_task,
-                                speed=f"{speed:.1f} chunks/s"
+                                embed_task, speed=f"{speed:.1f} chunks/s"
                             )
 
             return result
@@ -567,7 +581,9 @@ class EmbeddingService(BaseService):
                 from datetime import datetime
 
                 # Write directly to debug file like the MCP debug_log mechanism
-                debug_file = os.getenv("CHUNKHOUND_DEBUG_FILE", "/tmp/chunkhound_debug.log")
+                debug_file = os.getenv(
+                    "CHUNKHOUND_DEBUG_FILE", "/tmp/chunkhound_debug.log"
+                )
                 timestamp = datetime.now().isoformat()
                 debug_msg = (
                     f"[{timestamp}] [EMBEDDING-DEBUG] Batch {i + 1} failed "
@@ -653,7 +669,9 @@ class EmbeddingService(BaseService):
             text_tokens = max(1, int(len(text) / 4.0))
 
             # Check if adding this chunk would exceed token OR document limit
-            if (current_tokens + text_tokens > safe_limit and current_batch) or len(current_batch) >= max_documents:
+            if (current_tokens + text_tokens > safe_limit and current_batch) or len(
+                current_batch
+            ) >= max_documents:
                 # Start new batch
                 batches.append(current_batch)
                 current_batch = [(chunk_id, text)]
@@ -697,7 +715,11 @@ class EmbeddingService(BaseService):
 
         # Extract chunk IDs with consistent field handling
         # Use "chunk_id" field as it's the actual field name in the database
-        all_chunk_ids = [chunk.get("chunk_id") for chunk in all_chunks if chunk.get("chunk_id") is not None]
+        all_chunk_ids = [
+            chunk.get("chunk_id")
+            for chunk in all_chunks
+            if chunk.get("chunk_id") is not None
+        ]
 
         if not all_chunk_ids:
             return []
@@ -741,7 +763,7 @@ class EmbeddingService(BaseService):
                 "    └─ Processing missing embeddings",
                 total=len(chunk_ids),
                 speed="",
-                info=""
+                info="",
             )
 
         for batch in batches:

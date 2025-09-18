@@ -79,7 +79,7 @@ class SearchService(BaseService):
 
             # Choose search strategy based on force_strategy or provider capabilities
             use_multi_hop = False
-            
+
             if force_strategy == "multi_hop":
                 use_multi_hop = True
             elif force_strategy == "single_hop":
@@ -93,8 +93,13 @@ class SearchService(BaseService):
 
             if use_multi_hop:
                 # Ensure provider actually supports reranking for multi-hop
-                if not (hasattr(embedding_provider, "supports_reranking") and embedding_provider.supports_reranking()):
-                    logger.warning("Multi-hop strategy requested but provider doesn't support reranking, falling back to single-hop")
+                if not (
+                    hasattr(embedding_provider, "supports_reranking")
+                    and embedding_provider.supports_reranking()
+                ):
+                    logger.warning(
+                        "Multi-hop strategy requested but provider doesn't support reranking, falling back to single-hop"
+                    )
                     use_multi_hop = False
 
             if use_multi_hop:
@@ -233,7 +238,9 @@ class SearchService(BaseService):
 
             # Log reranking effectiveness
             reranked_count = len(rerank_results)
-            logger.debug(f"Initial reranking: {reranked_count}/{len(initial_results)} results reranked")
+            logger.debug(
+                f"Initial reranking: {reranked_count}/{len(initial_results)} results reranked"
+            )
 
             # Sort by rerank score (highest first)
             initial_results = sorted(
@@ -333,7 +340,9 @@ class SearchService(BaseService):
 
                 # Log reranking effectiveness
                 reranked_count = len(rerank_results)
-                logger.debug(f"Expansion reranking: {reranked_count}/{len(all_results)} results reranked")
+                logger.debug(
+                    f"Expansion reranking: {reranked_count}/{len(all_results)} results reranked"
+                )
 
                 # Sort by rerank score
                 all_results = sorted(
@@ -351,7 +360,9 @@ class SearchService(BaseService):
                 break
 
             # Check score derivative for termination (track specific chunks, not positions)
-            current_top_scores = [result.get("score", 0.0) for result in all_results[:5]]
+            current_top_scores = [
+                result.get("score", 0.0) for result in all_results[:5]
+            ]
 
             # Check if any of the originally top chunks have degraded significantly
             score_drops = []
@@ -359,8 +370,12 @@ class SearchService(BaseService):
                 for chunk_id, prev_score in top_chunk_scores.items():
                     # Find this chunk's current score
                     current_score = next(
-                        (r.get("score", 0.0) for r in all_results if r["chunk_id"] == chunk_id),
-                        0.0  # If not in results anymore, score is 0
+                        (
+                            r.get("score", 0.0)
+                            for r in all_results
+                            if r["chunk_id"] == chunk_id
+                        ),
+                        0.0,  # If not in results anymore, score is 0
                     )
                     if current_score < prev_score:
                         score_drops.append(prev_score - current_score)
@@ -396,7 +411,9 @@ class SearchService(BaseService):
         if threshold is not None:
             # Use 0.0 default so unscored results are treated as low relevance, not perfect matches
             all_results = [r for r in all_results if r.get("score", 0.0) >= threshold]
-            logger.debug(f"Applied rerank score threshold {threshold}, {len(all_results)} results remain")
+            logger.debug(
+                f"Applied rerank score threshold {threshold}, {len(all_results)} results remain"
+            )
 
         # Apply pagination
         total_results = len(all_results)

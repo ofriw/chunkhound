@@ -340,7 +340,8 @@ class LanceDBProvider(SerialDatabaseProvider):
         try:
             # Normalize path to handle both absolute and relative paths
             from chunkhound.core.utils import normalize_path_for_lookup
-            base_dir = state.get('base_directory')
+
+            base_dir = state.get("base_directory")
             normalized_path = normalize_path_for_lookup(path, base_dir)
             results = (
                 self._files_table.search()
@@ -1033,7 +1034,9 @@ class LanceDBProvider(SerialDatabaseProvider):
                     {
                         "id": chunk["id"],
                         "file_id": chunk["file_id"],
-                        "file_path": file_paths.get(chunk["file_id"], ""),  # Keep stored format
+                        "file_path": file_paths.get(
+                            chunk["file_id"], ""
+                        ),  # Keep stored format
                         "content": chunk["content"],
                         "start_line": chunk["start_line"],
                         "end_line": chunk["end_line"],

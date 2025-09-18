@@ -8,7 +8,7 @@ from pydantic import BaseModel
 
 class TerminalConfig(BaseModel):
     """Configuration for terminal input behavior."""
-    
+
     disable_bracketed_paste: bool = True
     normalize_cursor_mode: bool = True
     timeout_incomplete_sequence: float = 0.5  # Timeout in seconds for escape sequences
@@ -19,23 +19,23 @@ class TerminalConfig(BaseModel):
 
 class TerminalInputProvider(Protocol):
     """Protocol for platform-specific terminal input providers."""
-    
+
     def setup(self) -> None:
         """Initialize terminal for raw input mode."""
         ...
-    
+
     def cleanup(self) -> None:
         """Restore terminal to original state."""
         ...
-    
+
     def read_char(self) -> str:
         """Read a single character from terminal without processing."""
         ...
-    
+
     def read_key(self, timeout: float | None = None) -> str:
         """Read a key input with timeout, returning normalized key name."""
         ...
-    
+
     def has_input(self) -> bool:
         """Check if input is available without blocking."""
         ...
@@ -44,13 +44,13 @@ class TerminalInputProvider(Protocol):
 # Standard key name constants
 class Keys:
     """Standard key name constants."""
-    
+
     # Arrow keys
     UP = "UP"
-    DOWN = "DOWN" 
+    DOWN = "DOWN"
     LEFT = "LEFT"
     RIGHT = "RIGHT"
-    
+
     # Navigation keys
     HOME = "HOME"
     END = "END"
@@ -58,14 +58,14 @@ class Keys:
     PAGE_DOWN = "PAGE_DOWN"
     INSERT = "INSERT"
     DELETE = "DELETE"
-    
+
     # Control keys
     ENTER = "\r"
     TAB = "\t"
     BACKSPACE = "\x08"
     ESCAPE = "\x1b"
     SPACE = " "
-    
+
     # Function keys
     F1 = "F1"
     F2 = "F2"
@@ -79,7 +79,7 @@ class Keys:
     F10 = "F10"
     F11 = "F11"
     F12 = "F12"
-    
+
     # Ctrl combinations (keeping common ones)
     CTRL_C = "\x03"
     CTRL_D = "\x04"

@@ -120,11 +120,13 @@ class MakefileMapping(BaseMapping):
         # All cases handled above
         return None
 
-    def extract_name(self, concept: UniversalConcept, captures: dict[str, Node], content: bytes) -> str:
+    def extract_name(
+        self, concept: UniversalConcept, captures: dict[str, Node], content: bytes
+    ) -> str:
         """Extract name from captures for this concept."""
 
         # Convert bytes to string for processing
-        source = content.decode('utf-8')
+        source = content.decode("utf-8")
 
         if concept == UniversalConcept.DEFINITION:
             # Try to get the name from various capture groups
@@ -136,7 +138,9 @@ class MakefileMapping(BaseMapping):
                 targets_node = captures["targets"]
                 targets_text = self.get_node_text(targets_node, source).strip()
                 # Get the first target as the primary name
-                first_target = targets_text.split()[0] if targets_text else "unnamed_target"
+                first_target = (
+                    targets_text.split()[0] if targets_text else "unnamed_target"
+                )
                 return first_target
 
             return "unnamed_definition"
@@ -165,10 +169,10 @@ class MakefileMapping(BaseMapping):
                 path_node = captures["include_path"]
                 path = self.get_node_text(path_node, source).strip()
                 # Remove quotes if present
-                path = path.strip('"\'')
+                path = path.strip("\"'")
                 # Get just the filename for cleaner names
-                if '/' in path:
-                    path = path.split('/')[-1]
+                if "/" in path:
+                    path = path.split("/")[-1]
                 return f"include_{path}"
 
             return "unnamed_include"
@@ -179,11 +183,13 @@ class MakefileMapping(BaseMapping):
         # All cases handled above
         return "unnamed"
 
-    def extract_content(self, concept: UniversalConcept, captures: dict[str, Node], content: bytes) -> str:
+    def extract_content(
+        self, concept: UniversalConcept, captures: dict[str, Node], content: bytes
+    ) -> str:
         """Extract content from captures for this concept."""
 
         # Convert bytes to string for processing
-        source = content.decode('utf-8')
+        source = content.decode("utf-8")
 
         if "definition" in captures:
             node = captures["definition"]
@@ -195,10 +201,12 @@ class MakefileMapping(BaseMapping):
 
         return ""
 
-    def extract_metadata(self, concept: UniversalConcept, captures: dict[str, Node], content: bytes) -> dict[str, Any]:
+    def extract_metadata(
+        self, concept: UniversalConcept, captures: dict[str, Node], content: bytes
+    ) -> dict[str, Any]:
         """Extract Makefile-specific metadata."""
 
-        source = content.decode('utf-8')
+        source = content.decode("utf-8")
         metadata = {}
 
         if concept == UniversalConcept.DEFINITION:
@@ -215,15 +223,28 @@ class MakefileMapping(BaseMapping):
                     if "targets" in captures:
                         targets_node = captures["targets"]
                         targets_text = self.get_node_text(targets_node, source).strip()
-                        targets_list = [t.strip() for t in targets_text.split() if t.strip()]
+                        targets_list = [
+                            t.strip() for t in targets_text.split() if t.strip()
+                        ]
                         metadata["targets"] = targets_list
 
                         # Detect special target types
-                        special_targets = {".PHONY", ".SILENT", ".SUFFIXES", ".PRECIOUS",
-                                         ".INTERMEDIATE", ".DELETE_ON_ERROR", ".IGNORE",
-                                         ".LOW_RESOLUTION_TIME", ".SECONDARY", ".EXPORT_ALL_VARIABLES"}
+                        special_targets = {
+                            ".PHONY",
+                            ".SILENT",
+                            ".SUFFIXES",
+                            ".PRECIOUS",
+                            ".INTERMEDIATE",
+                            ".DELETE_ON_ERROR",
+                            ".IGNORE",
+                            ".LOW_RESOLUTION_TIME",
+                            ".SECONDARY",
+                            ".EXPORT_ALL_VARIABLES",
+                        }
 
-                        has_special = any(target in special_targets for target in targets_list)
+                        has_special = any(
+                            target in special_targets for target in targets_list
+                        )
                         if has_special:
                             metadata["has_special_targets"] = True
 
@@ -236,16 +257,20 @@ class MakefileMapping(BaseMapping):
                         if "targets" in captures and prerequisites:
                             metadata["dependencies"] = {
                                 "provides": targets_list,
-                                "requires": prerequisites
+                                "requires": prerequisites,
                             }
 
                             # Pattern rule detection
                             if self._is_pattern_rule(targets_list):
                                 metadata["is_pattern_rule"] = True
-                                metadata["pattern_stem"] = self._extract_pattern_stem(targets_list[0])
+                                metadata["pattern_stem"] = self._extract_pattern_stem(
+                                    targets_list[0]
+                                )
 
                             # Enhanced phony target detection
-                            if ".PHONY" in prerequisites or self._is_phony_target(targets_list, prerequisites):
+                            if ".PHONY" in prerequisites or self._is_phony_target(
+                                targets_list, prerequisites
+                            ):
                                 metadata["is_phony"] = True
 
                     # Extract recipe/commands
@@ -287,7 +312,6 @@ class MakefileMapping(BaseMapping):
                         body_text = self.get_node_text(body_node, source)
                         metadata["body_lines"] = len(body_text.splitlines())
 
-
         elif concept == UniversalConcept.BLOCK:
             if "definition" in captures:
                 block_node = captures["definition"]
@@ -304,11 +328,11 @@ class MakefileMapping(BaseMapping):
                         # Detect command types
                         command_types = set()
                         for cmd in commands:
-                            if cmd.startswith('@'):
+                            if cmd.startswith("@"):
                                 command_types.add("silent")
-                            if cmd.startswith('-'):
+                            if cmd.startswith("-"):
                                 command_types.add("ignore_errors")
-                            if cmd.startswith('+'):
+                            if cmd.startswith("+"):
                                 command_types.add("always_exec")
 
                         if command_types:
@@ -322,13 +346,13 @@ class MakefileMapping(BaseMapping):
 
                 if "include_path" in captures:
                     path_node = captures["include_path"]
-                    path = self.get_node_text(path_node, source).strip().strip('"\'')
+                    path = self.get_node_text(path_node, source).strip().strip("\"'")
                     metadata["include_path"] = path
 
                     # Determine if it's a relative or absolute path
-                    if path.startswith('/'):
+                    if path.startswith("/"):
                         metadata["path_type"] = "absolute"
-                    elif path.startswith('./') or path.startswith('../'):
+                    elif path.startswith("./") or path.startswith("../"):
                         metadata["path_type"] = "relative"
                     else:
                         metadata["path_type"] = "relative_simple"
@@ -347,10 +371,16 @@ class MakefileMapping(BaseMapping):
 
                 if clean_text:
                     upper_text = clean_text.upper()
-                    if any(prefix in upper_text for prefix in ["TODO:", "FIXME:", "HACK:", "NOTE:", "WARNING:"]):
+                    if any(
+                        prefix in upper_text
+                        for prefix in ["TODO:", "FIXME:", "HACK:", "NOTE:", "WARNING:"]
+                    ):
                         comment_type = "annotation"
                         is_doc = True
-                    elif any(word in clean_text.lower() for word in ["target", "rule", "variable", "usage", "example"]):
+                    elif any(
+                        word in clean_text.lower()
+                        for word in ["target", "rule", "variable", "usage", "example"]
+                    ):
                         comment_type = "documentation"
                         is_doc = True
                     elif clean_text.startswith("===") or clean_text.startswith("---"):
@@ -378,7 +408,9 @@ class MakefileMapping(BaseMapping):
 
         return prerequisites
 
-    def _extract_assignment_operator(self, assignment_node: Node, source: str) -> str | None:
+    def _extract_assignment_operator(
+        self, assignment_node: Node, source: str
+    ) -> str | None:
         """Extract the assignment operator from a variable assignment."""
         assignment_text = self.get_node_text(assignment_node, source)
 
@@ -412,13 +444,13 @@ class MakefileMapping(BaseMapping):
             stripped = line.strip()
             if stripped:
                 # Remove the leading tab that Make requires
-                if line.startswith('\t'):
+                if line.startswith("\t"):
                     command = line[1:]
                 else:
                     command = line
 
                 # Handle line continuations
-                if command.strip().endswith('\\'):
+                if command.strip().endswith("\\"):
                     command = command.strip()[:-1].strip()
 
                 if command.strip():
@@ -428,19 +460,28 @@ class MakefileMapping(BaseMapping):
 
     def _is_pattern_rule(self, targets: list[str]) -> bool:
         """Check if this is a pattern rule (contains % wildcards)."""
-        return any('%' in target for target in targets)
+        return any("%" in target for target in targets)
 
     def _is_phony_target(self, targets: list[str], prerequisites: list[str]) -> bool:
         """Heuristic to detect if this might be a phony target."""
-        phony_indicators = {"all", "clean", "install", "test", "check", "dist",
-                           "distclean", "mostlyclean", "maintainer-clean"}
+        phony_indicators = {
+            "all",
+            "clean",
+            "install",
+            "test",
+            "check",
+            "dist",
+            "distclean",
+            "mostlyclean",
+            "maintainer-clean",
+        }
 
         return any(target.lower() in phony_indicators for target in targets)
 
     def _extract_pattern_stem(self, pattern_target: str) -> str:
         """Extract the stem part of a pattern rule target."""
-        if '%' in pattern_target:
-            return pattern_target.split('%')[0]
+        if "%" in pattern_target:
+            return pattern_target.split("%")[0]
         return pattern_target
 
     def _analyze_recipe_complexity(self, recipe_text: str) -> dict[str, Any]:
@@ -449,11 +490,14 @@ class MakefileMapping(BaseMapping):
 
         analysis = {
             "has_shell_constructs": any(
-                any(construct in cmd for construct in ['if', 'for', 'while', '&&', '||', '|'])
+                any(
+                    construct in cmd
+                    for construct in ["if", "for", "while", "&&", "||", "|"]
+                )
                 for cmd in commands
             ),
-            "has_multiline_commands": any('\\' in cmd for cmd in commands),
-            "estimated_complexity": "high" if len(commands) > 5 else "low"
+            "has_multiline_commands": any("\\" in cmd for cmd in commands),
+            "estimated_complexity": "high" if len(commands) > 5 else "low",
         }
 
         return analysis
@@ -461,10 +505,32 @@ class MakefileMapping(BaseMapping):
     def _detect_function_type(self, function_name: str) -> str:
         """Detect built-in vs user-defined function types."""
         builtin_functions = {
-            'call', 'eval', 'foreach', 'if', 'or', 'and', 'strip', 'filter',
-            'filter-out', 'sort', 'word', 'words', 'wordlist', 'firstword',
-            'lastword', 'dir', 'notdir', 'suffix', 'basename', 'addsuffix',
-            'addprefix', 'join', 'wildcard', 'realpath', 'abspath', 'shell'
+            "call",
+            "eval",
+            "foreach",
+            "if",
+            "or",
+            "and",
+            "strip",
+            "filter",
+            "filter-out",
+            "sort",
+            "word",
+            "words",
+            "wordlist",
+            "firstword",
+            "lastword",
+            "dir",
+            "notdir",
+            "suffix",
+            "basename",
+            "addsuffix",
+            "addprefix",
+            "join",
+            "wildcard",
+            "realpath",
+            "abspath",
+            "shell",
         }
 
         return "builtin" if function_name in builtin_functions else "user_defined"

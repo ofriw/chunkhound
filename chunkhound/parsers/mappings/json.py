@@ -46,7 +46,7 @@ class JsonMapping(BaseMapping):
     # LanguageMapping protocol methods
     def get_query_for_concept(self, concept: UniversalConcept) -> str | None:
         """Get tree-sitter query for universal concept in JSON.
-        
+
         Returns valid tree-sitter queries that work with tree-sitter-json grammar.
         """
         if concept == UniversalConcept.DEFINITION:
@@ -88,11 +88,13 @@ class JsonMapping(BaseMapping):
         else:
             return None
 
-    def extract_name(self, concept: UniversalConcept, captures: dict[str, Node], content: bytes) -> str:
+    def extract_name(
+        self, concept: UniversalConcept, captures: dict[str, Node], content: bytes
+    ) -> str:
         """Extract name from captures for this concept."""
 
         # Convert bytes to string for JSON parsing
-        source = content.decode('utf-8')
+        source = content.decode("utf-8")
 
         try:
             data = json.loads(source)
@@ -101,7 +103,7 @@ class JsonMapping(BaseMapping):
                 # For JSON objects with identifiable keys
                 if isinstance(data, dict):
                     # Look for common naming patterns
-                    for key in ['name', 'id', 'title', 'key', 'label']:
+                    for key in ["name", "id", "title", "key", "label"]:
                         if key in data and isinstance(data[key], str):
                             return f"definition_{data[key]}"
 
@@ -114,7 +116,7 @@ class JsonMapping(BaseMapping):
                     # For arrays, use first element if it has a name
                     first_item = data[0]
                     if isinstance(first_item, dict):
-                        for key in ['name', 'id', 'title']:
+                        for key in ["name", "id", "title"]:
                             if key in first_item and isinstance(first_item[key], str):
                                 return f"array_{first_item[key]}"
                     return "array_definition"
@@ -136,11 +138,15 @@ class JsonMapping(BaseMapping):
 
         return "unnamed"
 
-    def extract_content(self, concept: UniversalConcept, captures: dict[str, Node], content: bytes) -> str:
+    def extract_content(
+        self, concept: UniversalConcept, captures: dict[str, Node], content: bytes
+    ) -> str:
         """Extract content from captures for this concept."""
 
         # Get the specific node to extract
-        def_node = captures.get('definition') or captures.get('block') or captures.get('node')
+        def_node = (
+            captures.get("definition") or captures.get("block") or captures.get("node")
+        )
         if not def_node and captures:
             def_node = list(captures.values())[0]
 
@@ -148,18 +154,20 @@ class JsonMapping(BaseMapping):
             return ""
 
         # Decode source
-        source = content.decode('utf-8')
+        source = content.decode("utf-8")
 
         # Return ONLY this node's content, not the entire file
         # This allows cAST merging to work properly
-        node_content = source[def_node.start_byte:def_node.end_byte]
+        node_content = source[def_node.start_byte : def_node.end_byte]
 
         return node_content
 
-    def extract_metadata(self, concept: UniversalConcept, captures: dict[str, Node], content: bytes) -> dict[str, Any]:
+    def extract_metadata(
+        self, concept: UniversalConcept, captures: dict[str, Node], content: bytes
+    ) -> dict[str, Any]:
         """Extract JSON-specific metadata."""
 
-        source = content.decode('utf-8')
+        source = content.decode("utf-8")
         metadata = {}
 
         try:
@@ -182,11 +190,11 @@ class JsonMapping(BaseMapping):
                     metadata["value_types"] = list(value_types)
 
                     # Check for common schemas
-                    if any(key in data for key in ['name', 'version', 'description']):
+                    if any(key in data for key in ["name", "version", "description"]):
                         metadata["schema_hint"] = "package"
-                    elif any(key in data for key in ['id', 'title', 'content']):
+                    elif any(key in data for key in ["id", "title", "content"]):
                         metadata["schema_hint"] = "document"
-                    elif any(key in data for key in ['host', 'port', 'database']):
+                    elif any(key in data for key in ["host", "port", "database"]):
                         metadata["schema_hint"] = "config"
 
                 elif isinstance(data, list):
@@ -212,11 +220,19 @@ class JsonMapping(BaseMapping):
                 metadata["json_type"] = type(data).__name__
 
                 if isinstance(data, dict):
-                    metadata["nested_objects"] = sum(1 for v in data.values() if isinstance(v, dict))
-                    metadata["nested_arrays"] = sum(1 for v in data.values() if isinstance(v, list))
+                    metadata["nested_objects"] = sum(
+                        1 for v in data.values() if isinstance(v, dict)
+                    )
+                    metadata["nested_arrays"] = sum(
+                        1 for v in data.values() if isinstance(v, list)
+                    )
                 elif isinstance(data, list):
-                    metadata["nested_objects"] = sum(1 for item in data if isinstance(item, dict))
-                    metadata["nested_arrays"] = sum(1 for item in data if isinstance(item, list))
+                    metadata["nested_objects"] = sum(
+                        1 for item in data if isinstance(item, dict)
+                    )
+                    metadata["nested_arrays"] = sum(
+                        1 for item in data if isinstance(item, list)
+                    )
 
             elif concept == UniversalConcept.STRUCTURE:
                 metadata["root_type"] = type(data).__name__
@@ -246,11 +262,15 @@ class JsonMapping(BaseMapping):
         if isinstance(data, dict):
             if not data:
                 return current_depth
-            return max(self._calculate_json_depth(v, current_depth + 1) for v in data.values())
+            return max(
+                self._calculate_json_depth(v, current_depth + 1) for v in data.values()
+            )
         elif isinstance(data, list):
             if not data:
                 return current_depth
-            return max(self._calculate_json_depth(item, current_depth + 1) for item in data)
+            return max(
+                self._calculate_json_depth(item, current_depth + 1) for item in data
+            )
         else:
             return current_depth
 

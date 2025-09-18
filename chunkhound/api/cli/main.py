@@ -104,19 +104,21 @@ async def async_main() -> None:
         # If we still have errors after wizard (or wizard was skipped/cancelled)
         if validation_errors:
             # Check if this is an embedding-related error
-            embedding_error = any("embedding provider" in str(e).lower() for e in validation_errors)
-            
+            embedding_error = any(
+                "embedding provider" in str(e).lower() for e in validation_errors
+            )
+
             # Log all errors to stderr
             for error in validation_errors:
                 logger.error(f"Error: {error}")
-            
+
             # If embedding error and not in interactive mode, show helpful messages to stdout
             if embedding_error and args.command in [None, "index"]:
                 # Use print() for stdout output to match test expectations
                 print("To fix this, you can:")
                 print("  1. Create a .chunkhound.json config file with embeddings")
                 print("  2. Use --no-embeddings to skip embeddings")
-            
+
             sys.exit(1)
 
     try:

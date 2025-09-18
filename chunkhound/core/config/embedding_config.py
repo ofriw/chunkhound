@@ -43,8 +43,7 @@ class EmbeddingConfig(BaseSettings):
 
     # Provider Selection
     provider: Literal["openai", "voyageai"] = Field(
-        default="openai",
-        description="Embedding provider (openai, voyageai)"
+        default="openai", description="Embedding provider (openai, voyageai)"
     )
 
     # Common Configuration
@@ -63,13 +62,13 @@ class EmbeddingConfig(BaseSettings):
 
     rerank_model: str | None = Field(
         default=None,
-        description="Reranking model name (enables multi-hop search if specified)"
+        description="Reranking model name (enables multi-hop search if specified)",
     )
 
     rerank_url: str = Field(
         default="/rerank",
         description="Rerank endpoint URL. Absolute URLs (http/https) used as-is for separate services. "
-                    "Relative paths combined with base_url for same-server reranking."
+        "Relative paths combined with base_url for same-server reranking.",
     )
 
     # Internal settings - not exposed to users
@@ -80,9 +79,6 @@ class EmbeddingConfig(BaseSettings):
     optimization_batch_frequency: int = Field(
         default=1000, description="Internal optimization frequency"
     )
-
-
-
 
     @field_validator("model")
     def validate_model(cls, v: str | None) -> str | None:  # noqa: N805
@@ -121,23 +117,22 @@ class EmbeddingConfig(BaseSettings):
 
         # When rerank_model is set, check if we have what we need for URL construction
         values = info.data
-        provider = values.get('provider', 'openai')
-        rerank_url = values.get('rerank_url', '/rerank')
-        base_url = values.get('base_url')
+        provider = values.get("provider", "openai")
+        rerank_url = values.get("rerank_url", "/rerank")
+        base_url = values.get("base_url")
 
         # VoyageAI uses SDK-based reranking, doesn't need URL configuration
-        if provider == 'voyageai':
+        if provider == "voyageai":
             return v
 
         # For other providers, if rerank_url is relative, we need base_url
-        if not rerank_url.startswith(('http://', 'https://')) and not base_url:
+        if not rerank_url.startswith(("http://", "https://")) and not base_url:
             raise ValueError(
                 "base_url is required when using rerank_model with relative rerank_url. "
                 "Either provide base_url or use an absolute rerank_url (http://...)"
             )
 
         return v
-
 
     def get_provider_config(self) -> dict[str, Any]:
         """
@@ -289,7 +284,6 @@ class EmbeddingConfig(BaseSettings):
             overrides["base_url"] = args.base_url
         if hasattr(args, "embedding_base_url") and args.embedding_base_url:
             overrides["base_url"] = args.embedding_base_url
-
 
         # Handle no-embeddings flag (special case - disables embeddings)
         if hasattr(args, "no_embeddings") and args.no_embeddings:

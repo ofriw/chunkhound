@@ -148,7 +148,7 @@ class MarkdownMapping(BaseMapping):
         """Get tree-sitter query pattern for Markdown links and images.
 
         Note: tree-sitter-markdown doesn't have dedicated 'link' or 'image' nodes.
-        Inline links/images are parsed as sequences of punctuation tokens within 
+        Inline links/images are parsed as sequences of punctuation tokens within
         'inline' nodes, making them difficult to query reliably. We focus on
         link reference definitions which are properly structured.
 
@@ -244,7 +244,11 @@ class MarkdownMapping(BaseMapping):
             marker_node = None
             for i in range(node.child_count):
                 child = node.child(i)
-                if child and child.type.startswith("atx_h") and child.type.endswith("_marker"):
+                if (
+                    child
+                    and child.type.startswith("atx_h")
+                    and child.type.endswith("_marker")
+                ):
                     marker_node = child
                     break
 
@@ -272,7 +276,11 @@ class MarkdownMapping(BaseMapping):
         Returns:
             Language identifier or empty string
         """
-        if not TREE_SITTER_AVAILABLE or node is None or node.type != "fenced_code_block":
+        if (
+            not TREE_SITTER_AVAILABLE
+            or node is None
+            or node.type != "fenced_code_block"
+        ):
             return ""
 
         # Look for info_string (language specifier)
@@ -302,9 +310,16 @@ class MarkdownMapping(BaseMapping):
         if first_item:
             # Look for ordered list marker (numbers followed by . or ))
             for child in self.walk_tree(first_item):
-                if child.type == "list_marker_dot" or child.type == "list_marker_parenthesis":
+                if (
+                    child.type == "list_marker_dot"
+                    or child.type == "list_marker_parenthesis"
+                ):
                     return "ordered"
-                elif child.type in ("list_marker_minus", "list_marker_plus", "list_marker_star"):
+                elif child.type in (
+                    "list_marker_minus",
+                    "list_marker_plus",
+                    "list_marker_star",
+                ):
                     return "unordered"
 
         return "unordered"
@@ -449,7 +464,11 @@ class MarkdownMapping(BaseMapping):
         if not TREE_SITTER_AVAILABLE or node is None:
             return {}
 
-        language = self.extract_code_language(node, source) if node.type == "fenced_code_block" else ""
+        language = (
+            self.extract_code_language(node, source)
+            if node.type == "fenced_code_block"
+            else ""
+        )
 
         return self.create_chunk_dict(
             node=node,
@@ -494,7 +513,7 @@ class MarkdownMapping(BaseMapping):
     # LanguageMapping protocol methods
     def get_query_for_concept(self, concept: UniversalConcept) -> str | None:
         """Get tree-sitter query for universal concept in Markdown.
-        
+
         Since Markdown uses tree-sitter, we map concepts to existing queries.
         """
         if concept == UniversalConcept.DEFINITION:
@@ -509,7 +528,7 @@ class MarkdownMapping(BaseMapping):
                 queries.append(function_query.strip())
 
             if queries:
-                return '\n'.join(queries)
+                return "\n".join(queries)
             else:
                 return None
 
@@ -528,7 +547,7 @@ class MarkdownMapping(BaseMapping):
                 queries.append(blockquote_query.strip())
 
             if queries:
-                return '\n'.join(queries)
+                return "\n".join(queries)
             else:
                 return None
 
@@ -559,11 +578,13 @@ class MarkdownMapping(BaseMapping):
         else:
             return None
 
-    def extract_name(self, concept: UniversalConcept, captures: dict[str, "TSNode"], content: bytes) -> str:
+    def extract_name(
+        self, concept: UniversalConcept, captures: dict[str, "TSNode"], content: bytes
+    ) -> str:
         """Extract name from captures for this concept."""
 
         # Convert bytes to string for markdown processing
-        source = content.decode('utf-8', errors='replace')
+        source = content.decode("utf-8", errors="replace")
 
         if concept == UniversalConcept.DEFINITION:
             # Try to find the main definition node (heading or code block)
@@ -598,7 +619,7 @@ class MarkdownMapping(BaseMapping):
                 elif block_node.type == "list_item":
                     text = self.get_node_text(block_node, source).strip()
                     # Remove list markers
-                    text = text.lstrip('*-+ ').lstrip('0123456789. ')
+                    text = text.lstrip("*-+ ").lstrip("0123456789. ")
                     words = text.split()[:3]
                     if words:
                         name = "_".join(w for w in words if w.isalnum())
@@ -647,9 +668,11 @@ class MarkdownMapping(BaseMapping):
         else:
             return f"unnamed_{concept.value}"
 
-    def extract_content(self, concept: UniversalConcept, captures: dict[str, "TSNode"], content: bytes) -> str:
+    def extract_content(
+        self, concept: UniversalConcept, captures: dict[str, "TSNode"], content: bytes
+    ) -> str:
         """Extract content from captures for this concept.
-        
+
         This is the critical method - it must preserve the original markdown text
         so that regex searches can find the exact content.
         """
@@ -657,58 +680,70 @@ class MarkdownMapping(BaseMapping):
         # Find the main definition node and extract its text
         def_node = self._find_definition_node(captures)
         if def_node:
-            source = content.decode('utf-8', errors='replace')
+            source = content.decode("utf-8", errors="replace")
             return self.get_node_text(def_node, source)
         return ""
 
-    def extract_metadata(self, concept: UniversalConcept, captures: dict[str, "TSNode"], content: bytes) -> dict[str, Any]:
+    def extract_metadata(
+        self, concept: UniversalConcept, captures: dict[str, "TSNode"], content: bytes
+    ) -> dict[str, Any]:
         """Extract markdown-specific metadata."""
 
         def_node = self._find_definition_node(captures)
-        source = content.decode('utf-8', errors='replace')
+        source = content.decode("utf-8", errors="replace")
 
         metadata = {
-            'concept': concept.value,
-            'language': self.language.value,
-            'capture_names': list(captures.keys())
+            "concept": concept.value,
+            "language": self.language.value,
+            "capture_names": list(captures.keys()),
         }
 
         if def_node:
-            metadata['node_type'] = def_node.type
+            metadata["node_type"] = def_node.type
 
             # Add concept-specific metadata
             if concept == UniversalConcept.DEFINITION:
                 if def_node.type in ("atx_heading", "setext_heading"):
-                    metadata['heading_level'] = self.extract_heading_level(def_node, source)
+                    metadata["heading_level"] = self.extract_heading_level(
+                        def_node, source
+                    )
                 elif def_node.type == "fenced_code_block":
-                    metadata['code_language'] = self.extract_code_language(def_node, source)
+                    metadata["code_language"] = self.extract_code_language(
+                        def_node, source
+                    )
 
             elif concept == UniversalConcept.BLOCK:
                 if def_node.type == "list":
-                    metadata['list_type'] = self.extract_list_type(def_node, source)
+                    metadata["list_type"] = self.extract_list_type(def_node, source)
 
             elif concept == UniversalConcept.IMPORT:
                 if def_node.type == "link_reference_definition":
-                    metadata['url'] = self.extract_link_url(def_node, source)
-                    metadata['label'] = self.extract_link_text(def_node, source)
+                    metadata["url"] = self.extract_link_url(def_node, source)
+                    metadata["label"] = self.extract_link_text(def_node, source)
 
         return metadata
 
-    def _find_definition_node(self, captures: dict[str, "TSNode"]) -> Optional["TSNode"]:
+    def _find_definition_node(
+        self, captures: dict[str, "TSNode"]
+    ) -> Optional["TSNode"]:
         """Find the main definition node from captures.
-        
+
         Args:
             captures: Dictionary of captured nodes
-            
+
         Returns:
             Main definition node or None
         """
         # Priority order - prefer specific nodes over generic
         priority_keys = [
-            'atx_heading', 'setext_heading',
-            'fenced_code_block', 'code_block',
-            'paragraph', 'list_item',
-            'blockquote', 'table'
+            "atx_heading",
+            "setext_heading",
+            "fenced_code_block",
+            "code_block",
+            "paragraph",
+            "list_item",
+            "blockquote",
+            "table",
         ]
 
         for key in priority_keys:

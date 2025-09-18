@@ -32,9 +32,10 @@ class MCPConfig(BaseModel):
 
     # Internal settings - not exposed to users
     cors: bool = Field(default=True, description="Internal CORS setting")
-    allowed_origins: list[str] = Field(default_factory=lambda: ["*"], description="Internal CORS origins")
+    allowed_origins: list[str] = Field(
+        default_factory=lambda: ["*"], description="Internal CORS origins"
+    )
     max_concurrent_requests: int = Field(default=10, description="Internal concurrency")
-
 
     def get_server_url(self) -> str:
         """Get the full server URL for HTTP transport."""
@@ -92,7 +93,6 @@ class MCPConfig(BaseModel):
             help="Host for HTTP transport",
         )
 
-
     @classmethod
     def load_from_env(cls) -> dict[str, Any]:
         """Load MCP config from environment variables."""
@@ -128,10 +128,6 @@ class MCPConfig(BaseModel):
     def __repr__(self) -> str:
         """String representation of MCP configuration."""
         if self.transport == "http":
-            return (
-                f"MCPConfig("
-                f"transport={self.transport}, "
-                f"url={self.get_server_url()})"
-            )
+            return f"MCPConfig(transport={self.transport}, url={self.get_server_url()})"
         else:
             return f"MCPConfig(transport={self.transport})"

@@ -121,11 +121,13 @@ class BashMapping(BaseMapping):
         # All cases handled above
         return None
 
-    def extract_name(self, concept: UniversalConcept, captures: dict[str, Node], content: bytes) -> str:
+    def extract_name(
+        self, concept: UniversalConcept, captures: dict[str, Node], content: bytes
+    ) -> str:
         """Extract name from captures for this concept."""
 
         # Convert bytes to string for processing
-        source = content.decode('utf-8')
+        source = content.decode("utf-8")
 
         if concept == UniversalConcept.DEFINITION:
             # Try to get the name from various capture groups
@@ -166,10 +168,10 @@ class BashMapping(BaseMapping):
                     # Simple extraction of the first argument after source/. command
                     parts = def_text.split()
                     if len(parts) > 1:
-                        source_file = parts[1].strip('"\'')
+                        source_file = parts[1].strip("\"'")
                         # Get just the filename for cleaner names
-                        if '/' in source_file:
-                            source_file = source_file.split('/')[-1]
+                        if "/" in source_file:
+                            source_file = source_file.split("/")[-1]
                         return f"source_{source_file}"
                 return f"source_{cmd}"
 
@@ -181,11 +183,13 @@ class BashMapping(BaseMapping):
         # All cases handled above
         return "unnamed"
 
-    def extract_content(self, concept: UniversalConcept, captures: dict[str, Node], content: bytes) -> str:
+    def extract_content(
+        self, concept: UniversalConcept, captures: dict[str, Node], content: bytes
+    ) -> str:
         """Extract content from captures for this concept."""
 
         # Convert bytes to string for processing
-        source = content.decode('utf-8')
+        source = content.decode("utf-8")
 
         if concept == UniversalConcept.BLOCK and "block" in captures:
             node = captures["block"]
@@ -200,10 +204,12 @@ class BashMapping(BaseMapping):
 
         return ""
 
-    def extract_metadata(self, concept: UniversalConcept, captures: dict[str, Node], content: bytes) -> dict[str, Any]:
+    def extract_metadata(
+        self, concept: UniversalConcept, captures: dict[str, Node], content: bytes
+    ) -> dict[str, Any]:
         """Extract Bash-specific metadata."""
 
-        source = content.decode('utf-8')
+        source = content.decode("utf-8")
         metadata = {}
 
         if concept == UniversalConcept.DEFINITION:
@@ -238,7 +244,11 @@ class BashMapping(BaseMapping):
                     metadata["kind"] = "loop_variable"
                     # Extract the list being iterated over
                     for child in self.walk_tree(def_node):
-                        if child and child.type == "word" and child != captures.get("name"):
+                        if (
+                            child
+                            and child.type == "word"
+                            and child != captures.get("name")
+                        ):
                             # This might be part of the iteration list
                             list_text = self.get_node_text(child, source).strip()
                             if list_text and not list_text.startswith("$"):
@@ -254,7 +264,14 @@ class BashMapping(BaseMapping):
                 if block_node.type == "compound_statement":
                     statements = 0
                     for child in self.walk_tree(block_node):
-                        if child and child.type in ["command", "pipeline", "variable_assignment", "if_statement", "for_statement", "while_statement"]:
+                        if child and child.type in [
+                            "command",
+                            "pipeline",
+                            "variable_assignment",
+                            "if_statement",
+                            "for_statement",
+                            "while_statement",
+                        ]:
                             statements += 1
                     metadata["statement_count"] = statements
 
@@ -266,13 +283,13 @@ class BashMapping(BaseMapping):
                 # Extract the file being sourced
                 parts = import_text.split()
                 if len(parts) > 1:
-                    source_file = parts[1].strip('"\'')
+                    source_file = parts[1].strip("\"'")
                     metadata["source_file"] = source_file
 
                     # Determine if it's a relative or absolute path
-                    if source_file.startswith('/'):
+                    if source_file.startswith("/"):
                         metadata["path_type"] = "absolute"
-                    elif source_file.startswith('./') or source_file.startswith('../'):
+                    elif source_file.startswith("./") or source_file.startswith("../"):
                         metadata["path_type"] = "relative"
                     else:
                         metadata["path_type"] = "relative_simple"
@@ -291,13 +308,19 @@ class BashMapping(BaseMapping):
 
                 if clean_text:
                     upper_text = clean_text.upper()
-                    if any(prefix in upper_text for prefix in ["TODO:", "FIXME:", "HACK:", "NOTE:", "WARNING:"]):
+                    if any(
+                        prefix in upper_text
+                        for prefix in ["TODO:", "FIXME:", "HACK:", "NOTE:", "WARNING:"]
+                    ):
                         comment_type = "annotation"
                         is_doc = True
                     elif clean_text.startswith("#!/"):
                         comment_type = "shebang"
                         is_doc = True
-                    elif len(clean_text) > 50 and any(word in clean_text.lower() for word in ["function", "parameter", "return", "usage"]):
+                    elif len(clean_text) > 50 and any(
+                        word in clean_text.lower()
+                        for word in ["function", "parameter", "return", "usage"]
+                    ):
                         comment_type = "documentation"
                         is_doc = True
 
@@ -323,12 +346,56 @@ class BashMapping(BaseMapping):
     def _is_builtin_command(self, command: str) -> bool:
         """Check if a command is a Bash builtin."""
         builtins = {
-            "alias", "bind", "builtin", "caller", "command", "declare", "echo",
-            "enable", "help", "let", "local", "logout", "mapfile", "printf",
-            "read", "readarray", "source", "type", "typeset", "ulimit", "unalias",
-            "set", "unset", "export", "cd", "pwd", "pushd", "popd", "dirs",
-            "jobs", "bg", "fg", "kill", "wait", "trap", "exit", "return",
-            "break", "continue", "test", "[", "eval", "exec", "shift",
-            "getopts", "hash", "history", "fc", "compgen", "complete", "shopt"
+            "alias",
+            "bind",
+            "builtin",
+            "caller",
+            "command",
+            "declare",
+            "echo",
+            "enable",
+            "help",
+            "let",
+            "local",
+            "logout",
+            "mapfile",
+            "printf",
+            "read",
+            "readarray",
+            "source",
+            "type",
+            "typeset",
+            "ulimit",
+            "unalias",
+            "set",
+            "unset",
+            "export",
+            "cd",
+            "pwd",
+            "pushd",
+            "popd",
+            "dirs",
+            "jobs",
+            "bg",
+            "fg",
+            "kill",
+            "wait",
+            "trap",
+            "exit",
+            "return",
+            "break",
+            "continue",
+            "test",
+            "[",
+            "eval",
+            "exec",
+            "shift",
+            "getopts",
+            "hash",
+            "history",
+            "fc",
+            "compgen",
+            "complete",
+            "shopt",
         }
         return command in builtins

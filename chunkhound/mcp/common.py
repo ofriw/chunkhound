@@ -46,7 +46,9 @@ class EmbeddingProviderError(MCPError):
 
 
 async def with_timeout(
-    coro: Coroutine[Any, Any, T], timeout_seconds: float, error_message: str = "Operation timed out"
+    coro: Coroutine[Any, Any, T],
+    timeout_seconds: float,
+    error_message: str = "Operation timed out",
 ) -> T:
     """Execute coroutine with timeout and custom error message.
 
@@ -127,13 +129,13 @@ async def handle_tool_call(
     embedding_manager: EmbeddingManager | None,
     initialization_complete: asyncio.Event,
     debug_mode: bool = False,
-    scan_progress: dict | None = None
+    scan_progress: dict | None = None,
 ) -> list[types.TextContent]:
     """Unified tool call handler for all MCP servers.
-    
+
     Single entry point for all tool executions across transports.
     Handles initialization, validation, execution, and formatting.
-    
+
     Args:
         tool_name: Name of the tool to execute from TOOL_REGISTRY
         arguments: Tool arguments as key-value pairs
@@ -142,19 +144,16 @@ async def handle_tool_call(
         initialization_complete: Event to wait for server initialization
         debug_mode: Whether to include stack traces in error responses
         scan_progress: Optional scan progress from MCPServerBase
-        
+
     Returns:
         List containing a single TextContent with JSON-formatted response
-        
+
     Raises:
         MCPError: On tool execution failure (caught and formatted as error response)
     """
     try:
         # Wait for initialization (reduced timeout since server is immediately available)
-        await asyncio.wait_for(
-            initialization_complete.wait(),
-            timeout=5.0
-        )
+        await asyncio.wait_for(initialization_complete.wait(), timeout=5.0)
 
         # Validate tool exists
         if tool_name not in TOOL_REGISTRY:

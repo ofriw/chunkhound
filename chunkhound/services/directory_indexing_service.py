@@ -51,7 +51,7 @@ class DirectoryIndexingService:
         self.progress = progress
 
         # Pass progress to coordinator if it supports it
-        if hasattr(self.indexing_coordinator, 'progress'):
+        if hasattr(self.indexing_coordinator, "progress"):
             self.indexing_coordinator.progress = progress
 
     async def process_directory(

@@ -74,8 +74,6 @@ class IndexingCoordinator(BaseService):
         # Base directory for path normalization (immutable after initialization)
         self._base_directory: Path = base_directory
 
-
-
     def add_language_parser(self, language: Language, parser: UniversalParser) -> None:
         """Add or update a language parser.
 
@@ -175,9 +173,6 @@ class IndexingCoordinator(BaseService):
         Returns:
             Dictionary with processing results including status, chunks, and embeddings
         """
-        # CRITICAL: Resolve file path at entry to handle symlinks consistently
-        file_path = file_path.resolve()
-
         # CRITICAL: File-level locking prevents concurrent modification
         # PATTERN: All processing happens inside the lock
         # PREVENTS: Race conditions, partial updates, data corruption
@@ -215,7 +210,11 @@ class IndexingCoordinator(BaseService):
             if language == Language.JSON:
                 file_size_kb = file_path.stat().st_size / 1024
                 if file_size_kb > 20:  # 20KB threshold
-                    return {"status": "skipped", "reason": "large_json_file", "chunks": 0}
+                    return {
+                        "status": "skipped",
+                        "reason": "large_json_file",
+                        "chunks": 0,
+                    }
 
             # Get parser for language
             parser = self.get_parser_for_language(language)
@@ -260,7 +259,7 @@ class IndexingCoordinator(BaseService):
 
             # Check for existing file to determine if this is an update or new file
             base_dir = self._base_directory
-            relative_path = file_path.relative_to(base_dir)
+            relative_path = file_path.resolve().relative_to(base_dir)
             existing_file = self._db.get_file_by_path(relative_path.as_posix())
 
             # SECTION: Smart_Chunk_Update (PERFORMANCE_CRITICAL)
@@ -272,6 +271,7 @@ class IndexingCoordinator(BaseService):
 
                 # UniversalParser already returns Chunk models - create new with correct file_id
                 from chunkhound.core.models import Chunk
+
                 new_chunk_models = []
                 for chunk in chunks_list:
                     new_chunk = Chunk(
@@ -282,7 +282,7 @@ class IndexingCoordinator(BaseService):
                         code=chunk.code,
                         chunk_type=chunk.chunk_type,
                         language=chunk.language,
-                        parent_header=chunk.parent_header
+                        parent_header=chunk.parent_header,
                     )
                     new_chunk_models.append(new_chunk)
 
@@ -367,9 +367,14 @@ class IndexingCoordinator(BaseService):
                         chunk_ids = unchanged_ids + chunk_ids_new
 
                         # Check which unchanged chunks are missing embeddings
-                        if not skip_embeddings and chunk_diff.unchanged and self._embedding_provider:
+                        if (
+                            not skip_embeddings
+                            and chunk_diff.unchanged
+                            and self._embedding_provider
+                        ):
                             unchanged_chunk_ids = [
-                                chunk.id for chunk in chunk_diff.unchanged
+                                chunk.id
+                                for chunk in chunk_diff.unchanged
                                 if chunk.id is not None
                             ]
 
@@ -377,18 +382,20 @@ class IndexingCoordinator(BaseService):
                             existing_embedding_ids = self._db.get_existing_embeddings(
                                 unchanged_chunk_ids,
                                 self._embedding_provider.name,
-                                self._embedding_provider.model
+                                self._embedding_provider.model,
                             )
 
                             # Find unchanged chunks that need embeddings
                             unchanged_needing_embeddings = [
-                                chunk for chunk in chunk_diff.unchanged
+                                chunk
+                                for chunk in chunk_diff.unchanged
                                 if chunk.id not in existing_embedding_ids
                             ]
 
                             # Add to embedding generation lists
                             chunks_needing_embeddings = chunks_to_store + [
-                                chunk.to_dict() for chunk in unchanged_needing_embeddings
+                                chunk.to_dict()
+                                for chunk in unchanged_needing_embeddings
                             ]
                             chunk_ids_needing_embeddings = chunk_ids_new + [
                                 chunk.id for chunk in unchanged_needing_embeddings
@@ -446,6 +453,7 @@ class IndexingCoordinator(BaseService):
             else:
                 # New file, wrap in transaction for consistency
                 from chunkhound.core.models import Chunk
+
                 chunk_models = []
                 for chunk in chunks_list:
                     new_chunk = Chunk(
@@ -456,7 +464,7 @@ class IndexingCoordinator(BaseService):
                         code=chunk.code,
                         chunk_type=chunk.chunk_type,
                         language=chunk.language,
-                        parent_header=chunk.parent_header
+                        parent_header=chunk.parent_header,
                     )
                     chunk_models.append(new_chunk)
                 chunks_dict = [chunk.to_dict() for chunk in chunk_models]
@@ -711,8 +719,6 @@ class IndexingCoordinator(BaseService):
             Dictionary with processing statistics
         """
         try:
-
-
             # Phase 1: Discovery - Discover files in directory
             files = self._discover_files(directory, patterns, exclude_patterns)
 
@@ -736,10 +742,7 @@ class IndexingCoordinator(BaseService):
             file_task: TaskID | None = None
             if self.progress:
                 file_task = self.progress.add_task(
-                    "  └─ Processing files",
-                    total=len(files),
-                    speed="",
-                    info=""
+                    "  └─ Processing files", total=len(files), speed="", info=""
                 )
 
             for file_path in files:
@@ -802,7 +805,7 @@ class IndexingCoordinator(BaseService):
         """Store or update file record in database."""
         # Check if file already exists
         base_dir = self._base_directory
-        relative_path = file_path.relative_to(base_dir)
+        relative_path = file_path.resolve().relative_to(base_dir)
         existing_file = self._db.get_file_by_path(relative_path.as_posix())
 
         if existing_file:
@@ -816,7 +819,7 @@ class IndexingCoordinator(BaseService):
 
         # Create new File model instance with relative path
         base_dir = self._base_directory
-        relative_path = file_path.relative_to(base_dir)
+        relative_path = file_path.resolve().relative_to(base_dir)
         file_model = File(
             path=FilePath(relative_path.as_posix()),
             size_bytes=file_stat.st_size,
@@ -824,7 +827,6 @@ class IndexingCoordinator(BaseService):
             language=language,
         )
         return self._db.insert_file(file_model)
-
 
     def _store_chunks(
         self, file_id: int, chunks: list[dict[str, Any]], language: Language
@@ -865,7 +867,6 @@ class IndexingCoordinator(BaseService):
         logger.debug(f"Batch inserted {len(chunk_ids)} chunks for file_id {file_id}")
 
         return chunk_ids
-
 
     async def get_stats(self) -> dict[str, Any]:
         """Get database statistics.
@@ -964,16 +965,21 @@ class IndexingCoordinator(BaseService):
             # Debug log to trace if this is the mystery error source
             import os
             from datetime import datetime
+
             debug_file = os.getenv("CHUNKHOUND_DEBUG_FILE", "/tmp/chunkhound_debug.log")
             timestamp = datetime.now().isoformat()
             try:
                 with open(debug_file, "a") as f:
-                    f.write(f"[{timestamp}] [COORDINATOR-MISSING] Failed to generate missing embeddings: {e}\n")
+                    f.write(
+                        f"[{timestamp}] [COORDINATOR-MISSING] Failed to generate missing embeddings: {e}\n"
+                    )
                     f.flush()
             except Exception:
                 pass
 
-            logger.error(f"[IndexCoord-Missing] Failed to generate missing embeddings: {e}")
+            logger.error(
+                f"[IndexCoord-Missing] Failed to generate missing embeddings: {e}"
+            )
             return {"status": "error", "error": str(e), "generated": 0}
 
     async def _generate_embeddings(
@@ -989,6 +995,7 @@ class IndexingCoordinator(BaseService):
             empty_count = 0
             for chunk_id, chunk in zip(chunk_ids, chunks):
                 from chunkhound.utils.normalization import normalize_content
+
                 text = normalize_content(chunk.get("code", ""))
                 if text:  # Only include chunks with actual content
                     valid_chunk_data.append((chunk_id, chunk, text))
@@ -1037,9 +1044,11 @@ class IndexingCoordinator(BaseService):
 
         except Exception as e:
             # Log chunk details for debugging oversized chunks
-            text_sizes = [len(text) for text in texts] if 'texts' in locals() else []
+            text_sizes = [len(text) for text in texts] if "texts" in locals() else []
             max_chars = max(text_sizes) if text_sizes else 0
-            logger.error(f"[IndexCoord] Failed to generate embeddings (chunks: {len(text_sizes)}, max_chars: {max_chars}): {e}")
+            logger.error(
+                f"[IndexCoord] Failed to generate embeddings (chunks: {len(text_sizes)}, max_chars: {max_chars}): {e}"
+            )
             return 0
 
     async def _generate_embeddings_batch(
@@ -1113,7 +1122,9 @@ class IndexingCoordinator(BaseService):
         # Cache for .gitignore patterns by directory
         gitignore_patterns: dict[Path, list[str]] = {}
 
-        def should_exclude_path(path: Path, base_dir: Path, patterns: list[str] | None = None) -> bool:
+        def should_exclude_path(
+            path: Path, base_dir: Path, patterns: list[str] | None = None
+        ) -> bool:
             """Check if a path should be excluded based on exclude patterns."""
             if patterns is None:
                 patterns = exclude_patterns
@@ -1123,7 +1134,6 @@ class IndexingCoordinator(BaseService):
             except ValueError:
                 # Path is not under base directory, use absolute path as fallback
                 rel_path = path
-
 
             for exclude_pattern in patterns:
                 # Handle ** patterns that fnmatch doesn't support properly
@@ -1191,7 +1201,9 @@ class IndexingCoordinator(BaseService):
                 gitignore_path = current_dir / ".gitignore"
                 if gitignore_path.exists():
                     try:
-                        with open(gitignore_path, encoding='utf-8', errors='ignore') as f:
+                        with open(
+                            gitignore_path, encoding="utf-8", errors="ignore"
+                        ) as f:
                             lines = f.read().splitlines()
                         # Filter out comments and empty lines, convert to exclude patterns
                         # Gitignore patterns are converted to our exclude format:
@@ -1200,38 +1212,48 @@ class IndexingCoordinator(BaseService):
                         patterns_from_gitignore = []
                         for line in lines:
                             line = line.strip()
-                            if line and not line.startswith('#'):
+                            if line and not line.startswith("#"):
                                 # Convert gitignore pattern to our exclude pattern format
                                 # Patterns starting with / are relative to this directory
-                                if line.startswith('/'):
+                                if line.startswith("/"):
                                     # Make it relative to the root directory we're indexing
                                     rel_from_root = current_dir.relative_to(directory)
-                                    if rel_from_root == Path('.'):
+                                    if rel_from_root == Path("."):
                                         patterns_from_gitignore.append(line[1:])
                                     else:
-                                        patterns_from_gitignore.append(str(rel_from_root / line[1:]))
+                                        patterns_from_gitignore.append(
+                                            str(rel_from_root / line[1:])
+                                        )
                                 else:
                                     # Pattern applies recursively from this directory
                                     # Simple patterns like *.log should match at any level
                                     rel_from_root = current_dir.relative_to(directory)
-                                    if rel_from_root == Path('.'):
+                                    if rel_from_root == Path("."):
                                         # Pattern at root - just use as is for simple patterns
                                         patterns_from_gitignore.append(line)
                                         # Also add recursive version for patterns like *.log
-                                        if '*' in line and not line.startswith('**/'):
+                                        if "*" in line and not line.startswith("**/"):
                                             patterns_from_gitignore.append(f"**/{line}")
                                     else:
-                                        patterns_from_gitignore.append(f"{rel_from_root}/**/{line}")
-                                        patterns_from_gitignore.append(f"{rel_from_root}/{line}")
+                                        patterns_from_gitignore.append(
+                                            f"{rel_from_root}/**/{line}"
+                                        )
+                                        patterns_from_gitignore.append(
+                                            f"{rel_from_root}/{line}"
+                                        )
                         gitignore_patterns[current_dir] = patterns_from_gitignore
                     except OSError as e:
                         # Log error but continue - don't fail indexing due to gitignore issues
                         if self.progress_callback:
-                            self.progress_callback(f"Warning: Failed to read .gitignore at {gitignore_path}: {e}")
+                            self.progress_callback(
+                                f"Warning: Failed to read .gitignore at {gitignore_path}: {e}"
+                            )
                     except Exception as e:
                         # Unexpected error - still log but continue
                         if self.progress_callback:
-                            self.progress_callback(f"Warning: Unexpected error reading .gitignore at {gitignore_path}: {e}")
+                            self.progress_callback(
+                                f"Warning: Unexpected error reading .gitignore at {gitignore_path}: {e}"
+                            )
 
                 # Combine all applicable gitignore patterns from this dir and parents
                 all_gitignore_patterns = []
@@ -1298,7 +1320,8 @@ class IndexingCoordinator(BaseService):
             # Create set of relative paths for fast lookup
             base_dir = self._base_directory
             current_file_paths = {
-                file_path.relative_to(base_dir).as_posix() for file_path in current_files
+                file_path.relative_to(base_dir).as_posix()
+                for file_path in current_files
             }
 
             # Get all files in database (stored as relative paths)
@@ -1346,7 +1369,7 @@ class IndexingCoordinator(BaseService):
                         "  └─ Cleaning orphaned files",
                         total=len(orphaned_files),
                         speed="",
-                        info=""
+                        info="",
                     )
 
                 for file_path in orphaned_files:

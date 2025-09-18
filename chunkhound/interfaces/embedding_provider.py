@@ -8,6 +8,7 @@ from typing import Any, Protocol
 @dataclass
 class RerankResult:
     """Result from reranking operation."""
+
     index: int
     score: float
 
@@ -218,7 +219,7 @@ class EmbeddingProvider(Protocol):
 
     def get_max_tokens_per_batch(self) -> int:
         """Get maximum tokens per batch for this provider.
-        
+
         Returns:
             Maximum number of tokens that can be processed in a single batch.
             Used by service layer for provider-agnostic token-aware batching.
@@ -227,7 +228,7 @@ class EmbeddingProvider(Protocol):
 
     def get_max_documents_per_batch(self) -> int:
         """Get maximum number of documents per batch for this provider.
-        
+
         Returns:
             Maximum number of documents that can be processed in a single batch.
             Used by service layer for provider-agnostic document-count-aware batching.
@@ -302,23 +303,20 @@ class APIEmbeddingProvider(EmbeddingProvider, Protocol):
         return False
 
     async def rerank(
-        self,
-        query: str,
-        documents: list[str],
-        top_k: int | None = None
+        self, query: str, documents: list[str], top_k: int | None = None
     ) -> list[RerankResult]:
         """Rerank documents by relevance to query.
-        
+
         Only called if supports_reranking() returns True.
-        
+
         Args:
             query: Query text to rank against
             documents: List of document texts to rank
             top_k: Optional limit on number of results
-            
+
         Returns:
             List of RerankResult with original index and relevance score
-            
+
         Raises:
             NotImplementedError: If provider doesn't support reranking
         """

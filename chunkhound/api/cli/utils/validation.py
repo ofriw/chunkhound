@@ -66,6 +66,7 @@ def validate_provider_args(
     if provider == "openai":
         # Only require API key for official OpenAI endpoints
         from chunkhound.core.config.openai_utils import is_official_openai_endpoint
+
         if is_official_openai_endpoint(base_url) and not api_key:
             logger.error(
                 "OpenAI API key required for official OpenAI endpoints. "

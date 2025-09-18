@@ -15,7 +15,9 @@ import warnings
 # CRITICAL: Suppress SWIG warnings that break JSON-RPC protocol in CI
 # The DuckDB Python bindings generate a DeprecationWarning that goes to stdout
 # in some environments (Ubuntu CI with Python 3.12), breaking MCP protocol
-warnings.filterwarnings("ignore", message=".*swigvarlink.*", category=DeprecationWarning)
+warnings.filterwarnings(
+    "ignore", message=".*swigvarlink.*", category=DeprecationWarning
+)
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
@@ -79,7 +81,9 @@ class StdioMCPServer(MCPServerBase):
         # with signature (tool_name: str, arguments: dict) that handles ALL tools
 
         @self.server.call_tool()  # type: ignore[misc]
-        async def handle_all_tools(tool_name: str, arguments: dict[str, Any]) -> list[types.TextContent]:
+        async def handle_all_tools(
+            tool_name: str, arguments: dict[str, Any]
+        ) -> list[types.TextContent]:
             """Universal tool handler that routes to the unified handler."""
             return await handle_tool_call(
                 tool_name=tool_name,
@@ -88,13 +92,14 @@ class StdioMCPServer(MCPServerBase):
                 embedding_manager=self.embedding_manager,
                 initialization_complete=self._initialization_complete,
                 debug_mode=self.debug_mode,
-                scan_progress=self._scan_progress
+                scan_progress=self._scan_progress,
             )
 
         self._register_list_tools()
 
     def _register_list_tools(self) -> None:
         """Register list_tools handler."""
+
         @self.server.list_tools()  # type: ignore[misc]
         async def list_tools() -> list[types.Tool]:
             """List available tools."""
@@ -160,7 +165,10 @@ class StdioMCPServer(MCPServerBase):
             # Run with lifespan management
             async with self.server_lifespan():
                 # Run the stdio server
-                async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
+                async with mcp.server.stdio.stdio_server() as (
+                    read_stream,
+                    write_stream,
+                ):
                     self.debug_log("Stdio server started, awaiting requests")
                     await self.server.run(
                         read_stream,
@@ -180,7 +188,7 @@ class StdioMCPServer(MCPServerBase):
 
 async def main(args: Any = None) -> None:
     """Main entry point for the MCP stdio server.
-    
+
     Args:
         args: Pre-parsed arguments. If None, will parse from sys.argv.
     """

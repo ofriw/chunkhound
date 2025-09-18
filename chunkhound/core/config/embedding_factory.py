@@ -142,7 +142,6 @@ class EmbeddingProviderFactory:
         except Exception as e:
             raise ValueError(f"Failed to create VoyageAI provider: {e}") from e
 
-
     @staticmethod
     def get_supported_providers() -> list[str]:
         """

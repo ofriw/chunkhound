@@ -5,12 +5,12 @@ from typing import Any
 
 class TerminalError(Exception):
     """Base exception for all terminal input errors.
-    
+
     This is the root exception class that all other terminal exceptions
     inherit from. It provides common functionality for error handling,
     context tracking, and debugging.
     """
-    
+
     def __init__(
         self,
         message: str,
@@ -18,7 +18,7 @@ class TerminalError(Exception):
         cause: Exception | None = None,
     ):
         """Initialize terminal error.
-        
+
         Args:
             message: Human-readable error description
             context: Optional dictionary with error context
@@ -28,14 +28,14 @@ class TerminalError(Exception):
         self.message = message
         self.context = context or {}
         self.cause = cause
-    
+
     def __str__(self) -> str:
         """Return formatted error message with context."""
         if self.context:
             context_str = ", ".join(f"{k}={v}" for k, v in self.context.items())
             return f"{self.message} (context: {context_str})"
         return self.message
-    
+
     def add_context(self, key: str, value: Any) -> "TerminalError":
         """Add context information to the error."""
         self.context[key] = value
@@ -44,11 +44,11 @@ class TerminalError(Exception):
 
 class TerminalSetupError(TerminalError):
     """Raised when terminal setup or initialization fails.
-    
+
     This exception is used when the terminal cannot be configured
     for raw input mode, or when platform-specific setup fails.
     """
-    
+
     def __init__(
         self,
         operation: str,
@@ -57,10 +57,10 @@ class TerminalSetupError(TerminalError):
         context: dict[str, Any] | None = None,
     ):
         """Initialize terminal setup error.
-        
+
         Args:
             operation: Setup operation that failed (e.g., "enter_raw_mode", "disable_echo")
-            platform: Platform where error occurred (e.g., "unix", "windows") 
+            platform: Platform where error occurred (e.g., "unix", "windows")
             reason: Description of what went wrong
             context: Optional additional context
         """
@@ -69,10 +69,14 @@ class TerminalSetupError(TerminalError):
             parts.append(f"platform={platform}")
         if operation:
             parts.append(f"operation={operation}")
-            
-        prefix = f"Terminal setup error ({', '.join(parts)})" if parts else "Terminal setup error"
+
+        prefix = (
+            f"Terminal setup error ({', '.join(parts)})"
+            if parts
+            else "Terminal setup error"
+        )
         message = f"{prefix}: {reason}" if reason else prefix
-        
+
         super().__init__(message, context)
         self.operation = operation
         self.platform = platform
@@ -81,11 +85,11 @@ class TerminalSetupError(TerminalError):
 
 class TerminalInputTimeout(TerminalError):
     """Raised when input operation times out.
-    
+
     This exception is used when no input is received within the
     specified timeout period.
     """
-    
+
     def __init__(
         self,
         timeout: float,
@@ -93,7 +97,7 @@ class TerminalInputTimeout(TerminalError):
         context: dict[str, Any] | None = None,
     ):
         """Initialize input timeout error.
-        
+
         Args:
             timeout: Timeout value in seconds
             operation: Input operation that timed out (e.g., "read_key", "read_char")
@@ -103,7 +107,7 @@ class TerminalInputTimeout(TerminalError):
             message = f"Input timeout after {timeout}s during {operation}"
         else:
             message = f"Input timeout after {timeout}s"
-            
+
         super().__init__(message, context)
         self.timeout = timeout
         self.operation = operation
@@ -111,11 +115,11 @@ class TerminalInputTimeout(TerminalError):
 
 class TerminalUnsupportedPlatform(TerminalError):
     """Raised when terminal operations are not supported on current platform.
-    
+
     This exception is used when the current platform doesn't support
     the required terminal operations.
     """
-    
+
     def __init__(
         self,
         platform: str,
@@ -124,7 +128,7 @@ class TerminalUnsupportedPlatform(TerminalError):
         context: dict[str, Any] | None = None,
     ):
         """Initialize unsupported platform error.
-        
+
         Args:
             platform: Current platform that's not supported
             operation: Operation that's not supported
@@ -136,7 +140,7 @@ class TerminalUnsupportedPlatform(TerminalError):
             message += f" for operation '{operation}'"
         if supported_platforms:
             message += f" (supported: {', '.join(supported_platforms)})"
-            
+
         super().__init__(message, context)
         self.platform = platform
         self.operation = operation
@@ -145,11 +149,11 @@ class TerminalUnsupportedPlatform(TerminalError):
 
 class TerminalConfigurationError(TerminalError):
     """Raised when terminal configuration is invalid.
-    
+
     This exception is used when terminal configuration parameters
     are invalid or incompatible.
     """
-    
+
     def __init__(
         self,
         config_key: str | None = None,
@@ -158,7 +162,7 @@ class TerminalConfigurationError(TerminalError):
         context: dict[str, Any] | None = None,
     ):
         """Initialize configuration error.
-        
+
         Args:
             config_key: Configuration key that caused the error
             config_value: Invalid configuration value
@@ -168,8 +172,12 @@ class TerminalConfigurationError(TerminalError):
         if config_key:
             message = f"Terminal configuration error for '{config_key}': {reason}"
         else:
-            message = f"Terminal configuration error: {reason}" if reason else "Terminal configuration error"
-            
+            message = (
+                f"Terminal configuration error: {reason}"
+                if reason
+                else "Terminal configuration error"
+            )
+
         super().__init__(message, context)
         self.config_key = config_key
         self.config_value = config_value

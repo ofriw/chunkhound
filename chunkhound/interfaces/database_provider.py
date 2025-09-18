@@ -187,14 +187,14 @@ class DatabaseProvider(Protocol):
         threshold: float | None = None,
     ) -> list[dict[str, Any]]:
         """Find chunks similar to the given chunk using its embedding.
-        
+
         Args:
             chunk_id: ID of the chunk to find similar chunks for
             provider: Embedding provider name
             model: Embedding model name
             limit: Maximum number of results to return
             threshold: Optional similarity threshold
-            
+
         Returns:
             List of similar chunks with scores and metadata
         """
@@ -210,7 +210,7 @@ class DatabaseProvider(Protocol):
         path_filter: str | None = None,
     ) -> list[dict[str, Any]]:
         """Find chunks similar to the given embedding vector.
-        
+
         Args:
             query_embedding: The embedding vector to search with
             provider: Embedding provider name
@@ -218,7 +218,7 @@ class DatabaseProvider(Protocol):
             limit: Maximum number of results to return
             threshold: Optional similarity threshold
             path_filter: Optional relative path to limit search scope
-            
+
         Returns:
             List of similar chunks with scores and metadata
         """

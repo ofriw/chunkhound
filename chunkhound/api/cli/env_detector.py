@@ -7,6 +7,7 @@ from chunkhound.core.constants import VOYAGE_DEFAULT_MODEL
 
 try:
     import httpx
+
     HTTPX_AVAILABLE = True
 except ImportError:
     HTTPX_AVAILABLE = False
@@ -46,7 +47,7 @@ def _detect_voyageai() -> dict[str, Any] | None:
         return {
             "provider": "voyageai",
             "api_key": api_key,
-            "model": VOYAGE_DEFAULT_MODEL
+            "model": VOYAGE_DEFAULT_MODEL,
         }
     return None
 
@@ -58,7 +59,7 @@ def _detect_openai() -> dict[str, Any] | None:
         config = {
             "provider": "openai",
             "api_key": api_key,
-            "model": os.getenv("OPENAI_MODEL", "text-embedding-3-small")
+            "model": os.getenv("OPENAI_MODEL", "text-embedding-3-small"),
         }
 
         # Add base URL if specified
@@ -109,17 +110,13 @@ def _detect_local_endpoints() -> dict[str, Any] | None:
             return {
                 "base_url": url,
                 "provider_name": name,
-                "detected_from": "environment"
+                "detected_from": "environment",
             }
 
     # Then test common endpoints
     for url, name in endpoints:
         if _check_endpoint_alive(url):
-            return {
-                "base_url": url,
-                "provider_name": name,
-                "detected_from": "scan"
-            }
+            return {"base_url": url, "provider_name": name, "detected_from": "scan"}
 
     return None
 
@@ -130,12 +127,12 @@ def _normalize_endpoint_url(url: str) -> str | None:
         return None
 
     # Add scheme if missing
-    if not url.startswith(('http://', 'https://')):
+    if not url.startswith(("http://", "https://")):
         url = f"http://{url}"
 
     # Add /v1 suffix if not present and doesn't already end with /v1 or /api
-    if not url.endswith(('/v1', '/v1/', '/api', '/api/')):
-        if url.endswith('/'):
+    if not url.endswith(("/v1", "/v1/", "/api", "/api/")):
+        if url.endswith("/"):
             url = f"{url}v1"
         else:
             url = f"{url}/v1"
@@ -145,20 +142,20 @@ def _normalize_endpoint_url(url: str) -> str | None:
 
 def _is_local_url(url: str) -> bool:
     """Check if URL points to a local endpoint."""
-    local_hosts = ['localhost', '127.0.0.1', '0.0.0.0', 'host.docker.internal']
+    local_hosts = ["localhost", "127.0.0.1", "0.0.0.0", "host.docker.internal"]
     return any(host in url.lower() for host in local_hosts)
 
 
 def _guess_provider_from_url(url: str) -> str:
     """Guess the provider name from URL patterns."""
     url_lower = url.lower()
-    if '11434' in url_lower:
+    if "11434" in url_lower:
         return "Ollama"
-    elif '1234' in url_lower:
+    elif "1234" in url_lower:
         return "LM Studio"
-    elif '8000' in url_lower:
+    elif "8000" in url_lower:
         return "vLLM"
-    elif '5000' in url_lower:
+    elif "5000" in url_lower:
         return "Local API"
     else:
         return "Local Provider"
@@ -220,7 +217,7 @@ def format_detected_config_summary(configs: dict[str, dict[str, Any] | None]) ->
 
 
 def get_priority_config(
-    configs: dict[str, dict[str, Any] | None]
+    configs: dict[str, dict[str, Any] | None],
 ) -> dict[str, Any] | None:
     """
     Get the highest priority detected configuration.
@@ -249,7 +246,7 @@ def get_priority_config(
             "provider": "openai",  # Use OpenAI provider for compatibility
             "base_url": local_config["base_url"],
             "model": None,  # Will be prompted for
-            "provider_name": local_config["provider_name"]
+            "provider_name": local_config["provider_name"],
         }
 
     # Finally, OpenAI with local endpoint

@@ -16,17 +16,17 @@ def _safe_print(text: str) -> None:
         if IS_WINDOWS:
             # Try to encode as UTF-8 first
             try:
-                print(text.encode('utf-8').decode('utf-8'))
+                print(text.encode("utf-8").decode("utf-8"))
             except (UnicodeEncodeError, UnicodeDecodeError):
                 # Fallback to ASCII-safe version
-                safe_text = text.encode('ascii', errors='replace').decode('ascii')
+                safe_text = text.encode("ascii", errors="replace").decode("ascii")
                 print(safe_text)
         else:
             # Unix systems typically handle UTF-8 better
             print(text)
     except Exception:
         # Final fallback - strip any non-ASCII characters
-        safe_text = ''.join(c if ord(c) < 128 else '?' for c in text)
+        safe_text = "".join(c if ord(c) < 128 else "?" for c in text)
         print(safe_text)
 
 
@@ -50,7 +50,6 @@ async def mcp_command(args: argparse.Namespace, config) -> None:
         import numpy  # noqa: F401
     except ImportError:
         pass
-
 
     # Handle transport selection
     if hasattr(args, "http") and args.http:
@@ -78,6 +77,7 @@ async def mcp_command(args: argparse.Namespace, config) -> None:
 
         # Set up environment with UTF-8 encoding for Windows compatibility
         from chunkhound.utils.windows_constants import get_utf8_env
+
         env = get_utf8_env()
 
         process = subprocess.run(
@@ -109,6 +109,7 @@ def _show_mcp_setup_instructions_if_first_run(args: argparse.Namespace) -> None:
 
     # Check if .chunkhound.json is very recent (created in last 5 minutes)
     import time
+
     file_age_seconds = time.time() - config_path.stat().st_mtime
     if file_age_seconds > 300:  # More than 5 minutes old
         return
@@ -131,7 +132,7 @@ def _show_mcp_setup_instructions_if_first_run(args: argparse.Namespace) -> None:
         "mcpServers": {
             "chunkhound": {
                 "command": "uv",
-                "args": ["run", "chunkhound", "mcp", str(project_path.absolute())]
+                "args": ["run", "chunkhound", "mcp", str(project_path.absolute())],
             }
         }
     }
@@ -140,6 +141,7 @@ def _show_mcp_setup_instructions_if_first_run(args: argparse.Namespace) -> None:
 
     try:
         import pyperclip
+
         pyperclip.copy(json.dumps(config_snippet, indent=2))
         # Use ASCII clipboard icon instead of Unicode
         _safe_print("\n[COPIED] Configuration copied to clipboard!")
@@ -151,7 +153,7 @@ def _show_mcp_setup_instructions_if_first_run(args: argparse.Namespace) -> None:
 
     # Create marker file
     try:
-        with open(marker_path, 'w') as f:
+        with open(marker_path, "w") as f:
             f.write("MCP setup instructions shown")
     except Exception:
         pass  # Not critical if we can't create marker

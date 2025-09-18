@@ -92,7 +92,9 @@ class SerialDatabaseExecutor:
             thread_name_prefix="serial-db",
         )
 
-    def execute_sync(self, provider: Any, operation_name: str, *args: Any, **kwargs: Any) -> Any:
+    def execute_sync(
+        self, provider: Any, operation_name: str, *args: Any, **kwargs: Any
+    ) -> Any:
         """Execute named operation synchronously in DB thread.
 
         All database operations MUST go through this method to ensure serialization.
@@ -119,7 +121,7 @@ class SerialDatabaseExecutor:
             state["last_activity_time"] = time.time()
 
             # Include base directory if provider has it
-            if hasattr(provider, 'get_base_directory'):
+            if hasattr(provider, "get_base_directory"):
                 state["base_directory"] = provider.get_base_directory()
 
             # Execute operation - look for method named _executor_{operation_name}
@@ -166,7 +168,7 @@ class SerialDatabaseExecutor:
             state["last_activity_time"] = time.time()
 
             # Include base directory if provider has it
-            if hasattr(provider, 'get_base_directory'):
+            if hasattr(provider, "get_base_directory"):
                 state["base_directory"] = provider.get_base_directory()
 
             # Execute operation - look for method named _executor_{operation_name}
@@ -203,6 +205,7 @@ class SerialDatabaseExecutor:
 
     def _force_close_connections(self) -> None:
         """Force close any thread-local database connections."""
+
         def close_connection():
             try:
                 if hasattr(_executor_local, "connection"):

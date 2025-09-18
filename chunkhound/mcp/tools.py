@@ -33,6 +33,7 @@ MAX_ALLOWED_TOKENS = 25000
 def _convert_paths_to_native(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Convert file paths in search results to native platform format."""
     from pathlib import Path
+
     for result in results:
         if "file_path" in result and result["file_path"]:
             # Use Path for proper native conversion
@@ -245,13 +246,15 @@ async def search_semantic_impl(
     return cast(SearchResponse, {"results": native_results, "pagination": pagination})
 
 
-async def get_stats_impl(services: DatabaseServices, scan_progress: dict | None = None) -> dict[str, Any]:
+async def get_stats_impl(
+    services: DatabaseServices, scan_progress: dict | None = None
+) -> dict[str, Any]:
     """Core stats implementation with scan progress.
-    
+
     Args:
         services: Database services bundle
         scan_progress: Optional scan progress from MCPServerBase
-    
+
     Returns:
         Dict with database statistics and scan progress
     """
@@ -274,7 +277,7 @@ async def get_stats_impl(services: DatabaseServices, scan_progress: dict | None 
             "chunks_created": scan_progress.get("chunks_created", 0),
             "started_at": scan_progress.get("scan_started_at"),
             "completed_at": scan_progress.get("scan_completed_at"),
-            "error": scan_progress.get("scan_error")
+            "error": scan_progress.get("scan_error"),
         }
 
     return result

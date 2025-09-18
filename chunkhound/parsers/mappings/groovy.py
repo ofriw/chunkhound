@@ -117,7 +117,7 @@ class GroovyMapping(BaseMapping):
             # Handle closures specially
             if node.type == "closure":
                 # Try to find if this closure is assigned to a variable
-                parent = getattr(node, 'parent', None)
+                parent = getattr(node, "parent", None)
                 if parent and parent.type == "assignment":
                     var_node = self.find_child_by_type(parent, "identifier")
                     if var_node:
@@ -376,7 +376,9 @@ class GroovyMapping(BaseMapping):
 
         return ""
 
-    def extract_closure_parameters(self, node: "TSNode | None", source: str) -> list[str]:
+    def extract_closure_parameters(
+        self, node: "TSNode | None", source: str
+    ) -> list[str]:
         """Extract parameter names from a Groovy closure.
 
         Args:
@@ -541,7 +543,9 @@ class GroovyMapping(BaseMapping):
             logger.error(f"Failed to get Groovy qualified name: {e}")
             return self.get_fallback_name(node, "symbol")
 
-    def extract_field_declarations(self, node: "TSNode | None", source: str) -> list[str]:
+    def extract_field_declarations(
+        self, node: "TSNode | None", source: str
+    ) -> list[str]:
         """Extract field declaration names from a Groovy class.
 
         Args:
@@ -560,7 +564,9 @@ class GroovyMapping(BaseMapping):
             field_nodes = self.find_nodes_by_type(node, "field_declaration")
             for field_node in field_nodes:
                 # Extract variable names from the field declaration
-                var_nodes = self.find_children_by_type(field_node, "variable_declarator")
+                var_nodes = self.find_children_by_type(
+                    field_node, "variable_declarator"
+                )
                 for var_node in var_nodes:
                     name_node = self.find_child_by_type(var_node, "identifier")
                     if name_node:

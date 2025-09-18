@@ -51,5 +51,5 @@ __all__ = [
     "TomlMapping",
     "TSXMapping",
     "TypeScriptMapping",
-    "YamlMapping"
+    "YamlMapping",
 ]

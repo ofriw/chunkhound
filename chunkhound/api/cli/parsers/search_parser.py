@@ -46,13 +46,13 @@ def add_search_subparser(subparsers: Any) -> argparse.ArgumentParser:
     )
     search_type.add_argument(
         "--single-hop",
-        action="store_true", 
+        action="store_true",
         help="Force single-hop semantic search",
     )
     search_type.add_argument(
         "--multi-hop",
         action="store_true",
-        help="Force multi-hop semantic search", 
+        help="Force multi-hop semantic search",
     )
     search_type.add_argument(
         "--regex",
@@ -68,7 +68,7 @@ def add_search_subparser(subparsers: Any) -> argparse.ArgumentParser:
         help="Number of results per page (default: 10)",
     )
     search_parser.add_argument(
-        "--offset", 
+        "--offset",
         type=int,
         default=0,
         help="Starting offset for pagination (default: 0)",

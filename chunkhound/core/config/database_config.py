@@ -110,8 +110,4 @@ class DatabaseConfig(BaseModel):
 
     def __repr__(self) -> str:
         """String representation of database configuration."""
-        return (
-            f"DatabaseConfig("
-            f"provider={self.provider}, "
-            f"path={self.path})"
-        )
+        return f"DatabaseConfig(provider={self.provider}, path={self.path})"

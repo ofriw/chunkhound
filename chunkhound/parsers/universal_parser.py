@@ -155,10 +155,14 @@ class UniversalParser:
         # Special handling for PDF files - delegate to PDFMapping
         if file_path.suffix.lower() == ".pdf":
             content_bytes = file_path.read_bytes()
-            if hasattr(self.base_mapping, 'parse_pdf_content'):
-                return self.base_mapping.parse_pdf_content(content_bytes, file_path, file_id)
+            if hasattr(self.base_mapping, "parse_pdf_content"):
+                return self.base_mapping.parse_pdf_content(
+                    content_bytes, file_path, file_id
+                )
             # PDF files require a mapping with parse_pdf_content method
-            raise RuntimeError(f"PDF parsing requires a mapping with parse_pdf_content method, got {type(self.base_mapping)}")
+            raise RuntimeError(
+                f"PDF parsing requires a mapping with parse_pdf_content method, got {type(self.base_mapping)}"
+            )
 
         try:
             content = file_path.read_text(encoding="utf-8")
@@ -171,11 +175,21 @@ class UniversalParser:
                 except UnicodeDecodeError:
                     continue
             else:
-                raise UnicodeDecodeError('utf-8', b'', 0, 1, f"Could not decode file {file_path}") from e
+                raise UnicodeDecodeError(
+                    "utf-8", b"", 0, 1, f"Could not decode file {file_path}"
+                ) from e
 
         # Normalize content for consistent parsing and chunk comparison
         # Skip for binary and protocol-specific files where CRLF might be semantically significant
-        if file_path.suffix.lower() not in ['.pdf', '.png', '.jpg', '.gif', '.zip', '.eml', '.http']:
+        if file_path.suffix.lower() not in [
+            ".pdf",
+            ".png",
+            ".jpg",
+            ".gif",
+            ".zip",
+            ".eml",
+            ".http",
+        ]:
             content = normalize_content(content)
 
         return self.parse_content(content, file_path, file_id)
@@ -210,10 +224,14 @@ class UniversalParser:
                 content_bytes = (
                     content.encode("utf-8") if isinstance(content, str) else content
                 )
-                if hasattr(self.base_mapping, 'parse_pdf_content'):
-                    return self.base_mapping.parse_pdf_content(content_bytes, file_path, file_id)
+                if hasattr(self.base_mapping, "parse_pdf_content"):
+                    return self.base_mapping.parse_pdf_content(
+                        content_bytes, file_path, file_id
+                    )
                 # PDF files require a mapping with parse_pdf_content method
-                raise RuntimeError(f"PDF parsing requires a mapping with parse_pdf_content method, got {type(self.base_mapping)}")
+                raise RuntimeError(
+                    f"PDF parsing requires a mapping with parse_pdf_content method, got {type(self.base_mapping)}"
+                )
             return self._parse_text_content(content, file_path, file_id)
 
         # Parse to AST using TreeSitterEngine
@@ -568,7 +586,9 @@ class UniversalParser:
         remaining = chunk.content
         part_num = 1
         total_content_length = len(chunk.content)
-        current_pos = 0  # Track position in original content for line number calculation
+        current_pos = (
+            0  # Track position in original content for line number calculation
+        )
 
         while remaining:
             remaining_metrics = ChunkMetrics.from_content(remaining)
@@ -576,9 +596,11 @@ class UniversalParser:
                 remaining_metrics.non_whitespace_chars
                 <= self.cast_config.max_chunk_size
             ):
-                chunks.append(self._create_split_chunk(
-                    chunk, remaining, part_num, current_pos, total_content_length
-                ))
+                chunks.append(
+                    self._create_split_chunk(
+                        chunk, remaining, part_num, current_pos, total_content_length
+                    )
+                )
                 break
 
             # Find best split point within size limit
@@ -605,17 +627,28 @@ class UniversalParser:
 
             chunks.append(
                 self._create_split_chunk(
-                    chunk, remaining[:best_split], part_num, current_pos, total_content_length
+                    chunk,
+                    remaining[:best_split],
+                    part_num,
+                    current_pos,
+                    total_content_length,
                 )
             )
             remaining = remaining[best_split:]
-            current_pos += best_split  # Update position tracker for next chunk's line calculation
+            current_pos += (
+                best_split  # Update position tracker for next chunk's line calculation
+            )
             part_num += 1
 
         return chunks
 
     def _create_split_chunk(
-        self, original: UniversalChunk, content: str, part_num: int, content_start_pos: int = 0, total_content_length: int = 0
+        self,
+        original: UniversalChunk,
+        content: str,
+        part_num: int,
+        content_start_pos: int = 0,
+        total_content_length: int = 0,
     ) -> UniversalChunk:
         """Create a split chunk from emergency splitting with proper line number calculation."""
 
@@ -1021,7 +1054,6 @@ class UniversalParser:
         self._total_chunks_created += len(chunks)
 
         return chunks
-
 
     def get_statistics(self) -> dict[str, Any]:
         """Get parsing statistics.

@@ -43,7 +43,9 @@ class IndexingConfig(BaseModel):
     db_batch_size: int = Field(default=100, description="Internal DB batch size")
     max_concurrent: int = Field(default=5, description="Internal concurrency")
     cleanup: bool = Field(default=True, description="Internal cleanup setting")
-    ignore_gitignore: bool = Field(default=False, description="Internal gitignore setting")
+    ignore_gitignore: bool = Field(
+        default=False, description="Internal gitignore setting"
+    )
     max_file_size_mb: int = Field(default=10, description="Internal file size limit")
     chunk_overlap: int = Field(default=50, description="Internal chunk overlap")
     min_chunk_size: int = Field(default=50, description="Internal min chunk size")
@@ -143,7 +145,6 @@ class IndexingConfig(BaseModel):
         ],
         description="Glob patterns for files to exclude",
     )
-
 
     @field_validator("include", "exclude")
     def validate_patterns(cls, v: list[str]) -> list[str]:

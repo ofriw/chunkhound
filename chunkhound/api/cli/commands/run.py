@@ -46,7 +46,7 @@ async def run_command(args: argparse.Namespace, config: Config) -> None:
         version=__version__,
         directory=str(args.path),
         database=str(db_path),
-        config=config.__dict__ if hasattr(config, '__dict__') else {}
+        config=config.__dict__ if hasattr(config, "__dict__") else {},
     )
 
     # Process and validate batch arguments (includes deprecation warnings)
@@ -71,7 +71,7 @@ async def run_command(args: argparse.Namespace, config: Config) -> None:
             # Create indexing coordinator with Progress instance
             indexing_coordinator = create_indexing_coordinator()
             # Pass progress to the coordinator after creation
-            if hasattr(indexing_coordinator, 'progress'):
+            if hasattr(indexing_coordinator, "progress"):
                 indexing_coordinator.progress = progress_instance
 
             # Get initial stats
@@ -88,7 +88,7 @@ async def run_command(args: argparse.Namespace, config: Config) -> None:
                 indexing_coordinator=indexing_coordinator,
                 config=config,
                 progress_callback=progress_callback,
-                progress=progress_instance
+                progress=progress_instance,
             )
 
             # Process directory - service layers will add subtasks to progress_instance
@@ -115,7 +115,7 @@ async def run_command(args: argparse.Namespace, config: Config) -> None:
 def _print_completion_summary(stats, formatter: RichOutputFormatter) -> None:
     """Print completion summary from IndexingStats using Rich formatting."""
     # Convert stats object to dictionary for Rich display
-    if hasattr(stats, '__dict__'):
+    if hasattr(stats, "__dict__"):
         stats_dict = stats.__dict__
     else:
         stats_dict = stats if isinstance(stats, dict) else {}
@@ -157,16 +157,18 @@ def _validate_run_arguments(
             model = config.embedding.model
         else:
             # Check if CLI args have provider info
-            provider = getattr(args, 'provider', None)
-            api_key = getattr(args, 'api_key', None)
-            base_url = getattr(args, 'base_url', None)
-            model = getattr(args, 'model', None)
+            provider = getattr(args, "provider", None)
+            api_key = getattr(args, "api_key", None)
+            base_url = getattr(args, "base_url", None)
+            model = getattr(args, "model", None)
 
             # If no provider info found, provide helpful error
             if not provider:
                 formatter.error("No embedding provider configured.")
                 formatter.info("To fix this, you can:")
-                formatter.info("  1. Create .chunkhound.json config file with embeddings")
+                formatter.info(
+                    "  1. Create .chunkhound.json config file with embeddings"
+                )
                 formatter.info("  2. Use --no-embeddings to skip embeddings")
                 return False
         if not validate_provider_args(provider, api_key, base_url, model):

@@ -25,6 +25,7 @@ from rich.text import Text
 # Constants for fallback message prefixes
 class MessagePrefixes:
     """Constants for consistent message prefixes in fallback mode."""
+
     INFO = "[INFO]"
     SUCCESS = "[SUCCESS]"
     WARN = "[WARN]"
@@ -107,11 +108,15 @@ class RichOutputFormatter:
 
     def success(self, message: str) -> None:
         """Print a success message."""
-        self._safe_print(f"[green][SUCCESS][/green] {escape(message)}", MessagePrefixes.SUCCESS)
+        self._safe_print(
+            f"[green][SUCCESS][/green] {escape(message)}", MessagePrefixes.SUCCESS
+        )
 
     def warning(self, message: str) -> None:
         """Print a warning message."""
-        self._safe_print(f"[yellow][WARN][/yellow] {escape(message)}", MessagePrefixes.WARN)
+        self._safe_print(
+            f"[yellow][WARN][/yellow] {escape(message)}", MessagePrefixes.WARN
+        )
 
     def error(self, message: str) -> None:
         """Print an error message."""
@@ -119,25 +124,31 @@ class RichOutputFormatter:
 
         # Skip stderr output in MCP mode to avoid JSON-RPC interference
         if not os.environ.get("CHUNKHOUND_MCP_MODE"):
-            self._safe_print(f"[red][ERROR][/red] {escape(message)}", MessagePrefixes.ERROR)
+            self._safe_print(
+                f"[red][ERROR][/red] {escape(message)}", MessagePrefixes.ERROR
+            )
 
     def verbose_info(self, message: str) -> None:
         """Print a verbose info message if verbose mode is enabled."""
         if self.verbose:
-            self._safe_print(f"[cyan][DEBUG][/cyan] {escape(message)}", MessagePrefixes.DEBUG)
+            self._safe_print(
+                f"[cyan][DEBUG][/cyan] {escape(message)}", MessagePrefixes.DEBUG
+            )
 
     def progress_indicator(self, message: str) -> None:
         """Print a progress indicator message."""
-        self._safe_print(f"[cyan][PROGRESS][/cyan] {escape(message)}", MessagePrefixes.PROGRESS)
+        self._safe_print(
+            f"[cyan][PROGRESS][/cyan] {escape(message)}", MessagePrefixes.PROGRESS
+        )
 
     def safe_progress_indicator(self, message: str) -> None:
         """
         Display progress indicator with comprehensive error handling.
-        
+
         This method provides an extra layer of safety beyond the standard
         progress_indicator() method for cases where Rich formatting might
         fail in unexpected ways.
-        
+
         Args:
             message: Progress message to display
         """
@@ -258,7 +269,9 @@ class RichOutputFormatter:
         """Create a modern progress display with multiple bars."""
 
         # Create custom text columns that handle missing fields gracefully
-        def render_field(task, field_name: str, default: str = "", style: str = "") -> str:
+        def render_field(
+            task, field_name: str, default: str = "", style: str = ""
+        ) -> str:
             try:
                 return task.fields.get(field_name, default)
             except (AttributeError, KeyError):
@@ -373,7 +386,9 @@ class RichOutputFormatter:
                 f"[dim]Initial stats: {stats.get('files', 0)} files, {stats.get('chunks', 0)} chunks, {stats.get('embeddings', 0)} embeddings[/dim]"
             )
         else:
-            print(f"Initial stats: {stats.get('files', 0)} files, {stats.get('chunks', 0)} chunks, {stats.get('embeddings', 0)} embeddings")
+            print(
+                f"Initial stats: {stats.get('files', 0)} files, {stats.get('chunks', 0)} chunks, {stats.get('embeddings', 0)} embeddings"
+            )
 
 
 class ProgressManager:
@@ -389,14 +404,16 @@ class ProgressManager:
     def __enter__(self) -> "ProgressManager":
         # Store current logger handlers before modification
         self._original_handlers = logger._core.handlers.copy()
-        
+
         # Only suppress INFO and DEBUG levels, keep WARNING/ERROR/CRITICAL
         logger.remove()
         logger.add(
-            lambda message: None if message.record["level"].no < 30 else sys.stderr.write(str(message)),
-            level="WARNING"
+            lambda message: None
+            if message.record["level"].no < 30
+            else sys.stderr.write(str(message)),
+            level="WARNING",
         )
-        
+
         self._live = Live(self.progress, console=self.console, refresh_per_second=10)
         self._live.start()
         return self
@@ -408,7 +425,7 @@ class ProgressManager:
         finally:
             # Always restore logger configuration, even if Live fails
             logger.remove()
-            
+
             # Restore original handlers if we have them
             if self._original_handlers:
                 for handler_id, handler in self._original_handlers.items():
@@ -416,6 +433,7 @@ class ProgressManager:
             else:
                 # Fallback to default CLI logging if no handlers stored
                 import sys
+
                 logger.add(sys.stderr, level="WARNING")
 
     def add_task(

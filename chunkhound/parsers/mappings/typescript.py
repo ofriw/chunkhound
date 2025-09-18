@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 
 try:
     from tree_sitter import Node as TSNode
+
     TREE_SITTER_AVAILABLE = True
 except ImportError:
     TREE_SITTER_AVAILABLE = False
@@ -26,7 +27,7 @@ except ImportError:
 
 class TypeScriptMapping(BaseMapping):
     """TypeScript language mapping for tree-sitter parsing.
-    
+
     This mapping handles TypeScript-specific AST patterns including:
     - Function declarations and arrow functions
     - Class declarations with access modifiers
@@ -44,7 +45,7 @@ class TypeScriptMapping(BaseMapping):
 
     def get_function_query(self) -> str:
         """Get tree-sitter query pattern for TypeScript function definitions.
-        
+
         Returns:
             Tree-sitter query string for finding function definitions
         """
@@ -73,7 +74,7 @@ class TypeScriptMapping(BaseMapping):
 
     def get_class_query(self) -> str:
         """Get tree-sitter query pattern for TypeScript class definitions.
-        
+
         Returns:
             Tree-sitter query string for finding class definitions
         """
@@ -85,7 +86,7 @@ class TypeScriptMapping(BaseMapping):
 
     def get_comment_query(self) -> str:
         """Get tree-sitter query pattern for TypeScript comments.
-        
+
         Returns:
             Tree-sitter query string for finding comments
         """
@@ -95,7 +96,7 @@ class TypeScriptMapping(BaseMapping):
 
     def get_interface_query(self) -> str:
         """Get tree-sitter query pattern for TypeScript interface definitions.
-        
+
         Returns:
             Tree-sitter query string for finding interface definitions
         """
@@ -107,7 +108,7 @@ class TypeScriptMapping(BaseMapping):
 
     def get_enum_query(self) -> str:
         """Get tree-sitter query pattern for TypeScript enum definitions.
-        
+
         Returns:
             Tree-sitter query string for finding enum definitions
         """
@@ -119,7 +120,7 @@ class TypeScriptMapping(BaseMapping):
 
     def get_type_alias_query(self) -> str:
         """Get tree-sitter query pattern for TypeScript type alias definitions.
-        
+
         Returns:
             Tree-sitter query string for finding type alias definitions
         """
@@ -131,7 +132,7 @@ class TypeScriptMapping(BaseMapping):
 
     def get_namespace_query(self) -> str:
         """Get tree-sitter query pattern for TypeScript namespace definitions.
-        
+
         Returns:
             Tree-sitter query string for finding namespace definitions
         """
@@ -147,7 +148,7 @@ class TypeScriptMapping(BaseMapping):
 
     def get_decorator_query(self) -> str:
         """Get tree-sitter query pattern for TypeScript decorators.
-        
+
         Returns:
             Tree-sitter query string for finding decorators
         """
@@ -165,7 +166,7 @@ class TypeScriptMapping(BaseMapping):
 
     def get_docstring_query(self) -> str:
         """Get tree-sitter query pattern for TSDoc comments.
-        
+
         Returns:
             Tree-sitter query string for finding TSDoc-style comments
         """
@@ -175,11 +176,11 @@ class TypeScriptMapping(BaseMapping):
 
     def extract_function_name(self, node: "TSNode | None", source: str) -> str:
         """Extract function name from a TypeScript function definition node.
-        
+
         Args:
             node: Tree-sitter function definition node
             source: Source code string
-            
+
         Returns:
             Function name or fallback name if extraction fails
         """
@@ -201,7 +202,11 @@ class TypeScriptMapping(BaseMapping):
                 # Find the method name (can be identifier, string, computed_property_name)
                 for i in range(node.child_count):
                     child = node.child(i)
-                    if child and child.type in ["identifier", "string", "computed_property_name"]:
+                    if child and child.type in [
+                        "identifier",
+                        "string",
+                        "computed_property_name",
+                    ]:
                         return self.get_node_text(child, source)
 
             return self.get_fallback_name(node, "function")
@@ -211,11 +216,11 @@ class TypeScriptMapping(BaseMapping):
 
     def extract_class_name(self, node: "TSNode | None", source: str) -> str:
         """Extract class name from a TypeScript class definition node.
-        
+
         Args:
             node: Tree-sitter class definition node
             source: Source code string
-            
+
         Returns:
             Class name or fallback name if extraction fails
         """
@@ -234,11 +239,11 @@ class TypeScriptMapping(BaseMapping):
 
     def extract_interface_name(self, node: "TSNode | None", source: str) -> str:
         """Extract interface name from a TypeScript interface definition node.
-        
+
         Args:
             node: Tree-sitter interface definition node
             source: Source code string
-            
+
         Returns:
             Interface name or fallback name if extraction fails
         """
@@ -257,11 +262,11 @@ class TypeScriptMapping(BaseMapping):
 
     def extract_enum_name(self, node: "TSNode | None", source: str) -> str:
         """Extract enum name from a TypeScript enum definition node.
-        
+
         Args:
             node: Tree-sitter enum definition node
             source: Source code string
-            
+
         Returns:
             Enum name or fallback name if extraction fails
         """
@@ -280,11 +285,11 @@ class TypeScriptMapping(BaseMapping):
 
     def extract_type_alias_name(self, node: "TSNode | None", source: str) -> str:
         """Extract type alias name from a TypeScript type alias definition node.
-        
+
         Args:
             node: Tree-sitter type alias definition node
             source: Source code string
-            
+
         Returns:
             Type alias name or fallback name if extraction fails
         """
@@ -303,11 +308,11 @@ class TypeScriptMapping(BaseMapping):
 
     def extract_namespace_name(self, node: "TSNode | None", source: str) -> str:
         """Extract namespace name from a TypeScript namespace definition node.
-        
+
         Args:
             node: Tree-sitter namespace definition node
             source: Source code string
-            
+
         Returns:
             Namespace name or fallback name if extraction fails
         """
@@ -326,11 +331,11 @@ class TypeScriptMapping(BaseMapping):
 
     def extract_parameters(self, node: "TSNode | None", source: str) -> list[str]:
         """Extract parameter names and types from a TypeScript function/method node.
-        
+
         Args:
             node: Tree-sitter function/method definition node
             source: Source code string
-            
+
         Returns:
             List of parameter strings with types
         """
@@ -353,7 +358,11 @@ class TypeScriptMapping(BaseMapping):
             # Extract each parameter with its type annotation
             for i in range(params_node.child_count):
                 child = params_node.child(i)
-                if child and child.type in ["required_parameter", "optional_parameter", "rest_parameter"]:
+                if child and child.type in [
+                    "required_parameter",
+                    "optional_parameter",
+                    "rest_parameter",
+                ]:
                     param_text = self.get_node_text(child, source).strip()
                     if param_text and param_text not in [",", "(", ")"]:
                         parameters.append(param_text)
@@ -365,11 +374,11 @@ class TypeScriptMapping(BaseMapping):
 
     def extract_return_type(self, node: "TSNode | None", source: str) -> str | None:
         """Extract return type annotation from a TypeScript function.
-        
+
         Args:
             node: Tree-sitter function definition node
             source: Source code string
-            
+
         Returns:
             Return type string or None if not found
         """
@@ -393,11 +402,11 @@ class TypeScriptMapping(BaseMapping):
 
     def extract_type_parameters(self, node: "TSNode | None", source: str) -> str | None:
         """Extract generic type parameters from a TypeScript declaration.
-        
+
         Args:
             node: Tree-sitter declaration node
             source: Source code string
-            
+
         Returns:
             Type parameters string or None if not found
         """
@@ -416,11 +425,11 @@ class TypeScriptMapping(BaseMapping):
 
     def extract_access_modifiers(self, node: "TSNode | None", source: str) -> list[str]:
         """Extract access modifiers from a TypeScript class member.
-        
+
         Args:
             node: Tree-sitter class member node
             source: Source code string
-            
+
         Returns:
             List of access modifiers (public, private, protected, static, readonly, etc.)
         """
@@ -435,11 +444,11 @@ class TypeScriptMapping(BaseMapping):
                 child = node.child(i)
                 if child and child.type in [
                     "accessibility_modifier",  # public, private, protected
-                    "override_modifier",       # override
-                    "static",                  # static
-                    "readonly",                # readonly
-                    "abstract",                # abstract
-                    "async",                   # async
+                    "override_modifier",  # override
+                    "static",  # static
+                    "readonly",  # readonly
+                    "abstract",  # abstract
+                    "async",  # async
                 ]:
                     modifier_text = self.get_node_text(child, source).strip()
                     if modifier_text:
@@ -452,11 +461,11 @@ class TypeScriptMapping(BaseMapping):
 
     def extract_decorators(self, node: "TSNode | None", source: str) -> list[str]:
         """Extract decorators from a TypeScript declaration.
-        
+
         Args:
             node: Tree-sitter declaration node
             source: Source code string
-            
+
         Returns:
             List of decorator names
         """
@@ -479,11 +488,11 @@ class TypeScriptMapping(BaseMapping):
 
     def is_tsdoc_comment(self, node: "TSNode | None", source: str) -> bool:
         """Check if a comment node is a TSDoc comment.
-        
+
         Args:
             node: Tree-sitter comment node
             source: Source code string
-            
+
         Returns:
             True if the comment is TSDoc-style (starts with /**)
         """
@@ -499,41 +508,49 @@ class TypeScriptMapping(BaseMapping):
 
     def clean_comment_text(self, text: str) -> str:
         """Clean TypeScript comment text by removing comment markers and TSDoc tags.
-        
+
         Args:
             text: Raw comment text
-            
+
         Returns:
             Cleaned comment text
         """
         cleaned = super().clean_comment_text(text)
 
         # Additional TypeScript-specific cleaning for TSDoc
-        lines = cleaned.split('\n')
+        lines = cleaned.split("\n")
         cleaned_lines = []
 
         for line in lines:
             line = line.strip()
             # Remove TSDoc comment markers
-            if line.startswith('*'):
+            if line.startswith("*"):
                 line = line[1:].strip()
             # Remove common TSDoc tags at start of line for readability
-            for tag in ['@param', '@returns', '@return', '@throws', '@example', '@see', '@since']:
+            for tag in [
+                "@param",
+                "@returns",
+                "@return",
+                "@throws",
+                "@example",
+                "@see",
+                "@since",
+            ]:
                 if line.startswith(tag):
-                    line = line.replace(tag, '', 1).strip()
+                    line = line.replace(tag, "", 1).strip()
                     break
             if line:
                 cleaned_lines.append(line)
 
-        return '\n'.join(cleaned_lines)
+        return "\n".join(cleaned_lines)
 
     def should_include_node(self, node: "TSNode | None", source: str) -> bool:
         """Determine if a TypeScript node should be included as a chunk.
-        
+
         Args:
             node: Tree-sitter node
             source: Source code string
-            
+
         Returns:
             True if node should be included, False otherwise
         """
@@ -547,11 +564,14 @@ class TypeScriptMapping(BaseMapping):
                 return False
 
             # Skip nodes that are just punctuation or keywords
-            if node_text.strip() in ['{', '}', '(', ')', ';', ',', 'export', 'import']:
+            if node_text.strip() in ["{", "}", "(", ")", ";", ",", "export", "import"]:
                 return False
 
             # For functions, check if they're likely React components starting with uppercase
-            if node.type in ["function_declaration", "variable_declarator"] and node_text:
+            if (
+                node.type in ["function_declaration", "variable_declarator"]
+                and node_text
+            ):
                 # Extract function name to check if it's a component
                 if node.type == "function_declaration":
                     name_node = self.find_child_by_type(node, "identifier")
@@ -582,7 +602,7 @@ class TypeScriptMapping(BaseMapping):
         **extra_fields: Any,
     ) -> dict[str, Any]:
         """Create an enhanced chunk dictionary with TypeScript-specific metadata.
-        
+
         Args:
             node: Tree-sitter node
             source: Source code string
@@ -590,7 +610,7 @@ class TypeScriptMapping(BaseMapping):
             chunk_type: Type of chunk
             name: Chunk name/symbol
             **extra_fields: Additional fields to include
-            
+
         Returns:
             Enhanced chunk dictionary with TypeScript metadata
         """
@@ -643,7 +663,7 @@ class TypeScriptMapping(BaseMapping):
             chunk_type=chunk_type,
             name=name,
             display_name=display_name,
-            **extra_fields
+            **extra_fields,
         )
 
         return chunk

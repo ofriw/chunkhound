@@ -47,7 +47,9 @@ def validate_text_input(texts: list[str]) -> list[str]:
     return validated
 
 
-def get_usage_stats_dict(requests_made: int, tokens_used: int, embeddings_generated: int) -> dict[str, Any]:
+def get_usage_stats_dict(
+    requests_made: int, tokens_used: int, embeddings_generated: int
+) -> dict[str, Any]:
     """Get standardized usage statistics dictionary."""
     return {
         "requests_made": requests_made,
@@ -56,6 +58,8 @@ def get_usage_stats_dict(requests_made: int, tokens_used: int, embeddings_genera
     }
 
 
-def get_dimensions_for_model(model: str, dimensions_map: dict[str, int], default_dims: int = 1536) -> int:
+def get_dimensions_for_model(
+    model: str, dimensions_map: dict[str, int], default_dims: int = 1536
+) -> int:
     """Get embedding dimensions for a model with fallback to default."""
     return dimensions_map.get(model, default_dims)

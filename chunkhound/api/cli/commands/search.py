@@ -20,7 +20,8 @@ from ..utils.rich_output import RichOutputFormatter
 def format_path_native(path: str) -> str:
     """Convert stored forward-slash path to native platform format."""
     import os
-    return path.replace('/', os.sep) if path else path
+
+    return path.replace("/", os.sep) if path else path
 
 
 async def search_command(args: argparse.Namespace, config: Config) -> None:
@@ -70,9 +71,7 @@ async def search_command(args: argparse.Namespace, config: Config) -> None:
     # Create services using unified factory (exactly like MCP)
     try:
         services = create_services(
-            db_path=db_path,
-            config=config,
-            embedding_manager=embedding_manager
+            db_path=db_path, config=config, embedding_manager=embedding_manager
         )
     except Exception as e:
         formatter.error(f"Failed to initialize services: {e}")
@@ -107,7 +106,7 @@ async def search_command(args: argparse.Namespace, config: Config) -> None:
                         "1. Create .chunkhound.json with embedding configuration, OR\n"
                         "2. Set CHUNKHOUND_EMBEDDING__API_KEY environment variable"
                     )
-                
+
                 # Get provider/model like search_semantic_impl does
                 provider_name = None
                 model_name = None
@@ -120,7 +119,7 @@ async def search_command(args: argparse.Namespace, config: Config) -> None:
                         "No default embedding provider configured. "
                         "Configure a default provider in config."
                     )
-                
+
                 # Call service directly with force_strategy
                 results, pagination = await services.search_service.search_semantic(
                     query=args.query,
@@ -155,10 +154,7 @@ async def search_command(args: argparse.Namespace, config: Config) -> None:
 
 
 def _format_search_results(
-    formatter: RichOutputFormatter,
-    result: dict[str, Any],
-    query: str,
-    is_regex: bool
+    formatter: RichOutputFormatter, result: dict[str, Any], query: str, is_regex: bool
 ) -> None:
     """Format and display search results.
 
@@ -170,9 +166,9 @@ def _format_search_results(
     """
     results = result.get("results", [])
     pagination = result.get("pagination", {})
-    
+
     search_type = "regex" if is_regex else "semantic"
-    
+
     if not results:
         formatter.info(f"No results found for {search_type} search: '{query}'")
         return
@@ -181,10 +177,12 @@ def _format_search_results(
     total = pagination.get("total", len(results))
     offset = pagination.get("offset", 0)
     page_size = pagination.get("page_size", len(results))
-    
+
     formatter.section_header(f"{search_type.title()} Search Results")
     formatter.info(f"Query: '{query}'")
-    formatter.info(f"Results: {len(results)} of {total} (showing {offset + 1}-{offset + len(results)})")
+    formatter.info(
+        f"Results: {len(results)} of {total} (showing {offset + 1}-{offset + len(results)})"
+    )
 
     # Display each result
     for i, result_item in enumerate(results, 1):
@@ -196,7 +194,7 @@ def _format_search_results(
 
         # Display result header
         formatter.info(f"\n[{offset + i}] {native_path}")
-        
+
         # Show similarity score for semantic search
         if not is_regex:
             similarity = result_item.get("similarity")
@@ -205,23 +203,23 @@ def _format_search_results(
                 formatter.info(f"Score: {score:.3f}")
             elif similarity is not None:
                 formatter.info(f"Similarity: {similarity:.3f}")
-        
+
         # Display content with line numbers if available
         start_line = result_item.get("start_line")
         end_line = result_item.get("end_line")
-        
+
         if start_line is not None:
             line_info = f"Lines {start_line}"
             if end_line is not None and end_line != start_line:
                 line_info += f"-{end_line}"
             formatter.info(line_info)
-        
+
         # Display the actual content
         if content:
             # Truncate very long content for readability
             if len(content) > 1000:
                 content = content[:997] + "..."
-            
+
             # Use a simple text box for content
             print(f"```\n{content}\n```")
 
@@ -229,4 +227,6 @@ def _format_search_results(
     has_more = pagination.get("has_more", False)
     if has_more:
         next_offset = pagination.get("next_offset", offset + page_size)
-        formatter.info(f"\nMore results available. Use --offset {next_offset} to see next page.")
+        formatter.info(
+            f"\nMore results available. Use --offset {next_offset} to see next page."
+        )

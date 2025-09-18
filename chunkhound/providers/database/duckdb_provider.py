@@ -105,7 +105,10 @@ class DuckDBProvider(SerialDatabaseProvider):
         """
         # Suppress known SWIG warning from DuckDB Python bindings
         import warnings
-        warnings.filterwarnings("ignore", message=".*swigvarlink.*", category=DeprecationWarning)
+
+        warnings.filterwarnings(
+            "ignore", message=".*swigvarlink.*", category=DeprecationWarning
+        )
         import duckdb
 
         # Create a NEW connection for the executor thread
@@ -981,7 +984,9 @@ class DuckDBProvider(SerialDatabaseProvider):
                 [
                     file.path,  # Store path as-is (now relative with forward slashes)
                     file.name if hasattr(file, "name") else Path(file.path).name,
-                    file.extension if hasattr(file, "extension") else Path(file.path).suffix,
+                    file.extension
+                    if hasattr(file, "extension")
+                    else Path(file.path).suffix,
                     file.size_bytes if hasattr(file, "size_bytes") else None,
                     file.mtime if hasattr(file, "mtime") else None,
                     file.language.value if file.language else None,
@@ -1014,7 +1019,8 @@ class DuckDBProvider(SerialDatabaseProvider):
         """Executor method for get_file_by_path - runs in DB thread."""
         # Normalize path to handle both absolute and relative paths
         from chunkhound.core.utils import normalize_path_for_lookup
-        base_dir = state.get('base_directory')
+
+        base_dir = state.get("base_directory")
         lookup_path = normalize_path_for_lookup(path, base_dir)
         result = conn.execute(
             """
@@ -1118,7 +1124,7 @@ class DuckDBProvider(SerialDatabaseProvider):
 
         # Get file ID first
         # Normalize path to handle both absolute and relative paths
-        base_dir = state.get('base_directory')
+        base_dir = state.get("base_directory")
         normalized_path = normalize_path_for_lookup(file_path, base_dir)
         result = conn.execute(
             "SELECT id FROM files WHERE path = ?", [normalized_path]
@@ -1765,7 +1771,9 @@ class DuckDBProvider(SerialDatabaseProvider):
 
             if normalized_path is not None:
                 query += " AND f.path LIKE ?"
-                params.append(f"{normalized_path}%")  # Simple prefix match on relative paths
+                params.append(
+                    f"{normalized_path}%"
+                )  # Simple prefix match on relative paths
 
             # Get total count for pagination
             # Build count query separately to avoid string replacement issues
@@ -1785,7 +1793,9 @@ class DuckDBProvider(SerialDatabaseProvider):
 
             if normalized_path is not None:
                 count_query += " AND f.path LIKE ?"
-                count_params.append(f"{normalized_path}%")  # Simple prefix match on relative paths
+                count_params.append(
+                    f"{normalized_path}%"
+                )  # Simple prefix match on relative paths
 
             total_count = conn.execute(count_query, count_params).fetchone()[0]
 
@@ -1849,7 +1859,7 @@ class DuckDBProvider(SerialDatabaseProvider):
         results, _ = self.search_regex(
             pattern=pattern,
             path_filter=file_path,
-            page_size=1000  # Large page for legacy behavior
+            page_size=1000,  # Large page for legacy behavior
         )
         return results
 
@@ -1873,7 +1883,9 @@ class DuckDBProvider(SerialDatabaseProvider):
 
             if normalized_path is not None:
                 where_conditions.append("f.path LIKE ?")
-                params.append(f"{normalized_path}%")  # Simple prefix match on relative paths
+                params.append(
+                    f"{normalized_path}%"
+                )  # Simple prefix match on relative paths
 
             where_clause = " AND ".join(where_conditions)
 
@@ -1977,17 +1989,20 @@ class DuckDBProvider(SerialDatabaseProvider):
             # logger.debug(f"Available embedding tables: {embedding_tables}")
 
             for table in embedding_tables:
-                result = conn.execute(f"""
+                result = conn.execute(
+                    f"""
                     SELECT embedding
                     FROM {table}
                     WHERE chunk_id = ? AND provider = ? AND model = ?
                     LIMIT 1
-                """, [chunk_id, provider, model]).fetchone()
+                """,
+                    [chunk_id, provider, model],
+                ).fetchone()
 
                 if result:
                     target_embedding = result[0]
                     # Extract dimensions from table name (e.g., "embeddings_1536" -> 1536)
-                    dims_match = re.match(r'embeddings_(\d+)', table)
+                    dims_match = re.match(r"embeddings_(\d+)", table)
                     if dims_match:
                         dims = int(dims_match.group(1))
                         table_name = table
@@ -1995,11 +2010,14 @@ class DuckDBProvider(SerialDatabaseProvider):
                         break
                 else:
                     # Debug what's actually in this table for this chunk
-                    all_for_chunk = conn.execute(f"""
+                    all_for_chunk = conn.execute(
+                        f"""
                         SELECT provider, model, chunk_id
                         FROM {table}
                         WHERE chunk_id = ?
-                    """, [chunk_id]).fetchall()
+                    """,
+                        [chunk_id],
+                    ).fetchall()
                     # if all_for_chunk:
                     #     logger.debug(f"Table {table} has chunk_id={chunk_id} but with different provider/model: {all_for_chunk}")
 
@@ -2007,22 +2025,31 @@ class DuckDBProvider(SerialDatabaseProvider):
                 # Show what providers/models are actually available for this chunk
                 all_providers_models = []
                 for table in embedding_tables:
-                    results = conn.execute(f"""
+                    results = conn.execute(
+                        f"""
                         SELECT DISTINCT provider, model
                         FROM {table}
                         WHERE chunk_id = ?
-                    """, [chunk_id]).fetchall()
+                    """,
+                        [chunk_id],
+                    ).fetchall()
                     all_providers_models.extend(results)
 
-                logger.warning(f"No embedding found for chunk_id={chunk_id}, provider='{provider}', model='{model}'")
-                logger.warning(f"Available provider/model combinations for this chunk: {all_providers_models}")
+                logger.warning(
+                    f"No embedding found for chunk_id={chunk_id}, provider='{provider}', model='{model}'"
+                )
+                logger.warning(
+                    f"Available provider/model combinations for this chunk: {all_providers_models}"
+                )
                 return []
 
             embedding_type = f"FLOAT[{dims}]"
 
             # Use the embedding to find similar chunks
             similarity_metric = "cosine"  # Default for semantic search
-            threshold_condition = f"AND distance <= {threshold}" if threshold is not None else ""
+            threshold_condition = (
+                f"AND distance <= {threshold}" if threshold is not None else ""
+            )
 
             # Query for similar chunks (exclude the original chunk)
             # Cast the target embedding to match the table's embedding type
@@ -2049,8 +2076,7 @@ class DuckDBProvider(SerialDatabaseProvider):
             """
 
             results = conn.execute(
-                query,
-                [target_embedding, provider, model, chunk_id, limit]
+                query, [target_embedding, provider, model, chunk_id, limit]
             ).fetchall()
 
             # Format results
@@ -2115,7 +2141,9 @@ class DuckDBProvider(SerialDatabaseProvider):
 
             # Check if table exists for these dimensions (reuse existing validation pattern)
             if not self._executor_table_exists(conn, state, table_name):
-                logger.warning(f"No embeddings table found for {query_dims} dimensions ({table_name})")
+                logger.warning(
+                    f"No embeddings table found for {query_dims} dimensions ({table_name})"
+                )
                 return []
 
             # Build path filter condition
@@ -2129,7 +2157,9 @@ class DuckDBProvider(SerialDatabaseProvider):
                 query_params.insert(-1, path_pattern)  # Insert before limit
 
             # Build threshold condition
-            threshold_condition = f"AND distance <= {threshold}" if threshold is not None else ""
+            threshold_condition = (
+                f"AND distance <= {threshold}" if threshold is not None else ""
+            )
 
             # Query for similar chunks using the provided embedding
             query = f"""

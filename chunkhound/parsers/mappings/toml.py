@@ -17,10 +17,12 @@ from chunkhound.parsers.universal_engine import UniversalConcept
 # Handle tomllib availability (Python 3.11+)
 if sys.version_info >= (3, 11):
     import tomllib
+
     HAS_TOMLLIB = True
 else:
     try:
         import tomli as tomllib
+
         HAS_TOMLLIB = True
     except ImportError:
         HAS_TOMLLIB = False
@@ -58,7 +60,7 @@ class TomlMapping(BaseMapping):
     # LanguageMapping protocol methods
     def get_query_for_concept(self, concept: UniversalConcept) -> str | None:
         """Get tree-sitter query for universal concept in TOML.
-        
+
         Returns valid tree-sitter queries that work with tree-sitter-toml grammar.
         """
         if concept == UniversalConcept.DEFINITION:
@@ -92,11 +94,13 @@ class TomlMapping(BaseMapping):
         else:
             return None
 
-    def extract_name(self, concept: UniversalConcept, captures: dict[str, Node], content: bytes) -> str:
+    def extract_name(
+        self, concept: UniversalConcept, captures: dict[str, Node], content: bytes
+    ) -> str:
         """Extract name from captures for this concept."""
 
         # Convert bytes to string for TOML parsing
-        source = content.decode('utf-8')
+        source = content.decode("utf-8")
 
         if not HAS_TOMLLIB:
             return "toml_unavailable"
@@ -108,9 +112,9 @@ class TomlMapping(BaseMapping):
                 # For TOML tables and key-value pairs
                 if isinstance(data, dict):
                     # Look for common naming patterns at root level
-                    for key in ['name', 'title', 'package', 'project']:
+                    for key in ["name", "title", "package", "project"]:
                         if key in data:
-                            if isinstance(data[key], dict) and 'name' in data[key]:
+                            if isinstance(data[key], dict) and "name" in data[key]:
                                 return f"definition_{data[key]['name']}"
                             elif isinstance(data[key], str):
                                 return f"definition_{data[key]}"
@@ -143,19 +147,23 @@ class TomlMapping(BaseMapping):
 
         return "unnamed"
 
-    def extract_content(self, concept: UniversalConcept, captures: dict[str, Node], content: bytes) -> str:
+    def extract_content(
+        self, concept: UniversalConcept, captures: dict[str, Node], content: bytes
+    ) -> str:
         """Extract content from captures for this concept.
-        
+
         Always returns the original source text to preserve searchable content,
         regardless of TOML parsing or formatting.
         """
         # Always return original source text to preserve searchable strings
-        return content.decode('utf-8')
+        return content.decode("utf-8")
 
-    def extract_metadata(self, concept: UniversalConcept, captures: dict[str, Node], content: bytes) -> dict[str, Any]:
+    def extract_metadata(
+        self, concept: UniversalConcept, captures: dict[str, Node], content: bytes
+    ) -> dict[str, Any]:
         """Extract TOML-specific metadata."""
 
-        source = content.decode('utf-8')
+        source = content.decode("utf-8")
         metadata = {}
 
         if not HAS_TOMLLIB:
@@ -199,13 +207,13 @@ class TomlMapping(BaseMapping):
                         metadata["scalar_keys"] = scalar_keys
 
                     # Detect common TOML file types
-                    if 'package' in data or 'project' in data:
+                    if "package" in data or "project" in data:
                         metadata["toml_type"] = "project_config"
-                    elif 'tool' in data:
+                    elif "tool" in data:
                         metadata["toml_type"] = "tool_config"
-                    elif any(key in data for key in ['server', 'database', 'client']):
+                    elif any(key in data for key in ["server", "database", "client"]):
                         metadata["toml_type"] = "app_config"
-                    elif 'build-system' in data or 'dependencies' in data:
+                    elif "build-system" in data or "dependencies" in data:
                         metadata["toml_type"] = "build_config"
 
                     # Analyze nested structure depth
@@ -217,15 +225,24 @@ class TomlMapping(BaseMapping):
 
                 if isinstance(data, dict):
                     # Count different types of content
-                    metadata["nested_tables"] = sum(1 for v in data.values() if isinstance(v, dict))
-                    metadata["arrays"] = sum(1 for v in data.values() if isinstance(v, list))
-                    metadata["scalars"] = sum(1 for v in data.values()
-                                           if not isinstance(v, (dict, list)))
+                    metadata["nested_tables"] = sum(
+                        1 for v in data.values() if isinstance(v, dict)
+                    )
+                    metadata["arrays"] = sum(
+                        1 for v in data.values() if isinstance(v, list)
+                    )
+                    metadata["scalars"] = sum(
+                        1 for v in data.values() if not isinstance(v, (dict, list))
+                    )
 
                     # Detect array of tables pattern
                     array_of_tables = []
                     for key, value in data.items():
-                        if isinstance(value, list) and value and isinstance(value[0], dict):
+                        if (
+                            isinstance(value, list)
+                            and value
+                            and isinstance(value[0], dict)
+                        ):
                             array_of_tables.append(key)
 
                     if array_of_tables:
@@ -242,7 +259,7 @@ class TomlMapping(BaseMapping):
                 metadata["max_depth"] = max_depth
 
                 # Detect comments in source (since we can't parse them structurally)
-                comment_count = source.count('#')
+                comment_count = source.count("#")
                 if comment_count > 0:
                     metadata["comment_lines"] = comment_count
 
@@ -257,7 +274,9 @@ class TomlMapping(BaseMapping):
         if isinstance(data, dict):
             if not data:
                 return current_depth
-            return max(self._calculate_toml_depth(v, current_depth + 1) for v in data.values())
+            return max(
+                self._calculate_toml_depth(v, current_depth + 1) for v in data.values()
+            )
         elif isinstance(data, list):
             if not data:
                 return current_depth
@@ -281,15 +300,17 @@ class TomlMapping(BaseMapping):
     def _extract_toml_comments(self, source: str) -> list[dict[str, Any]]:
         """Extract comments from TOML source (simple line-based extraction)."""
         comments = []
-        lines = source.split('\n')
+        lines = source.split("\n")
 
         for line_num, line in enumerate(lines, 1):
             stripped = line.strip()
-            if stripped.startswith('#'):
-                comments.append({
-                    "line": line_num,
-                    "content": stripped[1:].strip(),
-                    "full_line": line
-                })
+            if stripped.startswith("#"):
+                comments.append(
+                    {
+                        "line": line_num,
+                        "content": stripped[1:].strip(),
+                        "full_line": line,
+                    }
+                )
 
         return comments

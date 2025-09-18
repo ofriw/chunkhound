@@ -283,7 +283,9 @@ class MatlabMapping(BaseMapping):
             return superclasses
 
         # Extract identifiers from superclass list
-        for identifier_node in self.find_children_by_type(superclass_node, "identifier"):
+        for identifier_node in self.find_children_by_type(
+            superclass_node, "identifier"
+        ):
             superclass_name = self.get_node_text(identifier_node, source).strip()
             if superclass_name and superclass_name not in ("&", ","):
                 superclasses.append(superclass_name)
@@ -391,10 +393,7 @@ class MatlabMapping(BaseMapping):
         return cleaned
 
     def create_function_signature(
-        self,
-        name: str,
-        parameters: list[str],
-        return_values: list[str] | None = None
+        self, name: str, parameters: list[str], return_values: list[str] | None = None
     ) -> str:
         """Create a MATLAB-style function signature string.
 
@@ -446,7 +445,9 @@ class MatlabMapping(BaseMapping):
                 return False
 
             # Check if body only contains 'end'
-            body_lines = [line.strip() for line in lines[1:-1]]  # Skip first and last line
+            body_lines = [
+                line.strip() for line in lines[1:-1]
+            ]  # Skip first and last line
             if all(not line or line.startswith("%") for line in body_lines):
                 return False
 

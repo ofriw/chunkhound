@@ -70,7 +70,7 @@ class Chunk:
         """Validate chunk model attributes."""
         # Symbol validation - allow None or empty for structural chunks
         if self.symbol is not None and not self.symbol.strip():
-            object.__setattr__(self, 'symbol', None)
+            object.__setattr__(self, "symbol", None)
 
         # Line number validation
         if self.start_line < 1:

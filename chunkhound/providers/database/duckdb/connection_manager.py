@@ -25,7 +25,9 @@ except ImportError:
 # This warning appears in CI environments and doesn't affect functionality
 import warnings
 
-warnings.filterwarnings("ignore", message=".*swigvarlink.*", category=DeprecationWarning)
+warnings.filterwarnings(
+    "ignore", message=".*swigvarlink.*", category=DeprecationWarning
+)
 
 import duckdb
 from loguru import logger

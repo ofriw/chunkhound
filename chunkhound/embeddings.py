@@ -67,10 +67,6 @@ class LocalEmbeddingResult:
 # Use create_openai_provider() function below which imports from the new location.
 
 
-
-
-
-
 class EmbeddingManager:
     """Manages embedding providers and generation."""
 
@@ -174,15 +170,3 @@ def create_openai_provider(
         rerank_model=rerank_model,
         rerank_url=rerank_url,
     )
-
-
-
-
-
-
-
-
-
-
-
-

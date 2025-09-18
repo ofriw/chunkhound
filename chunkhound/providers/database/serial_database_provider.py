@@ -131,7 +131,7 @@ class SerialDatabaseProvider(ABC):
 
     def close(self) -> None:
         """Close database connection and cleanup resources.
-        
+
         This is the primary method tests and external code should use for cleanup.
         """
         self.disconnect(skip_checkpoint=False)
@@ -278,7 +278,7 @@ class SerialDatabaseProvider(ABC):
         results, _ = self.search_regex(
             pattern=pattern,
             path_filter=file_path,
-            page_size=1000  # Large page for legacy behavior
+            page_size=1000,  # Large page for legacy behavior
         )
         return results
 

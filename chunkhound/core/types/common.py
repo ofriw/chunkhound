@@ -267,7 +267,12 @@ class Language(Enum):
     @property
     def supports_interfaces(self) -> bool:
         """Return True if this language supports interface definitions."""
-        return self in {Language.JAVA, Language.CSHARP, Language.TYPESCRIPT, Language.TSX}
+        return self in {
+            Language.JAVA,
+            Language.CSHARP,
+            Language.TYPESCRIPT,
+            Language.TSX,
+        }
 
     @classmethod
     def get_all_extensions(cls) -> set[str]:

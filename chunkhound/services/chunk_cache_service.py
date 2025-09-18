@@ -25,8 +25,8 @@ class ChunkCacheService:
 
     def _normalize_code_for_comparison(self, code: str) -> str:
         """Normalize code content for comparison while preserving semantic meaning.
-        
-        This helps prevent unnecessary chunk regeneration due to insignificant 
+
+        This helps prevent unnecessary chunk regeneration due to insignificant
         whitespace differences like line endings.
         """
         return normalize_content(code)
