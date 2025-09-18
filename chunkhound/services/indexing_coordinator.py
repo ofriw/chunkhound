@@ -72,8 +72,19 @@ class IndexingCoordinator(BaseService):
         self._locks_lock = None  # Will be initialized when first needed
 
         # Base directory for path normalization (immutable after initialization)
-        # Resolve once at initialization to ensure consistent path handling across platforms
-        self._base_directory: Path = base_directory.resolve()
+        # Store raw path - will resolve at usage time for consistent symlink handling
+        self._base_directory: Path = base_directory
+
+    def _get_relative_path(self, file_path: Path) -> Path:
+        """Get relative path with consistent symlink resolution.
+
+        Resolves both file path and base directory at the same time to ensure
+        consistent symlink handling, preventing ValueError on Ubuntu CI systems
+        where temporary directories often involve symlinks.
+        """
+        resolved_file = file_path.resolve()
+        resolved_base = self._base_directory.resolve()
+        return resolved_file.relative_to(resolved_base)
 
     def add_language_parser(self, language: Language, parser: UniversalParser) -> None:
         """Add or update a language parser.
@@ -259,8 +270,8 @@ class IndexingCoordinator(BaseService):
                 }
 
             # Check for existing file to determine if this is an update or new file
-            # Use pre-resolved base_directory for consistent path handling
-            relative_path = file_path.resolve().relative_to(self._base_directory)
+            # Use consistent symlink-safe path resolution
+            relative_path = self._get_relative_path(file_path)
             existing_file = self._db.get_file_by_path(relative_path.as_posix())
 
             # SECTION: Smart_Chunk_Update (PERFORMANCE_CRITICAL)
@@ -805,8 +816,8 @@ class IndexingCoordinator(BaseService):
     ) -> int:
         """Store or update file record in database."""
         # Check if file already exists
-        # Use pre-resolved base_directory for consistent path handling
-        relative_path = file_path.resolve().relative_to(self._base_directory)
+        # Use consistent symlink-safe path resolution
+        relative_path = self._get_relative_path(file_path)
         existing_file = self._db.get_file_by_path(relative_path.as_posix())
 
         if existing_file:
@@ -819,8 +830,8 @@ class IndexingCoordinator(BaseService):
                 return file_id
 
         # Create new File model instance with relative path
-        # Use pre-resolved base_directory for consistent path handling
-        relative_path = file_path.resolve().relative_to(self._base_directory)
+        # Use consistent symlink-safe path resolution
+        relative_path = self._get_relative_path(file_path)
         file_model = File(
             path=FilePath(relative_path.as_posix()),
             size_bytes=file_stat.st_size,
