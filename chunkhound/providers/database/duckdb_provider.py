@@ -1626,7 +1626,7 @@ class DuckDBProvider(SerialDatabaseProvider):
                     "start_line": row[5],
                     "end_line": row[6],
                     "chunk_language": row[7],
-                    "file_path": str(Path(row[8])),  # Convert to native OS path separators
+                    "file_path": row[8],  # Keep stored format
                     "file_language": row[9],
                 }
             )
@@ -1802,7 +1802,7 @@ class DuckDBProvider(SerialDatabaseProvider):
                     "chunk_type": result[3],
                     "start_line": result[4],
                     "end_line": result[5],
-                    "file_path": str(Path(result[6])),  # Convert to native OS path separators
+                    "file_path": result[6],  # Keep stored format
                     "language": result[7],
                     "similarity": result[8],
                 }
@@ -1915,7 +1915,7 @@ class DuckDBProvider(SerialDatabaseProvider):
                     "chunk_type": result[3],
                     "start_line": result[4],
                     "end_line": result[5],
-                    "file_path": str(Path(result[6])),  # Convert to native OS path separators
+                    "file_path": result[6],  # Keep stored format
                     "language": result[7],
                 }
                 for result in results
@@ -2062,7 +2062,7 @@ class DuckDBProvider(SerialDatabaseProvider):
                     "chunk_type": result[3],
                     "start_line": result[4],
                     "end_line": result[5],
-                    "file_path": str(Path(result[6])),  # Convert to native OS path separators
+                    "file_path": result[6],  # Keep stored format
                     "language": result[7],
                     "score": 1.0 - result[8],  # Convert distance to similarity score
                 }
@@ -2165,7 +2165,7 @@ class DuckDBProvider(SerialDatabaseProvider):
                     "chunk_type": result[3],
                     "start_line": result[4],
                     "end_line": result[5],
-                    "file_path": str(Path(result[6])),  # Convert to native OS path separators
+                    "file_path": result[6],  # Keep stored format
                     "language": result[7],
                     "score": 1.0 - result[8],  # Convert distance to similarity score
                 }
@@ -2218,7 +2218,7 @@ class DuckDBProvider(SerialDatabaseProvider):
                     "chunk_type": result[3],
                     "start_line": result[4],
                     "end_line": result[5],
-                    "file_path": str(Path(result[6])),  # Convert to native OS path separators
+                    "file_path": result[6],  # Keep stored format
                     "language": result[7],
                 }
                 for result in results

@@ -1033,7 +1033,7 @@ class LanceDBProvider(SerialDatabaseProvider):
                     {
                         "id": chunk["id"],
                         "file_id": chunk["file_id"],
-                        "file_path": str(Path(file_paths.get(chunk["file_id"], ""))),  # Convert to native OS path separators
+                        "file_path": file_paths.get(chunk["file_id"], ""),  # Keep stored format
                         "content": chunk["content"],
                         "start_line": chunk["start_line"],
                         "end_line": chunk["end_line"],
@@ -1168,7 +1168,7 @@ class LanceDBProvider(SerialDatabaseProvider):
                     "chunk_type": result.get("chunk_type", ""),
                     "start_line": result.get("start_line", 0),
                     "end_line": result.get("end_line", 0),
-                    "file_path": str(Path(file_path)),  # Convert to native OS path separators
+                    "file_path": file_path,  # Keep stored format
                     "language": result.get("language", ""),
                     "similarity": similarity,
                 }
@@ -1252,7 +1252,7 @@ class LanceDBProvider(SerialDatabaseProvider):
                     "chunk_type": result.get("chunk_type", ""),
                     "start_line": result.get("start_line", 0),
                     "end_line": result.get("end_line", 0),
-                    "file_path": str(Path(file_path)),  # Convert to native OS path separators
+                    "file_path": file_path,  # Keep stored format
                     "language": result.get("language", ""),
                 }
                 formatted_results.append(formatted_result)

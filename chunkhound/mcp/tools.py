@@ -32,9 +32,11 @@ MAX_ALLOWED_TOKENS = 25000
 
 def _convert_paths_to_native(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Convert file paths in search results to native platform format."""
+    from pathlib import Path
     for result in results:
         if "file_path" in result and result["file_path"]:
-            result["file_path"] = result["file_path"].replace('/', os.sep)
+            # Use Path for proper native conversion
+            result["file_path"] = str(Path(result["file_path"]))
     return results
 
 
