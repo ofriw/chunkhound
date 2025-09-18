@@ -9,15 +9,16 @@ These tests execute the actual CLI command without mocks to verify:
 4. Error handling scenarios
 """
 
-import subprocess
 import json
-import pytest
-from pathlib import Path
-import tempfile
 import shutil
+import subprocess
+import tempfile
+from pathlib import Path
 
-from tests.utils.windows_subprocess import get_safe_subprocess_env
+import pytest
+
 from tests.test_utils import get_api_key_for_tests
+from tests.utils.windows_subprocess import get_safe_subprocess_env
 
 
 class TestSearchCLI:
@@ -26,8 +27,8 @@ class TestSearchCLI:
     @pytest.fixture
     def cli_project_setup(self, clean_environment):
         """Set up a temporary project with indexed content for CLI testing."""
-        temp_dir = Path(tempfile.mkdtemp())
-        project_dir = temp_dir / "project"
+        temp_dir = Path(tempfile.mkdtemp()).resolve()
+        project_dir = (temp_dir / "project").resolve()
         project_dir.mkdir()
 
         # Create test Python files with known content
@@ -42,7 +43,7 @@ def calculate_tax(income, rate):
 class TaxCalculator:
     def __init__(self, default_rate=0.25):
         self.default_rate = default_rate
-    
+
     def compute_annual_tax(self, salary):
         return calculate_tax(salary, self.default_rate)
 ''',
@@ -70,7 +71,7 @@ def main():
 
 if __name__ == "__main__":
     main()
-'''
+''',
         }
 
         # Create the test files
@@ -81,22 +82,25 @@ if __name__ == "__main__":
 
         # Standard API key discovery
         api_key, provider = get_api_key_for_tests()
-        
+
         # Create chunkhound config
         config = {
-            "database": {"path": str(project_dir / ".chunkhound" / "test.db"), "provider": "duckdb"},
-            "indexing": {"include": ["*.py"]}
+            "database": {
+                "path": str(project_dir / ".chunkhound" / "test.db"),
+                "provider": "duckdb",
+            },
+            "indexing": {"include": ["*.py"]},
         }
-        
+
         # Add embedding config only if API key available
         if api_key and provider:
             model = "text-embedding-3-small" if provider == "openai" else "voyage-3.5"
             config["embedding"] = {
                 "provider": provider,
                 "api_key": api_key,
-                "model": model
+                "model": model,
             }
-        
+
         config_path = project_dir / ".chunkhound.json"
         config_path.write_text(json.dumps(config))
 
@@ -110,9 +114,9 @@ if __name__ == "__main__":
             capture_output=True,
             text=True,
             timeout=30,
-            env=get_safe_subprocess_env()
+            env=get_safe_subprocess_env(),
         )
-        
+
         if index_result.returncode != 0:
             # Cleanup on failure
             shutil.rmtree(temp_dir, ignore_errors=True)
@@ -126,15 +130,23 @@ if __name__ == "__main__":
     def test_search_regex_basic(self, cli_project_setup):
         """Test basic regex search via CLI."""
         project_dir = cli_project_setup
-        
+
         result = subprocess.run(
-            ["uv", "run", "chunkhound", "search", "calculate_tax", str(project_dir), "--regex"],
+            [
+                "uv",
+                "run",
+                "chunkhound",
+                "search",
+                "calculate_tax",
+                str(project_dir),
+                "--regex",
+            ],
             capture_output=True,
             text=True,
             timeout=10,
-            env=get_safe_subprocess_env()
+            env=get_safe_subprocess_env(),
         )
-        
+
         assert result.returncode == 0, f"Search failed: {result.stderr}"
         assert "calculate_tax" in result.stdout, "Should find calculate_tax function"
         assert "calculator.py" in result.stdout, "Should show file path in results"
@@ -142,34 +154,52 @@ if __name__ == "__main__":
     def test_search_regex_with_pagination(self, cli_project_setup):
         """Test regex search with pagination options."""
         project_dir = cli_project_setup
-        
-        # Test with small page size  
+
+        # Test with small page size
         result = subprocess.run(
-            ["uv", "run", "chunkhound", "search", "def ", str(project_dir), "--regex",
-             "--page-size", "2"],
+            [
+                "uv",
+                "run",
+                "chunkhound",
+                "search",
+                "def ",
+                str(project_dir),
+                "--regex",
+                "--page-size",
+                "2",
+            ],
             capture_output=True,
             text=True,
             timeout=10,
-            env=get_safe_subprocess_env()
+            env=get_safe_subprocess_env(),
         )
-        
+
         assert result.returncode == 0, f"Search failed: {result.stderr}"
         assert "def " in result.stdout, "Should find function definitions"
 
     def test_search_regex_with_path_filter(self, cli_project_setup):
         """Test regex search with path filtering."""
         project_dir = cli_project_setup
-        
+
         # Search only in utils directory
         result = subprocess.run(
-            ["uv", "run", "chunkhound", "search", "format_number", str(project_dir), "--regex",
-             "--path-filter", "utils/"],
+            [
+                "uv",
+                "run",
+                "chunkhound",
+                "search",
+                "format_number",
+                str(project_dir),
+                "--regex",
+                "--path-filter",
+                "utils/",
+            ],
             capture_output=True,
             text=True,
             timeout=10,
-            env=get_safe_subprocess_env()
+            env=get_safe_subprocess_env(),
         )
-        
+
         assert result.returncode == 0, f"Search failed: {result.stderr}"
         assert "format_number" in result.stdout, "Should find function in utils"
         assert "string_utils.py" in result.stdout, "Should show utils file"
@@ -177,15 +207,23 @@ if __name__ == "__main__":
     def test_search_regex_empty_results(self, cli_project_setup):
         """Test regex search with no matches."""
         project_dir = cli_project_setup
-        
+
         result = subprocess.run(
-            ["uv", "run", "chunkhound", "search", "nonexistent_function", str(project_dir), "--regex"],
+            [
+                "uv",
+                "run",
+                "chunkhound",
+                "search",
+                "nonexistent_function",
+                str(project_dir),
+                "--regex",
+            ],
             capture_output=True,
             text=True,
             timeout=10,
-            env=get_safe_subprocess_env()
+            env=get_safe_subprocess_env(),
         )
-        
+
         assert result.returncode == 0, f"Search failed: {result.stderr}"
         # Should handle empty results gracefully - should show "No results found"
         assert "No results found" in result.stdout or result.stdout.strip() == ""
@@ -195,15 +233,23 @@ if __name__ == "__main__":
         with tempfile.TemporaryDirectory() as temp_dir:
             empty_dir = Path(temp_dir) / "empty_project"
             empty_dir.mkdir()
-            
+
             result = subprocess.run(
-                ["uv", "run", "chunkhound", "search", "anything", str(empty_dir), "--regex"],
+                [
+                    "uv",
+                    "run",
+                    "chunkhound",
+                    "search",
+                    "anything",
+                    str(empty_dir),
+                    "--regex",
+                ],
                 capture_output=True,
                 text=True,
                 timeout=10,
-                env=get_safe_subprocess_env()
+                env=get_safe_subprocess_env(),
             )
-            
+
             # Should exit with error when no database exists
             assert result.returncode != 0, "Should fail when no database exists"
             # Error message may be in stdout or stderr
@@ -216,76 +262,109 @@ if __name__ == "__main__":
     def test_search_semantic_basic(self, cli_project_setup):
         """Test basic semantic search via CLI (if embedding provider available)."""
         project_dir = cli_project_setup
-        
+
         # Standard API key check
         api_key, provider = get_api_key_for_tests()
         if not api_key:
             pytest.skip("No embedding API key available for semantic search test")
-        
+
         result = subprocess.run(
-            ["uv", "run", "chunkhound", "search", "tax calculation", str(project_dir), "--semantic"],
+            [
+                "uv",
+                "run",
+                "chunkhound",
+                "search",
+                "tax calculation",
+                str(project_dir),
+                "--semantic",
+            ],
             capture_output=True,
             text=True,
             timeout=15,
-            env=get_safe_subprocess_env()
+            env=get_safe_subprocess_env(),
         )
-        
+
         assert result.returncode == 0, f"Semantic search failed: {result.stderr}"
         # Should find tax-related functions
         output_lower = result.stdout.lower()
-        assert any(word in output_lower for word in ["tax", "calculate", "calculator"]), \
-            f"Should find tax-related content, got: {result.stdout}"
+        assert any(
+            word in output_lower for word in ["tax", "calculate", "calculator"]
+        ), f"Should find tax-related content, got: {result.stdout}"
 
     def test_search_output_format_structure(self, cli_project_setup):
         """Test that search output has expected structure."""
         project_dir = cli_project_setup
-        
+
         result = subprocess.run(
             ["uv", "run", "chunkhound", "search", "def ", str(project_dir), "--regex"],
             capture_output=True,
             text=True,
             timeout=10,
-            env=get_safe_subprocess_env()
+            env=get_safe_subprocess_env(),
         )
-        
+
         assert result.returncode == 0, f"Search failed: {result.stderr}"
-        
+
         # Check that output contains expected elements
         assert result.stdout, "Should have output"
-        
+
         # Should contain file paths (basic format check)
         assert ".py" in result.stdout, "Should show Python file extensions"
 
     def test_search_with_offset(self, cli_project_setup):
         """Test search with offset parameter."""
         project_dir = cli_project_setup
-        
+
         # Get first page
         result1 = subprocess.run(
-            ["uv", "run", "chunkhound", "search", "def ", str(project_dir), "--regex",
-             "--page-size", "1", "--offset", "0"],
+            [
+                "uv",
+                "run",
+                "chunkhound",
+                "search",
+                "def ",
+                str(project_dir),
+                "--regex",
+                "--page-size",
+                "1",
+                "--offset",
+                "0",
+            ],
             capture_output=True,
             text=True,
             timeout=10,
-            env=get_safe_subprocess_env()
+            env=get_safe_subprocess_env(),
         )
-        
-        # Get second page  
+
+        # Get second page
         result2 = subprocess.run(
-            ["uv", "run", "chunkhound", "search", "def ", str(project_dir), "--regex",
-             "--page-size", "1", "--offset", "1"],
+            [
+                "uv",
+                "run",
+                "chunkhound",
+                "search",
+                "def ",
+                str(project_dir),
+                "--regex",
+                "--page-size",
+                "1",
+                "--offset",
+                "1",
+            ],
             capture_output=True,
             text=True,
             timeout=10,
-            env=get_safe_subprocess_env()
+            env=get_safe_subprocess_env(),
         )
-        
+
         assert result1.returncode == 0, f"First search failed: {result1.stderr}"
         assert result2.returncode == 0, f"Second search failed: {result2.stderr}"
-        
+
         # Results should be different (pagination working)
         if result1.stdout and result2.stdout:
-            assert result1.stdout != result2.stdout, "Pagination should return different results"
+            assert result1.stdout != result2.stdout, (
+                "Pagination should return different results"
+            )
 
 
 class TestSearchCLIArguments:
@@ -298,9 +377,9 @@ class TestSearchCLIArguments:
             capture_output=True,
             text=True,
             timeout=5,
-            env=get_safe_subprocess_env()
+            env=get_safe_subprocess_env(),
         )
-        
+
         assert result.returncode == 0, f"Help command failed: {result.stderr}"
         assert "search" in result.stdout.lower(), "Help should mention search"
         assert "--regex" in result.stdout, "Help should show --regex option"
@@ -315,9 +394,9 @@ class TestSearchCLIArguments:
             capture_output=True,
             text=True,
             timeout=5,
-            env=get_safe_subprocess_env()
+            env=get_safe_subprocess_env(),
         )
-        
+
         assert result.returncode != 0, "Should fail with invalid argument"
 
     def test_missing_query(self):
@@ -327,7 +406,7 @@ class TestSearchCLIArguments:
             capture_output=True,
             text=True,
             timeout=5,
-            env=get_safe_subprocess_env()
+            env=get_safe_subprocess_env(),
         )
-        
+
         assert result.returncode != 0, "Should fail when query is missing"
