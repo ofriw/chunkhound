@@ -72,7 +72,8 @@ class IndexingCoordinator(BaseService):
         self._locks_lock = None  # Will be initialized when first needed
 
         # Base directory for path normalization (immutable after initialization)
-        self._base_directory: Path = base_directory
+        # Resolve once at initialization to ensure consistent path handling across platforms
+        self._base_directory: Path = base_directory.resolve()
 
     def add_language_parser(self, language: Language, parser: UniversalParser) -> None:
         """Add or update a language parser.
@@ -258,10 +259,8 @@ class IndexingCoordinator(BaseService):
                 }
 
             # Check for existing file to determine if this is an update or new file
-            base_dir = self._base_directory
-            resolved_file = file_path.resolve()
-            resolved_base = base_dir.resolve()
-            relative_path = resolved_file.relative_to(resolved_base)
+            # Use pre-resolved base_directory for consistent path handling
+            relative_path = file_path.resolve().relative_to(self._base_directory)
             existing_file = self._db.get_file_by_path(relative_path.as_posix())
 
             # SECTION: Smart_Chunk_Update (PERFORMANCE_CRITICAL)
@@ -806,10 +805,8 @@ class IndexingCoordinator(BaseService):
     ) -> int:
         """Store or update file record in database."""
         # Check if file already exists
-        base_dir = self._base_directory
-        resolved_file = file_path.resolve()
-        resolved_base = base_dir.resolve()
-        relative_path = resolved_file.relative_to(resolved_base)
+        # Use pre-resolved base_directory for consistent path handling
+        relative_path = file_path.resolve().relative_to(self._base_directory)
         existing_file = self._db.get_file_by_path(relative_path.as_posix())
 
         if existing_file:
@@ -822,10 +819,8 @@ class IndexingCoordinator(BaseService):
                 return file_id
 
         # Create new File model instance with relative path
-        base_dir = self._base_directory
-        resolved_file = file_path.resolve()
-        resolved_base = base_dir.resolve()
-        relative_path = resolved_file.relative_to(resolved_base)
+        # Use pre-resolved base_directory for consistent path handling
+        relative_path = file_path.resolve().relative_to(self._base_directory)
         file_model = File(
             path=FilePath(relative_path.as_posix()),
             size_bytes=file_stat.st_size,
