@@ -86,7 +86,7 @@ if __name__ == "__main__":
         # Create chunkhound config
         config = {
             "database": {
-                "path": str(project_dir / ".chunkhound" / "test.db"),
+                "path": ".chunkhound/test.db",
                 "provider": "duckdb",
             },
             "indexing": {"include": ["*.py"]},
@@ -105,7 +105,7 @@ if __name__ == "__main__":
         config_path.write_text(json.dumps(config))
 
         # Index the project files
-        index_cmd = ["uv", "run", "chunkhound", "index", str(project_dir)]
+        index_cmd = ["uv", "run", "chunkhound", "index", "."]
         if not (api_key and provider):
             index_cmd.append("--no-embeddings")
 
@@ -115,6 +115,7 @@ if __name__ == "__main__":
             text=True,
             timeout=30,
             env=get_safe_subprocess_env(),
+            cwd=project_dir,
         )
 
         if index_result.returncode != 0:
@@ -138,13 +139,14 @@ if __name__ == "__main__":
                 "chunkhound",
                 "search",
                 "calculate_tax",
-                str(project_dir),
+                ".",
                 "--regex",
             ],
             capture_output=True,
             text=True,
             timeout=10,
             env=get_safe_subprocess_env(),
+            cwd=project_dir,
         )
 
         assert result.returncode == 0, f"Search failed: {result.stderr}"
@@ -163,7 +165,7 @@ if __name__ == "__main__":
                 "chunkhound",
                 "search",
                 "def ",
-                str(project_dir),
+                ".",
                 "--regex",
                 "--page-size",
                 "2",
@@ -172,6 +174,7 @@ if __name__ == "__main__":
             text=True,
             timeout=10,
             env=get_safe_subprocess_env(),
+            cwd=project_dir,
         )
 
         assert result.returncode == 0, f"Search failed: {result.stderr}"
@@ -189,7 +192,7 @@ if __name__ == "__main__":
                 "chunkhound",
                 "search",
                 "format_number",
-                str(project_dir),
+                ".",
                 "--regex",
                 "--path-filter",
                 "utils/",
@@ -198,6 +201,7 @@ if __name__ == "__main__":
             text=True,
             timeout=10,
             env=get_safe_subprocess_env(),
+            cwd=project_dir,
         )
 
         assert result.returncode == 0, f"Search failed: {result.stderr}"
@@ -215,13 +219,14 @@ if __name__ == "__main__":
                 "chunkhound",
                 "search",
                 "nonexistent_function",
-                str(project_dir),
+                ".",
                 "--regex",
             ],
             capture_output=True,
             text=True,
             timeout=10,
             env=get_safe_subprocess_env(),
+            cwd=project_dir,
         )
 
         assert result.returncode == 0, f"Search failed: {result.stderr}"
@@ -275,13 +280,14 @@ if __name__ == "__main__":
                 "chunkhound",
                 "search",
                 "tax calculation",
-                str(project_dir),
+                ".",
                 "--semantic",
             ],
             capture_output=True,
             text=True,
             timeout=15,
             env=get_safe_subprocess_env(),
+            cwd=project_dir,
         )
 
         assert result.returncode == 0, f"Semantic search failed: {result.stderr}"
@@ -296,11 +302,12 @@ if __name__ == "__main__":
         project_dir = cli_project_setup
 
         result = subprocess.run(
-            ["uv", "run", "chunkhound", "search", "def ", str(project_dir), "--regex"],
+            ["uv", "run", "chunkhound", "search", "def ", ".", "--regex"],
             capture_output=True,
             text=True,
             timeout=10,
             env=get_safe_subprocess_env(),
+            cwd=project_dir,
         )
 
         assert result.returncode == 0, f"Search failed: {result.stderr}"
@@ -323,7 +330,7 @@ if __name__ == "__main__":
                 "chunkhound",
                 "search",
                 "def ",
-                str(project_dir),
+                ".",
                 "--regex",
                 "--page-size",
                 "1",
@@ -334,6 +341,7 @@ if __name__ == "__main__":
             text=True,
             timeout=10,
             env=get_safe_subprocess_env(),
+            cwd=project_dir,
         )
 
         # Get second page
@@ -344,7 +352,7 @@ if __name__ == "__main__":
                 "chunkhound",
                 "search",
                 "def ",
-                str(project_dir),
+                ".",
                 "--regex",
                 "--page-size",
                 "1",
@@ -355,6 +363,7 @@ if __name__ == "__main__":
             text=True,
             timeout=10,
             env=get_safe_subprocess_env(),
+            cwd=project_dir,
         )
 
         assert result1.returncode == 0, f"First search failed: {result1.stderr}"
