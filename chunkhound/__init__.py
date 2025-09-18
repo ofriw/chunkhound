@@ -9,7 +9,6 @@ __description__ = "Local-first semantic code search with vector and regex capabi
 __all__ = [
     "Database",
     "CodeParser",
-    "Chunker",
     "__version__",
 ]
 
@@ -24,8 +23,4 @@ def __getattr__(name: str):
         from .parser import CodeParser
 
         return CodeParser
-    elif name == "Chunker":
-        from .chunker import Chunker
-
-        return Chunker
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

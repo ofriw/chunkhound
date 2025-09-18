@@ -45,7 +45,6 @@ from chunkhound.registry import (
     get_registry,
 )
 
-from .chunker import Chunker, IncrementalChunker
 
 # Legacy imports for backward compatibility
 from .embeddings import EmbeddingManager
@@ -154,9 +153,6 @@ class Database:
         # Legacy compatibility: expose provider connection as self.connection
         self.connection = None  # Will be set after connect()
 
-        # Legacy compatibility: shared chunker instances
-        self._chunker: Chunker | None = None
-        self._incremental_chunker: IncrementalChunker | None = None
         self._file_discovery_cache = FileDiscoveryCache()
 
     def connect(self) -> None:
@@ -169,12 +165,6 @@ class Database:
         # Expose connection for legacy compatibility
         self.connection = self._provider.connection
 
-        # Initialize legacy shared instances for backward compatibility
-        if not self._chunker:
-            self._chunker = Chunker()
-
-        if not self._incremental_chunker:
-            self._incremental_chunker = IncrementalChunker()
 
         logger.info("✅ Database connected via service layer")
 

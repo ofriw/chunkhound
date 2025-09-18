@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
-from chunkhound.chunker import Chunker, IncrementalChunker
 from chunkhound.embeddings import EmbeddingManager
 from chunkhound.file_discovery_cache import FileDiscoveryCache
 from chunkhound.providers.database.serial_executor import (
@@ -58,12 +57,10 @@ class SerialDatabaseProvider(ABC):
         # Create serial executor for all database operations
         self._executor = SerialDatabaseExecutor()
 
-        # Service layer components and legacy chunker instances
+        # Service layer components
         self._indexing_coordinator: IndexingCoordinator | None = None
         self._search_service: SearchService | None = None
         self._embedding_service: EmbeddingService | None = None
-        self._chunker: Chunker | None = None
-        self._incremental_chunker: IncrementalChunker | None = None
 
         # File discovery cache for performance optimization
         self._file_discovery_cache = FileDiscoveryCache()
@@ -120,7 +117,7 @@ class SerialDatabaseProvider(ABC):
             # Execute connection in DB thread to ensure proper initialization
             self._execute_in_db_thread_sync("connect")
 
-            # Initialize shared parser and chunker instances for performance
+            # Initialize shared service instances for performance
             self._initialize_shared_instances()
 
             logger.info(f"{self.__class__.__name__} initialization complete")
@@ -164,9 +161,6 @@ class SerialDatabaseProvider(ABC):
         logger.debug("Initializing service layer components")
 
         try:
-            # Initialize chunkers for legacy compatibility
-            self._chunker = Chunker()
-            self._incremental_chunker = IncrementalChunker()
 
             # Lazy import from registry to avoid circular dependency
             import importlib
