@@ -11,7 +11,7 @@ The Code Expert Agent extends ChunkHound's semantic and regex search capabilitie
 
 ## What It Provides
 
-The Code Expert leverages ChunkHound's powerful search tools—including [multi-hop semantic search](/chunkhound/under-the-hood/#multi-hop-semantic-search) and regex pattern matching—to understand your codebase architecture. Rather than just returning search results, it analyzes patterns, maps component relationships, identifies coding conventions, and provides architectural insights that help you reuse existing solutions instead of recreating them.
+The Code Expert leverages ChunkHound's powerful search tools—including [multi-hop semantic search](/under-the-hood/#multi-hop-semantic-search) and regex pattern matching—to understand your codebase architecture. Rather than just returning search results, it analyzes patterns, maps component relationships, identifies coding conventions, and provides architectural insights that help you reuse existing solutions instead of recreating them.
 
 ## When to Use It
 
@@ -38,15 +38,15 @@ The Code Expert leverages ChunkHound's powerful search tools—including [multi-
 Before using the Code Expert Agent, you need ChunkHound set up and running:
 
 <Card title="First-Time Setup" icon="rocket">
-  **New to ChunkHound?** Start with the [Tutorial](/chunkhound/tutorial/) to install, configure, and index your first codebase.
+  **New to ChunkHound?** Start with the [Tutorial](/tutorial/) to install, configure, and index your first codebase.
 </Card>
 
 <Card title="Advanced Configuration" icon="setting">
-  **Need semantic search?** The Code Expert Agent requires semantic search capabilities. See the [Configuration guide](/chunkhound/configuration/) to set up embedding providers like OpenAI or VoyageAI.
+  **Need semantic search?** The Code Expert Agent requires semantic search capabilities. See the [Configuration guide](/configuration/) to set up embedding providers like OpenAI or VoyageAI.
 </Card>
 
 <Card title="MCP Integration" icon="approve-check">
-  **IDE Setup Required** The agent works through [MCP (Model Context Protocol)](https://modelcontextprotocol.io/). Your AI assistant must be configured to connect to ChunkHound as described in the [Tutorial](/chunkhound/tutorial/#ide-setup).
+  **IDE Setup Required** The agent works through [MCP (Model Context Protocol)](https://modelcontextprotocol.io/). Your AI assistant must be configured to connect to ChunkHound as described in the [Tutorial](/tutorial/#ide-setup).
 </Card>
 
 ## How to Use It
@@ -204,12 +204,12 @@ Remember: Your analysis should give developers a mental model of the system that
 </details>
 
 <Aside type="tip" title="Agent Tools">
-The Code Expert Agent uses ChunkHound's MCP tools (`mcp__ChunkHound__search_semantic`, `mcp__ChunkHound__search_regex`) for its analysis. If these tools aren't available, check your [MCP configuration](/chunkhound/tutorial/#ide-setup) and ensure ChunkHound is running as an MCP server.
+The Code Expert Agent uses ChunkHound's MCP tools (`mcp__ChunkHound__search_semantic`, `mcp__ChunkHound__search_regex`) for its analysis. If these tools aren't available, check your [MCP configuration](/tutorial/#ide-setup) and ensure ChunkHound is running as an MCP server.
 </Aside>
 
 ### 2. Ask Before You Code
 
-Once ChunkHound is [indexed](/chunkhound/tutorial/#example-initial-index) and your MCP server is running, simply ask about your codebase before implementing:
+Once ChunkHound is [indexed](/tutorial/#example-initial-index) and your MCP server is running, simply ask about your codebase before implementing:
 
 ```
 "Use the code expert, explain how the multi hop semantic search algorithm works and how it's implemented"
@@ -495,7 +495,7 @@ The algorithm represents a sophisticated approach to code search that goes beyon
 
 **Final Orchestrator Answer**
 
-*Note: The detailed file paths, line numbers, and code references below come from ChunkHound's indexed codebase. The Code Expert Agent uses ChunkHound's [semantic search](/chunkhound/under-the-hood/#semantic-search-architecture) and regex search tools to discover and analyze these code locations.*
+*Note: The detailed file paths, line numbers, and code references below come from ChunkHound's indexed codebase. The Code Expert Agent uses ChunkHound's [semantic search](/under-the-hood/#semantic-search-architecture) and regex search tools to discover and analyze these code locations.*
 
 `````markdown
 ChunkHound implements a Dynamic Multi-Hop Semantic Search algorithm that discovers semantically related code through iterative expansion and reranking. Here's how it works:

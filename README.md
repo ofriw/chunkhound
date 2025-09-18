@@ -1,5 +1,5 @@
 <p align="center">
-  <a href="https://ofriw.github.io/chunkhound">
+  <a href="https://chunkhound.github.io">
     <picture>
       <source media="(prefers-color-scheme: dark)" srcset="docs/public/wordmark-github-dark.svg">
       <img src="docs/src/assets/wordmark.svg" alt="ChunkHound" width="400">
@@ -12,7 +12,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/ofriw/chunkhound/actions/workflows/smoke-tests.yml"><img src="https://github.com/ofriw/chunkhound/actions/workflows/smoke-tests.yml/badge.svg" alt="Tests"></a>
+  <a href="https://github.com/chunkhound/chunkhound/actions/workflows/smoke-tests.yml"><img src="https://github.com/chunkhound/chunkhound/actions/workflows/smoke-tests.yml/badge.svg" alt="Tests"></a>
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT"></a>
   <img src="https://img.shields.io/badge/100%25%20AI-Generated-ff69b4.svg" alt="100% AI Generated">
 </p>
@@ -22,7 +22,7 @@ Transform your codebase into a searchable knowledge base for AI assistants using
 ## Features
 
 - **[cAST Algorithm](https://arxiv.org/pdf/2506.15655)** - Research-backed semantic code chunking
-- **[Multi-Hop Semantic Search](https://ofriw.github.io/chunkhound/under-the-hood/#multi-hop-semantic-search)** - Discovers interconnected code relationships beyond direct matches
+- **[Multi-Hop Semantic Search](https://chunkhound.github.io/under-the-hood/#multi-hop-semantic-search)** - Discovers interconnected code relationships beyond direct matches
 - **Semantic search** - Natural language queries like "find authentication code"
 - **Regex search** - Pattern matching without API keys
 - **Local-first** - Your code stays on your machine
@@ -34,10 +34,10 @@ Transform your codebase into a searchable knowledge base for AI assistants using
 
 ## Documentation
 
-**Visit [ofriw.github.io/chunkhound](https://ofriw.github.io/chunkhound) for complete guides:**
-- [Tutorial](https://ofriw.github.io/chunkhound/tutorial/)
-- [Configuration Guide](https://ofriw.github.io/chunkhound/configuration/)
-- [Architecture Deep Dive](https://ofriw.github.io/chunkhound/under-the-hood/)
+**Visit [chunkhound.github.io](https://chunkhound.github.io) for complete guides:**
+- [Tutorial](https://chunkhound.github.io/tutorial/)
+- [Configuration Guide](https://chunkhound.github.io/configuration/)
+- [Architecture Deep Dive](https://chunkhound.github.io/under-the-hood/)
 
 ## Requirements
 
@@ -80,7 +80,7 @@ chunkhound index
 chunkhound index --no-embeddings
 ```
 
-**For configuration, IDE setup, and advanced usage, see the [documentation](https://ofriw.github.io/chunkhound).**
+**For configuration, IDE setup, and advanced usage, see the [documentation](https://chunkhound.github.io).**
 
 ## Real-Time Indexing
 

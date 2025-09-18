@@ -5,8 +5,8 @@ import react from "@astrojs/react";
 
 // https://astro.build/config
 export default defineConfig({
-  site: "https://ofriw.github.io",
-  base: "/chunkhound",
+  site: "https://chunkhound.github.io",
+  base: "/",
   integrations: [
     react(),
     starlight({
@@ -27,7 +27,7 @@ export default defineConfig({
         {
           icon: "github",
           label: "GitHub",
-          href: "https://github.com/ofriw/chunkhound",
+          href: "https://github.com/chunkhound/chunkhound",
         },
       ],
       sidebar: [

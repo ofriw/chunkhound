@@ -112,16 +112,9 @@ Configure ChunkHound as an MCP server in your AI assistant:
 
 <Tabs syncKey="ide-setup">
   <TabItem label="Claude Code">
-    Add to `~/.claude.json`:
-    ```json
-    {
-      "mcpServers": {
-        "chunkhound": {
-          "command": "chunkhound",
-          "args": ["mcp"]
-        }
-      }
-    }
+    Inside the project directory run:
+    ```bash
+    claude mcp add ChunkHound chunkhound mcp
     ```
   </TabItem>
 
@@ -166,11 +159,11 @@ cd /path/to/project && chunkhound index
 
 ## Documentation
 
-- [Tutorial](/chunkhound/tutorial/) - Learn ChunkHound in 5 minutes
-- [Configuration](/chunkhound/configuration/) - Complete configuration reference
-- [Under the Hood](/chunkhound/under-the-hood/) - Technical deep dive into [cAST algorithm](https://arxiv.org/pdf/2506.15655) and architecture
+- [Tutorial](/tutorial/) - Learn ChunkHound in 5 minutes
+- [Configuration](/configuration/) - Complete configuration reference
+- [Under the Hood](/under-the-hood/) - Technical deep dive into [cAST algorithm](https://arxiv.org/pdf/2506.15655) and architecture
 
 ## Links
 
-- [GitHub Repository](https://github.com/ofriw/chunkhound)
-- [Report Issues](https://github.com/ofriw/chunkhound/issues)
+- [GitHub Repository](https://github.com/chunkhound/chunkhound)
+- [Report Issues](https://github.com/chunkhound/chunkhound/issues)
