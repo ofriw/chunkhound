@@ -259,7 +259,9 @@ class IndexingCoordinator(BaseService):
 
             # Check for existing file to determine if this is an update or new file
             base_dir = self._base_directory
-            relative_path = file_path.resolve().relative_to(base_dir)
+            resolved_file = file_path.resolve()
+            resolved_base = base_dir.resolve()
+            relative_path = resolved_file.relative_to(resolved_base)
             existing_file = self._db.get_file_by_path(relative_path.as_posix())
 
             # SECTION: Smart_Chunk_Update (PERFORMANCE_CRITICAL)
@@ -805,7 +807,9 @@ class IndexingCoordinator(BaseService):
         """Store or update file record in database."""
         # Check if file already exists
         base_dir = self._base_directory
-        relative_path = file_path.resolve().relative_to(base_dir)
+        resolved_file = file_path.resolve()
+        resolved_base = base_dir.resolve()
+        relative_path = resolved_file.relative_to(resolved_base)
         existing_file = self._db.get_file_by_path(relative_path.as_posix())
 
         if existing_file:
@@ -819,7 +823,9 @@ class IndexingCoordinator(BaseService):
 
         # Create new File model instance with relative path
         base_dir = self._base_directory
-        relative_path = file_path.resolve().relative_to(base_dir)
+        resolved_file = file_path.resolve()
+        resolved_base = base_dir.resolve()
+        relative_path = resolved_file.relative_to(resolved_base)
         file_model = File(
             path=FilePath(relative_path.as_posix()),
             size_bytes=file_stat.st_size,
