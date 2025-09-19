@@ -167,7 +167,7 @@ if __name__ == "__main__":
                 "run",
                 "chunkhound",
                 "search",
-                "def ",
+                "def",
                 ".",
                 "--regex",
                 "--page-size",
@@ -181,7 +181,7 @@ if __name__ == "__main__":
         )
 
         assert result.returncode == 0, f"Search failed: {result.stderr}"
-        assert "def " in result.stdout, "Should find function definitions"
+        assert "def" in result.stdout, "Should find function definitions"
 
     def test_search_regex_with_path_filter(self, cli_project_setup):
         """Test regex search with path filtering."""
@@ -305,7 +305,7 @@ if __name__ == "__main__":
         project_dir = cli_project_setup
 
         result = subprocess.run(
-            ["uv", "run", "chunkhound", "search", "def ", ".", "--regex"],
+            ["uv", "run", "chunkhound", "search", "def", ".", "--regex"],
             capture_output=True,
             text=True,
             timeout=10,
@@ -332,7 +332,7 @@ if __name__ == "__main__":
                 "run",
                 "chunkhound",
                 "search",
-                "def ",
+                "def",
                 ".",
                 "--regex",
                 "--page-size",
@@ -354,7 +354,7 @@ if __name__ == "__main__":
                 "run",
                 "chunkhound",
                 "search",
-                "def ",
+                "def",
                 ".",
                 "--regex",
                 "--page-size",
