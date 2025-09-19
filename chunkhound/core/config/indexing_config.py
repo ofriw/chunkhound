@@ -77,7 +77,7 @@ class IndexingConfig(BaseModel):
             "**/.vs/**",
             # Cache and temporary directories
             "**/.cache/**",
-            "**/tmp/**",
+            "tmp/**",
             "**/temp/**",
             # Static Site Generators (Docusaurus, Next.js, Gatsby, VuePress, Nuxt)
             "**/.docusaurus/**",
