@@ -83,10 +83,13 @@ if __name__ == "__main__":
         # Standard API key discovery
         api_key, provider = get_api_key_for_tests()
 
-        # Create chunkhound config
+        # Create chunkhound config with absolute database path
+        # Use absolute, pre-resolved path to ensure consistent resolution across subprocesses
+        # This prevents Ubuntu CI symlink issues where relative paths resolve differently
+        db_path = (project_dir / ".chunkhound" / "test.db").resolve()
         config = {
             "database": {
-                "path": ".chunkhound/test.db",
+                "path": str(db_path),
                 "provider": "duckdb",
             },
             "indexing": {"include": ["*.py"]},
