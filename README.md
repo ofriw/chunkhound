@@ -1,8 +1,8 @@
 <p align="center">
   <a href="https://chunkhound.github.io">
     <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="docs/public/wordmark-github-dark.svg">
-      <img src="docs/src/assets/wordmark.svg" alt="ChunkHound" width="400">
+      <source media="(prefers-color-scheme: dark)" srcset="public/wordmark-centered-dark.svg">
+      <img src="public/wordmark-centered.svg" alt="ChunkHound" width="400">
     </picture>
   </a>
 </p>
@@ -14,6 +14,7 @@
 <p align="center">
   <a href="https://github.com/chunkhound/chunkhound/actions/workflows/smoke-tests.yml"><img src="https://github.com/chunkhound/chunkhound/actions/workflows/smoke-tests.yml/badge.svg" alt="Tests"></a>
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT"></a>
+  <a href="https://discord.gg/BAepHEXXnX"><img src="https://img.shields.io/badge/Discord-Join_Community-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Discord"></a>
   <img src="https://img.shields.io/badge/100%25%20AI-Generated-ff69b4.svg" alt="100% AI Generated">
 </p>
 
