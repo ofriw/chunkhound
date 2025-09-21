@@ -14,13 +14,13 @@ from rich.console import Console
 from rich.live import Live
 from rich.prompt import Prompt
 
-from chunkhound.api.cli.ascii_art import HOUND_LOGO, WELCOME_MESSAGE
 from chunkhound.api.cli.env_detector import (
     _detect_local_endpoints,
     _normalize_endpoint_url,
 )
 from chunkhound.api.cli.utils.rich_output import RichOutputFormatter
 from chunkhound.core.config.config import Config
+from chunkhound.version import __version__
 from chunkhound.core.config.embedding_config import EmbeddingConfig
 from chunkhound.core.config.embedding_factory import EmbeddingProviderFactory
 from chunkhound.core.config.openai_utils import is_official_openai_endpoint
@@ -708,7 +708,7 @@ async def run_setup_wizard(target_path: Path, args=None) -> Config | None:
     formatter = RichOutputFormatter()
 
     # Display welcome screen
-    _display_welcome()
+    _display_welcome(formatter, target_path)
 
     # Continue with normal provider selection if no env config or user declined
     provider_choice = await _select_provider()
@@ -753,10 +753,36 @@ async def run_setup_wizard(target_path: Path, args=None) -> Config | None:
         return None
 
 
-def _display_welcome() -> None:
-    """Display welcome message with ASCII art"""
-    print(HOUND_LOGO)
-    print(WELCOME_MESSAGE)
+def _display_welcome(formatter: RichOutputFormatter, target_path: Path) -> None:
+    """Display welcome message with setup information"""
+    from rich.table import Table
+    from rich.panel import Panel
+
+    info_table = Table.grid(padding=(0, 2))
+    info_table.add_column(style="cyan")
+    info_table.add_column()
+
+    info_table.add_row("Version:", f"[green]{__version__}[/green]")
+    info_table.add_row("Directory:", f"[blue]{target_path}[/blue]")
+
+    panel = Panel(
+        info_table,
+        title="[bold cyan]ChunkHound Setup Wizard[/bold cyan]",
+        border_style="cyan",
+        padding=(1, 2),
+    )
+    if formatter.console is not None:
+        formatter.console.print(panel)
+        formatter.console.print(
+            "Configure embedding provider and index your project for semantic search."
+        )
+    else:
+        print("ChunkHound Setup Wizard")
+        print(f"Version: {__version__}")
+        print(f"Directory: {target_path}")
+        print(
+            "Configure embedding provider and index your project for semantic search."
+        )
 
 
 async def _select_provider() -> str:
