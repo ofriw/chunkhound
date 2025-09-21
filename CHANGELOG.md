@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.3.0] - 2025-09-21
+
+### Added
+- Official Windows support with full CI testing across Windows, macOS, and Ubuntu
+- Command-line search functionality (`chunkhound search`) for semantic and regex queries without starting MCP
+- CONTRIBUTING.md guidelines
+- Setup wizard when `.chunkhound.json` isn't found in the directory
+
+### Fixed
+- File exclude patterns (**/tmp/**) on Linux systems
+- Regex search path resolution across platforms
+
 ## [3.2.0] - 2025-08-24
 
 ### Enhanced
