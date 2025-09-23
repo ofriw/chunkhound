@@ -18,6 +18,7 @@ from loguru import logger
 from rich.progress import Progress, TaskID
 
 from chunkhound.core.types.common import ChunkId
+from chunkhound.core.utils import estimate_tokens
 from chunkhound.interfaces.database_provider import DatabaseProvider
 from chunkhound.interfaces.embedding_provider import EmbeddingProvider
 from chunkhound.utils.normalization import normalize_content
@@ -440,7 +441,7 @@ class EmbeddingService(BaseService):
         semaphore = asyncio.Semaphore(self._max_concurrent_batches)
 
         async def process_batch(
-            batch: list[tuple[ChunkId, str]], batch_num: int
+            batch: list[tuple[ChunkId, str]], batch_num: int, retry_depth: int = 0
         ) -> int:
             """Process a single batch of embeddings."""
             async with semaphore:
@@ -492,7 +493,30 @@ class EmbeddingService(BaseService):
                     return stored_count
 
                 except Exception as e:
-                    # Log batch details for oversized chunks
+                    # Check if this is a token limit error that can be retried
+                    error_message = str(e).lower()
+                    is_token_limit_error = (
+                        "max allowed tokens" in error_message or
+                        "token limit" in error_message or
+                        "tokens per batch" in error_message
+                    )
+
+                    if is_token_limit_error and len(batch) > 1 and retry_depth < 3:
+                        # Split batch in half and retry both parts
+                        logger.warning(
+                            f"Token limit exceeded for batch {batch_num + 1}, splitting and retrying "
+                            f"(depth {retry_depth + 1}/3)"
+                        )
+                        mid = len(batch) // 2
+                        batch1 = batch[:mid]
+                        batch2 = batch[mid:]
+
+                        # Recursively process both halves
+                        result1 = await process_batch(batch1, batch_num, retry_depth + 1)
+                        result2 = await process_batch(batch2, batch_num, retry_depth + 1)
+                        return result1 + result2
+
+                    # Log batch details for non-retryable errors or max retries exceeded
                     batch_sizes = [len(text) for _, text in batch]
                     max_size = max(batch_sizes) if batch_sizes else 0
                     # Debug log to trace execution path
@@ -662,11 +686,16 @@ class EmbeddingService(BaseService):
         current_tokens = 0
 
         for chunk_id, text in chunk_data:
-            # Estimate tokens based on research:
-            # - OpenAI embedding API uses ~0.25 tokens per UTF-8 byte (4 chars per token)
-            # - Code typically ranges from 2.5-4.2 chars per token
-            # - Use conservative 4.0 chars per token for mixed code content
-            text_tokens = max(1, int(len(text) / 4.0))
+            # Use accurate provider-specific token estimation
+            if self._embedding_provider:
+                text_tokens = estimate_tokens(
+                    text,
+                    self._embedding_provider.name,
+                    self._embedding_provider.model
+                )
+            else:
+                # Fallback for no provider (conservative default)
+                text_tokens = max(1, int(len(text) / 3.5))
 
             # Check if adding this chunk would exceed token OR document limit
             if (current_tokens + text_tokens > safe_limit and current_batch) or len(

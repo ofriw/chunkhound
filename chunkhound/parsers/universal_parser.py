@@ -31,6 +31,7 @@ from chunkhound.core.types.common import (
     Language,
     LineNumber,
 )
+from chunkhound.core.utils import estimate_tokens
 from chunkhound.interfaces.language_parser import ParseResult
 from chunkhound.utils.normalization import normalize_content
 
@@ -55,7 +56,6 @@ class CASTConfig:
     )
     preserve_structure: bool = True  # Prioritize syntactic boundaries
     greedy_merge: bool = True  # Greedily merge adjacent sibling nodes
-    chars_to_tokens_ratio: float = 1.75  # Conservative estimate for code
     safe_token_limit: int = 6000  # Conservative token limit (well under 8191 API limit)
 
 
@@ -76,9 +76,14 @@ class ChunkMetrics:
         lines = len(content.split("\n"))
         return cls(non_ws, total, lines, ast_depth)
 
-    def estimated_tokens(self, ratio: float = 1.75) -> int:
-        """Estimate token count using simple ratio."""
-        return int(self.non_whitespace_chars * ratio)
+    def estimated_tokens(self, ratio: float = 3.5) -> int:
+        """Estimate token count using character-based ratio.
+
+        Args:
+            ratio: Chars-to-tokens ratio (conservative default 3.5)
+        """
+        # Fallback to conservative ratio-based estimation
+        return int(self.non_whitespace_chars / ratio)
 
 
 class UniversalParser:
@@ -124,6 +129,11 @@ class UniversalParser:
         # Statistics
         self._total_files_parsed = 0
         self._total_chunks_created = 0
+
+    def _estimate_tokens(self, content: str) -> int:
+        """Helper method to estimate tokens using centralized utility."""
+        from chunkhound.core.utils import estimate_tokens
+        return estimate_tokens(content)
 
     @property
     def language_name(self) -> str:
@@ -399,9 +409,7 @@ class UniversalParser:
     ) -> list[UniversalChunk]:
         """Validate chunk size and split if necessary."""
         metrics = ChunkMetrics.from_content(chunk.content)
-        estimated_tokens = metrics.estimated_tokens(
-            self.cast_config.chars_to_tokens_ratio
-        )
+        estimated_tokens = self._estimate_tokens(chunk.content)
 
         if (
             metrics.non_whitespace_chars <= self.cast_config.max_chunk_size
@@ -466,34 +474,74 @@ class UniversalParser:
         """Apply generic cAST chunking to other chunk types."""
         return self._chunk_blocks(chunks, content)  # Use block strategy as default
 
+    def _analyze_lines(self, lines: list[str]) -> tuple[bool, bool]:
+        """Analyze line length statistics to choose optimal splitting strategy.
+
+        Returns:
+            (has_very_long_lines, is_regular_code)
+        """
+        if not lines:
+            return False, False
+
+        lengths = [len(line) for line in lines]
+        max_length = max(lengths)
+        avg_length = sum(lengths) / len(lengths)
+
+        # Consider a line "very long" if it exceeds 20% of max chunk size
+        long_line_threshold = self.cast_config.max_chunk_size * 0.2
+        has_very_long_lines = max_length > long_line_threshold
+
+        # Regular code: many lines (>10), reasonable max length (<200), avg length (<100)
+        is_regular_code = (
+            len(lines) > 10 and
+            max_length < 200 and
+            avg_length < 100.0
+        )
+
+        return has_very_long_lines, is_regular_code
+
     def _recursive_split_chunk(
         self, chunk: UniversalChunk, content: str
     ) -> list[UniversalChunk]:
-        """Recursively split a chunk that exceeds the size limit.
+        """Smart content-aware splitting that chooses the optimal strategy.
 
-        This implements the "split" part of the split-then-merge algorithm.
+        This implements the "split" part of the split-then-merge algorithm with
+        content analysis to choose between line-based and character-based splitting.
         """
-        # For now, implement simple line-based splitting
-        # In a full implementation, this would use AST structure for smarter splitting
-
-        # Check if emergency splitting needed first (before line-based logic)
+        # First: Check if we even need to split
         metrics = ChunkMetrics.from_content(chunk.content)
-        estimated_tokens = metrics.estimated_tokens(
-            self.cast_config.chars_to_tokens_ratio
-        )
+        estimated_tokens = self._estimate_tokens(chunk.content)
 
-        # Emergency split if exceeding limits regardless of line count
         if (
-            metrics.non_whitespace_chars > self.cast_config.max_chunk_size
-            or estimated_tokens > self.cast_config.safe_token_limit
+            metrics.non_whitespace_chars <= self.cast_config.max_chunk_size
+            and estimated_tokens <= self.cast_config.safe_token_limit
         ):
-            lines = chunk.content.split("\n")
-            if len(lines) <= 2:  # Single/few line case
-                return self._emergency_split_code(chunk, content)
+            return [chunk]  # No splitting needed
 
+        # Second: Analyze the content structure
         lines = chunk.content.split("\n")
+        has_very_long_lines, is_regular_code = self._analyze_lines(lines)
+
+        # Third: Choose splitting strategy based on content analysis
+        if len(lines) <= 2 or has_very_long_lines:
+            # Case 1: Single/few lines OR any line is very long
+            # Use character-based emergency splitting
+            return self._emergency_split_code(chunk, content)
+
+        elif is_regular_code:
+            # Case 2: Many short lines (normal code)
+            # Use simple line-based splitting
+            return self._split_by_lines_simple(chunk, lines)
+
+        else:
+            # Case 3: Mixed content - try line-based with emergency fallback
+            return self._split_by_lines_with_fallback(chunk, lines, content)
+
+    def _split_by_lines_simple(
+        self, chunk: UniversalChunk, lines: list[str]
+    ) -> list[UniversalChunk]:
+        """Split chunk by lines for regular code with short lines."""
         if len(lines) <= 2:
-            # Small chunk that fits constraints
             return [chunk]
 
         mid_point = len(lines) // 2
@@ -502,14 +550,21 @@ class UniversalParser:
         chunk1_content = "\n".join(lines[:mid_point])
         chunk2_content = "\n".join(lines[mid_point:])
 
+        # Simple line distribution based on content split
         chunk1_lines = len(lines[:mid_point])
+        chunk1_end_line = chunk.start_line + chunk1_lines - 1
+        chunk2_start_line = chunk1_end_line + 1
+
+        # Ensure valid bounds
+        chunk1_end_line = max(chunk.start_line, min(chunk1_end_line, chunk.end_line))
+        chunk2_start_line = max(chunk.start_line, min(chunk2_start_line, chunk.end_line))
 
         chunk1 = UniversalChunk(
             concept=chunk.concept,
             name=f"{chunk.name}_part1",
             content=chunk1_content,
             start_line=chunk.start_line,
-            end_line=chunk.start_line + chunk1_lines - 1,
+            end_line=chunk1_end_line,
             metadata=chunk.metadata.copy(),
             language_node_type=chunk.language_node_type,
         )
@@ -518,7 +573,7 @@ class UniversalParser:
             concept=chunk.concept,
             name=f"{chunk.name}_part2",
             content=chunk2_content,
-            start_line=chunk.start_line + chunk1_lines,
+            start_line=chunk2_start_line,
             end_line=chunk.end_line,
             metadata=chunk.metadata.copy(),
             language_node_type=chunk.language_node_type,
@@ -527,49 +582,58 @@ class UniversalParser:
         # Recursively check if sub-chunks still need splitting
         result = []
         for sub_chunk in [chunk1, chunk2]:
-            metrics = ChunkMetrics.from_content(sub_chunk.content)
-            estimated_tokens = metrics.estimated_tokens(
-                self.cast_config.chars_to_tokens_ratio
-            )
+            sub_metrics = ChunkMetrics.from_content(sub_chunk.content)
+            sub_tokens = self._estimate_tokens(sub_chunk.content)
 
-            # Check BOTH character and token limits (consistent with _chunk_definitions)
             if (
-                metrics.non_whitespace_chars > self.cast_config.max_chunk_size
-                or estimated_tokens > self.cast_config.safe_token_limit
+                sub_metrics.non_whitespace_chars > self.cast_config.max_chunk_size
+                or sub_tokens > self.cast_config.safe_token_limit
             ):
-                result.extend(self._recursive_split_chunk(sub_chunk, content))
+                result.extend(self._recursive_split_chunk(sub_chunk, sub_chunk.content))
             else:
                 result.append(sub_chunk)
 
-        # Final validation: ensure no chunk exceeds limits
-        validated_result = []
-        for chunk in result:
-            final_metrics = ChunkMetrics.from_content(chunk.content)
-            final_tokens = final_metrics.estimated_tokens(
-                self.cast_config.chars_to_tokens_ratio
-            )
+        return result
 
-            # If still over limit, force emergency split
+    def _split_by_lines_with_fallback(
+        self, chunk: UniversalChunk, lines: list[str], content: str
+    ) -> list[UniversalChunk]:
+        """Split by lines but fall back to emergency split if needed."""
+        # Try line-based splitting first
+        line_split_result = self._split_by_lines_simple(chunk, lines)
+
+        # Check if any chunks still exceed limits
+        validated_result = []
+        for sub_chunk in line_split_result:
+            sub_metrics = ChunkMetrics.from_content(sub_chunk.content)
+            sub_tokens = self._estimate_tokens(sub_chunk.content)
+
+            # If still over limit, use emergency split
             if (
-                final_metrics.non_whitespace_chars > self.cast_config.max_chunk_size
-                or final_tokens > self.cast_config.safe_token_limit
+                sub_metrics.non_whitespace_chars > self.cast_config.max_chunk_size
+                or sub_tokens > self.cast_config.safe_token_limit
             ):
-                validated_result.extend(self._emergency_split_code(chunk, content))
+                validated_result.extend(self._emergency_split_code(sub_chunk, sub_chunk.content))
             else:
-                validated_result.append(chunk)
+                validated_result.append(sub_chunk)
 
         return validated_result
+
 
     def _emergency_split_code(
         self, chunk: UniversalChunk, content: str
     ) -> list[UniversalChunk]:
         """Smart code splitting for minified/large single-line files."""
         # Use the stricter limit: character limit or token-based limit
-        max_chars_from_tokens = int(
-            self.cast_config.safe_token_limit
-            / self.cast_config.chars_to_tokens_ratio
-            * 0.8
-        )
+        # Calculate max chars based on token limit using provider-specific estimation
+        estimated_tokens = self._estimate_tokens(chunk.content)
+        if estimated_tokens > 0:
+            # Calculate actual chars-to-token ratio for this content
+            actual_ratio = len(chunk.content) / estimated_tokens
+            max_chars_from_tokens = int(self.cast_config.safe_token_limit * actual_ratio * 0.8)
+        else:
+            # Fallback to conservative estimation
+            max_chars_from_tokens = int(self.cast_config.safe_token_limit * 3.5 * 0.8)
         max_chars = min(self.cast_config.max_chunk_size, max_chars_from_tokens)
 
         metrics = ChunkMetrics.from_content(chunk.content)
@@ -650,61 +714,30 @@ class UniversalParser:
         content_start_pos: int = 0,
         total_content_length: int = 0,
     ) -> UniversalChunk:
-        """Create a split chunk from emergency splitting with proper line number calculation."""
+        """Create a split chunk from emergency splitting with simple proportional line calculation."""
 
-        # Calculate line numbers based on content position within the original chunk
-        total_lines = original.end_line - original.start_line + 1
+        # Simple proportional line calculation based on content position
+        original_line_span = original.end_line - original.start_line + 1
 
         if total_content_length > 0 and content_start_pos >= 0:
-            # PROPORTIONAL LINE CALCULATION APPROACH:
-            # When emergency splitting occurs, we need to estimate line numbers for each chunk part.
-            # Since we only have character positions, we use proportional estimation based on
-            # the assumption that characters are roughly evenly distributed across lines.
-            # This is an approximation - actual line counting would be more accurate but requires
-            # scanning the content for newlines, which could impact performance for large chunks.
+            # Calculate proportional position and length
+            position_ratio = content_start_pos / total_content_length
+            content_ratio = len(content) / total_content_length
 
-            # Calculate proportional line numbers based on character position
-            content_ratio = content_start_pos / total_content_length
-            content_length_ratio = len(content) / total_content_length
+            # Distribute lines proportionally
+            line_offset = int(position_ratio * original_line_span)
+            line_span = max(1, int(content_ratio * original_line_span))
 
-            # Calculate start line based on position ratio
-            # Example: if we're 50% through the content, start at 50% through the line range
-            line_offset = int(content_ratio * total_lines)
             start_line = original.start_line + line_offset
+            end_line = min(original.end_line, start_line + line_span - 1)
 
-            # Calculate end line based on content length ratio
-            # Example: if this chunk is 25% of total content, allocate 25% of total lines
-            lines_for_content = max(1, int(content_length_ratio * total_lines))
-            end_line = min(original.end_line, start_line + lines_for_content - 1)
-
-            # Ensure valid line range (defensive programming)
-            if start_line > end_line:
-                end_line = start_line
-
+            # Ensure valid bounds
+            start_line = min(start_line, original.end_line)
+            end_line = max(end_line, start_line)
         else:
-            # Fallback: use original line numbers (maintains backward compatibility)
-            # This path is taken when position tracking isn't available
+            # Fallback to original bounds
             start_line = original.start_line
             end_line = original.end_line
-
-        # Validate line range before creating chunk
-        if start_line > end_line:
-            logger.warning(
-                f"Invalid line range calculated for split chunk {part_num}: "
-                f"start_line={start_line} > end_line={end_line}. "
-                f"Original range: {original.start_line}-{original.end_line}. "
-                f"Correcting to single line at {start_line}"
-            )
-            end_line = start_line
-
-        # Debug logging for line calculations
-        # Useful for debugging line number estimation accuracy in emergency splitting scenarios
-        if total_content_length > 0:
-            logger.debug(
-                f"Split chunk {part_num}: lines {start_line}-{end_line} "
-                f"(pos {content_start_pos}/{total_content_length}, "
-                f"content_len={len(content)})"
-            )
 
         return UniversalChunk(
             concept=original.concept,
@@ -738,9 +771,7 @@ class UniversalParser:
         metrics = ChunkMetrics.from_content(total_content)
 
         # Check BOTH character and token constraints
-        estimated_tokens = metrics.estimated_tokens(
-            self.cast_config.chars_to_tokens_ratio
-        )
+        estimated_tokens = self._estimate_tokens(total_content)
         safe_token_limit = 6000
 
         if (
@@ -792,9 +823,7 @@ class UniversalParser:
                 combined_content += "\n" + chunk.content
 
         metrics = ChunkMetrics.from_content(combined_content)
-        estimated_tokens = metrics.estimated_tokens(
-            self.cast_config.chars_to_tokens_ratio
-        )
+        estimated_tokens = self._estimate_tokens(combined_content)
 
         # If combined chunk is too large, return original chunks
         if (
@@ -853,9 +882,7 @@ class UniversalParser:
                 combined_content = current_chunk.content  # Skip duplicate content
 
             metrics = ChunkMetrics.from_content(combined_content)
-            estimated_tokens = metrics.estimated_tokens(
-                self.cast_config.chars_to_tokens_ratio
-            )
+            estimated_tokens = self._estimate_tokens(combined_content)
 
             # Simple merge condition: fits in size limit and close proximity
             can_merge = (

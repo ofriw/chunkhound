@@ -410,7 +410,9 @@ class ParserFactory:
         self._parser_cache: dict[Language, UniversalParser] = {}
 
     def create_parser(
-        self, language: Language, cast_config: CASTConfig | None = None
+        self,
+        language: Language,
+        cast_config: CASTConfig | None = None,
     ) -> UniversalParser:
         """Create a universal parser for the specified language.
 
@@ -464,7 +466,11 @@ class ParserFactory:
             mapping = config.mapping_class()
 
             # Create parser
-            parser = UniversalParser(engine, mapping, cast_config)
+            parser = UniversalParser(
+                engine,
+                mapping,
+                cast_config,
+            )
 
             # Cache for future use
             self._parser_cache[cache_key] = parser

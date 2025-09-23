@@ -429,14 +429,12 @@ class IndexingCoordinator(BaseService):
                             f"{len(chunk_diff.deleted)} deleted"
                         )
                     else:
-                        # No existing chunks found - this could be due to race conditions or inconsistencies
-                        # CRITICAL FIX: Always clean up ALL chunks for this file_id to prevent stale data
+                        # No existing chunks found - proceed with fresh insertion
+                        # Transaction read shows no chunks, so trust the transactional view
                         logger.debug(
-                            f"No existing chunks found for file_id {file_id}, cleaning up any stale chunks"
+                            f"No existing chunks found for file_id {file_id}, proceeding with fresh insertion"
                         )
 
-                        # Force cleanup of any chunks that might exist for this file
-                        self._db.delete_file_chunks(file_id)
 
                         # Store all new chunks
                         chunks_dict = [chunk.to_dict() for chunk in new_chunk_models]

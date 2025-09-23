@@ -309,6 +309,10 @@ class ProviderRegistry:
         if hasattr(database_provider, "rollback_transaction"):
             database_provider.rollback_transaction()
 
+    def get_config(self) -> Config | None:
+        """Get the current configuration instance."""
+        return self._config
+
 
 # Global registry instance
 _registry: ProviderRegistry | None = None

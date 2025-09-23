@@ -1,4 +1,4 @@
-"""Core utility functions for ChunkHound."""
+"""Path utility functions for ChunkHound."""
 
 from pathlib import Path
 
