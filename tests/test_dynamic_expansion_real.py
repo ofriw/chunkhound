@@ -27,6 +27,15 @@ from chunkhound.parsers.parser_factory import create_parser_for_language
 
 from .provider_configs import get_reranking_providers
 
+# Cache providers at module level to avoid multiple calls during parametrize
+reranking_providers = get_reranking_providers()
+
+# Skip all tests if no providers available
+requires_provider = pytest.mark.skipif(
+    not reranking_providers,
+    reason="No embedding provider available"
+)
+
 
 @pytest.fixture
 async def indexed_codebase(request, tmp_path):
@@ -136,7 +145,8 @@ async def indexed_codebase(request, tmp_path):
     db.close()
 
 
-@pytest.mark.parametrize("indexed_codebase", get_reranking_providers(), indirect=True)
+@pytest.mark.parametrize("indexed_codebase", reranking_providers, indirect=True)
+@requires_provider
 @pytest.mark.asyncio
 async def test_hnsw_optimization_chain(indexed_codebase):
     """
@@ -220,7 +230,8 @@ async def test_hnsw_optimization_chain(indexed_codebase):
           f"{len(key_functions_found)} key functions, {relevant_results}/10 relevant results")
 
 
-@pytest.mark.parametrize("indexed_codebase", get_reranking_providers(), indirect=True)
+@pytest.mark.parametrize("indexed_codebase", reranking_providers, indirect=True)
+@requires_provider
 @pytest.mark.asyncio
 async def test_mcp_authentication_chain(indexed_codebase):
     """
@@ -365,7 +376,8 @@ async def test_mcp_authentication_chain(indexed_codebase):
     print(f"Key files discovered: {sorted(found_expected)}")
 
 
-@pytest.mark.parametrize("indexed_codebase", get_reranking_providers(), indirect=True)
+@pytest.mark.parametrize("indexed_codebase", reranking_providers, indirect=True)
+@requires_provider
 @pytest.mark.asyncio
 async def test_expansion_termination_conditions(indexed_codebase):
     """
@@ -516,7 +528,8 @@ async def test_expansion_termination_conditions(indexed_codebase):
               f"{result['rounds']} rounds, {result['results']} results")
 
 
-@pytest.mark.parametrize("indexed_codebase", get_reranking_providers(), indirect=True)
+@pytest.mark.parametrize("indexed_codebase", reranking_providers, indirect=True)
+@requires_provider
 @pytest.mark.asyncio
 async def test_score_derivative_termination(indexed_codebase):
     """
@@ -663,7 +676,8 @@ async def test_score_derivative_termination(indexed_codebase):
               f"termination={analysis['termination_detected']}")
 
 
-@pytest.mark.parametrize("indexed_codebase", get_reranking_providers(), indirect=True)
+@pytest.mark.parametrize("indexed_codebase", reranking_providers, indirect=True)
+@requires_provider
 @pytest.mark.asyncio
 async def test_complete_multi_hop_semantic_chains(indexed_codebase):
     """

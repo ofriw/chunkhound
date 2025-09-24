@@ -117,7 +117,7 @@ def get_reranking_providers() -> list[tuple[str, type, dict[str, Any]]]:
                     OpenAIEmbeddingProvider,
                     openai_config
                 ))
-    except (FileNotFoundError, ImportError):
+    except (FileNotFoundError, ImportError, SystemExit):
         # Fall back to legacy approach if config file missing or imports fail
         pass
 

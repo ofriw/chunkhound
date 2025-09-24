@@ -28,6 +28,15 @@ from chunkhound.parsers.parser_factory import create_parser_for_language
 from .test_utils import get_api_key_for_tests
 from .provider_configs import get_reranking_providers
 
+# Cache providers at module level to avoid multiple calls during parametrize
+reranking_providers = get_reranking_providers()
+
+# Skip all tests if no providers available
+requires_provider = pytest.mark.skipif(
+    not reranking_providers,
+    reason="No embedding provider available"
+)
+
 
 @pytest.fixture
 async def content_aware_test_data(request, tmp_path):
@@ -173,7 +182,8 @@ async def test_search_strategy_selection_verification(simple_test_database):
             )
 
 
-@pytest.mark.parametrize("content_aware_test_data", get_reranking_providers(), indirect=True)
+@pytest.mark.parametrize("content_aware_test_data", reranking_providers, indirect=True)
+@requires_provider
 @pytest.mark.asyncio
 async def test_multi_hop_quality_over_quantity(content_aware_test_data):
     """Test that multi-hop provides higher quality results than standard search."""
@@ -229,8 +239,9 @@ async def test_multi_hop_quality_over_quantity(content_aware_test_data):
             f"Multi-hop should be reasonably competitive: {two_hop_precision:.2f} vs {standard_precision:.2f}"
 
 
-@pytest.mark.parametrize("content_aware_test_data", get_reranking_providers(), indirect=True)
-@pytest.mark.asyncio 
+@pytest.mark.parametrize("content_aware_test_data", reranking_providers, indirect=True)
+@requires_provider
+@pytest.mark.asyncio
 async def test_vocabulary_bridging(content_aware_test_data):
     """Test that multi-hop bridges vocabulary differences through semantic expansion."""
     db, content_analysis, provider_info = content_aware_test_data
@@ -284,7 +295,8 @@ async def test_vocabulary_bridging(content_aware_test_data):
         assert unique_files >= 2, f"Should span multiple files/domains, found: {unique_files}"
 
 
-@pytest.mark.parametrize("content_aware_test_data", get_reranking_providers(), indirect=True)
+@pytest.mark.parametrize("content_aware_test_data", reranking_providers, indirect=True)
+@requires_provider
 @pytest.mark.asyncio
 async def test_reranking_improves_relevance(content_aware_test_data):
     """Test that reranking mechanics work and improve result ordering."""
@@ -352,7 +364,8 @@ async def test_reranking_improves_relevance(content_aware_test_data):
     assert relevant_count > 0, f"At least one result should relate to query terms: {query_terms}"
 
 
-@pytest.mark.parametrize("content_aware_test_data", get_reranking_providers(), indirect=True)
+@pytest.mark.parametrize("content_aware_test_data", reranking_providers, indirect=True)
+@requires_provider
 @pytest.mark.asyncio
 async def test_semantic_distance_traversal(content_aware_test_data):
     """Test that multi-hop traverses multiple semantic distances and domains."""
