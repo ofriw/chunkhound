@@ -3,16 +3,50 @@
 # Or use: uv sync (recommended)
 
 # Core dependencies
-duckdb>=0.8.0
-lancedb>=0.3.0
+duckdb>=1.4.0
+lancedb>=0.25.0
 openai>=1.0.0
-tiktoken>=0.5.0
-tree-sitter>=0.20.0
-tree-sitter-python>=0.20.0
+tiktoken>=0.11.0
+tree-sitter>=0.23.0
+tree-sitter-python>=0.25.0
 
-pydantic>=2.0.0
-click>=8.0.0
-loguru>=0.6.0
+# Configuration and utilities
+pydantic>=2.11.0
+pydantic-settings>=2.10.0
+loguru>=0.7.0
+rich>=14.0.0
 
 # MCP (Model Context Protocol) support
-fastmcp>=1.0.0
+mcp>=1.14.0
+fastmcp>=2.12.0
+
+# HTTP and async support
+httpx>=0.28.0
+aiohttp>=3.12.0
+
+# Additional providers
+voyageai>=0.3.5
+
+# File processing and utilities
+pandas>=2.3.0
+psutil>=7.1.0
+watchdog>=6.0.0
+readchar>=4.2.0
+pymupdf>=1.26.0
+
+# Tree-sitter language support
+tree-sitter-bash>=0.23.0
+tree-sitter-c>=0.21.0
+tree-sitter-cpp>=0.23.0
+tree-sitter-go>=0.25.0
+tree-sitter-groovy>=0.1.0
+tree-sitter-java>=0.23.0
+tree-sitter-javascript>=0.25.0
+tree-sitter-json>=0.24.0
+tree-sitter-kotlin>=1.1.0
+tree-sitter-language-pack>=0.9.0
+tree-sitter-make>=1.1.0
+tree-sitter-markdown>=0.5.0
+tree-sitter-rust>=0.21.0
+tree-sitter-toml>=0.7.0
+tree-sitter-typescript>=0.23.0
