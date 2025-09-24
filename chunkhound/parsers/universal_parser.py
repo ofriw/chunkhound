@@ -487,11 +487,14 @@ class UniversalParser:
         max_length = max(lengths)
         avg_length = sum(lengths) / len(lengths)
 
-        # Consider a line "very long" if it exceeds 20% of max chunk size
+        # 20% of chunk size threshold for detecting minified/concatenated code
         long_line_threshold = self.cast_config.max_chunk_size * 0.2
         has_very_long_lines = max_length > long_line_threshold
 
-        # Regular code: many lines (>10), reasonable max length (<200), avg length (<100)
+        # Regular code heuristics:
+        # - >10 lines: meaningful code block, not snippet
+        # - <200 chars: typical editor width
+        # - <100 avg: normal code density
         is_regular_code = (
             len(lines) > 10 and
             max_length < 200 and
