@@ -14,6 +14,7 @@ from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from chunkhound.core.constants import VOYAGE_DEFAULT_MODEL
+
 from .openai_utils import is_official_openai_endpoint
 
 

@@ -21,7 +21,6 @@ from chunkhound.core.types.common import ChunkId
 from chunkhound.core.utils import estimate_tokens
 from chunkhound.interfaces.database_provider import DatabaseProvider
 from chunkhound.interfaces.embedding_provider import EmbeddingProvider
-from chunkhound.utils.normalization import normalize_content
 
 from .base_service import BaseService
 
@@ -496,9 +495,9 @@ class EmbeddingService(BaseService):
                     # Check if this is a token limit error that can be retried
                     error_message = str(e).lower()
                     is_token_limit_error = (
-                        "max allowed tokens" in error_message or
-                        "token limit" in error_message or
-                        "tokens per batch" in error_message
+                        "max allowed tokens" in error_message
+                        or "token limit" in error_message
+                        or "tokens per batch" in error_message
                     )
 
                     if is_token_limit_error and len(batch) > 1 and retry_depth < 3:
@@ -512,8 +511,12 @@ class EmbeddingService(BaseService):
                         batch2 = batch[mid:]
 
                         # Recursively process both halves
-                        result1 = await process_batch(batch1, batch_num, retry_depth + 1)
-                        result2 = await process_batch(batch2, batch_num, retry_depth + 1)
+                        result1 = await process_batch(
+                            batch1, batch_num, retry_depth + 1
+                        )
+                        result2 = await process_batch(
+                            batch2, batch_num, retry_depth + 1
+                        )
                         return result1 + result2
 
                     # Log batch details for non-retryable errors or max retries exceeded
@@ -689,9 +692,7 @@ class EmbeddingService(BaseService):
             # Use accurate provider-specific token estimation
             if self._embedding_provider:
                 text_tokens = estimate_tokens(
-                    text,
-                    self._embedding_provider.name,
-                    self._embedding_provider.model
+                    text, self._embedding_provider.name, self._embedding_provider.model
                 )
             else:
                 # Fallback for no provider (conservative default)

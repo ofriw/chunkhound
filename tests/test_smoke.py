@@ -473,26 +473,72 @@ class TestParserLoading:
     """Test that all parsers can be loaded and created."""
 
     def test_all_parsers_load(self):
-        """Test that all supported language parsers can be created."""
-        from chunkhound.core.types.common import Language
+        """Test that all supported language parsers can be created and initialized."""
+        from chunkhound.core.types.common import FileId, Language
         from chunkhound.parsers.parser_factory import get_parser_factory
-        
+        from chunkhound.parsers.universal_engine import SetupError
+
+        # Minimal valid code samples for smoke testing
+        language_samples = {
+            Language.PYTHON: "def hello(): pass",
+            Language.JAVA: "class Test { }",
+            Language.CSHARP: "class Test { }",
+            Language.TYPESCRIPT: "const x = 1;",
+            Language.JAVASCRIPT: "const x = 1;",
+            Language.TSX: "const x = <div>hello</div>;",
+            Language.JSX: "const x = <div>hello</div>;",
+            Language.GROOVY: "def hello() { }",
+            Language.KOTLIN: "fun hello() { }",
+            Language.GO: "package main\nfunc main() { }",
+            Language.RUST: "fn main() { }",
+            Language.BASH: "echo hello",
+            Language.MAKEFILE: "all:\n\techo hello",
+            Language.C: "int main() { return 0; }",
+            Language.CPP: "int main() { return 0; }",
+            Language.MATLAB: "function result = hello()\nresult = 1;\nend",
+            Language.MARKDOWN: "# Hello\nWorld",
+            Language.JSON: '{"hello": "world"}',
+            Language.YAML: "hello: world",
+            Language.TOML: "hello = 'world'",
+            Language.TEXT: "hello world",
+            Language.PDF: "hello world",
+        }
+
         factory = get_parser_factory()
         failed_parsers = []
-        
+        setup_errors = []
+
         # Test all languages except UNKNOWN (not a real parser)
         for language in Language:
             if language == Language.UNKNOWN:
                 continue
-                
+
             try:
                 parser = factory.create_parser(language)
                 assert parser is not None, f"Parser for {language.value} was None"
+
+                # Actually test parsing to trigger tree-sitter Language initialization
+                sample_code = language_samples.get(language, "")
+                if sample_code:
+                    chunks = parser.parse_content(sample_code, f"test.{language.value}", FileId(1))
+                    assert isinstance(chunks, list), f"Parser for {language.value} didn't return a list"
+
+            except SetupError as e:
+                # SetupError indicates critical issues like version incompatibility
+                setup_errors.append((language.value, str(e)))
             except Exception as e:
                 failed_parsers.append((language.value, str(e)))
-        
+
+        # SetupErrors should cause immediate test failure (critical issues)
+        if setup_errors:
+            error_msg = "CRITICAL: Parser setup failures (version incompatibility or missing dependencies):\n"
+            for language, error in setup_errors:
+                error_msg += f"  - {language}: {error}\n"
+            pytest.fail(error_msg)
+
+        # Other failures are also important but less critical
         if failed_parsers:
-            error_msg = "Failed to create parsers (install missing dependencies):\n"
+            error_msg = "Failed to initialize parsers:\n"
             for language, error in failed_parsers:
                 error_msg += f"  - {language}: {error}\n"
             pytest.fail(error_msg)

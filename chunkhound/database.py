@@ -45,7 +45,6 @@ from chunkhound.registry import (
     get_registry,
 )
 
-
 # Legacy imports for backward compatibility
 from .embeddings import EmbeddingManager
 from .file_discovery_cache import FileDiscoveryCache
@@ -164,7 +163,6 @@ class Database:
 
         # Expose connection for legacy compatibility
         self.connection = self._provider.connection
-
 
         logger.info("✅ Database connected via service layer")
 

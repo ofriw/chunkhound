@@ -19,7 +19,6 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
-from loguru import logger
 from tree_sitter import Tree
 
 from chunkhound.core.models.chunk import Chunk
@@ -132,7 +131,6 @@ class UniversalParser:
 
     def _estimate_tokens(self, content: str) -> int:
         """Helper method to estimate tokens using centralized utility."""
-        from chunkhound.core.utils import estimate_tokens
         return estimate_tokens(content)
 
     @property
@@ -495,11 +493,7 @@ class UniversalParser:
         # - >10 lines: meaningful code block, not snippet
         # - <200 chars: typical editor width
         # - <100 avg: normal code density
-        is_regular_code = (
-            len(lines) > 10 and
-            max_length < 200 and
-            avg_length < 100.0
-        )
+        is_regular_code = len(lines) > 10 and max_length < 200 and avg_length < 100.0
 
         return has_very_long_lines, is_regular_code
 
@@ -560,7 +554,9 @@ class UniversalParser:
 
         # Ensure valid bounds
         chunk1_end_line = max(chunk.start_line, min(chunk1_end_line, chunk.end_line))
-        chunk2_start_line = max(chunk.start_line, min(chunk2_start_line, chunk.end_line))
+        chunk2_start_line = max(
+            chunk.start_line, min(chunk2_start_line, chunk.end_line)
+        )
 
         chunk1 = UniversalChunk(
             concept=chunk.concept,
@@ -616,12 +612,13 @@ class UniversalParser:
                 sub_metrics.non_whitespace_chars > self.cast_config.max_chunk_size
                 or sub_tokens > self.cast_config.safe_token_limit
             ):
-                validated_result.extend(self._emergency_split_code(sub_chunk, sub_chunk.content))
+                validated_result.extend(
+                    self._emergency_split_code(sub_chunk, sub_chunk.content)
+                )
             else:
                 validated_result.append(sub_chunk)
 
         return validated_result
-
 
     def _emergency_split_code(
         self, chunk: UniversalChunk, content: str
@@ -633,7 +630,9 @@ class UniversalParser:
         if estimated_tokens > 0:
             # Calculate actual chars-to-token ratio for this content
             actual_ratio = len(chunk.content) / estimated_tokens
-            max_chars_from_tokens = int(self.cast_config.safe_token_limit * actual_ratio * 0.8)
+            max_chars_from_tokens = int(
+                self.cast_config.safe_token_limit * actual_ratio * 0.8
+            )
         else:
             # Fallback to conservative estimation
             max_chars_from_tokens = int(self.cast_config.safe_token_limit * 3.5 * 0.8)

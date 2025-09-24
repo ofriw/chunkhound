@@ -9,7 +9,7 @@ Simplified from 540 lines to ~250 lines by:
 
 import os
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from loguru import logger
 
@@ -180,8 +180,9 @@ class ProviderRegistry:
         """Create and register the database provider based on configuration."""
         if not self._config:
             # Default to DuckDB if no config
-            from chunkhound.providers.database.duckdb_provider import DuckDBProvider
             from pathlib import Path
+
+            from chunkhound.providers.database.duckdb_provider import DuckDBProvider
 
             provider = DuckDBProvider(
                 db_path=".chunkhound/db", base_directory=Path.cwd()

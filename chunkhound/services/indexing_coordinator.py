@@ -435,7 +435,6 @@ class IndexingCoordinator(BaseService):
                             f"No existing chunks found for file_id {file_id}, proceeding with fresh insertion"
                         )
 
-
                         # Store all new chunks
                         chunks_dict = [chunk.to_dict() for chunk in new_chunk_models]
                         chunk_ids = self._store_chunks(file_id, chunks_dict, language)

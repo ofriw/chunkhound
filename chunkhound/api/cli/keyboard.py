@@ -3,10 +3,11 @@
 This module provides reliable keyboard input handling across platforms,
 with proper support for bracketed paste mode filtering and arrow keys.
 
-Now uses our custom terminal module instead of readchar to fix cross-platform compatibility issues.
+Now uses our custom terminal module instead of readchar to fix
+cross-platform compatibility issues.
 """
 
-from .terminal import TerminalInput, TerminalInputTimeout, TerminalError, Keys
+from .terminal import Keys, TerminalError, TerminalInput, TerminalInputTimeout
 
 
 class KeyboardInput:

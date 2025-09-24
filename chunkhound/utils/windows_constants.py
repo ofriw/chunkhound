@@ -5,7 +5,6 @@ environment variables to ensure consistent behavior across the codebase.
 """
 
 import platform
-from typing import Dict
 
 # Platform detection (cached for performance)
 IS_WINDOWS = platform.system() == "Windows"
@@ -16,7 +15,7 @@ WINDOWS_DB_CLEANUP_DELAY = 0.2  # 200ms - Database cleanup delay
 WINDOWS_RETRY_DELAY = 0.5  # 500ms - Retry operations delay
 
 # Windows UTF-8 environment variables for subprocess operations
-WINDOWS_UTF8_ENV: Dict[str, str] = {
+WINDOWS_UTF8_ENV: dict[str, str] = {
     "PYTHONIOENCODING": "utf-8",
     "PYTHONLEGACYWINDOWSSTDIO": "1",
     "PYTHONUTF8": "1",
@@ -32,7 +31,7 @@ def is_windows() -> bool:
     return IS_WINDOWS
 
 
-def get_utf8_env(base_env: Dict[str, str] | None = None) -> Dict[str, str]:
+def get_utf8_env(base_env: dict[str, str] | None = None) -> dict[str, str]:
     """Get environment variables with Windows UTF-8 settings.
 
     Args:

@@ -7,6 +7,7 @@ Tests that all parsers can parse minimal valid code samples.
 import pytest
 from chunkhound.core.types.common import FileId, Language
 from chunkhound.parsers.parser_factory import get_parser_factory
+from chunkhound.parsers.universal_engine import SetupError
 
 # Minimal valid code snippets for each language
 LANGUAGE_SAMPLES = {
@@ -170,8 +171,51 @@ class TestParserValidation:
             chunks = parser.parse_content(sample_code, "test_file", FileId(1))
             assert isinstance(chunks, list), f"Parser for {language.value} didn't return a list"
             # Don't require chunks - some parsers might return empty for minimal code
+        except SetupError as e:
+            # SetupError indicates critical parser initialization failure (e.g., version incompatibility)
+            # This should cause immediate test failure
+            pytest.fail(f"CRITICAL: Parser setup failed for {language.value}: {e}")
         except Exception as e:
             pytest.fail(f"Parser for {language.value} failed to parse minimal code: {e}")
+
+    @pytest.mark.parametrize("language", [lang for lang in Language if lang != Language.UNKNOWN])
+    def test_parser_initializes_tree_sitter_language(self, language):
+        """Test that parsers can initialize tree-sitter Language objects without version conflicts.
+
+        This test specifically targets the tree-sitter language initialization where version
+        compatibility is checked. This was the missing piece that allowed incompatible
+        versions to pass CI tests.
+        """
+        factory = get_parser_factory()
+
+        # Create parser - this should work even with version issues
+        try:
+            parser = factory.create_parser(language)
+            assert parser is not None, f"Failed to create parser for {language.value}"
+        except SetupError as e:
+            # SetupError during parser creation indicates missing or incompatible dependencies
+            pytest.fail(f"CRITICAL: Cannot create parser for {language.value}: {e}")
+
+        # For text and PDF parsers, skip tree-sitter language initialization
+        if language in (Language.TEXT, Language.PDF):
+            return
+
+        # Force tree-sitter Language object creation by accessing the engine's language
+        # This is where version compatibility errors actually occur
+        try:
+            if hasattr(parser, 'engine') and parser.engine is not None:
+                # Access the _language property which contains the Language object
+                ts_language = parser.engine._language
+                assert ts_language is not None, f"Tree-sitter language is None for {language.value}"
+        except SetupError as e:
+            # This is the critical error we want to catch - version incompatibility
+            pytest.fail(f"CRITICAL: Tree-sitter version incompatibility for {language.value}: {e}")
+        except Exception as e:
+            # Check if this is a version incompatibility error
+            if "Incompatible Language version" in str(e):
+                pytest.fail(f"CRITICAL: Tree-sitter version incompatibility for {language.value}: {e}")
+            else:
+                pytest.fail(f"Unexpected error initializing tree-sitter language for {language.value}: {e}")
 
     @pytest.mark.parametrize("language,item_count", [
         (Language.TOML, 150),       # Original bug: large dependency arrays

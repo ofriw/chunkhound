@@ -1,12 +1,10 @@
 """Base provider with common terminal input logic."""
 
 import sys
-import time
 from abc import ABC, abstractmethod
-from typing import Iterator
 
 from ..core import TerminalConfig, TerminalInputProvider
-from ..exceptions import TerminalInputTimeout, TerminalSetupError
+from ..exceptions import TerminalSetupError
 from ..filters import SimpleEscapeFilter
 
 

@@ -2,9 +2,8 @@
 
 from .core import (
     ALL_ESCAPE_SEQUENCES,
-    BRACKETED_PASTE_START,
     BRACKETED_PASTE_END,
-    Keys,
+    BRACKETED_PASTE_START,
     TerminalConfig,
 )
 

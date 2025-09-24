@@ -6,13 +6,13 @@ with proper support for bracketed paste mode filtering and arrow keys.
 Designed to be standalone and extractable as a separate library.
 """
 
-from .core import TerminalConfig, Keys
+from .core import Keys, TerminalConfig
 from .exceptions import (
-    TerminalError,
-    TerminalSetupError,
-    TerminalInputTimeout,
-    TerminalUnsupportedPlatform,
     TerminalConfigurationError,
+    TerminalError,
+    TerminalInputTimeout,
+    TerminalSetupError,
+    TerminalUnsupportedPlatform,
 )
 from .providers.base import create_provider
 

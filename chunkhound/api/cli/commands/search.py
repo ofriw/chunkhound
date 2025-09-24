@@ -8,11 +8,11 @@ from typing import Any, cast
 from loguru import logger
 
 from chunkhound.core.config.config import Config
+from chunkhound.core.config.embedding_factory import EmbeddingProviderFactory
 from chunkhound.database_factory import create_services
+from chunkhound.embeddings import EmbeddingManager
 from chunkhound.mcp.tools import search_regex_impl, search_semantic_impl
 from chunkhound.registry import configure_registry
-from chunkhound.embeddings import EmbeddingManager
-from chunkhound.core.config.embedding_factory import EmbeddingProviderFactory
 
 from ..utils.rich_output import RichOutputFormatter
 
@@ -98,11 +98,13 @@ async def search_command(args: argparse.Namespace, config: Config) -> None:
         else:
             # For semantic search, we need to handle force_strategy
             if force_strategy:
-                # CLI-specific: When force_strategy is set, we need to call the service directly
+                # CLI-specific: When force_strategy is set, we need to call
+                # the service directly
                 # First validate using MCP's validation logic
                 if not embedding_manager or not embedding_manager.list_providers():
                     raise Exception(
-                        "No embedding providers available. Configure an embedding provider via:\n"
+                        "No embedding providers available. "
+                        "Configure an embedding provider via:\n"
                         "1. Create .chunkhound.json with embedding configuration, OR\n"
                         "2. Set CHUNKHOUND_EMBEDDING__API_KEY environment variable"
                     )
@@ -180,8 +182,10 @@ def _format_search_results(
 
     formatter.section_header(f"{search_type.title()} Search Results")
     formatter.info(f"Query: '{query}'")
+    start_idx = offset + 1
+    end_idx = offset + len(results)
     formatter.info(
-        f"Results: {len(results)} of {total} (showing {offset + 1}-{offset + len(results)})"
+        f"Results: {len(results)} of {total} (showing {start_idx}-{end_idx})"
     )
 
     # Display each result
@@ -189,7 +193,6 @@ def _format_search_results(
         file_path = result_item.get("file_path", "unknown")
         # Convert to native path format for display
         native_path = format_path_native(file_path)
-        chunk_id = result_item.get("chunk_id", "")
         content = result_item.get("content", "")
 
         # Display result header

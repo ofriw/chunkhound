@@ -161,7 +161,6 @@ class SerialDatabaseProvider(ABC):
         logger.debug("Initializing service layer components")
 
         try:
-
             # Lazy import from registry to avoid circular dependency
             import importlib
 

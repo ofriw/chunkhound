@@ -1,10 +1,9 @@
 """Windows terminal input provider."""
 
-import sys
 from typing import Any
 
+from ..exceptions import TerminalUnsupportedPlatform
 from .base import BaseTerminalProvider
-from ..exceptions import TerminalSetupError, TerminalUnsupportedPlatform
 
 
 class WindowsTerminalProvider(BaseTerminalProvider):

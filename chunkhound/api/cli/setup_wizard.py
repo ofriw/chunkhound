@@ -20,11 +20,11 @@ from chunkhound.api.cli.env_detector import (
 )
 from chunkhound.api.cli.utils.rich_output import RichOutputFormatter
 from chunkhound.core.config.config import Config
-from chunkhound.version import __version__
 from chunkhound.core.config.embedding_config import EmbeddingConfig
 from chunkhound.core.config.embedding_factory import EmbeddingProviderFactory
 from chunkhound.core.config.openai_utils import is_official_openai_endpoint
 from chunkhound.core.constants import VOYAGE_DEFAULT_MODEL
+from chunkhound.version import __version__
 
 logger = logging.getLogger(__name__)
 
@@ -318,8 +318,6 @@ async def rich_text(question: str, default: str = "", validate=None) -> str:
             if default and is_sensitive:
                 # For sensitive values, try readline pre-fill first
                 try:
-                    import readline
-
                     return _input_with_prefill(f"{question}: ", default)
                 except ImportError:
                     # readline not available (Windows), use clear messaging
@@ -755,8 +753,8 @@ async def run_setup_wizard(target_path: Path, args=None) -> Config | None:
 
 def _display_welcome(formatter: RichOutputFormatter, target_path: Path) -> None:
     """Display welcome message with setup information"""
-    from rich.table import Table
     from rich.panel import Panel
+    from rich.table import Table
 
     info_table = Table.grid(padding=(0, 2))
     info_table.add_column(style="cyan")

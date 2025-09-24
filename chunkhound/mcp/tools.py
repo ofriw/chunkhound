@@ -8,9 +8,7 @@ The registry pattern eliminates duplication and ensures consistent behavior
 across server types.
 """
 
-import asyncio
 import json
-import os
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, TypedDict, cast

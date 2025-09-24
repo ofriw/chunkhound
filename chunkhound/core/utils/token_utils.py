@@ -4,16 +4,20 @@ This module provides centralized token estimation to ensure consistency
 between parser chunking and embedding service batching.
 """
 
-from typing import Optional
-
 try:
     import tiktoken
+
     TIKTOKEN_AVAILABLE = True
 except ImportError:
     TIKTOKEN_AVAILABLE = False
 
 
-def estimate_tokens(text: str, provider: str | None = None, model: str | None = None, require_provider: bool = False) -> int:
+def estimate_tokens(
+    text: str,
+    provider: str | None = None,
+    model: str | None = None,
+    require_provider: bool = False,
+) -> int:
     """Estimate token count for text using provider-specific methods.
 
     Args:
@@ -31,6 +35,7 @@ def estimate_tokens(text: str, provider: str | None = None, model: str | None = 
     # If no provider passed, get from registry config
     if provider is None:
         from chunkhound.registry import get_registry
+
         registry = get_registry()
         config = registry.get_config()
         if config and config.embedding:

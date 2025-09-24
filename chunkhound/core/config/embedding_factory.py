@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 from loguru import logger
 
 from chunkhound.core.constants import VOYAGE_DEFAULT_MODEL, VOYAGE_DEFAULT_RERANK_MODEL
+
 from .embedding_config import EmbeddingConfig
 
 if TYPE_CHECKING:
@@ -169,9 +170,9 @@ class EmbeddingProviderFactory:
         # Try to import the required create function
         try:
             if provider == "openai":
-                from chunkhound.embeddings import create_openai_provider
+                from chunkhound.embeddings import create_openai_provider  # noqa: F401
             elif provider == "voyageai":
-                from chunkhound.providers.embeddings.voyageai_provider import (
+                from chunkhound.providers.embeddings.voyageai_provider import (  # noqa: F401
                     VoyageAIEmbeddingProvider,
                 )
 
