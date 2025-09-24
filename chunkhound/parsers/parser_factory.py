@@ -229,6 +229,37 @@ class LanguageConfig:
         self.available = available
         self.language_name = language_name
 
+    def _handle_language_result(self, result):
+        """Handle language module result, supporting both old and new APIs."""
+        from tree_sitter import Language
+
+        # If result is already a Language object, return as-is
+        if isinstance(result, Language):
+            return result
+        else:
+            # In tree-sitter 0.25.x, language modules should return Language objects directly
+            # If we get an integer (old API), try to handle it but warn about compatibility
+            if isinstance(result, int):
+                import warnings
+
+                warnings.warn(
+                    f"tree-sitter-{self.language_name.lower()} is using deprecated API (returned integer {result}). "
+                    f"Consider upgrading to a version compatible with tree-sitter 0.25+",
+                    DeprecationWarning,
+                    stacklevel=3,
+                )
+                # Try to create Language object from integer (deprecated but still supported in some versions)
+                try:
+                    return Language(result)
+                except Exception as e:
+                    raise SetupError(
+                        parser=self.language_name,
+                        missing_dependency=f"Compatible tree-sitter-{self.language_name.lower()} for tree-sitter 0.25.x",
+                        install_command=f"pip install --upgrade tree-sitter-{self.language_name.lower()}",
+                        original_error=f"Cannot create Language from integer {result}: {e}",
+                    ) from e
+            return Language(result)
+
     def get_tree_sitter_language(self):
         """Get the tree-sitter Language object from the module."""
         if not self.available or not self.tree_sitter_module:
@@ -238,33 +269,32 @@ class LanguageConfig:
                 install_command=f"pip install tree-sitter-{self.language_name.lower()}",
                 original_error="Tree-sitter module not available",
             )
-        from tree_sitter import Language
 
         # Special handling for TypeScript/TSX which have different attribute names
         if self.language_name == "typescript":
             lang_func = self.tree_sitter_module.language_typescript
-            return Language(lang_func() if callable(lang_func) else lang_func)
+            result = lang_func() if callable(lang_func) else lang_func
+            return self._handle_language_result(result)
         elif self.language_name == "tsx":
             lang_func = self.tree_sitter_module.language_tsx
-            return Language(lang_func() if callable(lang_func) else lang_func)
+            result = lang_func() if callable(lang_func) else lang_func
+            return self._handle_language_result(result)
         elif self.language_name == "jsx":
             lang_func = self.tree_sitter_module.language_tsx
-            return Language(lang_func() if callable(lang_func) else lang_func)
+            result = lang_func() if callable(lang_func) else lang_func
+            return self._handle_language_result(result)
         elif self.language_name == "javascript" and hasattr(
             self.tree_sitter_module, "language_javascript"
         ):
             # Some versions use language_javascript
             lang_func = self.tree_sitter_module.language_javascript
-            return Language(lang_func() if callable(lang_func) else lang_func)
+            result = lang_func() if callable(lang_func) else lang_func
+            return self._handle_language_result(result)
         else:
             # Standard case - most tree-sitter modules use .language function
             lang_func = self.tree_sitter_module.language
             result = lang_func() if callable(lang_func) else lang_func
-            # If result is already a Language object, return as-is
-            if isinstance(result, Language):
-                return result
-            else:
-                return Language(result)
+            return self._handle_language_result(result)
 
 
 # Language configuration mapping

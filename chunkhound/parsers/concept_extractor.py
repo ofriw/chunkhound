@@ -2,9 +2,10 @@
 
 from typing import Any, Protocol
 
-from tree_sitter import Node
+from tree_sitter import Node, QueryCursor
 
 from chunkhound.utils.normalization import normalize_content
+
 from .universal_engine import (
     QueryCompilationError,
     TreeSitterEngine,
@@ -75,7 +76,8 @@ class ConceptExtractor:
         query = self._compiled_queries[concept]
         chunks = []
 
-        for match in query.matches(ast_root):
+        query_cursor = QueryCursor(query)
+        for match in query_cursor.matches(ast_root):
             # match is a tuple: (pattern_index, captures_dict)
             _, captures_dict = match
             # Flatten the captures dict (values are lists, take first element)

@@ -87,7 +87,7 @@ class TreeSitterEngine:
     def compile_query(self, query_string: str) -> Query:
         """Compile tree-sitter query - universal syntax."""
         try:
-            return self._language.query(query_string)
+            return Query(self._language, query_string)
         except Exception as e:
             # Re-raise with more context
             raise QueryCompilationError(
