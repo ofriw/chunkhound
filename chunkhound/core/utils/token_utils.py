@@ -13,13 +13,14 @@ except ImportError:
     TIKTOKEN_AVAILABLE = False
 
 
-def estimate_tokens(text: str, provider: str | None = None, model: str | None = None) -> int:
+def estimate_tokens(text: str, provider: str | None = None, model: str | None = None, require_provider: bool = False) -> int:
     """Estimate token count for text using provider-specific methods.
 
     Args:
         text: Text to estimate tokens for
         provider: Provider name (openai, voyageai, etc.). If None, gets from registry config.
         model: Model name for provider-specific tokenization. If None, gets from registry config.
+        require_provider: If True, raises error when no provider configured. If False, uses default estimation.
 
     Returns:
         Estimated token count
@@ -27,21 +28,19 @@ def estimate_tokens(text: str, provider: str | None = None, model: str | None = 
     if not text:
         return 0
 
-    # If no provider passed, try to get from registry config
+    # If no provider passed, get from registry config
     if provider is None:
-        try:
-            from chunkhound.registry import get_registry
-            registry = get_registry()
-            config = registry.get_config()
-            if config and config.embedding:
-                provider = config.embedding.provider
-                model = config.embedding.model or ""
-        except:
-            pass  # Fallback to default estimation
-
-    # Use default if still no provider
-    if provider is None:
-        return _estimate_tokens_default(text)
+        from chunkhound.registry import get_registry
+        registry = get_registry()
+        config = registry.get_config()
+        if config and config.embedding:
+            provider = config.embedding.provider
+            model = config.embedding.model or ""
+        elif require_provider:
+            raise ValueError("No embedding provider configured")
+        else:
+            # Fallback to default estimation when provider not required
+            return _estimate_tokens_default(text)
 
     if provider == "openai" and TIKTOKEN_AVAILABLE:
         return _estimate_tokens_openai(text, model or "")
