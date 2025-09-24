@@ -105,23 +105,31 @@ async def indexed_codebase(request, tmp_path):
     
     # Use the fixture tmp_path instead of creating a separate temp directory
     indexed_count = 0
+    processed_files = []
+
+    # Process all files first
     for file_path in critical_files:
         full_path = Path(__file__).parent.parent / file_path
         if full_path.exists():
             try:
                 content = full_path.read_text(encoding='utf-8')
-                temp_file = tmp_path / full_path.name
-                temp_file.write_text(content)
-                await coordinator.process_file(temp_file)
+                # Preserve directory structure to avoid naming conflicts
+                temp_file_path = tmp_path / file_path
+                temp_file_path.parent.mkdir(parents=True, exist_ok=True)
+                temp_file_path.write_text(content)
+                await coordinator.process_file(temp_file_path)
                 indexed_count += 1
+                processed_files.append(file_path)
             except Exception as e:
                 print(f"Warning: Could not process {file_path}: {e}")
-        
-        if indexed_count < 10:
-            pytest.skip(f"Not enough files indexed ({indexed_count}), need at least 10 for meaningful tests")
-        
-        stats = db.get_stats()
-        print(f"Indexed codebase stats: {stats}")
+
+    # Check minimum file requirement AFTER processing all files
+    if indexed_count < 10:
+        print(f"Files successfully processed: {processed_files}")
+        pytest.skip(f"Not enough files indexed ({indexed_count}), need at least 10 for meaningful tests")
+
+    stats = db.get_stats()
+    print(f"Indexed codebase stats: {stats} - Successfully indexed {indexed_count} files")
         
     yield db, embedding_provider
 
