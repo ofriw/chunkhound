@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.3.1] - 2025-09-25
+
+### Enhanced
+- Dependency updates to latest stable versions for improved stability and performance
+- Test infrastructure reliability with better provider detection and error handling
+
+### Fixed
+- Tree-sitter 0.25.x API compatibility ensuring parsing works with latest language parsers
+- Code formatting and import organization for cleaner, more maintainable codebase
+
 ## [3.3.0] - 2025-09-21
 
 ### Added
@@ -440,7 +450,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 For more information, visit: https://github.com/chunkhound/chunkhound
 
-[Unreleased]: https://github.com/chunkhound/chunkhound/compare/v3.2.0...HEAD
+[Unreleased]: https://github.com/chunkhound/chunkhound/compare/v3.3.1...HEAD
+[3.3.1]: https://github.com/chunkhound/chunkhound/compare/v3.3.0...v3.3.1
+[3.3.0]: https://github.com/chunkhound/chunkhound/compare/v3.2.0...v3.3.0
 [3.2.0]: https://github.com/chunkhound/chunkhound/compare/v3.1.0...v3.2.0
 [3.1.0]: https://github.com/chunkhound/chunkhound/compare/v3.0.1...v3.1.0
 [3.0.1]: https://github.com/chunkhound/chunkhound/compare/v3.0.0...v3.0.1
