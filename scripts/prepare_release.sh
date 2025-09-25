@@ -34,7 +34,7 @@ rm -rf dist/ build/
 
 # Run smoke tests (mandatory before release)
 echo "🧪 Running smoke tests..."
-if ! uv run pytest tests/test_smoke.py -v; then
+if ! uv run python -m pytest tests/test_smoke.py -v; then
     echo "❌ Smoke tests failed! Fix critical issues before releasing."
     exit 1
 fi
