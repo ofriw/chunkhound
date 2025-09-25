@@ -106,6 +106,38 @@ Single source of truth: chunkhound/version.py
 Auto-synchronized to all components via imports
 NEVER manually edit version strings - use update_version.py
 
+## PUBLISHING_PROCESS
+### Pre-release Checklist
+1. Update version: `uv run scripts/update_version.py X.Y.Z`
+2. Run smoke tests: `uv run pytest tests/test_smoke.py -v` (MANDATORY)
+3. Prepare release: `./scripts/prepare_release.sh`
+4. Test local install: `pip install dist/chunkhound-X.Y.Z-py3-none-any.whl`
+
+### Dependency Locking Strategy
+- `pyproject.toml`: Flexible constraints (>=) for library compatibility
+- `uv.lock`: Exact versions for development reproducibility
+- `requirements-lock.txt`: Exact versions for production deployment
+- `prepare_release.sh` regenerates lock file with: `uv pip compile pyproject.toml --all-extras -o requirements-lock.txt`
+
+### Publishing Commands
+```bash
+# Prepare release (includes lock file regeneration)
+./scripts/prepare_release.sh
+
+# Publish to PyPI (requires PYPI_TOKEN)
+uv publish
+
+# Verify published package
+pip install chunkhound==X.Y.Z
+chunkhound --version
+```
+
+### Release Artifacts
+- `dist/*.whl`: Python wheel for pip install
+- `dist/*.tar.gz`: Source distribution
+- `dist/SHA256SUMS`: Checksums for verification
+- `requirements-lock.txt`: Exact dependency versions
+
 ## PROJECT_MAINTENANCE
 - Tickets: /tickets/ directory (active) and /tickets/closed/ (completed)
 - No human editing expected - optimize for LLM modification
