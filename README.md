@@ -59,9 +59,6 @@ uv tool install chunkhound
 
 ## Quick Start
 
-### Option 1: With Embeddings (Recommended)
-
-
 1. Create `.chunkhound.json` in project root file
 ```json
 {
@@ -74,11 +71,6 @@ uv tool install chunkhound
 2. Index your codebase
 ```bash
 chunkhound index
-```
-
-### Option 2: Without embeddings (regex search only)
-```bash
-chunkhound index --no-embeddings
 ```
 
 **For configuration, IDE setup, and advanced usage, see the [documentation](https://chunkhound.github.io).**
