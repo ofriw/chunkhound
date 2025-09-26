@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  <strong>Modern RAG for your codebase - semantic and regex search via MCP.</strong>
+  <strong>Deep Research for Code & Files</strong>
 </p>
 
 <p align="center">
