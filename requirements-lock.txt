@@ -340,13 +340,13 @@ tqdm==4.67.1
     #   huggingface-hub
     #   lancedb
     #   openai
-tree-sitter==0.23.2
+tree-sitter==0.25.2
     # via
     #   chunkhound (pyproject.toml)
     #   tree-sitter-language-pack
-tree-sitter-bash==0.23.3
+tree-sitter-bash==0.25.0
     # via chunkhound (pyproject.toml)
-tree-sitter-c==0.21.4
+tree-sitter-c==0.24.1
     # via chunkhound (pyproject.toml)
 tree-sitter-c-sharp==0.23.1
     # via tree-sitter-language-pack
@@ -358,6 +358,8 @@ tree-sitter-go==0.25.0
     # via chunkhound (pyproject.toml)
 tree-sitter-groovy==0.1.2
     # via chunkhound (pyproject.toml)
+tree-sitter-haskell==0.23.1
+    # via chunkhound (pyproject.toml)
 tree-sitter-java==0.23.5
     # via chunkhound (pyproject.toml)
 tree-sitter-javascript==0.25.0
@@ -366,7 +368,7 @@ tree-sitter-json==0.24.8
     # via chunkhound (pyproject.toml)
 tree-sitter-kotlin==1.1.0
     # via chunkhound (pyproject.toml)
-tree-sitter-language-pack==0.9.1
+tree-sitter-language-pack==0.9.0
     # via chunkhound (pyproject.toml)
 tree-sitter-make==1.1.1
     # via chunkhound (pyproject.toml)
@@ -374,7 +376,7 @@ tree-sitter-markdown==0.5.1
     # via chunkhound (pyproject.toml)
 tree-sitter-python==0.25.0
     # via chunkhound (pyproject.toml)
-tree-sitter-rust==0.21.2
+tree-sitter-rust==0.24.0
     # via chunkhound (pyproject.toml)
 tree-sitter-toml==0.7.0
     # via chunkhound (pyproject.toml)
