@@ -146,9 +146,9 @@ class HaskellMapping(BaseMapping):
                 if patterns_text:
                     text = f"{text} {patterns_text}".strip()
         else:
-            param_field = node.child_by_field_name("type_params") or node.child_by_field_name(
-                "patterns"
-            )
+            param_field = node.child_by_field_name(
+                "type_params"
+            ) or node.child_by_field_name("patterns")
             if param_field is not None:
                 params_text = self.get_node_text(param_field, source).strip()
                 if params_text:

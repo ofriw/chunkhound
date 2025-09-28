@@ -182,6 +182,7 @@ if not HASKELL_AVAILABLE:
 
         _haskell_lang = _get_language_haskell("haskell")
         if _haskell_lang:
+
             class _HaskellLanguageWrapper:
                 def language(self):
                     return _haskell_lang
