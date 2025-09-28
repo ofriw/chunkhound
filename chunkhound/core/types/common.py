@@ -139,6 +139,7 @@ class Language(Enum):
     GROOVY = "groovy"
     KOTLIN = "kotlin"
     GO = "go"
+    HASKELL = "haskell"
     RUST = "rust"
     BASH = "bash"
     MAKEFILE = "makefile"
@@ -191,6 +192,7 @@ class Language(Enum):
             ".kt": cls.KOTLIN,
             ".kts": cls.KOTLIN,
             ".go": cls.GO,
+            ".hs": cls.HASKELL,
             ".sh": cls.BASH,
             ".bash": cls.BASH,
             ".zsh": cls.BASH,
@@ -240,6 +242,7 @@ class Language(Enum):
             Language.GROOVY,
             Language.KOTLIN,
             Language.GO,
+            Language.HASKELL,
             Language.RUST,
             Language.BASH,
             Language.MAKEFILE,
@@ -294,6 +297,7 @@ class Language(Enum):
             ".kt",
             ".kts",
             ".go",
+            ".hs",
             ".sh",
             ".bash",
             ".zsh",

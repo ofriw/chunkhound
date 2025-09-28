@@ -25,6 +25,7 @@ from chunkhound.parsers.mappings import (
     CSharpMapping,
     GoMapping,
     GroovyMapping,
+    HaskellMapping,
     JavaMapping,
     JavaScriptMapping,
     JsonMapping,
@@ -117,6 +118,14 @@ except ImportError:
     GO_AVAILABLE = False
 
 try:
+    import tree_sitter_haskell as ts_haskell
+
+    HASKELL_AVAILABLE = True
+except ImportError:
+    ts_haskell = None
+    HASKELL_AVAILABLE = False
+
+try:
     import tree_sitter_rust as ts_rust
 
     RUST_AVAILABLE = True
@@ -166,6 +175,21 @@ try:
 except ImportError:
     ts_matlab = None
     MATLAB_AVAILABLE = False
+
+if not HASKELL_AVAILABLE:
+    try:
+        from tree_sitter_language_pack import get_language as _get_language_haskell
+
+        _haskell_lang = _get_language_haskell("haskell")
+        if _haskell_lang:
+            class _HaskellLanguageWrapper:
+                def language(self):
+                    return _haskell_lang
+
+            ts_haskell = _HaskellLanguageWrapper()
+            HASKELL_AVAILABLE = True
+    except ImportError:
+        pass
 
 # Markup and config languages
 try:
@@ -315,6 +339,9 @@ LANGUAGE_CONFIGS: dict[Language, LanguageConfig] = {
         ts_csharp, CSharpMapping, CSHARP_AVAILABLE, "c_sharp"
     ),
     Language.GO: LanguageConfig(ts_go, GoMapping, GO_AVAILABLE, "go"),
+    Language.HASKELL: LanguageConfig(
+        ts_haskell, HaskellMapping, HASKELL_AVAILABLE, "haskell"
+    ),
     Language.RUST: LanguageConfig(ts_rust, RustMapping, RUST_AVAILABLE, "rust"),
     Language.BASH: LanguageConfig(ts_bash, BashMapping, BASH_AVAILABLE, "bash"),
     Language.KOTLIN: LanguageConfig(
@@ -388,6 +415,7 @@ EXTENSION_TO_LANGUAGE: dict[str, Language] = {
     ".csx": Language.CSHARP,
     # Other languages
     ".go": Language.GO,
+    ".hs": Language.HASKELL,
     ".rs": Language.RUST,
     ".sh": Language.BASH,
     ".bash": Language.BASH,
