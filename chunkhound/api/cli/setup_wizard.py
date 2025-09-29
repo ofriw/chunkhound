@@ -1308,10 +1308,10 @@ async def _select_compatible_model(
 async def _manual_model_entry() -> str | None:
     """Handle manual model entry with examples."""
     print("\nCommon embedding models:")
-    print("  - nomic-embed-text (Nomic)")
+    print("  - dengcao/Qwen3-Embedding-8B:Q5_K_M (Qwen - Best accuracy)")
+    print("  - nomic-embed-text (Nomic - Fast)")
     print("  - mxbai-embed-large (MixedBread)")
-    print("  - all-minilm-l6-v2 (Sentence Transformers)")
-    print("  - bge-large-en-v1.5 (BGE)")
+    print("  - all-minilm-l6-v2 (Sentence Transformers - Lightweight)")
     print()
 
     model = await rich_text(
