@@ -417,6 +417,10 @@ EXTENSION_TO_LANGUAGE: dict[str, Language] = {
     # Other languages
     ".go": Language.GO,
     ".hs": Language.HASKELL,
+    ".lhs": Language.HASKELL,
+    ".hs-boot": Language.HASKELL,
+    ".hsig": Language.HASKELL,
+    ".hsc": Language.HASKELL,
     ".rs": Language.RUST,
     ".sh": Language.BASH,
     ".bash": Language.BASH,
