@@ -162,6 +162,7 @@ dev = [
     "pyinstaller>=6.14.1",
     "pytest>=8.4.0",
     "pytest-asyncio>=1.0.0",
+    "pytest-timeout>=2.1.0",
     "ruff>=0.11.12",
     "types-psutil>=7.0.0.20250601",
 ]

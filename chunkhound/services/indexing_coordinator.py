@@ -1238,11 +1238,12 @@ class IndexingCoordinator(BaseService):
                                     # Simple patterns like *.log should match at any level
                                     rel_from_root = current_dir.relative_to(directory)
                                     if rel_from_root == Path("."):
-                                        # Pattern at root - just use as is for simple patterns
-                                        patterns_from_gitignore.append(line)
-                                        # Also add recursive version for patterns like *.log
-                                        if "*" in line and not line.startswith("**/"):
+                                        # Gitignore patterns without / match recursively by default
+                                        if not line.startswith("**/"):
                                             patterns_from_gitignore.append(f"**/{line}")
+                                            patterns_from_gitignore.append(f"**/{line}/**")
+                                        else:
+                                            patterns_from_gitignore.append(line)
                                     else:
                                         patterns_from_gitignore.append(
                                             f"{rel_from_root}/**/{line}"
@@ -1253,16 +1254,10 @@ class IndexingCoordinator(BaseService):
                         gitignore_patterns[current_dir] = patterns_from_gitignore
                     except OSError as e:
                         # Log error but continue - don't fail indexing due to gitignore issues
-                        if self.progress_callback:
-                            self.progress_callback(
-                                f"Warning: Failed to read .gitignore at {gitignore_path}: {e}"
-                            )
+                        logger.warning(f"Failed to read .gitignore at {gitignore_path}: {e}")
                     except Exception as e:
                         # Unexpected error - still log but continue
-                        if self.progress_callback:
-                            self.progress_callback(
-                                f"Warning: Unexpected error reading .gitignore at {gitignore_path}: {e}"
-                            )
+                        logger.warning(f"Unexpected error reading .gitignore at {gitignore_path}: {e}")
 
                 # Combine all applicable gitignore patterns from this dir and parents
                 all_gitignore_patterns = []

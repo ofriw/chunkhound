@@ -455,6 +455,7 @@ dev = [
     { name = "pyinstaller" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
+    { name = "pytest-timeout" },
     { name = "ruff" },
     { name = "types-psutil" },
 ]
@@ -518,6 +519,7 @@ dev = [
     { name = "pyinstaller", specifier = ">=6.14.1" },
     { name = "pytest", specifier = ">=8.4.0" },
     { name = "pytest-asyncio", specifier = ">=1.0.0" },
+    { name = "pytest-timeout", specifier = ">=2.1.0" },
     { name = "ruff", specifier = ">=0.11.12" },
     { name = "types-psutil", specifier = ">=7.0.0.20250601" },
 ]

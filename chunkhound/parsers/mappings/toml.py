@@ -152,11 +152,15 @@ class TomlMapping(BaseMapping):
     ) -> str:
         """Extract content from captures for this concept.
 
-        Always returns the original source text to preserve searchable content,
-        regardless of TOML parsing or formatting.
+        Extracts only the matched node's content to avoid duplication.
         """
-        # Always return original source text to preserve searchable strings
-        return content.decode("utf-8")
+        # Extract only the specific captured node's content
+        def_node = captures.get("definition") or (list(captures.values())[0] if captures else None)
+        if not def_node:
+            return ""
+
+        # Return only the matched node's text, not the entire file
+        return content.decode("utf-8")[def_node.start_byte:def_node.end_byte]
 
     def extract_metadata(
         self, concept: UniversalConcept, captures: dict[str, Node], content: bytes
