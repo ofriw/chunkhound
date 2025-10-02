@@ -47,6 +47,10 @@ class IndexingConfig(BaseModel):
         default=False, description="Internal gitignore setting"
     )
     max_file_size_mb: int = Field(default=10, description="Internal file size limit")
+    config_file_size_threshold_kb: int = Field(
+        default=20,
+        description="Skip structured config files (JSON/YAML/TOML) larger than this (KB)",
+    )
     chunk_overlap: int = Field(default=50, description="Internal chunk overlap")
     min_chunk_size: int = Field(default=50, description="Internal min chunk size")
     max_chunk_size: int = Field(default=2000, description="Internal max chunk size")
