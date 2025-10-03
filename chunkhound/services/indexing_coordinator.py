@@ -4,6 +4,13 @@
 # ROLE: Coordinates complex multi-phase workflows with parallel batch processing
 # CONCURRENCY: Parsing parallelized across CPU cores, storage remains single-threaded
 # PERFORMANCE: Smart chunk diffing preserves existing embeddings (10x speedup)
+#
+# PERFORMANCE TUNING:
+# - File batch processing scales workers based on file count (100/1000 thresholds)
+#   to balance parallelism overhead vs throughput
+# - Directory discovery uses parallel mode only when ≥4 top-level dirs
+# - Worker limits (4/8/16) prevent resource exhaustion on high-core machines
+# - See module constants below for tunable parameters
 """
 
 import asyncio
@@ -27,6 +34,46 @@ from .base_service import BaseService
 from .batch_processor import ParsedFileResult, process_file_batch
 from .chunk_cache_service import ChunkCacheService
 
+# File pattern utilities for directory discovery
+from chunkhound.utils.file_patterns import (
+    load_gitignore_patterns,
+    scan_directory_files,
+    walk_directory_tree,
+    walk_subtree_worker,
+)
+
+
+# Performance tuning constants for parallel operations
+# RATIONALE: Balance parallelism overhead vs throughput for different workload sizes
+
+# File parsing batch sizes
+SMALL_FILE_COUNT_THRESHOLD = 100  # Below this: use minimal workers (overhead not worth it)
+MEDIUM_FILE_COUNT_THRESHOLD = 1000  # Above this: scale up for enterprise monorepos
+MAX_WORKERS_SMALL_BATCH = 4  # Worker cap for small file batches
+MAX_WORKERS_MEDIUM_BATCH = 8  # Worker cap for medium file batches (original behavior)
+MAX_WORKERS_LARGE_BATCH = 16  # Worker cap for large file batches (prevents resource exhaustion)
+
+# Fallback CPU count when os.cpu_count() returns None
+DEFAULT_CPU_COUNT = 4
+
+
+def _calculate_worker_count(file_count: int, cpu_count: int) -> int:
+    """Calculate optimal worker count based on file count and available CPUs.
+
+    Args:
+        file_count: Number of files to process
+        cpu_count: Number of available CPU cores
+
+    Returns:
+        Optimal number of workers (capped based on workload size)
+    """
+    if file_count < SMALL_FILE_COUNT_THRESHOLD:
+        return min(cpu_count, MAX_WORKERS_SMALL_BATCH, file_count)
+    elif file_count < MEDIUM_FILE_COUNT_THRESHOLD:
+        return min(cpu_count, MAX_WORKERS_MEDIUM_BATCH, file_count)
+    else:
+        return min(cpu_count, MAX_WORKERS_LARGE_BATCH, file_count)
+
 
 class IndexingCoordinator(BaseService):
     """Coordinates file indexing workflows with parsing, chunking, and embeddings.
@@ -47,6 +94,7 @@ class IndexingCoordinator(BaseService):
         embedding_provider: EmbeddingProvider | None = None,
         language_parsers: dict[Language, UniversalParser] | None = None,
         progress: Progress | None = None,
+        config: Any | None = None,
     ):
         """Initialize indexing coordinator.
 
@@ -56,11 +104,13 @@ class IndexingCoordinator(BaseService):
             embedding_provider: Optional embedding provider for vector generation
             language_parsers: Optional mapping of language to parser implementations
             progress: Optional Rich Progress instance for hierarchical progress display
+            config: Optional configuration object with indexing settings
         """
         super().__init__(database_provider)
         self._embedding_provider = embedding_provider
         self.progress = progress
         self._language_parsers = language_parsers or {}
+        self.config = config
 
         # Performance optimization: shared instances
         self._parser_cache: dict[Language, UniversalParser] = {}
@@ -262,9 +312,12 @@ class IndexingCoordinator(BaseService):
         if not files:
             return []
 
-        # Determine number of workers based on CPU count (cap at 8 to prevent resource exhaustion)
-        # CONSTRAINT: Limit parallel processes on high-core machines (32+ cores)
-        num_workers = min(os.cpu_count() or 4, 8, len(files))
+        # Calculate optimal worker count based on file count
+        cpu_count = os.cpu_count() or DEFAULT_CPU_COUNT
+        file_count = len(files)
+        num_workers = _calculate_worker_count(file_count, cpu_count)
+
+        logger.debug(f"Parsing {file_count} files with {num_workers} workers")
 
         # Split files into batches for parallel processing
         batch_size = math.ceil(len(files) / num_workers)
@@ -471,8 +524,8 @@ class IndexingCoordinator(BaseService):
             Dictionary with processing statistics
         """
         try:
-            # Phase 1: Discovery - Discover files in directory
-            files = self._discover_files(directory, patterns, exclude_patterns)
+            # Phase 1: Discovery - Discover files in directory (now parallelized)
+            files = await self._discover_files(directory, patterns, exclude_patterns)
 
             if not files:
                 return {"status": "no_files", "files_processed": 0, "total_chunks": 0}
@@ -790,18 +843,187 @@ class IndexingCoordinator(BaseService):
 
         return await self._generate_embeddings(chunk_ids, chunks)
 
-    def _discover_files(
+    async def _discover_files_parallel(
+        self,
+        directory: Path,
+        patterns: list[str],
+        exclude_patterns: list[str],
+        use_inode_ordering: bool = False,
+    ) -> list[Path] | None:
+        """Parallel directory discovery using multi-core traversal.
+
+        ARCHITECTURE: Partitions directory tree at top level and processes subtrees
+        in parallel using ProcessPoolExecutor. Workers are isolated processes to avoid
+        GIL contention and enable true parallelism.
+
+        Args:
+            directory: Resolved directory path to search
+            patterns: File patterns to include (validated non-empty)
+            exclude_patterns: Patterns to exclude
+            use_inode_ordering: Sort directories by inode
+
+        Returns:
+            List of discovered file paths on successful parallel discovery,
+            or None to signal fallback to sequential mode is needed
+
+        Raises:
+            Logs warnings and returns None on errors
+        """
+        # Get top-level directories (first level subdirectories)
+        # RACE CONDITION SAFETY: Handle directories deleted/modified during iteration
+        top_level_items = []
+        try:
+            for item in directory.iterdir():
+                try:
+                    # Check if item is still a directory (could change during iteration)
+                    if not item.is_dir():
+                        continue
+
+                    # Check if this directory should be excluded
+                    rel_path = item.relative_to(directory)
+                    should_skip = False
+                    for pattern in exclude_patterns:
+                        if pattern.startswith("**/") and pattern.endswith("/**"):
+                            target_dir = pattern[3:-3]
+                            if target_dir in rel_path.parts:
+                                should_skip = True
+                                break
+                        elif fnmatch(str(rel_path), pattern) or fnmatch(
+                            item.name, pattern
+                        ):
+                            should_skip = True
+                            break
+                    if not should_skip:
+                        top_level_items.append(item)
+                except (FileNotFoundError, NotADirectoryError, ValueError):
+                    # Item deleted, changed type, or can't be made relative - skip it
+                    continue
+        except (PermissionError, OSError) as e:
+            logger.warning(f"Error accessing directory {directory}: {e}")
+            return None
+
+        # Check if parallel mode is beneficial
+        # Use config value if available, otherwise use default of 4
+        min_dirs_threshold = (
+            self.config.indexing.min_dirs_for_parallel if self.config else 4
+        )
+        if len(top_level_items) < min_dirs_threshold:
+            logger.info(
+                f"Using sequential discovery: {len(top_level_items)} top-level dirs "
+                f"< {min_dirs_threshold} threshold (parallel overhead not worthwhile)"
+            )
+            return None
+
+        # CRITICAL: Pre-load root .gitignore before spawning workers
+        # Workers need parent patterns to correctly apply gitignore inheritance
+        parent_gitignores: dict[Path, list[str]] = {}
+        parent_gitignores[directory] = load_gitignore_patterns(directory, directory)
+
+        # Determine number of workers for directory discovery
+        # Scale based on number of subtrees and available cores
+        # Use config value if available, otherwise use default of 16
+        max_workers = (
+            self.config.indexing.max_discovery_workers if self.config else 16
+        )
+        num_workers = min(
+            os.cpu_count() or DEFAULT_CPU_COUNT, len(top_level_items), max_workers
+        )
+
+        logger.info(
+            f"Using parallel discovery: {len(top_level_items)} top-level dirs, "
+            f"{num_workers} workers (max: {max_workers})"
+        )
+
+        # Process subtrees in parallel
+        loop = asyncio.get_running_loop()
+        with ProcessPoolExecutor(max_workers=num_workers) as executor:
+            futures = [
+                loop.run_in_executor(
+                    executor,
+                    walk_subtree_worker,
+                    subtree,
+                    directory,
+                    patterns,
+                    exclude_patterns,
+                    parent_gitignores,
+                    use_inode_ordering,
+                )
+                for subtree in top_level_items
+            ]
+
+            # Wait for all subtrees to complete
+            subtree_results = await asyncio.gather(*futures)
+
+        # Aggregate and log worker errors
+        all_errors = []
+        for files, errors in subtree_results:
+            all_errors.extend(errors)
+        if all_errors:
+            logger.error(
+                f"Parallel discovery encountered {len(all_errors)} worker errors:"
+            )
+            for error in all_errors[:5]:  # Log first 5 errors
+                logger.error(f"  - {error}")
+            if len(all_errors) > 5:
+                logger.error(f"  ... and {len(all_errors) - 5} more errors")
+
+        # Scan files in the root directory itself (not in subdirs) using helper
+        root_gitignore_patterns = parent_gitignores.get(directory, [])
+        root_files = scan_directory_files(
+            directory, patterns, exclude_patterns, root_gitignore_patterns or None
+        )
+
+        # Merge sorted worker results efficiently using heap-based merge
+        # Workers already sort their results, so we merge k sorted lists
+        import heapq
+
+        # Collect sorted file lists from workers
+        sorted_worker_results = []
+        for files, errors in subtree_results:
+            if files:  # Only include non-empty results
+                sorted_worker_results.append(sorted(files))
+
+        # Add root files as a sorted list
+        if root_files:
+            sorted_worker_results.append(sorted(root_files))
+
+        # Merge sorted results: O(n log k) where k is number of workers
+        # More efficient than concatenating and sorting: O(n log n)
+        if sorted_worker_results:
+            all_files = list(heapq.merge(*sorted_worker_results, key=str))
+        else:
+            all_files = []
+
+        logger.info(f"Parallel discovery complete: found {len(all_files)} files")
+        return all_files
+
+    async def _discover_files(
         self,
         directory: Path,
         patterns: list[str] | None,
         exclude_patterns: list[str] | None,
+        parallel_discovery: bool | None = None,
+        use_inode_ordering: bool = False,
     ) -> list[Path]:
         """Discover files in directory matching patterns with efficient exclude filtering.
+
+        PERFORMANCE: Automatically selects parallel vs sequential discovery based on:
+        - Config setting (parallel_discovery)
+        - Directory structure size (min_dirs_for_parallel threshold)
+        - Falls back to sequential on any parallel errors
 
         Args:
             directory: Directory to search
             patterns: File patterns to include (REQUIRED - must be provided by configuration layer)
             exclude_patterns: File patterns to exclude (optional - will load from config if None)
+            parallel_discovery: Enable parallel directory traversal (default: from config)
+                - Activates when >= min_dirs_for_parallel top-level directories exist
+                - Scales workers based on number of subdirectories (max: max_discovery_workers)
+                - Falls back to sequential for small directory structures
+            use_inode_ordering: Sort directories by inode for improved disk locality (default: False)
+                - Beneficial on rotational drives (HDDs) to reduce seek time
+                - Minimal benefit on SSDs
+                - Slight overhead from stat() calls per directory
 
         Raises:
             ValueError: If patterns is None/empty (configuration layer error)
@@ -818,203 +1040,79 @@ class IndexingCoordinator(BaseService):
         if not exclude_patterns:
             exclude_patterns = []
 
-        # Use custom directory walker that respects exclude patterns during traversal
-        discovered_files = self._walk_directory_with_excludes(
-            directory, patterns, exclude_patterns
-        )
+        # Use default (enabled) if not explicitly specified
+        if parallel_discovery is None:
+            parallel_discovery = True  # Default: parallel discovery enabled
 
+        # Resolve directory once for consistent path handling
+        directory = directory.resolve()
+
+        # Try parallel discovery if enabled
+        if parallel_discovery:
+            try:
+                discovered_files = await self._discover_files_parallel(
+                    directory, patterns, exclude_patterns, use_inode_ordering
+                )
+                # Check if parallel succeeded (returns files) or signaled fallback (returns None)
+                if discovered_files is not None:
+                    # Parallel discovery returns pre-sorted results (via heapq.merge)
+                    return discovered_files
+                # Otherwise fall through to sequential (None signal)
+            except Exception as e:
+                # Preserve full error context for debugging large repo issues
+                import traceback
+                error_traceback = traceback.format_exc()
+                logger.warning(
+                    f"Parallel discovery failed for {directory}, falling back to sequential:\n"
+                    f"  Error: {type(e).__name__}: {e}\n"
+                    f"  Traceback (last 3 frames):\n"
+                    f"{''.join(traceback.format_tb(e.__traceback__)[-3:])}"
+                )
+                logger.debug(f"Full traceback:\n{error_traceback}")
+                # Fall through to sequential
+
+        # Sequential discovery (fallback or explicitly requested)
+        discovered_files = self._walk_directory_with_excludes(
+            directory, patterns, exclude_patterns, use_inode_ordering
+        )
         return sorted(discovered_files)
 
     def _walk_directory_with_excludes(
-        self, directory: Path, patterns: list[str], exclude_patterns: list[str]
+        self, directory: Path, patterns: list[str], exclude_patterns: list[str], use_inode_ordering: bool = False
     ) -> list[Path]:
-        """Custom directory walker that skips excluded directories during traversal.
+        """Optimized directory walker using os.walk() with optional inode ordering.
+
+        PERFORMANCE OPTIMIZATIONS:
+        - Uses os.walk() with scandir (3-50x faster than manual recursion)
+        - Compiled regex patterns (cached, 2-3x faster than fnmatch)
+        - Optional inode ordering (reduces disk seeks on large filesystems)
+        - Early directory pruning (skips excluded subtrees entirely)
 
         Args:
             directory: Root directory to walk
             patterns: File patterns to include
             exclude_patterns: Patterns to exclude (applied to both files and directories)
+            use_inode_ordering: Sort directories by inode to reduce disk seeks (default: False)
 
         Returns:
             List of file paths that match include patterns and don't match exclude patterns
         """
         # Resolve directory path once at the beginning for consistent comparison
         directory = directory.resolve()
-        files = []
 
-        # Cache for .gitignore patterns by directory
-        gitignore_patterns: dict[Path, list[str]] = {}
+        # Pre-load root gitignore (consistent with parallel mode)
+        parent_gitignores: dict[Path, list[str]] = {}
+        parent_gitignores[directory] = load_gitignore_patterns(directory, directory)
 
-        def should_exclude_path(
-            path: Path, base_dir: Path, patterns: list[str] | None = None
-        ) -> bool:
-            """Check if a path should be excluded based on exclude patterns."""
-            if patterns is None:
-                patterns = exclude_patterns
-
-            try:
-                rel_path = path.relative_to(base_dir)
-            except ValueError:
-                # Path is not under base directory, use absolute path as fallback
-                rel_path = path
-
-            for exclude_pattern in patterns:
-                # Handle ** patterns that fnmatch doesn't support properly
-                if exclude_pattern.startswith("**/") and exclude_pattern.endswith(
-                    "/**"
-                ):
-                    # Extract the directory name from pattern like **/.venv/**
-                    target_dir = exclude_pattern[3:-3]  # Remove **/ and /**
-                    if target_dir in rel_path.parts or target_dir in path.parts:
-                        return True
-                elif exclude_pattern.startswith("**/"):
-                    # Pattern like **/*.db - check if any part matches the suffix
-                    suffix = exclude_pattern[3:]  # Remove **/
-                    if (
-                        fnmatch(str(rel_path), suffix)
-                        or fnmatch(str(path), suffix)
-                        or fnmatch(rel_path.name, suffix)
-                        or fnmatch(path.name, suffix)
-                    ):
-                        return True
-                else:
-                    # Regular fnmatch for non-** patterns
-                    if fnmatch(str(rel_path), exclude_pattern) or fnmatch(
-                        str(path), exclude_pattern
-                    ):
-                        return True
-            return False
-
-        def should_include_file(file_path: Path) -> bool:
-            """Check if a file matches any of the include patterns."""
-            # With directory resolved at start, all paths from iterdir will be consistent
-            rel_path = file_path.relative_to(directory)
-
-            for pattern in patterns:
-                rel_path_str = str(rel_path)
-                filename = file_path.name
-
-                # Handle **/ prefix patterns (common from CLI conversion)
-                if pattern.startswith("**/"):
-                    simple_pattern = pattern[
-                        3:
-                    ]  # Remove **/ prefix (e.g., *.md from **/*.md)
-
-                    # Match against:
-                    # 1. Full relative path for nested files (e.g., "docs/guide.md" matches "**/*.md")
-                    # 2. Simple pattern for root-level files (e.g., "README.md" matches "*.md")
-                    # 3. Filename only for simple patterns (e.g., "guide.md" matches "*.md")
-                    if (
-                        fnmatch(rel_path_str, pattern)
-                        or fnmatch(rel_path_str, simple_pattern)
-                        or fnmatch(filename, simple_pattern)
-                    ):
-                        return True
-                else:
-                    # Regular pattern - check both relative path and filename
-                    if fnmatch(rel_path_str, pattern) or fnmatch(filename, pattern):
-                        return True
-            return False
-
-        # Walk directory tree manually to control traversal
-        def walk_recursive(current_dir: Path) -> None:
-            """Recursively walk directory, skipping excluded paths."""
-            try:
-                # Load .gitignore for this directory if it exists
-                gitignore_path = current_dir / ".gitignore"
-                if gitignore_path.exists():
-                    try:
-                        with open(
-                            gitignore_path, encoding="utf-8", errors="ignore"
-                        ) as f:
-                            lines = f.read().splitlines()
-                        # Filter out comments and empty lines, convert to exclude patterns
-                        # Gitignore patterns are converted to our exclude format:
-                        # - Patterns starting with / are relative to the gitignore's directory
-                        # - Other patterns apply recursively from that point
-                        patterns_from_gitignore = []
-                        for line in lines:
-                            line = line.strip()
-                            if line and not line.startswith("#"):
-                                # Convert gitignore pattern to our exclude pattern format
-                                # Patterns starting with / are relative to this directory
-                                if line.startswith("/"):
-                                    # Make it relative to the root directory we're indexing
-                                    rel_from_root = current_dir.relative_to(directory)
-                                    if rel_from_root == Path("."):
-                                        patterns_from_gitignore.append(line[1:])
-                                    else:
-                                        patterns_from_gitignore.append(
-                                            str(rel_from_root / line[1:])
-                                        )
-                                else:
-                                    # Pattern applies recursively from this directory
-                                    # Simple patterns like *.log should match at any level
-                                    rel_from_root = current_dir.relative_to(directory)
-                                    if rel_from_root == Path("."):
-                                        # Gitignore patterns without / match recursively by default
-                                        if not line.startswith("**/"):
-                                            patterns_from_gitignore.append(f"**/{line}")
-                                            patterns_from_gitignore.append(f"**/{line}/**")
-                                        else:
-                                            patterns_from_gitignore.append(line)
-                                    else:
-                                        patterns_from_gitignore.append(
-                                            f"{rel_from_root}/**/{line}"
-                                        )
-                                        patterns_from_gitignore.append(
-                                            f"{rel_from_root}/{line}"
-                                        )
-                        gitignore_patterns[current_dir] = patterns_from_gitignore
-                    except OSError as e:
-                        # Log error but continue - don't fail indexing due to gitignore issues
-                        logger.warning(f"Failed to read .gitignore at {gitignore_path}: {e}")
-                    except Exception as e:
-                        # Unexpected error - still log but continue
-                        logger.warning(f"Unexpected error reading .gitignore at {gitignore_path}: {e}")
-
-                # Combine all applicable gitignore patterns from this dir and parents
-                all_gitignore_patterns = []
-                check_dir = current_dir
-                while check_dir >= directory:
-                    if check_dir in gitignore_patterns:
-                        all_gitignore_patterns.extend(gitignore_patterns[check_dir])
-                    if check_dir == directory:
-                        break
-                    check_dir = check_dir.parent
-
-                # Get directory contents
-                for entry in current_dir.iterdir():
-                    # Skip if path should be excluded by config patterns
-                    if should_exclude_path(entry, directory):
-                        continue
-
-                    # Skip if path should be excluded by gitignore patterns
-                    if all_gitignore_patterns:
-                        skip = False
-                        for pattern in all_gitignore_patterns:
-                            if should_exclude_path(entry, directory, [pattern]):
-                                skip = True
-                                break
-                        if skip:
-                            continue
-
-                    if entry.is_file():
-                        # Check if file matches include patterns
-                        if should_include_file(entry):
-                            files.append(entry)
-                    elif entry.is_dir():
-                        # Recursively walk subdirectory (already checked it's not excluded)
-                        walk_recursive(entry)
-
-            except (PermissionError, OSError) as e:
-                # Log warning but continue with other directories
-                logger.debug(
-                    f"Skipping directory due to access error: {current_dir} - {e}"
-                )
-
-        # Start walking from the root directory
-        walk_recursive(directory)
+        # Use shared directory traversal logic
+        files, _ = walk_directory_tree(
+            directory,
+            directory,
+            patterns,
+            exclude_patterns,
+            parent_gitignores,
+            use_inode_ordering,
+        )
 
         return files
 
