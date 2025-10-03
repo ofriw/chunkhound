@@ -127,6 +127,7 @@ class ProviderRegistry:
             base_directory=base_directory,
             embedding_provider=embedding_provider,
             language_parsers=self._language_parsers,
+            config=self._config,
         )
 
     def create_search_service(self) -> SearchService:
