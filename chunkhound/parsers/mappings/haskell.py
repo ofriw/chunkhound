@@ -203,55 +203,14 @@ class HaskellMapping(BaseMapping):
             Tree-sitter query string for the requested universal concept, or None.
         """
         if concept == UniversalConcept.DEFINITION:
-            # Unify all definition-like entities under a single @definition with @name
+            # Unify core Haskell definitions under a single @definition with @name
+            # Keep this conservative to ensure compatibility across grammar versions.
             return """
-            (function
-                name: (_) @name
-            ) @definition
+            (function) @definition
 
-            (bind
-                name: (_) @name
-            ) @definition
+            (bind) @definition
 
-            (pattern_synonym
-                (signature
-                    synonym: (_) @name
-                )
-            ) @definition
-
-            (pattern_synonym
-                (equation
-                    synonym: (_) @name
-                )
-            ) @definition
-
-            (data_type
-                name: (_) @name
-            ) @definition
-
-            (newtype
-                name: (_) @name
-            ) @definition
-
-            (type_synonym
-                name: (_) @name
-            ) @definition
-
-            (type_family
-                name: (_) @name
-            ) @definition
-
-            (data_family
-                name: (_) @name
-            ) @definition
-
-            (class
-                name: (_) @name
-            ) @definition
-
-            (instance
-                name: (_) @name
-            ) @definition
+            (pattern_synonym) @definition
             """
 
         elif concept == UniversalConcept.BLOCK:

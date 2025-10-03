@@ -500,6 +500,18 @@ class ParserFactory:
 
         config = LANGUAGE_CONFIGS[language]
         cast_config = cast_config or self.default_cast_config
+        # Haskell-specific cAST tuning: avoid greedy merging of adjacent definitions
+        if language == Language.HASKELL:
+            from chunkhound.parsers.universal_parser import CASTConfig as _CAST
+
+            cast_config = _CAST(
+                max_chunk_size=cast_config.max_chunk_size,
+                min_chunk_size=cast_config.min_chunk_size,
+                merge_threshold=cast_config.merge_threshold,
+                preserve_structure=cast_config.preserve_structure,
+                greedy_merge=False,
+                safe_token_limit=cast_config.safe_token_limit,
+            )
 
         # Import TreeSitterEngine here to avoid circular imports
 
