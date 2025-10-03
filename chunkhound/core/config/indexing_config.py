@@ -55,6 +55,20 @@ class IndexingConfig(BaseModel):
     min_chunk_size: int = Field(default=50, description="Internal min chunk size")
     max_chunk_size: int = Field(default=2000, description="Internal max chunk size")
 
+    # Parallel discovery settings
+    parallel_discovery: bool = Field(
+        default=True,
+        description="Enable parallel directory traversal for large codebases (auto-disabled for <4 top-level dirs)",
+    )
+    min_dirs_for_parallel: int = Field(
+        default=4,
+        description="Minimum top-level directories required to activate parallel discovery",
+    )
+    max_discovery_workers: int = Field(
+        default=16,
+        description="Maximum worker processes for parallel directory discovery",
+    )
+
     # File patterns
     include: list[str] = Field(
         default_factory=lambda: _get_default_include_patterns(),
