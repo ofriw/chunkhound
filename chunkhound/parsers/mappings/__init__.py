@@ -11,6 +11,7 @@ from .cpp import CppMapping
 from .csharp import CSharpMapping
 from .go import GoMapping
 from .groovy import GroovyMapping
+from .haskell import HaskellMapping
 from .java import JavaMapping
 from .javascript import JavaScriptMapping
 from .json import JsonMapping
@@ -36,6 +37,7 @@ __all__ = [
     "CSharpMapping",
     "GoMapping",
     "GroovyMapping",
+    "HaskellMapping",
     "JavaMapping",
     "JavaScriptMapping",
     "JsonMapping",

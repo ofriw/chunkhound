@@ -21,6 +21,7 @@ LANGUAGE_SAMPLES = {
     Language.GROOVY: "def hello() { }",
     Language.KOTLIN: "fun hello() { }",
     Language.GO: "package main\nfunc main() { }",
+    Language.HASKELL: "add x y = x + y",
     Language.RUST: "fn main() { }",
     Language.BASH: "echo hello",
     Language.MAKEFILE: "all:\n\techo hello",
