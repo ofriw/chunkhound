@@ -30,14 +30,21 @@ class UniversalChunk:
     language_node_type: str  # Original tree-sitter type for debugging
 
 
-@dataclass(frozen=True)
 class SetupError(Exception):
     """Error raised when parser setup fails."""
 
-    parser: str
-    missing_dependency: str
-    install_command: str
-    original_error: str
+    def __init__(
+        self,
+        parser: str,
+        missing_dependency: str,
+        install_command: str,
+        original_error: str,
+    ) -> None:
+        self.parser = parser
+        self.missing_dependency = missing_dependency
+        self.install_command = install_command
+        self.original_error = original_error
+        super().__init__(str(self))
 
     def __str__(self) -> str:
         return (
@@ -48,14 +55,17 @@ class SetupError(Exception):
         )
 
 
-@dataclass(frozen=True)
 class QueryCompilationError(Exception):
     """Error raised when tree-sitter query compilation fails."""
 
-    concept: UniversalConcept
-    language: str
-    query: str
-    error: str
+    def __init__(
+        self, concept: UniversalConcept, language: str, query: str, error: str
+    ) -> None:
+        self.concept = concept
+        self.language = language
+        self.query = query
+        self.error = error
+        super().__init__(str(self))
 
     def __str__(self) -> str:
         return (

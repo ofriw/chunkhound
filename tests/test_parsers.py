@@ -34,6 +34,7 @@ LANGUAGE_SAMPLES = {
     Language.TOML: "hello = 'world'",
     Language.TEXT: "hello world",
     Language.PDF: "hello world",  # PDF parser handles text content
+    Language.ZIG: "fn main() void { }",
 }
 
 
@@ -146,6 +147,21 @@ const dependencies: string[] = [
 export default dependencies;
 '''
 
+    elif language == Language.ZIG:
+        # Create a Zig file with large array
+        items = [f'"{i}"' for i in range(item_count)]
+        items_text = ',\n    '.join(items)
+        return f'''// Test module with large array
+const dependencies = [_][]const u8{{
+    {items_text}
+}};
+
+pub fn main() void {{
+    const count = dependencies.len;
+    _ = count;
+}}
+'''
+
     else:
         # Fallback - use the minimal sample for unsupported languages
         return LANGUAGE_SAMPLES.get(language, "")
@@ -225,6 +241,7 @@ class TestParserValidation:
         (Language.PYTHON, 100),     # Large list literals
         (Language.JAVASCRIPT, 100), # Large array literals
         (Language.TYPESCRIPT, 100), # Large array literals with types
+        (Language.ZIG, 100),        # Large array literals in Zig
     ])
     def test_parser_handles_long_arrays(self, language, item_count):
         """Test that parsers correctly handle files with long arrays/lists.

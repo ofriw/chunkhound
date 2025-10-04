@@ -28,6 +28,7 @@ from .toml import TomlMapping
 from .tsx import TSXMapping
 from .typescript import TypeScriptMapping
 from .yaml import YamlMapping
+from .zig import ZigMapping
 
 __all__ = [
     "BaseMapping",
@@ -54,4 +55,5 @@ __all__ = [
     "TSXMapping",
     "TypeScriptMapping",
     "YamlMapping",
+    "ZigMapping",
 ]

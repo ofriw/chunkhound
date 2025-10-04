@@ -50,3 +50,4 @@ tree-sitter-markdown>=0.5.0
 tree-sitter-rust>=0.21.0
 tree-sitter-toml>=0.7.0
 tree-sitter-typescript>=0.23.0
+tree-sitter-zig>=1.1.0

@@ -42,6 +42,7 @@ from chunkhound.parsers.mappings import (
     TSXMapping,
     TypeScriptMapping,
     YamlMapping,
+    ZigMapping,
 )
 from chunkhound.parsers.mappings.base import BaseMapping
 from chunkhound.parsers.universal_engine import SetupError, TreeSitterEngine
@@ -234,6 +235,14 @@ except ImportError:
     ts_make = None
     MAKEFILE_AVAILABLE = False
 
+try:
+    import tree_sitter_zig as ts_zig
+
+    ZIG_AVAILABLE = True
+except ImportError:
+    ts_zig = None
+    ZIG_AVAILABLE = False
+
 # Additional language extensions (these might use the same parser as base language)
 JSX_AVAILABLE = JAVASCRIPT_AVAILABLE  # JSX uses JavaScript parser
 TSX_AVAILABLE = TYPESCRIPT_AVAILABLE  # TSX uses TypeScript parser
@@ -344,6 +353,7 @@ LANGUAGE_CONFIGS: dict[Language, LanguageConfig] = {
         ts_haskell, HaskellMapping, HASKELL_AVAILABLE, "haskell"
     ),
     Language.RUST: LanguageConfig(ts_rust, RustMapping, RUST_AVAILABLE, "rust"),
+    Language.ZIG: LanguageConfig(ts_zig, ZigMapping, ZIG_AVAILABLE, "zig"),
     Language.BASH: LanguageConfig(ts_bash, BashMapping, BASH_AVAILABLE, "bash"),
     Language.KOTLIN: LanguageConfig(
         ts_kotlin, KotlinMapping, KOTLIN_AVAILABLE, "kotlin"
@@ -422,6 +432,7 @@ EXTENSION_TO_LANGUAGE: dict[str, Language] = {
     ".hsig": Language.HASKELL,
     ".hsc": Language.HASKELL,
     ".rs": Language.RUST,
+    ".zig": Language.ZIG,
     ".sh": Language.BASH,
     ".bash": Language.BASH,
     ".zsh": Language.BASH,

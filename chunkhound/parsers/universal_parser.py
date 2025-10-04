@@ -960,6 +960,7 @@ class UniversalParser:
                 file_path=FilePath(str(file_path)) if file_path else None,
                 start_byte=start_byte,
                 end_byte=end_byte,
+                metadata=uc.metadata,
             )
 
             chunks.append(chunk)
@@ -980,17 +981,22 @@ class UniversalParser:
         """
         if concept == UniversalConcept.DEFINITION:
             # Check metadata for more specific type information
-            if "function" in metadata.get("node_type", "").lower():
+            # Prefer "kind" field (semantic type) over "node_type" (AST node type)
+            kind = metadata.get("kind", "").lower()
+            node_type = metadata.get("node_type", "").lower()
+
+            # Check kind first (more specific semantic information)
+            if kind == "function" or "function" in node_type:
                 return ChunkType.FUNCTION
-            elif "class" in metadata.get("node_type", "").lower():
+            elif kind == "class" or "class" in node_type:
                 return ChunkType.CLASS
-            elif "method" in metadata.get("node_type", "").lower():
+            elif kind == "method" or "method" in node_type:
                 return ChunkType.METHOD
-            elif "struct" in metadata.get("node_type", "").lower():
-                return ChunkType.STRUCT
-            elif "enum" in metadata.get("node_type", "").lower():
+            elif kind == "struct" or "struct" in node_type:
+                return ChunkType.CLASS  # Structs map to CLASS in languages like Zig, Rust, Go
+            elif kind == "enum" or "enum" in node_type:
                 return ChunkType.ENUM
-            elif "interface" in metadata.get("node_type", "").lower():
+            elif kind == "interface" or "interface" in node_type:
                 return ChunkType.INTERFACE
             else:
                 return ChunkType.FUNCTION  # Default for definitions
