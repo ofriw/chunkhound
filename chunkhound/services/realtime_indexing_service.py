@@ -15,7 +15,7 @@ import asyncio
 import time
 from collections.abc import Iterator
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from loguru import logger
 from watchdog.events import FileSystemEventHandler
@@ -172,9 +172,17 @@ class SimpleEventHandler(FileSystemEventHandler):
 class RealtimeIndexingService:
     """Simple real-time indexing service with search responsiveness."""
 
-    def __init__(self, services: DatabaseServices, config: Config):
+    def __init__(
+        self,
+        services: DatabaseServices,
+        config: Config,
+        debug_sink: Callable[[str], None] | None = None,
+    ):
         self.services = services
         self.config = config
+        # Optional sink that writes to MCPServerBase.debug_log so events land in
+        # /tmp/chunkhound_mcp_debug.log when CHUNKHOUND_DEBUG is enabled.
+        self._debug_sink = debug_sink
 
         # Existing asyncio queue for priority processing
         self.file_queue: asyncio.Queue[tuple[str, Path]] = asyncio.Queue()
@@ -215,9 +223,20 @@ class RealtimeIndexingService:
             None  # Track when monitoring became ready
         )
 
+    # Internal helper to forward realtime events into the MCP debug log file
+    def _debug(self, message: str) -> None:
+        try:
+            if self._debug_sink:
+                # Prefix with RT to make it easy to filter
+                self._debug_sink(f"RT: {message}")
+        except Exception:
+            # Never let debug plumbing affect runtime
+            pass
+
     async def start(self, watch_path: Path) -> None:
         """Start real-time indexing service."""
         logger.debug(f"Starting real-time indexing for {watch_path}")
+        self._debug(f"start watch on {watch_path}")
 
         # Store the watch path
         self.watch_path = watch_path
@@ -236,11 +255,16 @@ class RealtimeIndexingService:
         )
 
         # Wait for monitoring to be confirmed ready
-        await self.wait_for_monitoring_ready(timeout=10.0)
+        monitoring_ok = await self.wait_for_monitoring_ready(timeout=10.0)
+        if monitoring_ok:
+            self._debug("monitoring ready")
+        else:
+            self._debug("monitoring timeout; continuing")
 
     async def stop(self) -> None:
         """Stop the service gracefully."""
         logger.debug("Stopping real-time indexing service")
+        self._debug("stopping service")
 
         # Cancel watchdog setup if still running
         if hasattr(self, "_watchdog_setup_task") and self._watchdog_setup_task:
@@ -317,6 +341,7 @@ class RealtimeIndexingService:
                 timeout=5.0,  # Increased from 2.0 to 5.0 seconds
             )
             logger.debug("Watchdog setup completed successfully (recursive mode)")
+            self._debug("watchdog setup complete (recursive)")
             self._monitoring_ready_time = time.time()
             self.monitoring_ready.set()  # Signal monitoring is ready
 
@@ -330,6 +355,7 @@ class RealtimeIndexingService:
             await asyncio.sleep(0.5)
             self._monitoring_ready_time = time.time()
             self.monitoring_ready.set()  # Signal monitoring is ready (polling mode)
+            self._debug("watchdog timed out; switched to polling")
         except Exception as e:
             logger.warning(f"Watchdog setup failed: {e} - falling back to polling")
             self._using_polling = True
@@ -338,6 +364,7 @@ class RealtimeIndexingService:
             await asyncio.sleep(0.5)
             self._monitoring_ready_time = time.time()
             self.monitoring_ready.set()  # Signal monitoring is ready (polling mode)
+            self._debug("watchdog failed; switched to polling")
 
     def _start_fs_monitor(
         self, watch_path: Path, loop: asyncio.AbstractEventLoop
@@ -376,6 +403,7 @@ class RealtimeIndexingService:
     async def _polling_monitor(self, watch_path: Path) -> None:
         """Simple polling monitor for large directories."""
         logger.debug(f"Starting polling monitor for {watch_path}")
+        self._debug(f"polling monitor active for {watch_path}")
         known_files = set()
 
         # Create a simple event handler for shouldIndex check once
@@ -398,6 +426,7 @@ class RealtimeIndexingService:
                                     logger.debug(
                                         f"Polling detected new file: {file_path}"
                                     )
+                                    self._debug(f"polling detected new file: {file_path}")
                                     await self.add_file(file_path, priority="change")
 
                         # Yield control periodically and limit total files checked
@@ -417,6 +446,7 @@ class RealtimeIndexingService:
                 for file_path in deleted:
                     logger.debug(f"Polling detected deleted file: {file_path}")
                     await self.remove_file(file_path)
+                    self._debug(f"polling detected deleted file: {file_path}")
 
                 known_files = current_files
 
@@ -449,9 +479,11 @@ class RealtimeIndexingService:
                     )
                     self._debounce_tasks.add(task)
                     task.add_done_callback(self._debounce_tasks.discard)
+                    self._debug(f"queued (debounced) {file_path} priority={priority}")
             else:
                 # Priority scan events bypass debouncing
                 await self.file_queue.put((priority, file_path))
+                self._debug(f"queued {file_path} priority={priority}")
 
     async def _debounced_add_file(self, file_path: Path, priority: str) -> None:
         """Process file after debounce delay."""
@@ -466,6 +498,7 @@ class RealtimeIndexingService:
                 del self._pending_debounce[file_str]
                 await self.file_queue.put((priority, file_path))
                 logger.debug(f"Processing debounced file: {file_path}")
+                self._debug(f"processing debounced file: {file_path}")
 
     async def _consume_events(self) -> None:
         """Simple event consumer - pure asyncio queue."""
@@ -483,17 +516,21 @@ class RealtimeIndexingService:
                 if event_type in ("created", "modified"):
                     # Use existing add_file method for deduplication and priority
                     await self.add_file(file_path, priority="change")
+                    self._debug(f"event {event_type}: {file_path}")
                 elif event_type == "deleted":
                     # Handle deletion immediately
                     await self.remove_file(file_path)
+                    self._debug(f"event deleted: {file_path}")
                 elif event_type == "dir_created":
                     # Handle new directory creation - with recursive monitoring,
                     # we don't need to add individual watches
                     # Index files in new directory
                     await self._index_directory(file_path)
+                    self._debug(f"event dir_created: {file_path}")
                 elif event_type == "dir_deleted":
                     # Handle directory deletion - cleanup database
                     await self._cleanup_deleted_directory(str(file_path))
+                    self._debug(f"event dir_deleted: {file_path}")
 
                 self.event_queue.task_done()
 
@@ -506,6 +543,7 @@ class RealtimeIndexingService:
         try:
             logger.debug(f"Removing file from database: {file_path}")
             self.services.provider.delete_file_completely(str(file_path))
+            self._debug(f"removed file from database: {file_path}")
         except Exception as e:
             logger.error(f"Error removing file {file_path}: {e}")
 
@@ -577,6 +615,9 @@ class RealtimeIndexingService:
             logger.debug(
                 f"Queued {len(supported_files)} files from new directory: {dir_path}"
             )
+            self._debug(
+                f"queued {len(supported_files)} files from new directory: {dir_path}"
+            )
 
         except Exception as e:
             logger.error(f"Error indexing new directory {dir_path}: {e}")
@@ -605,7 +646,7 @@ class RealtimeIndexingService:
                 skip_embeddings = priority == "initial"
 
                 # Use existing indexing coordinator
-                await self.services.indexing_coordinator.process_file(
+                result = await self.services.indexing_coordinator.process_file(
                     file_path, skip_embeddings=skip_embeddings
                 )
 
@@ -616,6 +657,17 @@ class RealtimeIndexingService:
                 # If we skipped embeddings, queue for embedding generation
                 if skip_embeddings:
                     await self.add_file(file_path, priority="embed")
+
+                # Record processing summary into MCP debug log
+                try:
+                    chunks = result.get("chunks", None) if isinstance(result, dict) else None
+                    embeds = result.get("embeddings", None) if isinstance(result, dict) else None
+                    self._debug(
+                        f"processed {file_path} priority={priority} "
+                        f"skip_embeddings={skip_embeddings} chunks={chunks} embeddings={embeds}"
+                    )
+                except Exception:
+                    pass
 
             except asyncio.CancelledError:
                 logger.debug("Processing loop cancelled")
