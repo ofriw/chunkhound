@@ -45,6 +45,7 @@ class Chunk:
         end_byte: Ending byte offset (optional)
         created_at: When the chunk was first indexed
         updated_at: When the chunk was last updated
+        metadata: Language-specific metadata (visibility, mutability, etc.)
     """
 
     symbol: str
@@ -61,6 +62,7 @@ class Chunk:
     end_byte: ByteOffset | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
+    metadata: dict[str, Any] | None = None
 
     def __post_init__(self) -> None:
         """Validate chunk model after initialization."""
@@ -201,6 +203,8 @@ class Chunk:
             if isinstance(updated_at, str):
                 updated_at = datetime.fromisoformat(updated_at)
 
+            metadata = data.get("metadata")
+
             return cls(
                 id=chunk_id,
                 symbol=symbol,
@@ -216,6 +220,7 @@ class Chunk:
                 end_byte=end_byte,
                 created_at=created_at,
                 updated_at=updated_at,
+                metadata=metadata,
             )
 
         except (ValueError, TypeError) as e:
@@ -260,6 +265,9 @@ class Chunk:
 
         if self.updated_at is not None:
             result["updated_at"] = self.updated_at.isoformat()
+
+        if self.metadata is not None:
+            result["metadata"] = self.metadata
 
         return result
 
@@ -380,6 +388,7 @@ class Chunk:
             end_byte=self.end_byte,
             created_at=self.created_at,
             updated_at=self.updated_at,
+            metadata=self.metadata,
         )
 
     def with_file_path(self, file_path: FilePath) -> "Chunk":
@@ -406,6 +415,7 @@ class Chunk:
             end_byte=self.end_byte,
             created_at=self.created_at,
             updated_at=self.updated_at,
+            metadata=self.metadata,
         )
 
     def __str__(self) -> str:
