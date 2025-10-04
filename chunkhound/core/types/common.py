@@ -141,6 +141,7 @@ class Language(Enum):
     GO = "go"
     HASKELL = "haskell"
     RUST = "rust"
+    ZIG = "zig"
     BASH = "bash"
     MAKEFILE = "makefile"
     C = "c"
@@ -219,6 +220,7 @@ class Language(Enum):
             ".hxx": cls.CPP,
             ".h++": cls.CPP,
             ".rs": cls.RUST,
+            ".zig": cls.ZIG,
             ".m": cls.MATLAB,
         }
 
