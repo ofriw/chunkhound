@@ -156,7 +156,9 @@ class MCPServerBase(ABC):
 
             # Start real-time indexing service
             self.debug_log("Starting real-time indexing service")
-            self.realtime_indexing = RealtimeIndexingService(self.services, self.config)
+            self.realtime_indexing = RealtimeIndexingService(
+                self.services, self.config, debug_sink=self.debug_log
+            )
 
             # Start monitoring and wait for it to be ready
             monitoring_task = asyncio.create_task(
