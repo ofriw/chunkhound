@@ -54,7 +54,11 @@ class Config(BaseModel):
 
         # 1. Smart config file resolution (before env vars)
         config_file = None
-        target_dir = None
+
+        # Extract target_dir from kwargs first (for testing)
+        target_dir = kwargs.pop("target_dir", None)
+        if target_dir is not None:
+            target_dir = Path(target_dir)
 
         # Extract config file and target directory from args if provided
         if args:
@@ -62,7 +66,7 @@ class Config(BaseModel):
             if hasattr(args, "config") and args.config:
                 config_file = Path(args.config)
 
-            # Get target directory from args.path for local config detection
+            # Get target directory from args.path (overrides kwargs)
             if hasattr(args, "path") and args.path:
                 target_dir = Path(args.path)
 
@@ -72,7 +76,7 @@ class Config(BaseModel):
             if env_config_file:
                 config_file = Path(env_config_file)
 
-        # Always detect project root for local config detection
+        # Only detect project root if target_dir not provided
         if target_dir is None:
             from chunkhound.utils.project_detection import find_project_root
 
