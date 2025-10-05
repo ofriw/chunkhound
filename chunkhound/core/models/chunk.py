@@ -137,8 +137,7 @@ class Chunk:
         try:
             # Extract required fields
             symbol = data.get("symbol")
-            if not symbol:
-                raise ValidationError("symbol", symbol, "Symbol is required")
+            # Allow None/empty for structural chunks - __post_init__ will normalize
 
             start_line = data.get("start_line")
             if start_line is None:
