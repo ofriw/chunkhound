@@ -173,8 +173,8 @@ def load_gitignore_patterns(dir_path: Path, root_dir: Path) -> list[str]:
                     patterns_from_gitignore.append(f"{line[1:]}/**")
                 else:
                     # In subdirectory
-                    patterns_from_gitignore.append(str(rel_from_root / line[1:]))
-                    patterns_from_gitignore.append(f"{rel_from_root / line[1:]}/**")
+                    patterns_from_gitignore.append((rel_from_root / line[1:]).as_posix())
+                    patterns_from_gitignore.append(f"{(rel_from_root / line[1:]).as_posix()}/**")
             else:
                 # Recursive pattern
                 rel_from_root = dir_path.relative_to(root_dir)
@@ -185,8 +185,8 @@ def load_gitignore_patterns(dir_path: Path, root_dir: Path) -> list[str]:
                     else:
                         patterns_from_gitignore.append(line)
                 else:
-                    patterns_from_gitignore.append(f"{rel_from_root}/**/{line}")
-                    patterns_from_gitignore.append(f"{rel_from_root}/{line}")
+                    patterns_from_gitignore.append(f"{rel_from_root.as_posix()}/**/{line}")
+                    patterns_from_gitignore.append(f"{rel_from_root.as_posix()}/{line}")
 
         return patterns_from_gitignore
     except (OSError, Exception) as e:
