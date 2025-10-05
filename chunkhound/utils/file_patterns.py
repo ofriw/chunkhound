@@ -59,7 +59,7 @@ def should_exclude_path(
         # Path is not under base directory, use as-is
         rel_path = path
 
-    rel_path_str = str(rel_path)
+    rel_path_str = rel_path.as_posix()
     path_name = path.name
 
     for exclude_pattern in patterns:
@@ -101,7 +101,7 @@ def should_include_file(
         True if file should be included, False otherwise
     """
     rel_path = file_path.relative_to(root_dir)
-    rel_path_str = str(rel_path)
+    rel_path_str = rel_path.as_posix()
     filename = file_path.name
 
     for pattern in patterns:

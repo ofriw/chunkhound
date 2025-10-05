@@ -235,6 +235,15 @@ async def test_permission_error_fallback(coordinator, tmp_path):
     except (OSError, PermissionError):
         pytest.skip("Cannot change permissions on this platform")
 
+    # Verify the permission restriction actually worked
+    try:
+        os.listdir(restricted_dir)
+        # If this succeeds, permissions didn't restrict access
+        pytest.skip("Platform doesn't support directory permission restrictions")
+    except PermissionError:
+        # Restriction worked, continue with test
+        pass
+
     patterns = ["**/*.py"]
     exclude_patterns = []
 
