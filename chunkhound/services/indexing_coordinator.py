@@ -15,6 +15,7 @@
 
 import asyncio
 import math
+import multiprocessing
 import os
 from concurrent.futures import ProcessPoolExecutor
 from fnmatch import fnmatch
@@ -41,6 +42,22 @@ from chunkhound.utils.file_patterns import (
     walk_directory_tree,
     walk_subtree_worker,
 )
+
+
+# CRITICAL FIX: Force spawn multiprocessing start method to prevent fork + asyncio issues
+# RATIONALE: Linux defaults to 'fork' which is unsafe with asyncio event loops
+# - Forking an active asyncio event loop causes segfaults (background threads/locks copied)
+# - 'spawn' starts fresh Python interpreter, avoiding fork-related issues
+# - Windows/macOS already use 'spawn' by default
+# - Python 3.14 will make 'spawn' the default on all platforms
+# - See: https://github.com/chunkhound/chunkhound/pull/47
+if multiprocessing.get_start_method(allow_none=True) != 'spawn':
+    try:
+        multiprocessing.set_start_method('spawn', force=True)
+        logger.debug("Set multiprocessing start method to 'spawn' (was fork)")
+    except RuntimeError:
+        # Already set by another module - log but continue
+        logger.debug(f"Multiprocessing start method already set to: {multiprocessing.get_start_method()}")
 
 
 # Performance tuning constants for parallel operations
