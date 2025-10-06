@@ -70,10 +70,14 @@ def should_exclude_path(
             if target_dir in rel_path.parts or target_dir in path.parts:
                 return True
         elif exclude_pattern.startswith("**/"):
-            # Pattern like **/*.db - check suffix against relative path and filename
-            suffix = exclude_pattern[3:]
-            compiled_suffix = compile_pattern(suffix, cache)
-            if compiled_suffix.match(rel_path_str) or compiled_suffix.match(path_name):
+            # Treat "**/..." like include logic: try full and simple variants
+            compiled_full = compile_pattern(exclude_pattern, cache)
+            compiled_simple = compile_pattern(exclude_pattern[3:], cache)
+            if (
+                compiled_full.match(rel_path_str)
+                or compiled_simple.match(rel_path_str)
+                or compiled_simple.match(path_name)
+            ):
                 return True
         else:
             # Regular pattern - use compiled regex for faster matching
