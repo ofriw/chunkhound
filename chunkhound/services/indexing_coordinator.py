@@ -789,6 +789,8 @@ class IndexingCoordinator(BaseService):
             # Track skipped files (including timeouts)
             skipped_total = agg_skipped
             skipped_due_to_timeout = agg_skipped_timeout
+            # Split parse-time skips into timeout vs other (filtered/unsupported/config)
+            skipped_filtered = max(0, skipped_total - len(skipped_due_to_timeout))
 
             total_files = stats["total_files"]
             total_chunks = stats["total_chunks"]
@@ -837,6 +839,7 @@ class IndexingCoordinator(BaseService):
                 "skipped": skipped_total + skipped_unchanged,
                 "skipped_due_to_timeout": skipped_due_to_timeout,
                 "skipped_unchanged": skipped_unchanged,
+                "skipped_filtered": skipped_filtered,
             }
 
         except Exception as e:

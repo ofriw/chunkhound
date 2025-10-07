@@ -333,6 +333,10 @@ class RichOutputFormatter:
             summary_table.add_row(
                 "  └─ Unchanged:", f"[yellow]{stats.get('skipped_unchanged', 0)}[/yellow] files"
             )
+        if stats.get("skipped_filtered", 0) > 0:
+            summary_table.add_row(
+                "  └─ Filtered:", f"[yellow]{stats.get('skipped_filtered', 0)}[/yellow] files"
+            )
         summary_table.add_row(
             "Errors:", f"[red]{stats.get('files_errors', 0)}[/red] files"
         )
