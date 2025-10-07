@@ -173,11 +173,7 @@ def process_file_batch(file_paths: list[Path], config_dict: dict) -> list[Parsed
             if timeout_s > 0 and (file_stat.st_size / 1024) >= timeout_min_kb:
                 status, payload = _parse_file_with_timeout(file_path, language, timeout_s)
                 if status == "timeout":
-                    # Notify immediately as it happens
-                    try:
-                        print(f"skipping {file_path} due to a timeout", flush=True)
-                    except Exception:
-                        pass
+                    # Defer user notification to final summary; avoid live console noise
                     results.append(
                         ParsedFileResult(
                             file_path=file_path,

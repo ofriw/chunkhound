@@ -51,13 +51,21 @@ from chunkhound.utils.file_patterns import (
 # - Windows/macOS already use 'spawn' by default
 # - Python 3.14 will make 'spawn' the default on all platforms
 # - See: https://github.com/chunkhound/chunkhound/pull/47
-if multiprocessing.get_start_method(allow_none=True) != 'spawn':
+desired_mp_method = os.getenv("CHUNKHOUND_MP_START_METHOD", "spawn")
+current_mp_method = multiprocessing.get_start_method(allow_none=True)
+if current_mp_method is None:
     try:
-        multiprocessing.set_start_method('spawn', force=True)
-        logger.debug("Set multiprocessing start method to 'spawn' (was fork)")
+        multiprocessing.set_start_method(desired_mp_method, force=True)
+        logger.debug(f"Set multiprocessing start method to '{desired_mp_method}'")
     except RuntimeError:
-        # Already set by another module - log but continue
-        logger.debug(f"Multiprocessing start method already set to: {multiprocessing.get_start_method()}")
+        logger.debug(
+            f"Multiprocessing start method already set to: {multiprocessing.get_start_method()}"
+        )
+else:
+    if current_mp_method != desired_mp_method:
+        logger.debug(
+            f"Multiprocessing start method already '{current_mp_method}', desired '{desired_mp_method}'"
+        )
 
 
 # Performance tuning constants for parallel operations
@@ -337,6 +345,14 @@ class IndexingCoordinator(BaseService):
         cpu_count = os.cpu_count() or DEFAULT_CPU_COUNT
         file_count = len(files)
         num_workers = _calculate_worker_count(file_count, cpu_count)
+        # Allow config to cap workers (safety/override)
+        try:
+            if self.config and getattr(self.config, "indexing", None):
+                max_concurrent = int(getattr(self.config.indexing, "max_concurrent", 0) or 0)
+                if max_concurrent > 0:
+                    num_workers = max(1, min(num_workers, max_concurrent))
+        except Exception:
+            pass
 
         logger.debug(f"Parsing {file_count} files with {num_workers} workers")
 
@@ -612,15 +628,62 @@ class IndexingCoordinator(BaseService):
                 f"Directory consistency: {len(files)} files discovered, {cleaned_files} orphaned files cleaned"
             )
 
+            # Phase 2.5: Change detection (skip unchanged files unless force_reindex)
+            force_reindex = False
+            try:
+                if self.config and getattr(self.config, "indexing", None):
+                    force_reindex = bool(getattr(self.config.indexing, "force_reindex", False))
+            except Exception:
+                force_reindex = False
+
+            files_to_process = files
+            skipped_unchanged = 0
+            if not force_reindex:
+                change_task: TaskID | None = None
+                if self.progress:
+                    change_task = self.progress.add_task(
+                        "  └─ Scanning changes", total=len(files), speed="", info=""
+                    )
+
+                files_to_process = []
+                base_dir = self._base_directory
+                for f in files:
+                    try:
+                        rel = self._get_relative_path(f).as_posix()
+                        # Request as model to get consistent mtime/size_bytes attributes
+                        db_file = self._db.get_file_by_path(rel, as_model=True)
+                        st = f.stat()
+                        # If present and both size and mtime match, skip re-parse
+                        if db_file and hasattr(db_file, "mtime") and hasattr(db_file, "size_bytes"):
+                            same_size = int(getattr(db_file, "size_bytes", -1)) == int(st.st_size)
+                            same_mtime = float(getattr(db_file, "mtime", -1.0)) == float(st.st_mtime)
+                            if same_size and same_mtime:
+                                skipped_unchanged += 1
+                            else:
+                                files_to_process.append(f)
+                        else:
+                            files_to_process.append(f)
+                    except Exception:
+                        # On any error, fall back to processing the file
+                        files_to_process.append(f)
+                    finally:
+                        if change_task is not None and self.progress:
+                            self.progress.advance(change_task, 1)
+
+                if change_task is not None and self.progress:
+                    task = self.progress.tasks[change_task]
+                    if task.total:
+                        self.progress.update(change_task, completed=task.total)
+
             # Phase 3: Parse + Store
             parse_task: TaskID | None = None
             store_task: TaskID | None = None
             if self.progress:
                 parse_task = self.progress.add_task(
-                    "  └─ Parsing files", total=len(files), speed="", info=""
+                    "  └─ Parsing files", total=len(files_to_process), speed="", info=""
                 )
                 store_task = self.progress.add_task(
-                    "  └─ Processing files", total=len(files), speed="", info=""
+                    "  └─ Processing files", total=len(files_to_process), speed="", info=""
                 )
 
             # Aggregators for streamed storage
@@ -653,7 +716,7 @@ class IndexingCoordinator(BaseService):
 
             # Parse files (streaming progress as batches complete and store concurrently)
             parsed_results = await self._process_files_in_batches(
-                files, config_file_size_threshold_kb, parse_task, on_batch=_on_batch_store
+                files_to_process, config_file_size_threshold_kb, parse_task, on_batch=_on_batch_store
             )
 
             # Mark parse task complete
@@ -698,8 +761,9 @@ class IndexingCoordinator(BaseService):
                 "status": "success",
                 "files_processed": total_files,
                 "total_chunks": total_chunks,
-                "skipped": skipped_total,
+                "skipped": skipped_total + skipped_unchanged,
                 "skipped_due_to_timeout": skipped_due_to_timeout,
+                "skipped_unchanged": skipped_unchanged,
             }
 
         except Exception as e:
