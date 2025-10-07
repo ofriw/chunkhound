@@ -61,6 +61,13 @@ class IndexingConfig(BaseModel):
         description=
         "Maximum seconds to spend parsing a single file (0 disables timeout)",
     )
+    per_file_timeout_min_size_kb: int = Field(
+        default=128,
+        description=(
+            "Only apply timeout to files at or above this size (KB) to avoid "
+            "overhead on small files"
+        ),
+    )
 
     # Parallel discovery settings
     parallel_discovery: bool = Field(
@@ -237,6 +244,15 @@ class IndexingConfig(BaseModel):
                 "(default: 0, disabled)"
             ),
         )
+        parser.add_argument(
+            "--file-timeout-min-size-kb",
+            type=int,
+            default=None,
+            help=(
+                "Only apply the per-file timeout to files >= this size (KB). "
+                "Default: 128"
+            ),
+        )
 
     @classmethod
     def load_from_env(cls) -> dict[str, Any]:
@@ -260,6 +276,13 @@ class IndexingConfig(BaseModel):
                 config["per_file_timeout_seconds"] = float(per_file_timeout)
             except ValueError:
                 # Ignore invalid env values and keep default
+                pass
+        if per_file_timeout_min := os.getenv(
+            "CHUNKHOUND_INDEXING__PER_FILE_TIMEOUT_MIN_SIZE_KB"
+        ):
+            try:
+                config["per_file_timeout_min_size_kb"] = int(per_file_timeout_min)
+            except ValueError:
                 pass
 
         # Cleanup orphaned records toggle
@@ -288,6 +311,16 @@ class IndexingConfig(BaseModel):
                 overrides["per_file_timeout_seconds"] = float(args.file_timeout)
             except (TypeError, ValueError):
                 # Ignore invalid values; validation not strict here
+                pass
+        if (
+            hasattr(args, "file_timeout_min_size_kb")
+            and args.file_timeout_min_size_kb is not None
+        ):
+            try:
+                overrides["per_file_timeout_min_size_kb"] = int(
+                    args.file_timeout_min_size_kb
+                )
+            except (TypeError, ValueError):
                 pass
 
         # Cleanup toggle via CLI

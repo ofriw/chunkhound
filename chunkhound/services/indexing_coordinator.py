@@ -340,24 +340,13 @@ class IndexingCoordinator(BaseService):
 
         logger.debug(f"Parsing {file_count} files with {num_workers} workers")
 
-        # Split files into smaller sub-batches so progress updates earlier
-        # If per-file timeout is enabled, use sub-batch size 1 for fastest feedback
-        timeout_s = 0.0
-        try:
-            if self.config and getattr(self.config, "indexing", None):
-                timeout_s = float(
-                    getattr(self.config.indexing, "per_file_timeout_seconds", 0.0)
-                    or 0.0
-                )
-        except Exception:
-            timeout_s = 0.0
-
-        if timeout_s > 0:
-            batch_size = 1
-        else:
-            target_batches = max(num_workers * 4, 1)
-            max_subbatch = 20
-            batch_size = max(1, min(max_subbatch, math.ceil(len(files) / target_batches)))
+        # Split into moderate sub-batches so we stream progress without overwhelming the scheduler
+        # Heuristic: aim for ~3–4× workers batches; clamp to a minimum batch size for efficiency
+        target_batches = max(num_workers * 4, 1)
+        # Compute base size from target_batches then clamp to [MIN_BATCH, file_count]
+        MIN_BATCH = 128
+        base = max(1, math.ceil(len(files) / target_batches))
+        batch_size = min(len(files), max(MIN_BATCH, base))
         file_batches = [files[i : i + batch_size] for i in range(0, len(files), batch_size)]
 
         # Process batches in parallel using ProcessPoolExecutor

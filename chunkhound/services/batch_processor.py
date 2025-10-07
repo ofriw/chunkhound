@@ -72,6 +72,7 @@ def _parse_file_with_timeout(
     - ("timeout", None)
     """
     # Use spawn context for safety (works on all platforms)
+    # Use spawn for safety; within worker processes this is still safe
     ctx = multiprocessing.get_context("spawn")
     parent_conn, child_conn = ctx.Pipe(duplex=False)
     p = ctx.Process(
@@ -125,6 +126,10 @@ def process_file_batch(file_paths: list[Path], config_dict: dict) -> list[Parsed
     """
     results = []
 
+    # Read timeout config once
+    timeout_s = float(config_dict.get("per_file_timeout_seconds", 0.0) or 0.0)
+    timeout_min_kb = int(config_dict.get("per_file_timeout_min_size_kb", 128) or 128)
+
     for file_path in file_paths:
         try:
             # Get file metadata
@@ -165,8 +170,7 @@ def process_file_batch(file_paths: list[Path], config_dict: dict) -> list[Parsed
                     continue
 
             # Parse file and generate chunks (with optional per-file timeout)
-            timeout_s = float(config_dict.get("per_file_timeout_seconds", 0.0) or 0.0)
-            if timeout_s > 0:
+            if timeout_s > 0 and (file_stat.st_size / 1024) >= timeout_min_kb:
                 status, payload = _parse_file_with_timeout(file_path, language, timeout_s)
                 if status == "timeout":
                     # Notify immediately as it happens
