@@ -1047,16 +1047,32 @@ class DuckDBProvider(SerialDatabaseProvider):
         }
 
         if as_model:
+            # Convert DuckDB TIMESTAMP to epoch seconds (float)
+            mval = file_dict["modified_time"]
+            try:
+                from datetime import datetime
+
+                if isinstance(mval, datetime):
+                    mtime = mval.timestamp()
+                else:
+                    mtime = float(mval) if mval is not None else 0.0
+            except Exception:
+                mtime = 0.0
+
+            try:
+                size_bytes = int(file_dict["size"]) if file_dict["size"] is not None else 0
+            except Exception:
+                size_bytes = 0
+
+            lang_value = file_dict.get("language")
+            language = Language(lang_value) if lang_value else None
+
             return File(
                 id=file_dict["id"],
-                path=Path(file_dict["path"]),
-                name=file_dict["name"],
-                extension=file_dict["extension"],
-                size=file_dict["size"],
-                modified_time=file_dict["modified_time"],
-                language=Language(file_dict["language"])
-                if file_dict["language"]
-                else None,
+                path=Path(file_dict["path"]).as_posix(),
+                mtime=mtime,
+                language=language if language is not None else Language.UNKNOWN,
+                size_bytes=size_bytes,
             )
 
         return file_dict

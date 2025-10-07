@@ -656,7 +656,12 @@ class IndexingCoordinator(BaseService):
                         # If present and both size and mtime match, skip re-parse
                         if db_file and hasattr(db_file, "mtime") and hasattr(db_file, "size_bytes"):
                             same_size = int(getattr(db_file, "size_bytes", -1)) == int(st.st_size)
-                            same_mtime = float(getattr(db_file, "mtime", -1.0)) == float(st.st_mtime)
+                            try:
+                                stored_mtime = float(getattr(db_file, "mtime", -1.0))
+                            except Exception:
+                                stored_mtime = -1.0
+                            # Allow tiny differences due to float/datetime conversions
+                            same_mtime = abs(stored_mtime - float(st.st_mtime)) < 1e-3
                             if same_size and same_mtime:
                                 skipped_unchanged += 1
                             else:
