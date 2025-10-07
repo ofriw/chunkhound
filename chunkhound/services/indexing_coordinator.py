@@ -306,7 +306,10 @@ class IndexingCoordinator(BaseService):
             return return_dict
 
     async def _process_files_in_batches(
-        self, files: list[Path], config_file_size_threshold_kb: int = 20
+        self,
+        files: list[Path],
+        config_file_size_threshold_kb: int = 20,
+        parse_task: TaskID | None = None,
     ) -> list[ParsedFileResult]:
         """Process files in parallel batches across CPU cores.
 
@@ -336,11 +339,12 @@ class IndexingCoordinator(BaseService):
 
         logger.debug(f"Parsing {file_count} files with {num_workers} workers")
 
-        # Split files into batches for parallel processing
-        batch_size = math.ceil(len(files) / num_workers)
-        file_batches = [
-            files[i : i + batch_size] for i in range(0, len(files), batch_size)
-        ]
+        # Split files into MANY small sub-batches so progress updates earlier
+        # Heuristic: aim for ~4×workers in flight with max sub-batch size 50
+        target_batches = max(num_workers * 4, 1)
+        max_subbatch = 50
+        batch_size = max(1, min(max_subbatch, math.ceil(len(files) / target_batches)))
+        file_batches = [files[i : i + batch_size] for i in range(0, len(files), batch_size)]
 
         # Process batches in parallel using ProcessPoolExecutor
         loop = asyncio.get_running_loop()
@@ -363,19 +367,22 @@ class IndexingCoordinator(BaseService):
                 "per_file_timeout_seconds": timeout_s,
             }
             futures = [
-                loop.run_in_executor(
-                    executor, process_file_batch, batch, config_dict
-                )
+                loop.run_in_executor(executor, process_file_batch, batch, config_dict)
                 for batch in file_batches
             ]
 
-            # Wait for all batches to complete
-            batch_results = await asyncio.gather(*futures)
-
-        # Flatten results from all batches
-        all_results = []
-        for batch_result in batch_results:
-            all_results.extend(batch_result)
+            # Consume results as they complete to stream progress
+            all_results: list[ParsedFileResult] = []
+            completed_files = 0
+            for fut in asyncio.as_completed(futures):
+                batch_result = await fut
+                all_results.extend(batch_result)
+                # Update parse progress
+                if parse_task is not None and self.progress:
+                    inc = len(batch_result)
+                    completed_files += inc
+                    self.progress.advance(parse_task, inc)
+                    self.progress.update(parse_task, info=f"{completed_files} parsed")
 
         return all_results
 
@@ -570,19 +577,30 @@ class IndexingCoordinator(BaseService):
                 f"Directory consistency: {len(files)} files discovered, {cleaned_files} orphaned files cleaned"
             )
 
-            # Phase 3: Update - Process files in parallel batches
-            # Create progress task for file processing
-            file_task: TaskID | None = None
+            # Phase 3: Parse + Store
+            parse_task: TaskID | None = None
+            store_task: TaskID | None = None
             if self.progress:
-                file_task = self.progress.add_task(
+                parse_task = self.progress.add_task(
+                    "  └─ Parsing files", total=len(files), speed="", info=""
+                )
+                store_task = self.progress.add_task(
                     "  └─ Processing files", total=len(files), speed="", info=""
                 )
 
-            # Parse files in parallel batches across CPU cores
-            parsed_results = await self._process_files_in_batches(files, config_file_size_threshold_kb)
+            # Parse files (streaming progress as batches complete)
+            parsed_results = await self._process_files_in_batches(
+                files, config_file_size_threshold_kb, parse_task
+            )
+
+            # Mark parse task complete
+            if parse_task is not None and self.progress:
+                task = self.progress.tasks[parse_task]
+                if task.total:
+                    self.progress.update(parse_task, completed=task.total)
 
             # Store results in database (single-threaded for safety)
-            stats = await self._store_parsed_results(parsed_results, file_task)
+            stats = await self._store_parsed_results(parsed_results, store_task)
 
             # Track skipped files (including timeouts)
             skipped_total = sum(1 for r in parsed_results if r.status == "skipped")
@@ -600,10 +618,10 @@ class IndexingCoordinator(BaseService):
                 logger.warning(f"Failed to process {error['file']}: {error['error']}")
 
             # Complete the file processing progress bar
-            if file_task is not None and self.progress:
-                task = self.progress.tasks[file_task]
+            if store_task is not None and self.progress:
+                task = self.progress.tasks[store_task]
                 if task.total:
-                    self.progress.update(file_task, completed=task.total)
+                    self.progress.update(store_task, completed=task.total)
 
             # Note: Embedding generation is handled separately via generate_missing_embeddings()
             # to provide a unified progress experience
