@@ -418,11 +418,17 @@ class DuckDBProvider(SerialDatabaseProvider):
                     extension TEXT,
                     size INTEGER,
                     modified_time TIMESTAMP,
+                    content_hash TEXT,
                     language TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+
+            # Ensure content_hash exists for existing DBs
+            conn.execute(
+                "ALTER TABLE files ADD COLUMN IF NOT EXISTS content_hash TEXT"
+            )
 
             # Create sequence for chunks table
             conn.execute("CREATE SEQUENCE IF NOT EXISTS chunks_id_seq")
@@ -1024,7 +1030,7 @@ class DuckDBProvider(SerialDatabaseProvider):
         lookup_path = normalize_path_for_lookup(path, base_dir)
         result = conn.execute(
             """
-            SELECT id, path, name, extension, size, modified_time, language, created_at, updated_at
+            SELECT id, path, name, extension, size, modified_time, language, content_hash, created_at, updated_at
             FROM files
             WHERE path = ?
         """,
@@ -1042,8 +1048,9 @@ class DuckDBProvider(SerialDatabaseProvider):
             "size": result[4],
             "modified_time": result[5],
             "language": result[6],
-            "created_at": result[7],
-            "updated_at": result[8],
+            "content_hash": result[7],
+            "created_at": result[8],
+            "updated_at": result[9],
         }
 
         if as_model:
@@ -1088,10 +1095,11 @@ class DuckDBProvider(SerialDatabaseProvider):
         file_id: int,
         size_bytes: int | None = None,
         mtime: float | None = None,
+        content_hash: str | None = None,
         **kwargs,
     ) -> None:
         """Update file record with new values - delegate to file repository."""
-        self._execute_in_db_thread_sync("update_file", file_id, size_bytes, mtime)
+        self._execute_in_db_thread_sync("update_file", file_id, size_bytes, mtime, content_hash)
 
     def _executor_update_file(
         self,
@@ -1100,6 +1108,7 @@ class DuckDBProvider(SerialDatabaseProvider):
         file_id: int,
         size_bytes: int | None,
         mtime: float | None,
+        content_hash: str | None,
     ) -> None:
         """Executor method for update_file - runs in DB thread."""
         # Track operation for checkpoint management
@@ -1116,6 +1125,10 @@ class DuckDBProvider(SerialDatabaseProvider):
         if mtime is not None:
             updates.append("modified_time = to_timestamp(?)")
             params.append(mtime)
+
+        if content_hash is not None:
+            updates.append("content_hash = ?")
+            params.append(content_hash)
 
         if updates:
             updates.append("updated_at = CURRENT_TIMESTAMP")

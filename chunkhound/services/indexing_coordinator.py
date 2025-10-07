@@ -636,7 +636,7 @@ class IndexingCoordinator(BaseService):
             except Exception:
                 force_reindex = False
 
-            files_to_process = files
+            files_to_process: list[Path] = files
             skipped_unchanged = 0
             if not force_reindex:
                 change_task: TaskID | None = None
@@ -645,32 +645,61 @@ class IndexingCoordinator(BaseService):
                         "  └─ Scanning changes", total=len(files), speed="", info=""
                     )
 
-            files_to_process = []
-            debug_skip = bool(os.getenv("CHUNKHOUND_DEBUG_SKIP"))
-            reasons = {"not_found": 0, "size": 0, "mtime": 0, "ok": 0, "error": 0}
-            mtime_eps = 0.01
-            try:
-                if self.config and getattr(self.config, "indexing", None):
-                    mtime_eps = float(getattr(self.config.indexing, "mtime_epsilon_seconds", 0.01) or 0.01)
-            except Exception:
+                debug_skip = bool(os.getenv("CHUNKHOUND_DEBUG_SKIP"))
+                reasons = {"not_found": 0, "size": 0, "mtime": 0, "ok": 0, "error": 0}
+                # Configurable tolerances
                 mtime_eps = 0.01
-                base_dir = self._base_directory
+                try:
+                    if self.config and getattr(self.config, "indexing", None):
+                        mtime_eps = float(getattr(self.config.indexing, "mtime_epsilon_seconds", 0.01) or 0.01)
+                except Exception:
+                    mtime_eps = 0.01
+                verify_checksum = False
+                sample_kb = 64
+                try:
+                    if self.config and getattr(self.config, "indexing", None):
+                        verify_checksum = bool(getattr(self.config.indexing, "verify_checksum_when_mtime_equal", False))
+                        sample_kb = int(getattr(self.config.indexing, "checksum_sample_kb", 64) or 64)
+                except Exception:
+                    pass
+
+                files_to_process = []
                 for f in files:
                     try:
                         rel = self._get_relative_path(f).as_posix()
-                        # Request as model to get consistent mtime/size_bytes attributes
-                        db_file = self._db.get_file_by_path(rel, as_model=True)
+                        db_file = self._db.get_file_by_path(rel, as_model=False)
                         st = f.stat()
-                        # If present and both size and mtime match, skip re-parse
-                        if db_file and hasattr(db_file, "mtime") and hasattr(db_file, "size_bytes"):
-                            db_size = int(getattr(db_file, "size_bytes", -1))
+                        if db_file and isinstance(db_file, dict) and ("modified_time" in db_file or "mtime" in db_file):
+                            db_size = int(db_file.get("size", db_file.get("size_bytes", -1)))
                             same_size = db_size == int(st.st_size)
                             try:
-                                stored_mtime = float(getattr(db_file, "mtime", -1.0))
+                                stored_mtime = db_file.get("modified_time", db_file.get("mtime", -1.0))
+                                if hasattr(stored_mtime, "timestamp"):
+                                    stored_mtime = float(stored_mtime.timestamp())
+                                else:
+                                    stored_mtime = float(stored_mtime)
                             except Exception:
                                 stored_mtime = -1.0
                             same_mtime = abs(stored_mtime - float(st.st_mtime)) <= mtime_eps
                             if same_size and same_mtime:
+                                if verify_checksum:
+                                    db_hash = db_file.get("content_hash")
+                                    if db_hash:
+                                        try:
+                                            from chunkhound.utils.hashing import sample_file_hash
+                                            cur_hash = sample_file_hash(f, sample_kb)
+                                            if cur_hash != db_hash:
+                                                files_to_process.append(f)
+                                                reasons["mtime"] += 1
+                                                continue
+                                        except Exception:
+                                            files_to_process.append(f)
+                                            reasons["error"] += 1
+                                            continue
+                                    else:
+                                        files_to_process.append(f)  # populate checksum once
+                                        reasons["not_found"] += 1
+                                        continue
                                 skipped_unchanged += 1
                                 reasons["ok"] += 1
                             else:
@@ -683,7 +712,6 @@ class IndexingCoordinator(BaseService):
                             files_to_process.append(f)
                             reasons["not_found"] += 1
                     except Exception:
-                        # On any error, fall back to processing the file
                         files_to_process.append(f)
                         reasons["error"] += 1
                     finally:
@@ -782,6 +810,25 @@ class IndexingCoordinator(BaseService):
             if total_chunks > 0 and hasattr(self._db, "optimize_tables"):
                 logger.debug("Optimizing database tables after bulk operations...")
                 self._db.optimize_tables()
+
+            # For files we processed, update their content_hash if verification is enabled
+            if files_to_process and verify_checksum:
+                try:
+                    for result in parsed_results:
+                        if result.status == "success":
+                            try:
+                                from chunkhound.utils.hashing import sample_file_hash
+
+                                h = sample_file_hash(result.file_path, sample_kb)
+                                # Get file_id by path
+                                relp = self._get_relative_path(result.file_path).as_posix()
+                                db_rec = self._db.get_file_by_path(relp, as_model=False)
+                                if db_rec and isinstance(db_rec, dict) and "id" in db_rec:
+                                    self._db.update_file(db_rec["id"], content_hash=h)
+                            except Exception:
+                                pass
+                except Exception:
+                    pass
 
             return {
                 "status": "success",
