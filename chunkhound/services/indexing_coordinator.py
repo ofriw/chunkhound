@@ -410,7 +410,10 @@ class IndexingCoordinator(BaseService):
         return all_results
 
     async def _store_parsed_results(
-        self, results: list[ParsedFileResult], file_task: TaskID | None = None
+        self,
+        results: list[ParsedFileResult],
+        file_task: TaskID | None = None,
+        cumulative_counters: dict[str, int] | None = None,
     ) -> dict[str, Any] | tuple[dict[str, Any], int]:
         """Store all parsed results in database (single-threaded).
 
@@ -553,13 +556,23 @@ class IndexingCoordinator(BaseService):
                 # Update progress
                 if file_task is not None and self.progress:
                     self.progress.advance(file_task, 1)
-                    self.progress.update(file_task, info=f"{stats['total_chunks']} chunks")
+                    # Display cumulative chunk count across batches if provided
+                    base = 0
+                    if cumulative_counters and isinstance(cumulative_counters.get('chunks', 0), int):
+                        base = cumulative_counters.get('chunks', 0)
+                    display_chunks = base + stats["total_chunks"]
+                    self.progress.update(file_task, info=f"{display_chunks} chunks")
 
             except Exception as e:
                 self._db.rollback_transaction()
                 stats["errors"].append({"file": str(result.file_path), "error": str(e)})
                 if file_task is not None and self.progress:
                     self.progress.advance(file_task, 1)
+
+        # Update external cumulative counters
+        if cumulative_counters is not None:
+            cumulative_counters['chunks'] = cumulative_counters.get('chunks', 0) + stats["total_chunks"]
+            cumulative_counters['files'] = cumulative_counters.get('files', 0) + stats["total_files"]
 
         # Return file_id for single-file case
         if len(results) == 1 and file_ids and file_ids[0] is not None:
@@ -592,9 +605,19 @@ class IndexingCoordinator(BaseService):
                 return {"status": "no_files", "files_processed": 0, "total_chunks": 0}
 
             # Phase 2: Reconciliation - Ensure database consistency by removing orphaned files
-            cleaned_files = self._cleanup_orphaned_files(
-                directory, files, exclude_patterns
-            )
+            cleaned_files = 0
+            try:
+                do_cleanup = True
+                if self.config and getattr(self.config, "indexing", None) is not None:
+                    do_cleanup = bool(getattr(self.config.indexing, "cleanup", True))
+                if do_cleanup:
+                    cleaned_files = self._cleanup_orphaned_files(
+                        directory, files, exclude_patterns
+                    )
+                else:
+                    logger.debug("Skipping orphaned file cleanup (cleanup disabled)")
+            except Exception as e:
+                logger.warning(f"Cleanup phase skipped due to error: {e}")
 
             logger.debug(
                 f"Directory consistency: {len(files)} files discovered, {cleaned_files} orphaned files cleaned"
@@ -618,6 +641,8 @@ class IndexingCoordinator(BaseService):
             agg_skipped = 0
             agg_skipped_timeout: list[str] = []
 
+            store_progress_counters = {"chunks": 0, "files": 0}
+
             async def _on_batch_store(batch: list[ParsedFileResult]) -> None:
                 nonlocal agg_total_files, agg_total_chunks, agg_errors, agg_skipped, agg_skipped_timeout
                 # Update skip counters from parse results
@@ -628,7 +653,9 @@ class IndexingCoordinator(BaseService):
                             agg_skipped_timeout.append(str(r.file_path))
 
                 # Store this batch immediately
-                stats_part = await self._store_parsed_results(batch, store_task)
+                stats_part = await self._store_parsed_results(
+                    batch, store_task, cumulative_counters=store_progress_counters
+                )
                 if isinstance(stats_part, tuple):
                     stats_part = stats_part[0]
                 agg_total_files += stats_part.get("total_files", 0)

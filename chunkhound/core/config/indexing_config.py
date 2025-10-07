@@ -223,6 +223,12 @@ class IndexingConfig(BaseModel):
         )
 
         parser.add_argument(
+            "--no-cleanup",
+            action="store_true",
+            help="Skip cleanup of orphaned database records for files no longer present",
+        )
+
+        parser.add_argument(
             "--file-timeout",
             type=float,
             default=None,
@@ -256,6 +262,10 @@ class IndexingConfig(BaseModel):
                 # Ignore invalid env values and keep default
                 pass
 
+        # Cleanup orphaned records toggle
+        if cleanup := os.getenv("CHUNKHOUND_INDEXING__CLEANUP"):
+            config["cleanup"] = cleanup.lower() in ("true", "1", "yes")
+
         return config
 
     @classmethod
@@ -279,6 +289,10 @@ class IndexingConfig(BaseModel):
             except (TypeError, ValueError):
                 # Ignore invalid values; validation not strict here
                 pass
+
+        # Cleanup toggle via CLI
+        if hasattr(args, "no_cleanup") and args.no_cleanup:
+            overrides["cleanup"] = False
 
         return overrides
 
