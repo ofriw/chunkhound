@@ -55,6 +55,13 @@ class IndexingConfig(BaseModel):
     min_chunk_size: int = Field(default=50, description="Internal min chunk size")
     max_chunk_size: int = Field(default=2000, description="Internal max chunk size")
 
+    # File parsing safety
+    per_file_timeout_seconds: float = Field(
+        default=0.0,
+        description=
+        "Maximum seconds to spend parsing a single file (0 disables timeout)",
+    )
+
     # Parallel discovery settings
     parallel_discovery: bool = Field(
         default=True,
@@ -215,6 +222,16 @@ class IndexingConfig(BaseModel):
             help="File patterns to exclude (can be specified multiple times)",
         )
 
+        parser.add_argument(
+            "--file-timeout",
+            type=float,
+            default=None,
+            help=(
+                "Maximum seconds to spend on any single file before skipping it "
+                "(default: 0, disabled)"
+            ),
+        )
+
     @classmethod
     def load_from_env(cls) -> dict[str, Any]:
         """Load indexing config from environment variables."""
@@ -228,6 +245,16 @@ class IndexingConfig(BaseModel):
             config["include"] = include.split(",")
         if exclude := os.getenv("CHUNKHOUND_INDEXING__EXCLUDE"):
             config["exclude"] = exclude.split(",")
+
+        # Per-file timeout (seconds)
+        if per_file_timeout := os.getenv(
+            "CHUNKHOUND_INDEXING__PER_FILE_TIMEOUT_SECONDS"
+        ):
+            try:
+                config["per_file_timeout_seconds"] = float(per_file_timeout)
+            except ValueError:
+                # Ignore invalid env values and keep default
+                pass
 
         return config
 
@@ -244,6 +271,14 @@ class IndexingConfig(BaseModel):
             overrides["include"] = args.include
         if hasattr(args, "exclude") and args.exclude:
             overrides["exclude"] = args.exclude
+
+        # Per-file timeout override
+        if hasattr(args, "file_timeout") and args.file_timeout is not None:
+            try:
+                overrides["per_file_timeout_seconds"] = float(args.file_timeout)
+            except (TypeError, ValueError):
+                # Ignore invalid values; validation not strict here
+                pass
 
         return overrides
 

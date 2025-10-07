@@ -6,6 +6,8 @@
 """
 
 import os
+import multiprocessing
+from multiprocessing.connection import Connection
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -24,6 +26,88 @@ class ParsedFileResult:
     file_mtime: float
     status: str
     error: str | None = None
+
+
+def _parse_file_worker(file_path_str: str, language_value: str, conn: Connection) -> None:
+    """Child-process worker to parse a single file and send results via pipe.
+
+    Using a dedicated process lets us enforce a strict wall-clock timeout by
+    terminating the child when exceeded, without risking stuck threads.
+    """
+    try:
+        # Local imports to keep worker picklable and light
+        from pathlib import Path as _Path
+        from chunkhound.core.types.common import Language as _Language, FileId as _FileId
+        from chunkhound.parsers.parser_factory import create_parser_for_language as _create
+
+        language = _Language.from_string(language_value)
+        parser = _create(language)
+        if not parser:
+            conn.send(("error", f"No parser available for {language}"))
+            return
+
+        chunks = parser.parse_file(_Path(file_path_str), _FileId(0))
+        chunks_data = [chunk.to_dict() for chunk in chunks]
+        conn.send(("ok", chunks_data))
+    except Exception as e:  # pragma: no cover - safety net
+        try:
+            conn.send(("error", str(e)))
+        except Exception:
+            pass
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
+def _parse_file_with_timeout(
+    file_path: Path, language: Language, timeout_s: float
+) -> tuple[str, list[dict] | str | None]:
+    """Parse a file in a child process with a wall-clock timeout.
+
+    Returns a tuple of (status, payload):
+    - ("success", list_of_chunk_dicts)
+    - ("error", error_message)
+    - ("timeout", None)
+    """
+    # Use spawn context for safety (works on all platforms)
+    ctx = multiprocessing.get_context("spawn")
+    parent_conn, child_conn = ctx.Pipe(duplex=False)
+    p = ctx.Process(
+        target=_parse_file_worker,
+        args=(str(file_path), language.value, child_conn),
+        daemon=True,
+    )
+    p.start()
+    # Close our reference to the child side in the parent
+    try:
+        child_conn.close()
+    except Exception:
+        pass
+
+    try:
+        if parent_conn.poll(timeout_s):
+            status, payload = parent_conn.recv()
+            # Ensure process exits
+            p.join(timeout=0.5)
+            if p.is_alive():
+                p.terminate()
+                p.join(timeout=0.5)
+            if status == "ok":
+                return ("success", payload)
+            else:
+                return ("error", payload)
+        else:
+            # Timeout - terminate the child process cleanly
+            p.terminate()
+            p.join(timeout=0.5)
+            return ("timeout", None)
+    finally:
+        try:
+            parent_conn.close()
+        except Exception:
+            pass
 
 
 def process_file_batch(file_paths: list[Path], config_dict: dict) -> list[ParsedFileResult]:
@@ -80,29 +164,63 @@ def process_file_batch(file_paths: list[Path], config_dict: dict) -> list[Parsed
                     )
                     continue
 
-            # Create parser for this language
-            parser = create_parser_for_language(language)
-            if not parser:
-                results.append(
-                    ParsedFileResult(
-                        file_path=file_path,
-                        chunks=[],
-                        language=language,
-                        file_size=file_stat.st_size,
-                        file_mtime=file_stat.st_mtime,
-                        status="error",
-                        error=f"No parser available for {language}",
+            # Parse file and generate chunks (with optional per-file timeout)
+            timeout_s = float(config_dict.get("per_file_timeout_seconds", 0.0) or 0.0)
+            if timeout_s > 0:
+                status, payload = _parse_file_with_timeout(file_path, language, timeout_s)
+                if status == "timeout":
+                    # Notify immediately as it happens
+                    try:
+                        print(f"skipping {file_path} due to a timeout", flush=True)
+                    except Exception:
+                        pass
+                    results.append(
+                        ParsedFileResult(
+                            file_path=file_path,
+                            chunks=[],
+                            language=language,
+                            file_size=file_stat.st_size,
+                            file_mtime=file_stat.st_mtime,
+                            status="skipped",
+                            error="timeout",
+                        )
                     )
-                )
-                continue
+                    continue
+                elif status == "error":
+                    results.append(
+                        ParsedFileResult(
+                            file_path=file_path,
+                            chunks=[],
+                            language=language,
+                            file_size=file_stat.st_size,
+                            file_mtime=file_stat.st_mtime,
+                            status="error",
+                            error=str(payload),
+                        )
+                    )
+                    continue
+                else:
+                    chunks_data = payload if isinstance(payload, list) else []
+            else:
+                # No timeout path (original behavior)
+                parser = create_parser_for_language(language)
+                if not parser:
+                    results.append(
+                        ParsedFileResult(
+                            file_path=file_path,
+                            chunks=[],
+                            language=language,
+                            file_size=file_stat.st_size,
+                            file_mtime=file_stat.st_mtime,
+                            status="error",
+                            error=f"No parser available for {language}",
+                        )
+                    )
+                    continue
 
-            # Parse file and generate chunks
-            # Note: FileId(0) is placeholder - actual ID assigned during storage
-            chunks = parser.parse_file(file_path, FileId(0))
-
-            # Convert chunks to dictionaries for ProcessPoolExecutor serialization
-            # Using standard Chunk.to_dict() method for consistent serialization
-            chunks_data = [chunk.to_dict() for chunk in chunks]
+                # Note: FileId(0) is placeholder - actual ID assigned during storage
+                chunks = parser.parse_file(file_path, FileId(0))
+                chunks_data = [chunk.to_dict() for chunk in chunks]
 
             results.append(
                 ParsedFileResult(

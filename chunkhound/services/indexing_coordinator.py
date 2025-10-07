@@ -347,7 +347,21 @@ class IndexingCoordinator(BaseService):
         with ProcessPoolExecutor(max_workers=num_workers) as executor:
             # Submit all batches for concurrent processing
             # Pass config for structured file size filtering (JSON/YAML/TOML)
-            config_dict = {"config_file_size_threshold_kb": config_file_size_threshold_kb}
+            # Include optional per-file timeout (seconds) if configured
+            timeout_s = 0.0
+            try:
+                if self.config and getattr(self.config, "indexing", None):
+                    timeout_s = float(
+                        getattr(self.config.indexing, "per_file_timeout_seconds", 0.0)
+                        or 0.0
+                    )
+            except Exception:
+                timeout_s = 0.0
+
+            config_dict = {
+                "config_file_size_threshold_kb": config_file_size_threshold_kb,
+                "per_file_timeout_seconds": timeout_s,
+            }
             futures = [
                 loop.run_in_executor(
                     executor, process_file_batch, batch, config_dict
@@ -570,6 +584,14 @@ class IndexingCoordinator(BaseService):
             # Store results in database (single-threaded for safety)
             stats = await self._store_parsed_results(parsed_results, file_task)
 
+            # Track skipped files (including timeouts)
+            skipped_total = sum(1 for r in parsed_results if r.status == "skipped")
+            skipped_due_to_timeout = [
+                str(r.file_path)
+                for r in parsed_results
+                if r.status == "skipped" and (r.error or "").lower() == "timeout"
+            ]
+
             total_files = stats["total_files"]
             total_chunks = stats["total_chunks"]
 
@@ -595,6 +617,8 @@ class IndexingCoordinator(BaseService):
                 "status": "success",
                 "files_processed": total_files,
                 "total_chunks": total_chunks,
+                "skipped": skipped_total,
+                "skipped_due_to_timeout": skipped_due_to_timeout,
             }
 
         except Exception as e:
