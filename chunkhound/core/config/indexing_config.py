@@ -68,6 +68,13 @@ class IndexingConfig(BaseModel):
             "overhead on small files"
         ),
     )
+    mtime_epsilon_seconds: float = Field(
+        default=0.01,
+        description=(
+            "Tolerance when comparing file mtimes with the database (seconds). "
+            "Increase on filesystems with coarse timestamp precision."
+        ),
+    )
 
     # Parallel discovery settings
     parallel_discovery: bool = Field(
@@ -253,6 +260,15 @@ class IndexingConfig(BaseModel):
                 "Default: 128"
             ),
         )
+        parser.add_argument(
+            "--mtime-epsilon-seconds",
+            type=float,
+            default=None,
+            help=(
+                "Tolerance for mtime comparisons when skipping unchanged files. "
+                "Default: 0.01"
+            ),
+        )
 
     @classmethod
     def load_from_env(cls) -> dict[str, Any]:
@@ -282,6 +298,11 @@ class IndexingConfig(BaseModel):
         ):
             try:
                 config["per_file_timeout_min_size_kb"] = int(per_file_timeout_min)
+            except ValueError:
+                pass
+        if mtime_eps := os.getenv("CHUNKHOUND_INDEXING__MTIME_EPSILON_SECONDS"):
+            try:
+                config["mtime_epsilon_seconds"] = float(mtime_eps)
             except ValueError:
                 pass
 
@@ -320,6 +341,11 @@ class IndexingConfig(BaseModel):
                 overrides["per_file_timeout_min_size_kb"] = int(
                     args.file_timeout_min_size_kb
                 )
+            except (TypeError, ValueError):
+                pass
+        if hasattr(args, "mtime_epsilon_seconds") and args.mtime_epsilon_seconds is not None:
+            try:
+                overrides["mtime_epsilon_seconds"] = float(args.mtime_epsilon_seconds)
             except (TypeError, ValueError):
                 pass
 

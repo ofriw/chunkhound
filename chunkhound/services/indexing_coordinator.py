@@ -645,7 +645,15 @@ class IndexingCoordinator(BaseService):
                         "  └─ Scanning changes", total=len(files), speed="", info=""
                     )
 
-                files_to_process = []
+            files_to_process = []
+            debug_skip = bool(os.getenv("CHUNKHOUND_DEBUG_SKIP"))
+            reasons = {"not_found": 0, "size": 0, "mtime": 0, "ok": 0, "error": 0}
+            mtime_eps = 0.01
+            try:
+                if self.config and getattr(self.config, "indexing", None):
+                    mtime_eps = float(getattr(self.config.indexing, "mtime_epsilon_seconds", 0.01) or 0.01)
+            except Exception:
+                mtime_eps = 0.01
                 base_dir = self._base_directory
                 for f in files:
                     try:
@@ -655,22 +663,29 @@ class IndexingCoordinator(BaseService):
                         st = f.stat()
                         # If present and both size and mtime match, skip re-parse
                         if db_file and hasattr(db_file, "mtime") and hasattr(db_file, "size_bytes"):
-                            same_size = int(getattr(db_file, "size_bytes", -1)) == int(st.st_size)
+                            db_size = int(getattr(db_file, "size_bytes", -1))
+                            same_size = db_size == int(st.st_size)
                             try:
                                 stored_mtime = float(getattr(db_file, "mtime", -1.0))
                             except Exception:
                                 stored_mtime = -1.0
-                            # Allow tiny differences due to float/datetime conversions
-                            same_mtime = abs(stored_mtime - float(st.st_mtime)) < 1e-3
+                            same_mtime = abs(stored_mtime - float(st.st_mtime)) <= mtime_eps
                             if same_size and same_mtime:
                                 skipped_unchanged += 1
+                                reasons["ok"] += 1
                             else:
+                                if not same_size:
+                                    reasons["size"] += 1
+                                elif not same_mtime:
+                                    reasons["mtime"] += 1
                                 files_to_process.append(f)
                         else:
                             files_to_process.append(f)
+                            reasons["not_found"] += 1
                     except Exception:
                         # On any error, fall back to processing the file
                         files_to_process.append(f)
+                        reasons["error"] += 1
                     finally:
                         if change_task is not None and self.progress:
                             self.progress.advance(change_task, 1)
@@ -679,6 +694,12 @@ class IndexingCoordinator(BaseService):
                     task = self.progress.tasks[change_task]
                     if task.total:
                         self.progress.update(change_task, completed=task.total)
+                if debug_skip:
+                    logger.warning(
+                        f"Skip-check summary: ok={reasons['ok']} not_found={reasons['not_found']} "
+                        f"size_mismatch={reasons['size']} mtime_mismatch={reasons['mtime']} error={reasons['error']} "
+                        f"mtime_eps={mtime_eps} files_to_process={len(files_to_process)} total={len(files)}"
+                    )
 
             # Phase 3: Parse + Store
             parse_task: TaskID | None = None
