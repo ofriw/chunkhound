@@ -75,6 +75,45 @@ chunkhound index
 
 **For configuration, IDE setup, and advanced usage, see the [documentation](https://chunkhound.github.io).**
 
+### New Indexing Options (Bail on Slow Files)
+
+- `indexing.per_file_timeout_seconds` (float): Hard wall‑clock timeout per file (seconds). Default: 0 (disabled). Example: `5.0`.
+- `indexing.per_file_timeout_min_size_kb` (int): Apply timeout only to files ≥ this size in KB (reduces overhead on small files). Default: 128.
+- `indexing.mtime_epsilon_seconds` (float): Tolerance for comparing filesystem mtimes with DB mtimes. Default: 0.01.
+- `indexing.verify_checksum_when_mtime_equal` (bool): When true, verify content of “unchanged” files via a fast checksum (head+tail sampling). Default: false.
+- `indexing.checksum_sample_kb` (int): Sample size in KB for checksum (0 = full file). Default: 64.
+- `indexing.config_file_size_threshold_kb` (int): Skip structured configs (JSON/YAML/TOML) larger than this KB. Default: 20. Set to 0 to disable filtering.
+- `indexing.force_reindex` (bool): Force re-parse all included files even if unchanged (bypasses mtime/checksum). Default: false.
+
+CLI overrides include:
+
+```
+--file-timeout FLOAT
+--file-timeout-min-size-kb INT
+--mtime-epsilon-seconds FLOAT
+--verify-checksum
+--checksum-sample-kb INT
+--config-file-size-threshold-kb INT
+--force-reindex
+--no-cleanup
+```
+
+Environment overrides (examples):
+
+```
+CHUNKHOUND_INDEXING__PER_FILE_TIMEOUT_SECONDS=5.0
+CHUNKHOUND_INDEXING__PER_FILE_TIMEOUT_MIN_SIZE_KB=128
+CHUNKHOUND_INDEXING__MTIME_EPSILON_SECONDS=0.01
+CHUNKHOUND_INDEXING__VERIFY_CHECKSUM_WHEN_MTIME_EQUAL=true
+CHUNKHOUND_INDEXING__CHECKSUM_SAMPLE_KB=64
+CHUNKHOUND_INDEXING__CONFIG_FILE_SIZE_THRESHOLD_KB=0
+CHUNKHOUND_DB_EXECUTE_TIMEOUT=60
+```
+
+Notes:
+- For deterministic CI runs, consider `CHUNKHOUND_INDEXING__PER_FILE_TIMEOUT_SECONDS=0` and `CHUNKHOUND_INDEXING__CONFIG_FILE_SIZE_THRESHOLD_KB=0`.
+- Avoid committing API keys to `.chunkhound.json`. Use `CHUNKHOUND_EMBEDDING__API_KEY` or your secret manager.
+
 ## Real-Time Indexing
 
 **Automatic File Watching**: MCP servers monitor your codebase and update the index automatically as you edit files. No manual re-indexing required.

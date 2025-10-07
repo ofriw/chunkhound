@@ -301,6 +301,15 @@ class IndexingConfig(BaseModel):
                 "Sample size in KB for checksum (0 = full file). Default: 64"
             ),
         )
+        parser.add_argument(
+            "--config-file-size-threshold-kb",
+            type=int,
+            default=None,
+            help=(
+                "Structured config (JSON/YAML/TOML) larger than this KB are skipped. "
+                "Set to 0 to disable. Default: 20"
+            ),
+        )
 
     @classmethod
     def load_from_env(cls) -> dict[str, Any]:
@@ -335,6 +344,12 @@ class IndexingConfig(BaseModel):
         if mtime_eps := os.getenv("CHUNKHOUND_INDEXING__MTIME_EPSILON_SECONDS"):
             try:
                 config["mtime_epsilon_seconds"] = float(mtime_eps)
+            except ValueError:
+                pass
+        # Structured config file size threshold
+        if cfg_sz := os.getenv("CHUNKHOUND_INDEXING__CONFIG_FILE_SIZE_THRESHOLD_KB"):
+            try:
+                config["config_file_size_threshold_kb"] = int(cfg_sz)
             except ValueError:
                 pass
         if verify := os.getenv("CHUNKHOUND_INDEXING__VERIFY_CHECKSUM_WHEN_MTIME_EQUAL"):
@@ -392,6 +407,12 @@ class IndexingConfig(BaseModel):
         if hasattr(args, "checksum_sample_kb") and args.checksum_sample_kb is not None:
             try:
                 overrides["checksum_sample_kb"] = int(args.checksum_sample_kb)
+            except (TypeError, ValueError):
+                pass
+        # Structured config file size threshold override via CLI
+        if hasattr(args, "config_file_size_threshold_kb") and args.config_file_size_threshold_kb is not None:
+            try:
+                overrides["config_file_size_threshold_kb"] = int(args.config_file_size_threshold_kb)
             except (TypeError, ValueError):
                 pass
 

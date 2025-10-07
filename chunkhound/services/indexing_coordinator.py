@@ -53,18 +53,16 @@ from chunkhound.utils.file_patterns import (
 # - See: https://github.com/chunkhound/chunkhound/pull/47
 desired_mp_method = os.getenv("CHUNKHOUND_MP_START_METHOD", "spawn")
 current_mp_method = multiprocessing.get_start_method(allow_none=True)
-if current_mp_method is None:
+if current_mp_method != desired_mp_method:
     try:
         multiprocessing.set_start_method(desired_mp_method, force=True)
-        logger.debug(f"Set multiprocessing start method to '{desired_mp_method}'")
-    except RuntimeError:
         logger.debug(
-            f"Multiprocessing start method already set to: {multiprocessing.get_start_method()}"
+            f"Set multiprocessing start method to '{desired_mp_method}' (was {current_mp_method})"
         )
-else:
-    if current_mp_method != desired_mp_method:
+    except RuntimeError:
+        # Start method may already be set elsewhere; log and continue
         logger.debug(
-            f"Multiprocessing start method already '{current_mp_method}', desired '{desired_mp_method}'"
+            f"Multiprocessing start method remains '{multiprocessing.get_start_method()}'; desired '{desired_mp_method}'"
         )
 
 
@@ -381,9 +379,20 @@ class IndexingCoordinator(BaseService):
             except Exception:
                 timeout_s = 0.0
 
+            min_timeout_kb = 128
+            try:
+                if self.config and getattr(self.config, "indexing", None):
+                    min_timeout_kb = int(
+                        getattr(self.config.indexing, "per_file_timeout_min_size_kb", 128)
+                        or 128
+                    )
+            except Exception:
+                min_timeout_kb = 128
+
             config_dict = {
                 "config_file_size_threshold_kb": config_file_size_threshold_kb,
                 "per_file_timeout_seconds": timeout_s,
+                "per_file_timeout_min_size_kb": min_timeout_kb,
             }
             futures = [
                 loop.run_in_executor(executor, process_file_batch, batch, config_dict)
@@ -448,6 +457,13 @@ class IndexingCoordinator(BaseService):
                 )
                 if file_task is not None and self.progress:
                     self.progress.advance(file_task, 1)
+                    if cumulative_counters is not None:
+                        cumulative_counters['errors'] = cumulative_counters.get('errors', 0) + 1
+                        stored = cumulative_counters.get('stored', 0)
+                        skipped = cumulative_counters.get('skipped', 0)
+                        errs = cumulative_counters.get('errors', 0)
+                        chunks_so_far = cumulative_counters.get('chunks', 0)
+                        self.progress.update(file_task, info=f"stored {stored} | skipped {skipped} | err {errs} | {chunks_so_far} chunks")
                 continue
 
             # Handle skipped files
@@ -457,6 +473,13 @@ class IndexingCoordinator(BaseService):
                     stats["skip_reason"] = result.error
                 if file_task is not None and self.progress:
                     self.progress.advance(file_task, 1)
+                    if cumulative_counters is not None:
+                        cumulative_counters['skipped'] = cumulative_counters.get('skipped', 0) + 1
+                        stored = cumulative_counters.get('stored', 0)
+                        skipped = cumulative_counters.get('skipped', 0)
+                        errs = cumulative_counters.get('errors', 0)
+                        chunks_so_far = cumulative_counters.get('chunks', 0)
+                        self.progress.update(file_task, info=f"stored {stored} | skipped {skipped} | err {errs} | {chunks_so_far} chunks")
                 continue
 
             # Detect language for storage
@@ -561,12 +584,15 @@ class IndexingCoordinator(BaseService):
                 # Update progress
                 if file_task is not None and self.progress:
                     self.progress.advance(file_task, 1)
-                    # Display cumulative chunk count across batches if provided
-                    base = 0
-                    if cumulative_counters and isinstance(cumulative_counters.get('chunks', 0), int):
-                        base = cumulative_counters.get('chunks', 0)
-                    display_chunks = base + stats["total_chunks"]
-                    self.progress.update(file_task, info=f"{display_chunks} chunks")
+                    if cumulative_counters is not None:
+                        cumulative_counters['stored'] = cumulative_counters.get('stored', 0) + 1
+                        # Display cumulative chunk count across batches if provided
+                        base = int(cumulative_counters.get('chunks', 0))
+                        display_chunks = base + stats["total_chunks"]
+                        stored = cumulative_counters.get('stored', 0)
+                        skipped = cumulative_counters.get('skipped', 0)
+                        errs = cumulative_counters.get('errors', 0)
+                        self.progress.update(file_task, info=f"stored {stored} | skipped {skipped} | err {errs} | {display_chunks} chunks")
 
             except Exception as e:
                 self._db.rollback_transaction()
@@ -664,6 +690,7 @@ class IndexingCoordinator(BaseService):
                     pass
 
                 files_to_process = []
+                warned_no_checksum_support = False
                 for f in files:
                     try:
                         rel = self._get_relative_path(f).as_posix()
@@ -683,6 +710,15 @@ class IndexingCoordinator(BaseService):
                             same_mtime = abs(stored_mtime - float(st.st_mtime)) <= mtime_eps
                             if same_size and same_mtime:
                                 if verify_checksum:
+                                    # If provider doesn't expose content_hash at all, gracefully skip checksum verify
+                                    if "content_hash" not in db_file:
+                                        if not warned_no_checksum_support:
+                                            logger.debug("Provider has no content_hash field; skipping checksum verification.")
+                                            warned_no_checksum_support = True
+                                        skipped_unchanged += 1
+                                        reasons["ok"] += 1
+                                        continue
+
                                     db_hash = db_file.get("content_hash")
                                     if db_hash:
                                         try:
@@ -697,7 +733,7 @@ class IndexingCoordinator(BaseService):
                                             reasons["error"] += 1
                                             continue
                                     else:
-                                        files_to_process.append(f)  # populate checksum once
+                                        files_to_process.append(f)  # populate checksum once (only if provider supports it)
                                         reasons["not_found"] += 1
                                         continue
                                 skipped_unchanged += 1
@@ -737,7 +773,7 @@ class IndexingCoordinator(BaseService):
                     "  └─ Parsing files", total=len(files_to_process), speed="", info=""
                 )
                 store_task = self.progress.add_task(
-                    "  └─ Processing files", total=len(files_to_process), speed="", info=""
+                    "  └─ Handling files", total=len(files_to_process), speed="", info=""
                 )
 
             # Aggregators for streamed storage
@@ -747,7 +783,7 @@ class IndexingCoordinator(BaseService):
             agg_skipped = 0
             agg_skipped_timeout: list[str] = []
 
-            store_progress_counters = {"chunks": 0, "files": 0}
+            store_progress_counters = {"chunks": 0, "files": 0, "stored": 0, "skipped": 0, "errors": 0}
 
             async def _on_batch_store(batch: list[ParsedFileResult]) -> None:
                 nonlocal agg_total_files, agg_total_chunks, agg_errors, agg_skipped, agg_skipped_timeout
@@ -826,7 +862,9 @@ class IndexingCoordinator(BaseService):
                                 relp = self._get_relative_path(result.file_path).as_posix()
                                 db_rec = self._db.get_file_by_path(relp, as_model=False)
                                 if db_rec and isinstance(db_rec, dict) and "id" in db_rec:
-                                    self._db.update_file(db_rec["id"], content_hash=h)
+                                    # Only attempt to persist if provider supports content_hash
+                                    if "content_hash" in db_rec:
+                                        self._db.update_file(db_rec["id"], content_hash=h)
                             except Exception:
                                 pass
                 except Exception:
