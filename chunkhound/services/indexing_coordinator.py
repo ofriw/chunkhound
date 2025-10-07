@@ -310,6 +310,7 @@ class IndexingCoordinator(BaseService):
         files: list[Path],
         config_file_size_threshold_kb: int = 20,
         parse_task: TaskID | None = None,
+        on_batch: Any | None = None,
     ) -> list[ParsedFileResult]:
         """Process files in parallel batches across CPU cores.
 
@@ -339,11 +340,24 @@ class IndexingCoordinator(BaseService):
 
         logger.debug(f"Parsing {file_count} files with {num_workers} workers")
 
-        # Split files into MANY small sub-batches so progress updates earlier
-        # Heuristic: aim for ~4×workers in flight with max sub-batch size 50
-        target_batches = max(num_workers * 4, 1)
-        max_subbatch = 50
-        batch_size = max(1, min(max_subbatch, math.ceil(len(files) / target_batches)))
+        # Split files into smaller sub-batches so progress updates earlier
+        # If per-file timeout is enabled, use sub-batch size 1 for fastest feedback
+        timeout_s = 0.0
+        try:
+            if self.config and getattr(self.config, "indexing", None):
+                timeout_s = float(
+                    getattr(self.config.indexing, "per_file_timeout_seconds", 0.0)
+                    or 0.0
+                )
+        except Exception:
+            timeout_s = 0.0
+
+        if timeout_s > 0:
+            batch_size = 1
+        else:
+            target_batches = max(num_workers * 4, 1)
+            max_subbatch = 20
+            batch_size = max(1, min(max_subbatch, math.ceil(len(files) / target_batches)))
         file_batches = [files[i : i + batch_size] for i in range(0, len(files), batch_size)]
 
         # Process batches in parallel using ProcessPoolExecutor
@@ -383,6 +397,15 @@ class IndexingCoordinator(BaseService):
                     completed_files += inc
                     self.progress.advance(parse_task, inc)
                     self.progress.update(parse_task, info=f"{completed_files} parsed")
+                # Stream results to storage if callback provided
+                if on_batch is not None:
+                    try:
+                        if asyncio.iscoroutinefunction(on_batch):
+                            await on_batch(batch_result)
+                        else:
+                            on_batch(batch_result)
+                    except Exception as e:
+                        logger.warning(f"on_batch handler failed: {e}")
 
         return all_results
 
@@ -588,9 +611,33 @@ class IndexingCoordinator(BaseService):
                     "  └─ Processing files", total=len(files), speed="", info=""
                 )
 
-            # Parse files (streaming progress as batches complete)
+            # Aggregators for streamed storage
+            agg_total_files = 0
+            agg_total_chunks = 0
+            agg_errors: list[dict[str, Any]] = []
+            agg_skipped = 0
+            agg_skipped_timeout: list[str] = []
+
+            async def _on_batch_store(batch: list[ParsedFileResult]) -> None:
+                nonlocal agg_total_files, agg_total_chunks, agg_errors, agg_skipped, agg_skipped_timeout
+                # Update skip counters from parse results
+                for r in batch:
+                    if r.status == "skipped":
+                        agg_skipped += 1
+                        if (r.error or "").lower() == "timeout":
+                            agg_skipped_timeout.append(str(r.file_path))
+
+                # Store this batch immediately
+                stats_part = await self._store_parsed_results(batch, store_task)
+                if isinstance(stats_part, tuple):
+                    stats_part = stats_part[0]
+                agg_total_files += stats_part.get("total_files", 0)
+                agg_total_chunks += stats_part.get("total_chunks", 0)
+                agg_errors.extend(stats_part.get("errors", []))
+
+            # Parse files (streaming progress as batches complete and store concurrently)
             parsed_results = await self._process_files_in_batches(
-                files, config_file_size_threshold_kb, parse_task
+                files, config_file_size_threshold_kb, parse_task, on_batch=_on_batch_store
             )
 
             # Mark parse task complete
@@ -599,16 +646,16 @@ class IndexingCoordinator(BaseService):
                 if task.total:
                     self.progress.update(parse_task, completed=task.total)
 
-            # Store results in database (single-threaded for safety)
-            stats = await self._store_parsed_results(parsed_results, store_task)
+            # At this point, all parsed results have been stored via _on_batch_store
+            stats = {
+                "total_files": agg_total_files,
+                "total_chunks": agg_total_chunks,
+                "errors": agg_errors,
+            }
 
             # Track skipped files (including timeouts)
-            skipped_total = sum(1 for r in parsed_results if r.status == "skipped")
-            skipped_due_to_timeout = [
-                str(r.file_path)
-                for r in parsed_results
-                if r.status == "skipped" and (r.error or "").lower() == "timeout"
-            ]
+            skipped_total = agg_skipped
+            skipped_due_to_timeout = agg_skipped_timeout
 
             total_files = stats["total_files"]
             total_chunks = stats["total_chunks"]
