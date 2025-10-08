@@ -664,6 +664,9 @@ class IndexingCoordinator(BaseService):
 
             files_to_process: list[Path] = files
             skipped_unchanged = 0
+            # Ensure defaults regardless of force_reindex branch
+            verify_checksum = False
+            sample_kb = 64
             if not force_reindex:
                 change_task: TaskID | None = None
                 if self.progress:
@@ -680,8 +683,6 @@ class IndexingCoordinator(BaseService):
                         mtime_eps = float(getattr(self.config.indexing, "mtime_epsilon_seconds", 0.01) or 0.01)
                 except Exception:
                     mtime_eps = 0.01
-                verify_checksum = False
-                sample_kb = 64
                 try:
                     if self.config and getattr(self.config, "indexing", None):
                         verify_checksum = bool(getattr(self.config.indexing, "verify_checksum_when_mtime_equal", False))
