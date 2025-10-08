@@ -744,7 +744,7 @@ if __name__ == "__main__":
             )
             file_path.write_text(content)
             created_files_for_pagination.append(file_path)
-        
+
         # Wait for all files to be processed with verification
         # Poll until we get a stable chunk count
         stable_count = None
@@ -787,9 +787,9 @@ if __name__ == "__main__":
             if 'pagination' in page_results:
                 pagination = page_results['pagination']
                 print(f"  Pagination metadata: {pagination}")
-        
+
         print(f"✓ Pagination test 3: Retrieved {len(all_results)} total results across {page_count} pages")
-        
+
         # Validate pagination worked correctly
         # Note: May not find all files if some aren't processed yet - test pagination behavior with available data
         assert len(all_results) >= 10, f"Should find reasonable number of results for pagination testing, got {len(all_results)}"
