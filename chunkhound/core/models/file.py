@@ -10,6 +10,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from loguru import logger
+
 from chunkhound.core.exceptions import ModelError, ValidationError
 from chunkhound.core.types import FileId, FilePath, Language, Timestamp
 
@@ -23,7 +25,8 @@ class File:
 
     Attributes:
         id: Unique file identifier (None for new files)
-        path: Relative path to the file (with forward slashes for cross-platform compatibility)
+        path: Relative path to the file (with forward slashes for
+            cross-platform compatibility)
         mtime: Last modification time as Unix timestamp
         language: Programming language of the file
         size_bytes: File size in bytes
@@ -38,6 +41,9 @@ class File:
     id: FileId | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
+
+    # Class constant for content detection
+    CONTENT_DETECTION_READ_BYTES = 1024
 
     def __post_init__(self) -> None:
         """Validate file model after initialization."""
@@ -60,6 +66,62 @@ class File:
             raise ValidationError(
                 "mtime", self.mtime, "Modification time cannot be negative"
             )
+
+    @staticmethod
+    def _detect_language(file_path: Path) -> Language | None:
+        """Detect language from file content for ambiguous extensions.
+
+        Currently handles:
+        - .m files (Objective-C vs MATLAB disambiguation)
+
+        Args:
+            file_path: Path to file for content analysis
+
+        Returns:
+            Detected Language, or None if content-based detection not needed
+
+        Notes:
+            - Reads only first CONTENT_DETECTION_READ_BYTES for performance
+            - Falls back to MATLAB for .m files if detection fails
+            - Returns None for non-ambiguous extensions (caller uses extension mapping)
+        """
+        ext = file_path.suffix.lower()
+
+        # Only .m files need content detection
+        if ext != ".m":
+            return None
+
+        try:
+            # Read first chunk for detection
+            with open(file_path, 'rb') as f:
+                header = f.read(File.CONTENT_DETECTION_READ_BYTES).decode(
+                    'utf-8', errors='ignore'
+                )
+
+            # Objective-C markers (highly distinctive)
+            # These directives are unique to Objective-C and never appear in MATLAB
+            objc_markers = ['@interface', '@implementation', '@protocol', '@class']
+            if any(marker in header for marker in objc_markers):
+                logger.debug(f"Detected Objective-C in {file_path.name} via @-directive")
+                return Language.OBJC
+
+            # #import is Objective-C convention (MATLAB uses % for imports/includes)
+            if '#import' in header:
+                logger.debug(f"Detected Objective-C in {file_path.name} via #import")
+                return Language.OBJC
+
+            # Default to MATLAB for .m files without Objective-C markers
+            # Rationale: MATLAB predates Objective-C's .m extension usage,
+            # and most .m files in the wild are MATLAB scripts/functions
+            return Language.MATLAB
+
+        except (OSError, UnicodeDecodeError) as e:
+            # If file can't be read, default to MATLAB (backward compatibility)
+            logger.debug(
+                f"Failed to read {file_path.name} for language detection "
+                f"({e}), defaulting to MATLAB"
+            )
+            return Language.MATLAB
 
     @classmethod
     def from_path(cls, file_path: Path) -> "File":
@@ -85,10 +147,17 @@ class File:
             # Extract file stats
             stat = file_path.stat()
 
+            # Detect language - use content detection for ambiguous
+            # extensions (.m files)
+            detected_language = cls._detect_language(file_path)
+            if detected_language is None:
+                # No content detection needed, use extension-based detection
+                detected_language = Language.from_file_extension(file_path)
+
             return cls(
                 path=FilePath(str(file_path)),
                 mtime=Timestamp(stat.st_mtime),
-                language=Language.from_file_extension(file_path),
+                language=detected_language,
                 size_bytes=stat.st_size,
             )
 
@@ -259,7 +328,10 @@ class File:
 
     def __str__(self) -> str:
         """Return string representation of the file."""
-        return f"File(id={self.id}, path={self.relative_path}, language={self.language.value})"
+        return (
+            f"File(id={self.id}, path={self.relative_path}, "
+            f"language={self.language.value})"
+        )
 
     def __repr__(self) -> str:
         """Return detailed string representation of the file."""
