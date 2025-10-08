@@ -34,6 +34,7 @@ from chunkhound.parsers.mappings import (
     MakefileMapping,
     MarkdownMapping,
     MatlabMapping,
+    ObjCMapping,
     PDFMapping,
     PythonMapping,
     RustMapping,
@@ -51,7 +52,8 @@ from chunkhound.parsers.universal_parser import CASTConfig, UniversalParser
 logger = logging.getLogger(__name__)
 
 # Explicit tree-sitter language imports
-# Import all available tree-sitter languages explicitly to avoid dynamic import complexity
+# Import all available tree-sitter languages explicitly to avoid
+# dynamic import complexity
 
 # Core language support
 try:
@@ -177,6 +179,25 @@ except ImportError:
     ts_matlab = None
     MATLAB_AVAILABLE = False
 
+try:
+    from tree_sitter_language_pack import get_language as _get_language_objc
+
+    _objc_lang = _get_language_objc("objc")
+    if _objc_lang:
+        # Create a module-like wrapper for compatibility with LanguageConfig
+        class _ObjCLanguageWrapper:
+            def language(self):
+                return _objc_lang
+
+        ts_objc = _ObjCLanguageWrapper()
+        OBJC_AVAILABLE = True
+    else:
+        ts_objc = None
+        OBJC_AVAILABLE = False
+except ImportError:
+    ts_objc = None
+    OBJC_AVAILABLE = False
+
 if not HASKELL_AVAILABLE:
     try:
         from tree_sitter_language_pack import get_language as _get_language_haskell
@@ -271,26 +292,39 @@ class LanguageConfig:
         if isinstance(result, Language):
             return result
         else:
-            # In tree-sitter 0.25.x, language modules should return Language objects directly
-            # If we get an integer (old API), try to handle it but warn about compatibility
+            # In tree-sitter 0.25.x, language modules should return
+            # Language objects directly
+            # If we get an integer (old API), try to handle it but warn
+            # about compatibility
             if isinstance(result, int):
                 import warnings
 
                 warnings.warn(
-                    f"tree-sitter-{self.language_name.lower()} is using deprecated API (returned integer {result}). "
-                    f"Consider upgrading to a version compatible with tree-sitter 0.25+",
+                    f"tree-sitter-{self.language_name.lower()} is using "
+                    f"deprecated API (returned integer {result}). "
+                    f"Consider upgrading to a version compatible with "
+                    f"tree-sitter 0.25+",
                     DeprecationWarning,
                     stacklevel=3,
                 )
-                # Try to create Language object from integer (deprecated but still supported in some versions)
+                # Try to create Language object from integer
+                # (deprecated but still supported in some versions)
                 try:
                     return Language(result)
                 except Exception as e:
                     raise SetupError(
                         parser=self.language_name,
-                        missing_dependency=f"Compatible tree-sitter-{self.language_name.lower()} for tree-sitter 0.25.x",
-                        install_command=f"pip install --upgrade tree-sitter-{self.language_name.lower()}",
-                        original_error=f"Cannot create Language from integer {result}: {e}",
+                        missing_dependency=(
+                            f"Compatible tree-sitter-{self.language_name.lower()} "
+                            f"for tree-sitter 0.25.x"
+                        ),
+                        install_command=(
+                            f"pip install --upgrade "
+                            f"tree-sitter-{self.language_name.lower()}"
+                        ),
+                        original_error=(
+                            f"Cannot create Language from integer {result}: {e}"
+                        ),
                     ) from e
             return Language(result)
 
@@ -364,6 +398,7 @@ LANGUAGE_CONFIGS: dict[Language, LanguageConfig] = {
     Language.MATLAB: LanguageConfig(
         ts_matlab, MatlabMapping, MATLAB_AVAILABLE, "matlab"
     ),
+    Language.OBJC: LanguageConfig(ts_objc, ObjCMapping, OBJC_AVAILABLE, "objc"),
     Language.JSON: LanguageConfig(ts_json, JsonMapping, JSON_AVAILABLE, "json"),
     Language.YAML: LanguageConfig(ts_yaml, YamlMapping, YAML_AVAILABLE, "yaml"),
     Language.TOML: LanguageConfig(ts_toml, TomlMapping, TOML_AVAILABLE, "toml"),
@@ -437,7 +472,9 @@ EXTENSION_TO_LANGUAGE: dict[str, Language] = {
     ".bash": Language.BASH,
     ".zsh": Language.BASH,
     ".fish": Language.BASH,
+    # Note: .m is ambiguous, content detection used in File.from_path()
     ".m": Language.MATLAB,
+    ".mm": Language.OBJC,
     # Config & Data
     ".json": Language.JSON,
     ".yaml": Language.YAML,
@@ -513,7 +550,9 @@ class ParserFactory:
         cast_config = cast_config or self.default_cast_config
         # Haskell-specific cAST tuning: avoid greedy merging of adjacent definitions
         if language == Language.HASKELL:
-            from chunkhound.parsers.universal_parser import CASTConfig as _CAST
+            from chunkhound.parsers.universal_parser import (
+                CASTConfig as _CAST,  # noqa: N814
+            )
 
             cast_config = _CAST(
                 max_chunk_size=cast_config.max_chunk_size,
@@ -539,7 +578,9 @@ class ParserFactory:
             raise SetupError(
                 parser=config.language_name,
                 missing_dependency=f"tree-sitter-{config.language_name.lower()}",
-                install_command=f"pip install tree-sitter-{config.language_name.lower()}",
+                install_command=(
+                    f"pip install tree-sitter-{config.language_name.lower()}"
+                ),
                 original_error="Tree-sitter module not available",
             )
 
@@ -567,7 +608,9 @@ class ParserFactory:
             raise SetupError(
                 parser=config.language_name,
                 missing_dependency=f"tree-sitter-{config.language_name.lower()}",
-                install_command=f"pip install tree-sitter-{config.language_name.lower()}",
+                install_command=(
+                    f"pip install tree-sitter-{config.language_name.lower()}"
+                ),
                 original_error=str(e),
             ) from e
 
