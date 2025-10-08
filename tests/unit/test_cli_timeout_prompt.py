@@ -55,7 +55,7 @@ async def test_timeout_prompt_adds_exclusions(tmp_path: Path, monkeypatch: pytes
     from chunkhound.core.config.database_config import DatabaseConfig
 
     db_cfg = DatabaseConfig(provider="duckdb", path=proj_dir / ".chunkhound" / "db")
-    cfg = CoreConfig()
+    cfg = CoreConfig(target_dir=proj_dir)
     # Assign after creation (pydantic validate_assignment enabled)
     cfg.database = db_cfg
 

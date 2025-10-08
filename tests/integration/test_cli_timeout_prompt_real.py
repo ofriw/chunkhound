@@ -78,7 +78,7 @@ async def test_cli_timeout_prompt_real(tmp_path: Path, monkeypatch: pytest.Monke
     )
 
     db_cfg = DatabaseConfig(provider="duckdb", path=tmp_path / ".chunkhound" / "db")
-    cfg = CoreConfig()
+    cfg = CoreConfig(target_dir=tmp_path)
     cfg.database = db_cfg
     # Ensure discovery includes our file pattern via config
     cfg.indexing.include = ["*.py"]
