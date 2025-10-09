@@ -10,7 +10,10 @@ import asyncio
 import json
 from typing import TYPE_CHECKING, Any, TypeVar
 
-import mcp.types as types
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:  # type-checkers only; avoid runtime hard dep
+    import mcp.types as types  # noqa: F401
 
 from .tools import TOOL_REGISTRY, execute_tool
 
