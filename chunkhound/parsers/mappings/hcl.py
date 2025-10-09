@@ -52,10 +52,8 @@ class HclMapping(BaseMapping):
         - Comments: `comment`
         """
         if concept == UniversalConcept.DEFINITION:
-            # Capture blocks, attribute key/value pairs, and object elements
+            # Capture attribute key/value pairs and object elements (but not blocks here)
             return """
-            (block) @definition
-
             (attribute
                 (identifier) @key
                 (expression) @value

@@ -8,7 +8,7 @@ import pytest
 sys.path.insert(0, os.path.abspath("chunkhound"))
 
 from chunkhound.parsers.parser_factory import ParserFactory
-from chunkhound.core.types.common import Language
+from chunkhound.core.types.common import Language, FileId, ChunkType
 from chunkhound.parsers.universal_engine import UniversalConcept
 
 
@@ -100,6 +100,31 @@ def test_hcl_template_value_type():
     if not default_chunks:
         default_chunks = [c for c in candidates if c.metadata.get("value_type") == "template"]
     assert any(c.metadata.get("value_type") == "template" for c in default_chunks), "Expected template value_type for heredoc"
+
+
+def test_hcl_chunk_types_table_and_key_value():
+    sample = (
+        'resource "aws_s3_bucket" "b" {\n'
+        '  bucket = "my-bucket"\n'
+        '  tags = { Env = "dev" }\n'
+        '}\n'
+    )
+
+    parser = ParserFactory().create_parser(Language.HCL)
+    chunks = parser.parse_content(sample, "main.tf", FileId(1))
+
+    name_to_type = {c.symbol: c.chunk_type for c in chunks}
+
+    # Block should be TABLE (HCL-only mapping)
+    assert any(
+        name == "resource.aws_s3_bucket.b" and ctype == ChunkType.TABLE
+        for name, ctype in name_to_type.items()
+    ), f"Expected TABLE for resource block, got: {[(n, t.value) for n, t in name_to_type.items() if 'resource.aws_s3_bucket.b' in n]}"
+
+    # Attributes should be KEY_VALUE (HCL-only mapping)
+    assert name_to_type.get("resource.aws_s3_bucket.b.bucket") == ChunkType.KEY_VALUE
+    # Nested object pair captured as KEY_VALUE
+    assert name_to_type.get("resource.aws_s3_bucket.b.tags.Env") == ChunkType.KEY_VALUE
 
 
 def test_hcl_value_type_metadata_present():
