@@ -147,6 +147,7 @@ class Language(Enum):
     C = "c"
     CPP = "cpp"
     MATLAB = "matlab"
+    HCL = "hcl"
 
     # Documentation languages
     MARKDOWN = "markdown"
@@ -205,6 +206,9 @@ class Language(Enum):
             ".make": cls.MAKEFILE,
             ".md": cls.MARKDOWN,
             ".markdown": cls.MARKDOWN,
+            ".hcl": cls.HCL,
+            ".tf": cls.HCL,
+            ".tfvars": cls.HCL,
             ".json": cls.JSON,
             ".yaml": cls.YAML,
             ".yml": cls.YAML,
@@ -293,7 +297,7 @@ class Language(Enum):
 
         Size-based filtering helps distinguish between the two use cases.
         """
-        return self in {Language.JSON, Language.YAML, Language.TOML}
+        return self in {Language.JSON, Language.YAML, Language.TOML, Language.HCL}
 
     @classmethod
     def get_all_extensions(cls) -> set[str]:
@@ -327,6 +331,9 @@ class Language(Enum):
             ".make",
             ".md",
             ".markdown",
+            ".hcl",
+            ".tf",
+            ".tfvars",
             ".json",
             ".yaml",
             ".yml",
