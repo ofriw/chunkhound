@@ -52,7 +52,7 @@ class HclMapping(BaseMapping):
         - Comments: `comment`
         """
         if concept == UniversalConcept.DEFINITION:
-            # Capture blocks and attribute key/value pairs as definitions
+            # Capture blocks, attribute key/value pairs, and object elements
             return """
             (block) @definition
 
@@ -60,15 +60,18 @@ class HclMapping(BaseMapping):
                 (identifier) @key
                 (expression) @value
             ) @definition
+
+            ; object key/value pairs inside attribute/object values
+            (object_elem
+                key: (expression) @inner_key
+                val: (expression) @inner_value
+            ) @definition
             """
 
         if concept == UniversalConcept.BLOCK:
-            # Higher-level structural containers useful for cAST merges
+            # Only use explicit HCL blocks as containers (avoid noisy body/object captures)
             return """
             (block) @definition
-            (object) @definition
-            (tuple) @definition
-            (body) @definition
             """
 
         if concept == UniversalConcept.COMMENT:
@@ -106,6 +109,24 @@ class HclMapping(BaseMapping):
             if parent_path:
                 return f"{parent_path}.{key}" if key else parent_path
             return key or "attribute"
+
+        # Nested object pair inside an attribute value
+        if node.type == "object_elem":
+            src = self._decode(content)
+            inner_key_node = captures.get("inner_key")
+            inner_key_raw = self.get_node_text(inner_key_node, src).strip() if inner_key_node else ""
+            inner_key = self._strip_quotes(inner_key_raw)
+
+            # Find nearest attribute ancestor to get the attribute key
+            attr_parent = node.parent
+            while attr_parent is not None and attr_parent.type != "attribute":
+                attr_parent = attr_parent.parent
+            attr_key = self._attribute_key(attr_parent, content) if attr_parent else ""
+
+            # Compose from nearest block path
+            parent_path = self._parent_block_path(node, content)
+            parts = [p for p in [parent_path, attr_key, inner_key] if p]
+            return ".".join(parts) if parts else "object_elem"
 
         if concept == UniversalConcept.STRUCTURE:
             return "hcl_document"
@@ -171,6 +192,36 @@ class HclMapping(BaseMapping):
                     value_node = node.child(2)
             if value_node is not None:
                 vtype = self._classify_value_node(value_node)
+                if vtype:
+                    meta["value_type"] = vtype
+
+        elif node.type == "object_elem":
+            src = self._decode(content)
+            # Extract inner key/value
+            ik = captures.get("inner_key")
+            iv = captures.get("inner_value")
+            inner_key_raw = self.get_node_text(ik, src).strip() if ik else ""
+            inner_key = self._strip_quotes(inner_key_raw)
+
+            # Find parent attribute and block path
+            attr_parent = node.parent
+            while attr_parent is not None and attr_parent.type != "attribute":
+                attr_parent = attr_parent.parent
+            attr_key = self._attribute_key(attr_parent, content) if attr_parent else ""
+            parent_path = self._parent_block_path(node, content)
+
+            if attr_key:
+                meta["key"] = f"{attr_key}.{inner_key}" if inner_key else attr_key
+            else:
+                meta["key"] = inner_key
+
+            meta["parent_path"] = parent_path
+            parts = [p for p in [parent_path, attr_key, inner_key] if p]
+            if parts:
+                meta["path"] = ".".join(parts)
+
+            if iv is not None:
+                vtype = self._classify_value_node(iv)
                 if vtype:
                     meta["value_type"] = vtype
 
@@ -263,6 +314,16 @@ class HclMapping(BaseMapping):
             return "array"
         if t == "object":
             return "object"
+        # Combined literal wrapper
+        if t == "literal_value":
+            try:
+                if node.child_count > 0:
+                    inner = node.child(0)
+                    if inner is not None:
+                        return self._classify_value_node(inner)
+            except Exception:
+                pass
+            return "literal"
         # Expressions
         if t == "variable_expr":
             return "variable"
@@ -270,7 +331,14 @@ class HclMapping(BaseMapping):
             return "function"
         if t == "template_expr" or t == "quoted_template" or t == "heredoc_template":
             return "template"
-        # Fallback
+        # Fallback / unwrap generic expression nodes to inspect inner literal
         if t == "expression":
+            try:
+                if node.child_count > 0:
+                    inner = node.child(0)
+                    if inner is not None:
+                        return self._classify_value_node(inner)
+            except Exception:
+                pass
             return "expression"
         return t

@@ -49,6 +49,59 @@ def test_hcl_attribute_paths_basic():
         assert c.metadata.get("path") == c.name, "Metadata path should equal chunk name"
 
 
+def test_hcl_nested_object_pairs():
+    sample = (
+        'resource "aws_s3_bucket" "b" {\n'
+        '  tags = { Env = "dev", Team = "core" }\n'
+        '}\n'
+    )
+
+    parser = ParserFactory().create_parser(Language.HCL)
+    ast = parser.engine.parse_to_ast(sample)
+    chunks = parser.extractor.extract_concept(ast.root_node, sample.encode(), UniversalConcept.DEFINITION)
+
+    # Collect names
+    names = {c.name for c in chunks}
+
+    # Expect inner object pairs to be captured as dotted paths
+    assert "resource.aws_s3_bucket.b.tags.Env" in names
+    assert "resource.aws_s3_bucket.b.tags.Team" in names
+
+    # Verify metadata value types are string
+    name_to_chunk = {c.name: c for c in chunks}
+    assert name_to_chunk["resource.aws_s3_bucket.b.tags.Env"].metadata.get("value_type") == "string"
+    assert name_to_chunk["resource.aws_s3_bucket.b.tags.Team"].metadata.get("value_type") == "string"
+
+
+def test_hcl_template_value_type():
+    sample = (
+        'variable "policy" {\n'
+        '  default = <<EOF\n'
+        '  {\n'
+        '    "Version": "2012-10-17",\n'
+        '    "Statement": []\n'
+        '  }\n'
+        'EOF\n'
+        '}\n'
+    )
+
+    parser = ParserFactory().create_parser(Language.HCL)
+    ast = parser.engine.parse_to_ast(sample)
+    chunks = parser.extractor.extract_concept(ast.root_node, sample.encode(), UniversalConcept.DEFINITION)
+
+    # Find the 'variable.policy' attribute as default/template
+    candidates = [c for c in chunks if c.language_node_type in ("attribute", "object_elem") and "variable" in c.name]
+    assert any("policy" in c.name for c in candidates), "Expected variable.policy in names"
+
+    # The default heredoc should be classified as a template
+    # Look for the attribute node corresponding to default
+    default_chunks = [c for c in candidates if c.name.endswith(".default")]
+    # Fallback: accept any variable.policy.* with value_type template
+    if not default_chunks:
+        default_chunks = [c for c in candidates if c.metadata.get("value_type") == "template"]
+    assert any(c.metadata.get("value_type") == "template" for c in default_chunks), "Expected template value_type for heredoc"
+
+
 def test_hcl_value_type_metadata_present():
     sample = (
         'locals {\n'
@@ -85,4 +138,3 @@ def test_hcl_value_type_metadata_present():
         assert vtype is not None, f"Attribute {c.name} missing value_type metadata"
         assert isinstance(vtype, str), f"value_type should be a string, got {type(vtype)}"
         assert vtype in allowed_types or vtype, f"Unexpected value_type '{vtype}' for {c.name}"
-
