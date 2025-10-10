@@ -7,6 +7,8 @@ CRITICAL: NO stdout output allowed - breaks JSON-RPC protocol
 ARCHITECTURE: Global state required for stdio communication model
 """
 
+from __future__ import annotations
+
 import asyncio
 import logging
 import sys
@@ -22,10 +24,13 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
 
-import mcp.server.stdio
-import mcp.types as types
-from mcp.server import Server
-from mcp.server.models import InitializationOptions
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:  # type-checkers only; avoid runtime hard deps at import
+    import mcp.server.stdio  # noqa: F401
+    import mcp.types as types  # noqa: F401
+    from mcp.server import Server  # noqa: F401
+    from mcp.server.models import InitializationOptions  # noqa: F401
 
 from chunkhound.core.config.config import Config
 from chunkhound.version import __version__
@@ -65,7 +70,8 @@ class StdioMCPServer(MCPServerBase):
         """
         super().__init__(config, args=args)
 
-        # Create MCP server instance
+        # Create MCP server instance (lazy import)
+        from mcp.server import Server  # noqa: WPS433
         self.server: Server = Server("ChunkHound Code Search")
 
         # Event to signal initialization completion
@@ -99,6 +105,9 @@ class StdioMCPServer(MCPServerBase):
 
     def _register_list_tools(self) -> None:
         """Register list_tools handler."""
+
+        # Lazy import to avoid hard dependency at module import time
+        import mcp.types as types  # noqa: WPS433
 
         @self.server.list_tools()  # type: ignore[misc]
         async def list_tools() -> list[types.Tool]:
@@ -151,7 +160,11 @@ class StdioMCPServer(MCPServerBase):
         """Run the stdio server with proper lifecycle management."""
         try:
             # Set initialization options with capabilities
-            from mcp.server.lowlevel import NotificationOptions
+            from mcp.server.lowlevel import NotificationOptions  # noqa: WPS433
+            # Import models lazily for runtime use
+            from mcp.server.models import (  # noqa: WPS433
+                InitializationOptions,
+            )
 
             init_options = InitializationOptions(
                 server_name="ChunkHound Code Search",
@@ -165,6 +178,7 @@ class StdioMCPServer(MCPServerBase):
             # Run with lifespan management
             async with self.server_lifespan():
                 # Run the stdio server
+                import mcp.server.stdio  # noqa: WPS433
                 async with mcp.server.stdio.stdio_server() as (
                     read_stream,
                     write_stream,

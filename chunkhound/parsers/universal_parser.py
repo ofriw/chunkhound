@@ -868,6 +868,11 @@ class UniversalParser:
 
         This is the final optimization step of the cAST algorithm.
         """
+        # For HCL config content, preserve fine-grained KEY_VALUE/TABLE units;
+        # skip greedy merge to avoid collapsing individual attributes.
+        if getattr(self, "language_name", "").lower() == "hcl":
+            return chunks
+
         if len(chunks) <= 1:
             return chunks
 
@@ -877,6 +882,15 @@ class UniversalParser:
         current_chunk = sorted_chunks[0]
 
         for next_chunk in sorted_chunks[1:]:
+            # HCL: keep config containers and key/value definitions separate
+            # Avoid merging different concept types to preserve KEY_VALUE vs TABLE granularity
+            if getattr(self, "language_name", "").lower() == "hcl" and (
+                current_chunk.concept != next_chunk.concept
+            ):
+                result.append(current_chunk)
+                current_chunk = next_chunk
+                continue
+
             # Simple merge logic: only if content is different and fits size limit
             if next_chunk.content.strip() not in current_chunk.content:
                 combined_content = current_chunk.content + "\n" + next_chunk.content
@@ -979,6 +993,16 @@ class UniversalParser:
         Returns:
             Appropriate ChunkType for the concept
         """
+        # HCL config semantics (gated, low-blast-radius):
+        # - Treat attribute-level definitions (with key+path) as KEY_VALUE
+        # - Treat HCL blocks (with block_type) as TABLE
+        # This preserves code-language behavior and only adjusts HCL config typing.
+        if getattr(self, "language_name", "").lower() == "hcl":
+            if concept == UniversalConcept.DEFINITION and metadata.get("key") and metadata.get("path"):
+                return ChunkType.KEY_VALUE
+            if concept == UniversalConcept.BLOCK and "block_type" in metadata:
+                return ChunkType.TABLE
+
         if concept == UniversalConcept.DEFINITION:
             # Check metadata for more specific type information
             # Prefer "kind" field (semantic type) over "node_type" (AST node type)
