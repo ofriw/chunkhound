@@ -342,25 +342,53 @@ class IndexingCoordinator(BaseService):
         # Calculate optimal worker count based on file count
         cpu_count = os.cpu_count() or DEFAULT_CPU_COUNT
         file_count = len(files)
-        num_workers = _calculate_worker_count(file_count, cpu_count)
-        # Allow config to cap workers (safety/override)
+
+        # Determine timeout settings early to adjust worker count and batch sizing
+        timeout_s_probe = 0.0
+        try:
+            if self.config and getattr(self.config, "indexing", None):
+                timeout_s_probe = float(
+                    getattr(self.config.indexing, "per_file_timeout_seconds", 0.0) or 0.0
+                )
+        except Exception:
+            timeout_s_probe = 0.0
+
+        # Inspect explicit concurrency override
+        max_concurrent = 0
         try:
             if self.config and getattr(self.config, "indexing", None):
                 max_concurrent = int(getattr(self.config.indexing, "max_concurrent", 0) or 0)
-                if max_concurrent > 0:
-                    num_workers = max(1, min(num_workers, max_concurrent))
         except Exception:
-            pass
+            max_concurrent = 0
 
-        logger.debug(f"Parsing {file_count} files with {num_workers} workers")
+        # Default behavior:
+        # - If timeouts are enabled and no explicit max_concurrent given,
+        #   auto-scale to cpu_count (clamped to a safe upper bound).
+        # - Otherwise, use heuristic based on file count with existing caps.
+        SAFE_MAX = 32
+        if timeout_s_probe > 0 and max_concurrent <= 0:
+            num_workers = max(1, min(cpu_count, SAFE_MAX))
+        else:
+            num_workers = _calculate_worker_count(file_count, cpu_count)
+            if max_concurrent > 0:
+                num_workers = max(1, min(num_workers, max_concurrent))
 
-        # Split into moderate sub-batches so we stream progress without overwhelming the scheduler
-        # Heuristic: aim for ~3–4× workers batches; clamp to a minimum batch size for efficiency
-        target_batches = max(num_workers * 4, 1)
+        logger.debug(f"Parsing {file_count} files with {num_workers} workers (timeout={timeout_s_probe}s, max_concurrent={max_concurrent or 'auto'})")
+
+        # Heuristic: increase batch granularity when per-file timeouts are enabled to avoid long silent stalls
+        # (long stalls happen when large batches contain many files that each hit the timeout)
+        dynamic_factor = 8 if timeout_s_probe > 0 else 4
+        target_batches = max(num_workers * dynamic_factor, 1)
         # Compute base size from target_batches then clamp to [MIN_BATCH, file_count]
-        MIN_BATCH = 128
+        # Use smaller minimum when timeouts are enabled to surface progress more frequently
+        MIN_BATCH = 16 if timeout_s_probe > 0 else 128
         base = max(1, math.ceil(len(files) / target_batches))
         batch_size = min(len(files), max(MIN_BATCH, base))
+        # Additional clamp: target ~60s worst-case batch wall time when timeouts are enabled
+        if timeout_s_probe > 0:
+            target_secs = 60.0
+            per_file_cap = max(4, int(target_secs / max(0.001, timeout_s_probe)))
+            batch_size = min(batch_size, per_file_cap)
         file_batches = [files[i : i + batch_size] for i in range(0, len(files), batch_size)]
 
         # Process batches in parallel using ProcessPoolExecutor
@@ -382,9 +410,9 @@ class IndexingCoordinator(BaseService):
             min_timeout_kb = 128
             try:
                 if self.config and getattr(self.config, "indexing", None):
+                    # Respect explicit 0 so users can apply timeout to all file sizes.
                     min_timeout_kb = int(
                         getattr(self.config.indexing, "per_file_timeout_min_size_kb", 128)
-                        or 128
                     )
             except Exception:
                 min_timeout_kb = 128

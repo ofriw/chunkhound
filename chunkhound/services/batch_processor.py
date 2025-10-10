@@ -12,6 +12,20 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from chunkhound.core.types.common import FileId, Language
+from time import perf_counter
+
+def _dbg_log(msg: str) -> None:
+    try:
+        import os, datetime
+        path = os.getenv("CHUNKHOUND_DEBUG_FILE")
+        if not path:
+            return
+        ts = datetime.datetime.now().isoformat()
+        pid = os.getpid()
+        with open(path, "a", encoding="utf-8", errors="ignore") as f:
+            f.write(f"[{ts}][PID {pid}] {msg}\n")
+    except Exception:
+        pass
 from chunkhound.parsers.parser_factory import create_parser_for_language
 
 
@@ -80,6 +94,7 @@ def _parse_file_with_timeout(
         args=(str(file_path), language.value, child_conn),
         daemon=True,
     )
+    _dbg_log(f"TIMEOUT-SPAWN start: {file_path}")
     p.start()
     # Close our reference to the child side in the parent
     try:
@@ -96,13 +111,16 @@ def _parse_file_with_timeout(
                 p.terminate()
                 p.join(timeout=0.5)
             if status == "ok":
+                _dbg_log(f"TIMEOUT-DONE success: {file_path}")
                 return ("success", payload)
             else:
+                _dbg_log(f"TIMEOUT-DONE error: {file_path} -> {payload}")
                 return ("error", payload)
         else:
             # Timeout - terminate the child process cleanly
             p.terminate()
             p.join(timeout=0.5)
+            _dbg_log(f"TIMEOUT-KILL: {file_path} after {timeout_s}s")
             return ("timeout", None)
     finally:
         try:
@@ -128,7 +146,12 @@ def process_file_batch(file_paths: list[Path], config_dict: dict) -> list[Parsed
 
     # Read timeout config once
     timeout_s = float(config_dict.get("per_file_timeout_seconds", 0.0) or 0.0)
-    timeout_min_kb = int(config_dict.get("per_file_timeout_min_size_kb", 128) or 128)
+    # Respect explicit 0 so users can apply timeout to all file sizes.
+    # Do not coerce 0 to the default.
+    try:
+        timeout_min_kb = int(config_dict.get("per_file_timeout_min_size_kb", 128))
+    except Exception:
+        timeout_min_kb = 128
 
     for file_path in file_paths:
         try:
@@ -137,6 +160,11 @@ def process_file_batch(file_paths: list[Path], config_dict: dict) -> list[Parsed
 
             # Detect language from file extension
             language = Language.from_file_extension(file_path)
+            _dbg_log(
+                f"START file={file_path} size_kb={file_stat.st_size/1024:.1f} lang={language.value} "
+                f"tmo_s={timeout_s} min_kb={timeout_min_kb} threshold_kb={config_dict.get('config_file_size_threshold_kb')}"
+            )
+            t0 = perf_counter()
             if language == Language.UNKNOWN:
                 results.append(
                     ParsedFileResult(
@@ -149,13 +177,17 @@ def process_file_batch(file_paths: list[Path], config_dict: dict) -> list[Parsed
                         error="Unknown file type",
                     )
                 )
+                _dbg_log(f"END   file={file_path} status=skipped reason=unknown_type dur_ms={(perf_counter()-t0)*1000:.1f}")
                 continue
 
             # Skip large config/data files (config files are typically < 20KB)
             if language.is_structured_config_language:
                 file_size_kb = file_stat.st_size / 1024
                 threshold_kb = config_dict.get("config_file_size_threshold_kb", 20)
-                if file_size_kb > threshold_kb:
+                # Treat <=0 as disabled (per documentation)
+                if isinstance(threshold_kb, (int, float)) and threshold_kb <= 0:
+                    threshold_kb = None
+                if threshold_kb is not None and file_size_kb > threshold_kb:
                     results.append(
                         ParsedFileResult(
                             file_path=file_path,
@@ -167,10 +199,11 @@ def process_file_batch(file_paths: list[Path], config_dict: dict) -> list[Parsed
                             error="large_config_file",
                         )
                     )
+                    _dbg_log(f"END   file={file_path} status=skipped reason=large_config_file dur_ms={(perf_counter()-t0)*1000:.1f}")
                     continue
 
             # Parse file and generate chunks (with optional per-file timeout)
-            if timeout_s > 0 and (file_stat.st_size / 1024) >= timeout_min_kb:
+            if timeout_s > 0 and ((file_stat.st_size / 1024) >= timeout_min_kb):
                 status, payload = _parse_file_with_timeout(file_path, language, timeout_s)
                 if status == "timeout":
                     # Defer user notification to final summary; avoid live console noise
@@ -185,6 +218,7 @@ def process_file_batch(file_paths: list[Path], config_dict: dict) -> list[Parsed
                             error="timeout",
                         )
                     )
+                    _dbg_log(f"END   file={file_path} status=skipped reason=timeout dur_ms={(perf_counter()-t0)*1000:.1f}")
                     continue
                 elif status == "error":
                     results.append(
@@ -198,6 +232,7 @@ def process_file_batch(file_paths: list[Path], config_dict: dict) -> list[Parsed
                             error=str(payload),
                         )
                     )
+                    _dbg_log(f"END   file={file_path} status=error reason={payload} dur_ms={(perf_counter()-t0)*1000:.1f}")
                     continue
                 else:
                     chunks_data = payload if isinstance(payload, list) else []
@@ -232,6 +267,7 @@ def process_file_batch(file_paths: list[Path], config_dict: dict) -> list[Parsed
                     status="success",
                 )
             )
+            _dbg_log(f"END   file={file_path} status=success dur_ms={(perf_counter()-t0)*1000:.1f} chunks={len(chunks_data)}")
 
         except Exception as e:
             # Capture errors but continue processing other files in batch
@@ -246,5 +282,6 @@ def process_file_batch(file_paths: list[Path], config_dict: dict) -> list[Parsed
                     error=str(e),
                 )
             )
+            _dbg_log(f"END   file={file_path} status=error-unhandled reason={e}")
 
     return results

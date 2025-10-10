@@ -77,13 +77,17 @@ chunkhound index
 
 ### New Indexing Options (Bail on Slow Files)
 
-- `indexing.per_file_timeout_seconds` (float): Hard wall‑clock timeout per file (seconds). Default: 0 (disabled). Example: `5.0`.
-- `indexing.per_file_timeout_min_size_kb` (int): Apply timeout only to files ≥ this size in KB (reduces overhead on small files). Default: 128.
+- `indexing.per_file_timeout_seconds` (float): Hard wall‑clock timeout per file (seconds). Default: 3.0 (set `0` to disable). Example: `5.0`.
+- `indexing.per_file_timeout_min_size_kb` (int): Apply timeout only to files ≥ this size in KB (reduces overhead on small files). Default: 128. Use `0` to apply the timeout to all file sizes.
 - `indexing.mtime_epsilon_seconds` (float): Tolerance for comparing filesystem mtimes with DB mtimes. Default: 0.01.
 - `indexing.verify_checksum_when_mtime_equal` (bool): When true, verify content of “unchanged” files via a fast checksum (head+tail sampling). Default: false.
 - `indexing.checksum_sample_kb` (int): Sample size in KB for checksum (0 = full file). Default: 64.
 - `indexing.config_file_size_threshold_kb` (int): Skip structured configs (JSON/YAML/TOML) larger than this KB. Default: 20. Set to 0 to disable filtering.
 - `indexing.force_reindex` (bool): Force re-parse all included files even if unchanged (bypasses mtime/checksum). Default: false.
+
+Concurrency (parsing workers)
+- Auto‑scaling: When `per_file_timeout_seconds > 0` and no explicit concurrency is set, ChunkHound now defaults to `cpu_count` workers (clamped to 32) to process slow files in parallel.
+- Override: `indexing.max_concurrent` in config/JSON, `--max-concurrent` CLI, or `CHUNKHOUND_INDEXING__MAX_CONCURRENT` env.
 
 CLI overrides include:
 

@@ -57,7 +57,7 @@ class IndexingConfig(BaseModel):
 
     # File parsing safety
     per_file_timeout_seconds: float = Field(
-        default=0.0,
+        default=3.0,
         description=
         "Maximum seconds to spend parsing a single file (0 disables timeout)",
     )
@@ -259,6 +259,16 @@ class IndexingConfig(BaseModel):
         )
 
         parser.add_argument(
+            "--max-concurrent",
+            type=int,
+            default=None,
+            help=(
+                "Maximum concurrent parser workers (processes). "
+                "Overrides auto-detected concurrency and internal caps."
+            ),
+        )
+
+        parser.add_argument(
             "--file-timeout",
             type=float,
             default=None,
@@ -364,6 +374,13 @@ class IndexingConfig(BaseModel):
         if cleanup := os.getenv("CHUNKHOUND_INDEXING__CLEANUP"):
             config["cleanup"] = cleanup.lower() in ("true", "1", "yes")
 
+        # Concurrency cap for parser workers
+        if maxc := os.getenv("CHUNKHOUND_INDEXING__MAX_CONCURRENT"):
+            try:
+                config["max_concurrent"] = int(maxc)
+            except ValueError:
+                pass
+
         return config
 
     @classmethod
@@ -419,6 +436,13 @@ class IndexingConfig(BaseModel):
         # Cleanup toggle via CLI
         if hasattr(args, "no_cleanup") and args.no_cleanup:
             overrides["cleanup"] = False
+
+        # Concurrency override via CLI
+        if hasattr(args, "max_concurrent") and args.max_concurrent is not None:
+            try:
+                overrides["max_concurrent"] = int(args.max_concurrent)
+            except (TypeError, ValueError):
+                pass
 
         return overrides
 

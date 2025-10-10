@@ -22,6 +22,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Security
 - Removed embedded API key from `.chunkhound.json`. Use environment variables instead (e.g., `CHUNKHOUND_EMBEDDING__API_KEY`).
 
+### Changed
+- Default per-file timeout is now enabled by default: `indexing.per_file_timeout_seconds=3.0` (previously `0`, disabled). Set to `0` to disable.
+- When timeouts are enabled and no explicit concurrency is set, parser workers auto‑scale to `cpu_count` (capped at 32). Override via `indexing.max_concurrent`, `--max-concurrent`, or `CHUNKHOUND_INDEXING__MAX_CONCURRENT`.
+
 ## [3.3.1] - 2025-09-25
 
 ### Enhanced
@@ -505,3 +509,5 @@ For more information, visit: https://github.com/chunkhound/chunkhound
 [1.1.0]: https://github.com/chunkhound/chunkhound/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/chunkhound/chunkhound/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/chunkhound/chunkhound/releases/tag/v1.0.0
+### Changed
+- Default per-file timeout is now enabled by default: `indexing.per_file_timeout_seconds=3.0` (previously `0`, disabled). Set to `0` to disable.
