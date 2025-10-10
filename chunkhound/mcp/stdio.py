@@ -7,6 +7,8 @@ CRITICAL: NO stdout output allowed - breaks JSON-RPC protocol
 ARCHITECTURE: Global state required for stdio communication model
 """
 
+from __future__ import annotations
+
 import asyncio
 import logging
 import sys
@@ -104,6 +106,9 @@ class StdioMCPServer(MCPServerBase):
     def _register_list_tools(self) -> None:
         """Register list_tools handler."""
 
+        # Lazy import to avoid hard dependency at module import time
+        import mcp.types as types  # noqa: WPS433
+
         @self.server.list_tools()  # type: ignore[misc]
         async def list_tools() -> list[types.Tool]:
             """List available tools."""
@@ -156,6 +161,10 @@ class StdioMCPServer(MCPServerBase):
         try:
             # Set initialization options with capabilities
             from mcp.server.lowlevel import NotificationOptions  # noqa: WPS433
+            # Import models lazily for runtime use
+            from mcp.server.models import (  # noqa: WPS433
+                InitializationOptions,
+            )
 
             init_options = InitializationOptions(
                 server_name="ChunkHound Code Search",

@@ -155,6 +155,9 @@ async def handle_tool_call(
         MCPError: On tool execution failure (caught and formatted as error response)
     """
     try:
+        # Lazy import at runtime to construct MCP content objects without
+        # forcing hard dependency during module import/collection.
+        import mcp.types as types  # noqa: WPS433
         # Wait for initialization (reduced timeout since server is immediately available)
         await asyncio.wait_for(initialization_complete.wait(), timeout=5.0)
 
