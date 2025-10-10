@@ -128,13 +128,18 @@ class SerialDatabaseExecutor:
             op_func = getattr(provider, f"_executor_{operation_name}")
             return op_func(conn, state, *args, **kwargs)
 
-        # Run in executor synchronously with timeout
+        # Run in executor synchronously with timeout (env override)
         future = self._db_executor.submit(executor_operation)
+        import os
         try:
-            return future.result(timeout=30.0)  # 30 second timeout
+            timeout_s = float(os.getenv("CHUNKHOUND_DB_EXECUTE_TIMEOUT", "30"))
+        except Exception:
+            timeout_s = 30.0
+        try:
+            return future.result(timeout=timeout_s)
         except concurrent.futures.TimeoutError:
             logger.error(
-                f"Database operation '{operation_name}' timed out after 30 seconds"
+                f"Database operation '{operation_name}' timed out after {timeout_s} seconds"
             )
             raise TimeoutError(f"Operation '{operation_name}' timed out")
 

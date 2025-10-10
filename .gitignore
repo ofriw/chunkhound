@@ -267,3 +267,8 @@ config.json
 .chunkhound/
 *.lancedb/
 *.lance
+
+# for those who like to keep agents' configs close to their projects
+.codex-persistent
+# muting for now
+.devcontainer

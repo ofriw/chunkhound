@@ -329,6 +329,14 @@ class RichOutputFormatter:
         summary_table.add_row(
             "Skipped:", f"[yellow]{stats.get('files_skipped', 0)}[/yellow] files"
         )
+        if stats.get("skipped_unchanged", 0) > 0:
+            summary_table.add_row(
+                "  └─ Unchanged:", f"[yellow]{stats.get('skipped_unchanged', 0)}[/yellow] files"
+            )
+        if stats.get("skipped_filtered", 0) > 0:
+            summary_table.add_row(
+                "  └─ Filtered:", f"[yellow]{stats.get('skipped_filtered', 0)}[/yellow] files"
+            )
         summary_table.add_row(
             "Errors:", f"[red]{stats.get('files_errors', 0)}[/red] files"
         )
@@ -359,6 +367,7 @@ class RichOutputFormatter:
             border_style="green",
             padding=(1, 2),
         )
+        # Render main panel
         if self.console is not None:
             self.console.print(panel)
         else:
@@ -370,6 +379,27 @@ class RichOutputFormatter:
             if "embeddings_generated" in stats:
                 print(f"Embeddings: {stats['embeddings_generated']}")
             print(f"Time: {processing_time:.2f}s")
+
+        # If we have a list of files skipped due to timeout, display them
+        skipped_timeouts = stats.get("skipped_due_to_timeout", [])
+        if skipped_timeouts:
+            if self.console is not None:
+                timeout_table = Table.grid(padding=(0, 1))
+                timeout_table.add_column(style="yellow")
+                for fp in skipped_timeouts:
+                    timeout_table.add_row(fp)
+                timeout_panel = Panel(
+                    timeout_table,
+                    title=f"[bold yellow]Skipped Due to Timeout ({len(skipped_timeouts)})[/bold yellow]",
+                    border_style="yellow",
+                    padding=(1, 2),
+                )
+                self.console.print(timeout_panel)
+            else:
+                print(
+                    f"Skipped Due to Timeout ({len(skipped_timeouts)}):\n  "
+                    + "\n  ".join(str(p) for p in skipped_timeouts)
+                )
 
     def initial_stats_panel(self, stats: dict[str, Any]) -> None:
         """Display initial database statistics."""
