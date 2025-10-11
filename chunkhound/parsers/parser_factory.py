@@ -634,7 +634,12 @@ class ParserFactory:
         return self.create_parser(language, cast_config)
 
     def detect_language(self, file_path: Path) -> Language:
-        """Detect the programming language of a file based on its extension.
+        """Detect the programming language of a file.
+
+        DEPRECATED: Use chunkhound.core.detection.detect_language() directly.
+
+        This method now delegates to the centralized language detector which
+        handles content-based detection for ambiguous extensions (.m files).
 
         Args:
             file_path: Path to the file to analyze
@@ -642,23 +647,9 @@ class ParserFactory:
         Returns:
             Detected Language enum value
         """
-        # Check by extension first
-        extension = file_path.suffix.lower()
-        if extension in EXTENSION_TO_LANGUAGE:
-            return EXTENSION_TO_LANGUAGE[extension]
+        from chunkhound.core.detection import detect_language
 
-        # Check by filename (for files like Makefile)
-        filename = file_path.name
-        if filename in EXTENSION_TO_LANGUAGE:
-            return EXTENSION_TO_LANGUAGE[filename]
-
-        # Check by stem (for files like Makefile.debug)
-        stem = file_path.stem.lower()
-        if stem in ["makefile", "gnumakefile"]:
-            return Language.MAKEFILE
-
-        # Fallback to text for unknown files
-        return Language.TEXT
+        return detect_language(file_path)
 
     def get_available_languages(self) -> dict[Language, bool]:
         """Get a dictionary of all languages and their availability status.
