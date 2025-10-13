@@ -113,7 +113,7 @@ class HclMapping(BaseMapping):
             src = self._decode(content)
             inner_key_node = captures.get("inner_key")
             inner_key_raw = self.get_node_text(inner_key_node, src).strip() if inner_key_node else ""
-            inner_key = self._strip_quotes(inner_key_raw)
+            inner_key = self.clean_string_literal(inner_key_raw)
 
             # Find nearest attribute ancestor to get the attribute key
             attr_parent = node.parent
@@ -165,6 +165,9 @@ class HclMapping(BaseMapping):
             if labels:
                 meta["labels"] = labels
             meta["path"] = self._block_path(btype, labels)
+            # Hint downstream typing and merge behavior
+            meta["chunk_type_hint"] = "table"
+            meta["prevent_merge_across_concepts"] = True
         elif node.type == "attribute":
             # Key
             key_node = captures.get("key")
@@ -192,6 +195,9 @@ class HclMapping(BaseMapping):
                 vtype = self._classify_value_node(value_node)
                 if vtype:
                     meta["value_type"] = vtype
+            # Hint downstream typing and merge behavior
+            meta["chunk_type_hint"] = "key_value"
+            meta["prevent_merge_across_concepts"] = True
 
         elif node.type == "object_elem":
             src = self._decode(content)
@@ -199,7 +205,7 @@ class HclMapping(BaseMapping):
             ik = captures.get("inner_key")
             iv = captures.get("inner_value")
             inner_key_raw = self.get_node_text(ik, src).strip() if ik else ""
-            inner_key = self._strip_quotes(inner_key_raw)
+            inner_key = self.clean_string_literal(inner_key_raw)
 
             # Find parent attribute and block path
             attr_parent = node.parent
@@ -223,16 +229,16 @@ class HclMapping(BaseMapping):
                 if vtype:
                     meta["value_type"] = vtype
 
+            # Hint downstream typing and merge behavior
+            meta["chunk_type_hint"] = "key_value"
+            meta["prevent_merge_across_concepts"] = True
+
         return meta
 
     # --- Helpers ---
     def _decode(self, content: bytes) -> str:
         return content.decode("utf-8", errors="replace")
 
-    def _strip_quotes(self, text: str) -> str:
-        if (text.startswith('"') and text.endswith('"')) or (text.startswith("'") and text.endswith("'")):
-            return text[1:-1]
-        return text
 
     def _block_header(self, node: Node, content: bytes) -> tuple[str, List[str]]:
         """Extract block type and labels from a `block` node.
@@ -257,7 +263,7 @@ class HclMapping(BaseMapping):
             if child.type in {"string_lit", "identifier"}:
                 # string_lit tokens include quotes via external scanner
                 text = self.get_node_text(child, src).strip()
-                labels.append(self._strip_quotes(text))
+                labels.append(self.clean_string_literal(text))
                 continue
             if child.type == "block_start":
                 break
