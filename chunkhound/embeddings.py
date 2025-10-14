@@ -111,6 +111,16 @@ class EmbeddingManager:
 
         return self._providers[name]
 
+    def get_default_provider(self) -> EmbeddingProvider | None:
+        """Get the default embedding provider if one is set.
+
+        Returns:
+            The default embedding provider, or None if no default is set
+        """
+        if self._default_provider is None:
+            return None
+        return self._providers.get(self._default_provider)
+
     def list_providers(self) -> list[str]:
         """List all registered provider names."""
         return list(self._providers.keys())

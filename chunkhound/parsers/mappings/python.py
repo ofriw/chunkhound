@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 from chunkhound.core.types.common import Language
 from chunkhound.parsers.mappings.base import BaseMapping
+from chunkhound.parsers.universal_engine import UniversalConcept
 
 if TYPE_CHECKING:
     from tree_sitter import Node as TSNode
@@ -459,3 +460,294 @@ class PythonMapping(BaseMapping):
                     return False
 
         return True
+
+    # LanguageMapping protocol methods
+    def get_query_for_concept(self, concept: UniversalConcept) -> str | None:
+        """Get tree-sitter query for universal concept in Python.
+
+        This method directly implements the LanguageMapping protocol, replacing
+        the need for MappingAdapter and ensuring all queries (including docstrings)
+        are properly executed.
+        """
+
+        if concept == UniversalConcept.DEFINITION:
+            return """
+            (function_definition
+                name: (identifier) @name
+            ) @definition
+
+            (class_definition
+                name: (identifier) @name
+            ) @definition
+            """
+
+        elif concept == UniversalConcept.BLOCK:
+            return """
+            (block) @block
+
+            (if_statement
+                consequence: (block) @block
+            )
+
+            (while_statement
+                body: (block) @block
+            )
+
+            (for_statement
+                body: (block) @block
+            )
+
+            (with_statement
+                body: (block) @block
+            )
+
+            (try_statement
+                body: (block) @block
+            )
+            """
+
+        elif concept == UniversalConcept.COMMENT:
+            # CRITICAL FIX: Combine comments and docstrings under COMMENT concept
+            # This ensures module docstrings are finally indexed!
+            return """
+            (comment) @definition
+
+            (module . (expression_statement (string) @module_docstring)) @definition
+
+            (function_definition
+                body: (block .
+                    (expression_statement (string) @function_docstring)
+                )
+            ) @definition
+
+            (class_definition
+                body: (block .
+                    (expression_statement (string) @class_docstring)
+                )
+            ) @definition
+            """
+
+        elif concept == UniversalConcept.IMPORT:
+            return """
+            (import_statement) @definition
+            (import_from_statement) @definition
+            """
+
+        elif concept == UniversalConcept.STRUCTURE:
+            return """
+            (module
+                (import_statement)* @imports
+                (import_from_statement)* @from_imports
+            ) @definition
+            """
+
+        return None
+
+    def extract_name(
+        self, concept: UniversalConcept, captures: dict[str, "TSNode"], content: bytes
+    ) -> str:
+        """Extract name from captures for this concept.
+
+        Args:
+            concept: The universal concept being extracted
+            captures: Dictionary of capture names to tree-sitter nodes
+            content: Source code as bytes
+
+        Returns:
+            Extracted name string
+        """
+        # Convert bytes to string for processing
+        source = content.decode("utf-8")
+
+        if concept == UniversalConcept.DEFINITION:
+            # Try to get the name from the name capture
+            if "name" in captures:
+                name_node = captures["name"]
+                name = self.get_node_text(name_node, source).strip()
+                if name:
+                    return name
+
+            return "unnamed_definition"
+
+        elif concept == UniversalConcept.BLOCK:
+            # Use location-based naming for blocks
+            if "definition" in captures:
+                node = captures["definition"]
+                line = node.start_point[0] + 1
+                return f"block_line_{line}"
+            elif "block" in captures:
+                node = captures["block"]
+                line = node.start_point[0] + 1
+                return f"block_line_{line}"
+
+            return "unnamed_block"
+
+        elif concept == UniversalConcept.COMMENT:
+            # Use location-based naming for comments and docstrings
+            if "definition" in captures:
+                node = captures["definition"]
+                line = node.start_point[0] + 1
+
+                # Determine if it's a docstring or comment
+                if "module_docstring" in captures:
+                    return f"module_docstring_line_{line}"
+                elif "function_docstring" in captures:
+                    return f"function_docstring_line_{line}"
+                elif "class_docstring" in captures:
+                    return f"class_docstring_line_{line}"
+                else:
+                    return f"comment_line_{line}"
+
+            return "unnamed_comment"
+
+        elif concept == UniversalConcept.IMPORT:
+            if "definition" in captures:
+                node = captures["definition"]
+                import_text = self.get_node_text(node, source).strip()
+
+                # Extract module name from import statement
+                if import_text.startswith("import "):
+                    module = import_text[7:].split()[0].strip()
+                    return f"import_{module}"
+                elif import_text.startswith("from "):
+                    # Extract "from X import Y" -> X
+                    parts = import_text.split()
+                    if len(parts) >= 2:
+                        module = parts[1].strip()
+                        return f"from_{module}"
+
+            return "unnamed_import"
+
+        elif concept == UniversalConcept.STRUCTURE:
+            return "file_structure"
+
+        return "unnamed"
+
+    def extract_content(
+        self, concept: UniversalConcept, captures: dict[str, "TSNode"], content: bytes
+    ) -> str:
+        """Extract content from captures for this concept.
+
+        Args:
+            concept: The universal concept being extracted
+            captures: Dictionary of capture names to tree-sitter nodes
+            content: Source code as bytes
+
+        Returns:
+            Extracted content as string
+        """
+        # Convert bytes to string for processing
+        source = content.decode("utf-8")
+
+        if concept == UniversalConcept.BLOCK and "block" in captures:
+            node = captures["block"]
+            return self.get_node_text(node, source)
+        elif "definition" in captures:
+            node = captures["definition"]
+            return self.get_node_text(node, source)
+        elif captures:
+            # Use the first available capture
+            node = list(captures.values())[0]
+            return self.get_node_text(node, source)
+
+        return ""
+
+    def extract_metadata(
+        self, concept: UniversalConcept, captures: dict[str, "TSNode"], content: bytes
+    ) -> dict[str, Any]:
+        """Extract Python-specific metadata from captures.
+
+        Args:
+            concept: The universal concept being extracted
+            captures: Dictionary of capture names to tree-sitter nodes
+            content: Source code as bytes
+
+        Returns:
+            Dictionary of metadata
+        """
+        source = content.decode("utf-8")
+        metadata: dict[str, Any] = {}
+
+        if concept == UniversalConcept.DEFINITION:
+            def_node = captures.get("definition")
+            if def_node:
+                metadata["node_type"] = def_node.type
+
+                # For functions
+                if def_node.type in ("function_definition", "async_function_definition"):
+                    if def_node.type == "async_function_definition":
+                        metadata["is_async"] = True
+                        metadata["kind"] = "async_function"
+                    else:
+                        metadata["kind"] = "function"
+
+                    # Extract decorators
+                    decorators = self.extract_decorators(def_node, source)
+                    if decorators:
+                        metadata["decorators"] = decorators
+
+                    # Extract parameters
+                    parameters = self.extract_parameters(def_node, source)
+                    if parameters:
+                        metadata["parameters"] = parameters
+
+                    # Extract type hints
+                    type_hints = self.extract_type_hints(def_node, source)
+                    if type_hints:
+                        metadata["type_hints"] = type_hints
+
+                    # Check if generator
+                    if self.is_generator_function(def_node, source):
+                        metadata["is_generator"] = True
+
+                # For classes
+                elif def_node.type == "class_definition":
+                    metadata["kind"] = "class"
+
+                    # Extract decorators
+                    decorators = self.extract_decorators(def_node, source)
+                    if decorators:
+                        metadata["decorators"] = decorators
+
+                    # Extract inheritance
+                    superclasses = self.extract_inheritance(def_node, source)
+                    if superclasses:
+                        metadata["superclasses"] = superclasses
+
+        elif concept == UniversalConcept.IMPORT:
+            if "definition" in captures:
+                import_node = captures["definition"]
+                import_info = self.extract_import_names(import_node, source)
+                if import_info:
+                    metadata.update(import_info)
+
+        elif concept == UniversalConcept.COMMENT:
+            if "definition" in captures:
+                comment_node = captures["definition"]
+                comment_text = self.get_node_text(comment_node, source)
+
+                # Determine if it's a docstring or regular comment
+                if "module_docstring" in captures:
+                    metadata["comment_type"] = "module_docstring"
+                    metadata["is_docstring"] = True
+                elif "function_docstring" in captures:
+                    metadata["comment_type"] = "function_docstring"
+                    metadata["is_docstring"] = True
+                elif "class_docstring" in captures:
+                    metadata["comment_type"] = "class_docstring"
+                    metadata["is_docstring"] = True
+                else:
+                    metadata["comment_type"] = "line_comment"
+                    metadata["is_docstring"] = False
+
+                # Extract docstring/comment content (strip quotes)
+                if metadata.get("is_docstring"):
+                    # Remove triple quotes and clean up
+                    clean_text = comment_text.strip()
+                    for quotes in ['"""', "'''", '"', "'"]:
+                        if clean_text.startswith(quotes) and clean_text.endswith(quotes):
+                            clean_text = clean_text[len(quotes):-len(quotes)]
+                            break
+                    metadata["raw_content"] = clean_text.strip()
+
+        return metadata
