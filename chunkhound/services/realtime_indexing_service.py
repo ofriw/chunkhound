@@ -79,7 +79,7 @@ class SimpleEventHandler(FileSystemEventHandler):
                 future = asyncio.run_coroutine_threadsafe(
                     self.event_queue.put((event.event_type, file_path)), self.loop
                 )
-                future.result(timeout=1.0)  # Wait briefly for queue space
+                future.result(timeout=5.0)  # More tolerance for queue operations
         except Exception as e:
             logger.warning(f"Failed to queue event for {file_path}: {e}")
 
@@ -164,7 +164,7 @@ class SimpleEventHandler(FileSystemEventHandler):
                 future = asyncio.run_coroutine_threadsafe(
                     self.event_queue.put((event_type, file_path)), self.loop
                 )
-                future.result(timeout=1.0)
+                future.result(timeout=5.0)  # More tolerance for queue operations
         except Exception as e:
             logger.warning(f"Failed to queue {event_type} event for {file_path}: {e}")
 
@@ -334,18 +334,25 @@ class RealtimeIndexingService:
         self, watch_path: Path, loop: asyncio.AbstractEventLoop
     ) -> None:
         """Setup watchdog with timeout - fall back to polling if it takes too long."""
+        # run_in_executor returns an awaitable Future - no create_task needed
+        watchdog_task = loop.run_in_executor(None, self._start_fs_monitor, watch_path, loop)
+
         try:
             # Try recursive setup with reasonable timeout for large directories
-            await asyncio.wait_for(
-                loop.run_in_executor(None, self._start_fs_monitor, watch_path, loop),
-                timeout=5.0,  # Increased from 2.0 to 5.0 seconds
-            )
+            await asyncio.wait_for(watchdog_task, timeout=5.0)
             logger.debug("Watchdog setup completed successfully (recursive mode)")
             self._debug("watchdog setup complete (recursive)")
             self._monitoring_ready_time = time.time()
             self.monitoring_ready.set()  # Signal monitoring is ready
 
         except asyncio.TimeoutError:
+            # Cancel the watchdog task before falling back to polling
+            watchdog_task.cancel()
+            try:
+                await watchdog_task
+            except asyncio.CancelledError:
+                pass
+
             logger.info(
                 f"Watchdog setup timed out for {watch_path} - falling back to polling"
             )
@@ -357,6 +364,14 @@ class RealtimeIndexingService:
             self.monitoring_ready.set()  # Signal monitoring is ready (polling mode)
             self._debug("watchdog timed out; switched to polling")
         except Exception as e:
+            # Cancel watchdog task on other errors too
+            if not watchdog_task.done():
+                watchdog_task.cancel()
+                try:
+                    await watchdog_task
+                except asyncio.CancelledError:
+                    pass
+
             logger.warning(f"Watchdog setup failed: {e} - falling back to polling")
             self._using_polling = True
             self._polling_task = asyncio.create_task(self._polling_monitor(watch_path))
