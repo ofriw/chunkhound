@@ -765,27 +765,29 @@ if __name__ == "__main__":
         offset = 0
         max_pages = 10  # Safety limit
         page_count = 0
-        
+        total_count = 0  # Track actual total from pagination metadata
+
         while page_count < max_pages:
             page_results = await execute_tool("search_regex", services, None, {
                 "pattern": common_pattern,
                 "page_size": page_size,
                 "offset": offset
             })
-            
+
             page_data = page_results.get('results', [])
             if not page_data:
                 break  # No more results
-            
+
             all_results.extend(page_data)
             page_count += 1
             offset += page_size
-            
+
             print(f"Page {page_count}: {len(page_data)} results (offset={offset-page_size})")
-            
+
             # Check pagination metadata if available
             if 'pagination' in page_results:
                 pagination = page_results['pagination']
+                total_count = pagination.get('total', len(all_results))  # Track actual total
                 print(f"  Pagination metadata: {pagination}")
 
         print(f"✓ Pagination test 3: Retrieved {len(all_results)} total results across {page_count} pages")
@@ -839,12 +841,14 @@ if __name__ == "__main__":
         
         # 5. Test edge cases
         # Test offset beyond available results
+        # Use total_count from pagination metadata, not len(all_results) which may be partial
+        actual_total = total_count if total_count > 0 else len(all_results)
         beyond_results = await execute_tool("search_regex", services, None, {
             "pattern": common_pattern,
             "page_size": 10,
-            "offset": len(all_results) + 100
+            "offset": actual_total + 100  # Truly beyond all results
         })
-        assert len(beyond_results.get('results', [])) == 0, "Offset beyond results should return empty"
+        assert len(beyond_results.get('results', [])) == 0, f"Offset {actual_total + 100} beyond total {actual_total} should return empty"
         
         # Test large page size
         large_page_results = await execute_tool("search_regex", services, None, {
@@ -853,7 +857,7 @@ if __name__ == "__main__":
             "offset": 0
         })
         large_page_count = len(large_page_results.get('results', []))
-        assert large_page_count <= len(all_results), "Large page size should not exceed total results"
+        assert large_page_count <= actual_total, f"Large page size should not exceed total ({large_page_count} <= {actual_total})"
         
         print("✓ Pagination edge cases handled correctly")
 
