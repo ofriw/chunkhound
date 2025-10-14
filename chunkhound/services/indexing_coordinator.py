@@ -25,6 +25,7 @@ from typing import Any
 from loguru import logger
 from rich.progress import Progress, TaskID
 
+from chunkhound.core.detection import detect_language
 from chunkhound.core.models import Chunk, File
 from chunkhound.core.types.common import FilePath, Language
 from chunkhound.interfaces.database_provider import DatabaseProvider
@@ -189,7 +190,9 @@ class IndexingCoordinator(BaseService):
         return self._parser_cache[language]
 
     def detect_file_language(self, file_path: Path) -> Language | None:
-        """Detect programming language from file extension.
+        """Detect programming language from file.
+
+        Uses content-based detection for ambiguous extensions (.m files).
 
         Args:
             file_path: Path to the file
@@ -197,7 +200,7 @@ class IndexingCoordinator(BaseService):
         Returns:
             Language enum value or None if unsupported
         """
-        language = Language.from_file_extension(file_path)
+        language = detect_language(file_path)
         return language if language != Language.UNKNOWN else None
 
     async def _get_file_lock(self, file_path: Path) -> asyncio.Lock:

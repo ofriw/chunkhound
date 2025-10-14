@@ -10,6 +10,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from loguru import logger
+
+from chunkhound.core.detection import detect_language
 from chunkhound.core.exceptions import ModelError, ValidationError
 from chunkhound.core.types import FileId, FilePath, Language, Timestamp
 
@@ -23,7 +26,8 @@ class File:
 
     Attributes:
         id: Unique file identifier (None for new files)
-        path: Relative path to the file (with forward slashes for cross-platform compatibility)
+        path: Relative path to the file (with forward slashes for
+            cross-platform compatibility)
         mtime: Last modification time as Unix timestamp
         language: Programming language of the file
         size_bytes: File size in bytes
@@ -38,6 +42,9 @@ class File:
     id: FileId | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
+
+    # Class constant for content detection
+    CONTENT_DETECTION_READ_BYTES = 1024
 
     def __post_init__(self) -> None:
         """Validate file model after initialization."""
@@ -60,6 +67,30 @@ class File:
             raise ValidationError(
                 "mtime", self.mtime, "Modification time cannot be negative"
             )
+
+    @staticmethod
+    def _detect_language(file_path: Path) -> Language | None:
+        """Detect language from file content for ambiguous extensions.
+
+        DEPRECATED: Use chunkhound.core.detection.detect_language() directly.
+
+        This method now delegates to the centralized language detector for
+        consistency across the codebase.
+
+        Args:
+            file_path: Path to file for content analysis
+
+        Returns:
+            Detected Language, or None if content-based detection not needed
+            (kept for backward compatibility with code expecting this signature)
+        """
+        from chunkhound.core.detection.language_detector import _is_ambiguous_extension
+
+        # Only return language if content detection was needed
+        if _is_ambiguous_extension(file_path):
+            return detect_language(file_path)
+
+        return None  # Let caller use extension detection
 
     @classmethod
     def from_path(cls, file_path: Path) -> "File":
@@ -85,10 +116,14 @@ class File:
             # Extract file stats
             stat = file_path.stat()
 
+            # Detect language using centralized detector
+            # (handles content-based detection for ambiguous extensions like .m files)
+            detected_language = detect_language(file_path)
+
             return cls(
                 path=FilePath(str(file_path)),
                 mtime=Timestamp(stat.st_mtime),
-                language=Language.from_file_extension(file_path),
+                language=detected_language,
                 size_bytes=stat.st_size,
             )
 
@@ -259,7 +294,10 @@ class File:
 
     def __str__(self) -> str:
         """Return string representation of the file."""
-        return f"File(id={self.id}, path={self.relative_path}, language={self.language.value})"
+        return (
+            f"File(id={self.id}, path={self.relative_path}, "
+            f"language={self.language.value})"
+        )
 
     def __repr__(self) -> str:
         """Return detailed string representation of the file."""

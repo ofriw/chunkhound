@@ -9,6 +9,7 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+from chunkhound.core.detection import detect_language
 from chunkhound.core.types.common import FileId, Language
 from chunkhound.parsers.parser_factory import create_parser_for_language
 
@@ -46,8 +47,8 @@ def process_file_batch(file_paths: list[Path], config_dict: dict) -> list[Parsed
             # Get file metadata
             file_stat = os.stat(file_path)
 
-            # Detect language from file extension
-            language = Language.from_file_extension(file_path)
+            # Detect language (with content-based detection for ambiguous extensions)
+            language = detect_language(file_path)
             if language == Language.UNKNOWN:
                 results.append(
                     ParsedFileResult(
