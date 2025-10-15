@@ -149,6 +149,8 @@ class Language(Enum):
     CPP = "cpp"
     MATLAB = "matlab"
     OBJC = "objc"
+    PHP = "php"
+    VUE = "vue"
 
     # Documentation languages
     MARKDOWN = "markdown"
@@ -225,6 +227,13 @@ class Language(Enum):
             ".zig": cls.ZIG,
             ".m": cls.MATLAB,  # Note: .m is ambiguous, will use content detection
             ".mm": cls.OBJC,
+            ".php": cls.PHP,
+            ".phtml": cls.PHP,
+            ".php3": cls.PHP,
+            ".php4": cls.PHP,
+            ".php5": cls.PHP,
+            ".phps": cls.PHP,
+            ".vue": cls.VUE,
         }
 
         return extension_map.get(extension, cls.UNKNOWN)
@@ -259,6 +268,8 @@ class Language(Enum):
             Language.CPP,
             Language.MATLAB,
             Language.OBJC,
+            Language.PHP,
+            Language.VUE,
         }
 
     @property
@@ -276,6 +287,8 @@ class Language(Enum):
             Language.CPP,
             Language.MATLAB,
             Language.OBJC,
+            Language.PHP,
+            Language.VUE,
         }
 
     @property
@@ -286,6 +299,8 @@ class Language(Enum):
             Language.CSHARP,
             Language.TYPESCRIPT,
             Language.TSX,
+            Language.PHP,
+            Language.VUE,
         }
 
     @property
@@ -348,6 +363,7 @@ class Language(Enum):
             ".rs",
             ".m",
             ".mm",
+            ".vue",
         }
 
         extensions.update(extension_map)

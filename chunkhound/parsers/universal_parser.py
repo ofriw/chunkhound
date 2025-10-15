@@ -1,4 +1,4 @@
-"""Universal parser implementation that unifies all language mappings with cAST algorithm.
+"""Universal parser that unifies all language mappings with cAST algorithm.
 
 This module provides the UniversalParser class that brings together:
 1. TreeSitterEngine - Universal tree-sitter parsing engine
@@ -105,7 +105,7 @@ class UniversalParser:
 
         Args:
             engine: TreeSitterEngine for this language
-            mapping: BaseMapping implementation for this language (will be adapted if needed)
+            mapping: BaseMapping for this language (adapted if needed)
             cast_config: Configuration for cAST algorithm
         """
         self.engine = engine
@@ -169,7 +169,8 @@ class UniversalParser:
                 )
             # PDF files require a mapping with parse_pdf_content method
             raise RuntimeError(
-                f"PDF parsing requires a mapping with parse_pdf_content method, got {type(self.base_mapping)}"
+                f"PDF parsing requires parse_pdf_content method, "
+                f"got {type(self.base_mapping)}"
             )
 
         try:
@@ -188,7 +189,7 @@ class UniversalParser:
                 ) from e
 
         # Normalize content for consistent parsing and chunk comparison
-        # Skip for binary and protocol-specific files where CRLF might be semantically significant
+        # Skip for binary/protocol files where CRLF is semantic
         if file_path.suffix.lower() not in [
             ".pdf",
             ".png",
@@ -238,7 +239,8 @@ class UniversalParser:
                     )
                 # PDF files require a mapping with parse_pdf_content method
                 raise RuntimeError(
-                    f"PDF parsing requires a mapping with parse_pdf_content method, got {type(self.base_mapping)}"
+                    f"PDF parsing requires parse_pdf_content method, "
+                    f"got {type(self.base_mapping)}"
                 )
             return self._parse_text_content(content, file_path, file_id)
 
@@ -390,7 +392,7 @@ class UniversalParser:
     ) -> list[UniversalChunk]:
         """Apply cAST chunking to definition chunks (functions, classes, etc.).
 
-        Definitions should ideally remain intact as they represent complete semantic units.
+        Definitions remain intact as complete semantic units.
         Only split if they exceed the maximum chunk size significantly.
         """
         result = []
@@ -716,7 +718,7 @@ class UniversalParser:
         content_start_pos: int = 0,
         total_content_length: int = 0,
     ) -> UniversalChunk:
-        """Create a split chunk from emergency splitting with simple proportional line calculation."""
+        """Create a split chunk from emergency splitting with proportional lines."""
 
         # Simple proportional line calculation based on content position
         original_line_span = original.end_line - original.start_line + 1
@@ -877,6 +879,13 @@ class UniversalParser:
         current_chunk = sorted_chunks[0]
 
         for next_chunk in sorted_chunks[1:]:
+            # Don't merge chunks with different concepts
+            # (prevents merging directives into containing elements)
+            if current_chunk.concept != next_chunk.concept:
+                result.append(current_chunk)
+                current_chunk = next_chunk
+                continue
+
             # Simple merge logic: only if content is different and fits size limit
             if next_chunk.content.strip() not in current_chunk.content:
                 combined_content = current_chunk.content + "\n" + next_chunk.content
@@ -993,11 +1002,14 @@ class UniversalParser:
             elif kind == "method" or "method" in node_type:
                 return ChunkType.METHOD
             elif kind == "struct" or "struct" in node_type:
-                return ChunkType.CLASS  # Structs map to CLASS in languages like Zig, Rust, Go
+                # Structs map to CLASS in languages like Zig, Rust, Go
+                return ChunkType.CLASS
             elif kind == "enum" or "enum" in node_type:
                 return ChunkType.ENUM
             elif kind == "interface" or "interface" in node_type:
                 return ChunkType.INTERFACE
+            elif kind == "trait" or "trait" in node_type:
+                return ChunkType.TRAIT
             else:
                 return ChunkType.FUNCTION  # Default for definitions
 
