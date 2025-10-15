@@ -87,7 +87,7 @@ test = [
 
 [project.scripts]
 chunkhound = "chunkhound.api.cli.main:main"
-chunkhound-mcp = "chunkhound.mcp.stdio:main_sync"
+chunkhound-mcp = "chunkhound.mcp_server.stdio:main_sync"
 
 [project.urls]
 Homepage = "https://github.com/chunkhound/chunkhound"

@@ -17,6 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from .database_config import DatabaseConfig
 from .embedding_config import EmbeddingConfig
 from .indexing_config import IndexingConfig
+from .llm_config import LLMConfig
 from .mcp_config import MCPConfig
 
 
@@ -27,6 +28,7 @@ class Config(BaseModel):
 
     database: DatabaseConfig = Field(default_factory=DatabaseConfig)
     embedding: EmbeddingConfig | None = Field(default=None)
+    llm: LLMConfig | None = Field(default=None)
     mcp: MCPConfig = Field(default_factory=MCPConfig)
     indexing: IndexingConfig = Field(default_factory=IndexingConfig)
     debug: bool = Field(default=False)
@@ -132,6 +134,11 @@ class Config(BaseModel):
             # Create EmbeddingConfig instance with the data
             config_data["embedding"] = EmbeddingConfig(**config_data["embedding"])
 
+        # Special handling for LLMConfig
+        if "llm" in config_data and isinstance(config_data["llm"], dict):
+            # Create LLMConfig instance with the data
+            config_data["llm"] = LLMConfig(**config_data["llm"])
+
         # Add target_dir to config_data for initialization
         config_data["target_dir"] = target_dir
 
@@ -159,6 +166,8 @@ class Config(BaseModel):
             config["database"] = db_config
         if embedding_config := EmbeddingConfig.load_from_env():
             config["embedding"] = embedding_config
+        if llm_config := LLMConfig.load_from_env():
+            config["llm"] = llm_config
         if mcp_config := MCPConfig.load_from_env():
             config["mcp"] = mcp_config
         if indexing_config := IndexingConfig.load_from_env():
@@ -193,6 +202,8 @@ class Config(BaseModel):
                 overrides["embeddings_disabled"] = True
             else:
                 overrides["embedding"] = embedding_overrides
+        if llm_overrides := LLMConfig.extract_cli_overrides(args):
+            overrides["llm"] = llm_overrides
         if mcp_overrides := MCPConfig.extract_cli_overrides(args):
             overrides["mcp"] = mcp_overrides
         if indexing_overrides := IndexingConfig.extract_cli_overrides(args):
