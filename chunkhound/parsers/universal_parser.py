@@ -468,10 +468,43 @@ class UniversalParser:
     ) -> list[UniversalChunk]:
         """Apply cAST chunking to comment chunks.
 
-        Comments can be merged aggressively or attached to nearby code chunks.
+        Comments are merged conservatively - only consecutive comments (gap <= 1)
+        are merged together. This prevents merging comments that have code between
+        them, preserving standalone comments while allowing multi-line comment blocks.
         """
-        # For now, treat comments similar to blocks
-        return self._chunk_blocks(chunks, content)
+        if not chunks:
+            return []
+
+        # Sort comments by line position
+        sorted_chunks = sorted(chunks, key=lambda c: c.start_line)
+        result = []
+        current_group = [sorted_chunks[0]]
+
+        for chunk in sorted_chunks[1:]:
+            # Only merge if comments are consecutive or adjacent (gap <= 1)
+            last_chunk = current_group[-1]
+            line_gap = chunk.start_line - last_chunk.end_line
+
+            if line_gap <= 1:
+                # Comments are consecutive - can merge
+                current_group.append(chunk)
+            else:
+                # Gap is too large - finalize current group and start new one
+                merged = self._merge_chunk_group(current_group, content)
+                result.extend(merged)
+                current_group = [chunk]
+
+        # Don't forget the last group
+        if current_group:
+            merged = self._merge_chunk_group(current_group, content)
+            result.extend(merged)
+
+        # Final validation: ensure all chunks meet size constraints
+        validated_result = []
+        for chunk in result:
+            validated_result.extend(self._validate_and_split_chunk(chunk, content))
+
+        return validated_result
 
     def _chunk_generic(
         self, chunks: list[UniversalChunk], content: str
@@ -936,13 +969,22 @@ class UniversalParser:
                 if current_kind == 'rule' and next_kind == 'rule':
                     semantic_mismatch = True
 
+            # Determine maximum allowed gap based on chunk types
+            # For cross-concept merges involving COMMENT, require strict adjacency (gap <= 1)
+            # to preserve standalone comments while allowing immediate docstrings to merge
+            max_gap = 5  # Default: allow reasonable gaps for related code
+            if current_chunk.concept != next_chunk.concept:
+                # Cross-concept merge - check if either is COMMENT
+                if (current_chunk.concept == UniversalConcept.COMMENT or
+                    next_chunk.concept == UniversalConcept.COMMENT):
+                    max_gap = 1  # Strict: only merge immediately adjacent comments/code
+
             # Simple merge condition: fits in size limit and close proximity
             can_merge = (
                 not semantic_mismatch
                 and metrics.non_whitespace_chars <= self.cast_config.max_chunk_size
                 and estimated_tokens <= self.cast_config.safe_token_limit
-                and next_chunk.start_line - current_chunk.end_line
-                <= 5  # Allow reasonable gaps
+                and next_chunk.start_line - current_chunk.end_line <= max_gap
             )
 
             if can_merge:
