@@ -223,30 +223,65 @@ class VoyageAIEmbeddingProvider:
         )
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
-        """Generate embeddings for a list of texts."""
+        """Generate embeddings for a list of texts with automatic retry on network errors."""
         if not texts:
             return []
 
         validated_texts = validate_text_input(texts)
 
-        try:
-            result = await asyncio.to_thread(
-                self._client.embed,
-                texts=validated_texts,
-                model=self._model,
-                input_type="document",
-                truncation=True,
-            )
+        # Retry loop for transient network errors
+        for attempt in range(self._retry_attempts):
+            try:
+                result = await asyncio.to_thread(
+                    self._client.embed,
+                    texts=validated_texts,
+                    model=self._model,
+                    input_type="document",
+                    truncation=True,
+                )
 
-            self._requests_made += 1
-            self._tokens_used += result.total_tokens
-            self._embeddings_generated += len(texts)
+                self._requests_made += 1
+                self._tokens_used += result.total_tokens
+                self._embeddings_generated += len(texts)
 
-            return [embedding for embedding in result.embeddings]
+                return [embedding for embedding in result.embeddings]
 
-        except Exception as e:
-            logger.error(f"VoyageAI embedding failed: {e}")
-            raise RuntimeError(f"Embedding generation failed: {e}") from e
+            except Exception as e:
+                # Classify error type for retry decision
+                error_type = type(e).__name__
+                error_module = type(e).__module__
+
+                # Network errors that should be retried
+                is_network_error = any([
+                    "APIConnectionError" in error_type,
+                    "ConnectionError" in error_type,
+                    "RemoteDisconnected" in error_type,
+                    "Timeout" in error_type,
+                    "TimeoutError" in error_type,
+                ])
+
+                if is_network_error and attempt < self._retry_attempts - 1:
+                    # Exponential backoff for network errors
+                    delay = self._retry_delay * (2 ** attempt)
+                    logger.warning(
+                        f"VoyageAI embedding failed with {error_module}.{error_type} "
+                        f"(attempt {attempt + 1}/{self._retry_attempts}): {e}. "
+                        f"Retrying in {delay:.1f}s..."
+                    )
+                    await asyncio.sleep(delay)
+                    continue
+                else:
+                    # Non-retryable error or last attempt - log and raise
+                    if is_network_error:
+                        logger.error(
+                            f"VoyageAI embedding failed after {self._retry_attempts} attempts: {e}"
+                        )
+                    else:
+                        logger.error(f"VoyageAI embedding failed with non-retryable error: {e}")
+                    raise RuntimeError(f"Embedding generation failed: {e}") from e
+
+        # Should never reach here, but provide clear error if we do
+        raise RuntimeError(f"Embedding generation failed after {self._retry_attempts} attempts")
 
     async def embed_single(self, text: str) -> list[float]:
         """Generate embedding for a single text."""
@@ -396,49 +431,85 @@ class VoyageAIEmbeddingProvider:
     async def rerank(
         self, query: str, documents: list[str], top_k: int | None = None
     ) -> list[RerankResult]:
-        """Rerank documents by relevance to query using VoyageAI reranker."""
+        """Rerank documents by relevance to query using VoyageAI reranker with automatic retry on network errors."""
         if not documents:
             return []
 
-        try:
-            logger.debug(
-                f"VoyageAI reranking {len(documents)} documents with model {self._rerank_model}"
-            )
-
-            result = await asyncio.to_thread(
-                self._client.rerank,
-                query=query,
-                documents=documents,
-                model=self._rerank_model,
-                top_k=top_k,
-            )
-
-            self._requests_made += 1
-
-            # Check if we got valid results
-            if not hasattr(result, "results") or not result.results:
-                logger.warning(
-                    f"VoyageAI rerank returned no results for query: {query[:100]}"
+        # Retry loop for transient network errors
+        for attempt in range(self._retry_attempts):
+            try:
+                logger.debug(
+                    f"VoyageAI reranking {len(documents)} documents with model {self._rerank_model}"
                 )
-                return []
 
-            rerank_results = []
-            for item in result.results:
-                if hasattr(item, "index") and hasattr(item, "relevance_score"):
-                    rerank_results.append(
-                        RerankResult(index=item.index, score=item.relevance_score)
+                result = await asyncio.to_thread(
+                    self._client.rerank,
+                    query=query,
+                    documents=documents,
+                    model=self._rerank_model,
+                    top_k=top_k,
+                )
+
+                self._requests_made += 1
+
+                # Check if we got valid results
+                if not hasattr(result, "results") or not result.results:
+                    logger.warning(
+                        f"VoyageAI rerank returned no results for query: {query[:100]}"
                     )
+                    return []
+
+                rerank_results = []
+                for item in result.results:
+                    if hasattr(item, "index") and hasattr(item, "relevance_score"):
+                        rerank_results.append(
+                            RerankResult(index=item.index, score=item.relevance_score)
+                        )
+                    else:
+                        logger.warning(f"Skipping invalid rerank result: {item}")
+
+                logger.debug(
+                    f"VoyageAI reranked {len(documents)} documents, got {len(rerank_results)} results"
+                )
+                return rerank_results
+
+            except AttributeError as e:
+                # Response format error - don't retry
+                logger.error(f"VoyageAI rerank response format error: {e}")
+                raise ValueError(f"Invalid rerank response format: {e}") from e
+            except Exception as e:
+                # Classify error type for retry decision
+                error_type = type(e).__name__
+                error_module = type(e).__module__
+
+                # Network errors that should be retried
+                is_network_error = any([
+                    "APIConnectionError" in error_type,
+                    "ConnectionError" in error_type,
+                    "RemoteDisconnected" in error_type,
+                    "Timeout" in error_type,
+                    "TimeoutError" in error_type,
+                ])
+
+                if is_network_error and attempt < self._retry_attempts - 1:
+                    # Exponential backoff for network errors
+                    delay = self._retry_delay * (2 ** attempt)
+                    logger.warning(
+                        f"VoyageAI reranking failed with {error_module}.{error_type} "
+                        f"(attempt {attempt + 1}/{self._retry_attempts}): {e}. "
+                        f"Retrying in {delay:.1f}s..."
+                    )
+                    await asyncio.sleep(delay)
+                    continue
                 else:
-                    logger.warning(f"Skipping invalid rerank result: {item}")
+                    # Non-retryable error or last attempt - log and raise
+                    if is_network_error:
+                        logger.error(
+                            f"VoyageAI reranking failed after {self._retry_attempts} attempts: {e}"
+                        )
+                    else:
+                        logger.error(f"VoyageAI reranking failed with non-retryable error: {e}")
+                    raise RuntimeError(f"Reranking failed: {e}") from e
 
-            logger.debug(
-                f"VoyageAI reranked {len(documents)} documents, got {len(rerank_results)} results"
-            )
-            return rerank_results
-
-        except AttributeError as e:
-            logger.error(f"VoyageAI rerank response format error: {e}")
-            raise ValueError(f"Invalid rerank response format: {e}") from e
-        except Exception as e:
-            logger.error(f"VoyageAI reranking failed: {e}")
-            raise RuntimeError(f"Reranking failed: {e}") from e
+        # Should never reach here, but provide clear error if we do
+        raise RuntimeError(f"Reranking failed after {self._retry_attempts} attempts")
