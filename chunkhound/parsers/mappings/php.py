@@ -52,6 +52,7 @@ if TYPE_CHECKING:
 
 try:
     from tree_sitter import Node as TSNode
+
     TREE_SITTER_AVAILABLE = True
 except ImportError:
     TREE_SITTER_AVAILABLE = False

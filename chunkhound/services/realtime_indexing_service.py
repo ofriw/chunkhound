@@ -335,7 +335,9 @@ class RealtimeIndexingService:
     ) -> None:
         """Setup watchdog with timeout - fall back to polling if it takes too long."""
         # run_in_executor returns an awaitable Future - no create_task needed
-        watchdog_task = loop.run_in_executor(None, self._start_fs_monitor, watch_path, loop)
+        watchdog_task = loop.run_in_executor(
+            None, self._start_fs_monitor, watch_path, loop
+        )
 
         try:
             # Try recursive setup with reasonable timeout for large directories
@@ -441,7 +443,9 @@ class RealtimeIndexingService:
                                     logger.debug(
                                         f"Polling detected new file: {file_path}"
                                     )
-                                    self._debug(f"polling detected new file: {file_path}")
+                                    self._debug(
+                                        f"polling detected new file: {file_path}"
+                                    )
                                     await self.add_file(file_path, priority="change")
 
                         # Yield control periodically and limit total files checked
@@ -675,8 +679,14 @@ class RealtimeIndexingService:
 
                 # Record processing summary into MCP debug log
                 try:
-                    chunks = result.get("chunks", None) if isinstance(result, dict) else None
-                    embeds = result.get("embeddings", None) if isinstance(result, dict) else None
+                    chunks = (
+                        result.get("chunks", None) if isinstance(result, dict) else None
+                    )
+                    embeds = (
+                        result.get("embeddings", None)
+                        if isinstance(result, dict)
+                        else None
+                    )
                     self._debug(
                         f"processed {file_path} priority={priority} "
                         f"skip_embeddings={skip_embeddings} chunks={chunks} embeddings={embeds}"

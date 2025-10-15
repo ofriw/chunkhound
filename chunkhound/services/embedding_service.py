@@ -56,8 +56,12 @@ class EmbeddingService(BaseService):
 
         # Auto-detect optimal concurrency from provider if not explicitly set
         if max_concurrent_batches is None:
-            if embedding_provider and hasattr(embedding_provider, 'get_recommended_concurrency'):
-                self._max_concurrent_batches = embedding_provider.get_recommended_concurrency()
+            if embedding_provider and hasattr(
+                embedding_provider, "get_recommended_concurrency"
+            ):
+                self._max_concurrent_batches = (
+                    embedding_provider.get_recommended_concurrency()
+                )
                 logger.info(
                     f"Auto-detected concurrency: {self._max_concurrent_batches} "
                     f"concurrent batches for {embedding_provider.name}"
@@ -70,7 +74,9 @@ class EmbeddingService(BaseService):
                         f"get_recommended_concurrency(), using default: {self._max_concurrent_batches}"
                     )
                 else:
-                    logger.debug(f"No embedding provider, using default concurrency: {self._max_concurrent_batches}")
+                    logger.debug(
+                        f"No embedding provider, using default concurrency: {self._max_concurrent_batches}"
+                    )
         else:
             self._max_concurrent_batches = max_concurrent_batches
             if embedding_provider:
@@ -406,7 +412,9 @@ class EmbeddingService(BaseService):
             table_name = f"embeddings_{dims}"
 
             existing_chunk_ids = self._db.get_existing_embeddings(
-                chunk_ids=[int(cid) for cid in chunk_ids], provider=provider_name, model=model_name
+                chunk_ids=[int(cid) for cid in chunk_ids],
+                provider=provider_name,
+                model=model_name,
             )
         except Exception as e:
             logger.error(f"Failed to get existing embeddings: {e}")
@@ -817,7 +825,9 @@ class EmbeddingService(BaseService):
 
         # Return only chunks that don't have embeddings (convert back to ChunkId)
         return [
-            ChunkId(chunk_id) for chunk_id in all_chunk_ids if chunk_id not in existing_chunk_ids
+            ChunkId(chunk_id)
+            for chunk_id in all_chunk_ids
+            if chunk_id not in existing_chunk_ids
         ]
 
     def _get_chunks_without_embeddings(

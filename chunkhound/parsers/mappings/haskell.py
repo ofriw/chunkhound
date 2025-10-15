@@ -299,7 +299,11 @@ class HaskellMapping(BaseMapping):
                     return text
             # Fallback to function name from definition node
             def_node = captures.get("definition") or next(iter(captures.values()), None)
-            return self.extract_method_name(def_node, source) if def_node else "unnamed_block"
+            return (
+                self.extract_method_name(def_node, source)
+                if def_node
+                else "unnamed_block"
+            )
 
         elif concept == UniversalConcept.COMMENT:
             # Location-based comment name for consistency
@@ -338,7 +342,10 @@ class HaskellMapping(BaseMapping):
         self, concept: UniversalConcept, captures: dict[str, TSNode], content: bytes
     ) -> dict[str, Any]:  # type: ignore[override]
         """Provide light metadata for concepts."""
-        meta: dict[str, Any] = {"concept": concept.value, "language": self.language.value}
+        meta: dict[str, Any] = {
+            "concept": concept.value,
+            "language": self.language.value,
+        }
         node = captures.get("definition") or next(iter(captures.values()), None)
         if node is not None:
             meta["node_type"] = getattr(node, "type", "")
@@ -357,7 +364,7 @@ class HaskellMapping(BaseMapping):
         if not stripped.lower().startswith("import "):
             return "import_unknown"
         # Remove leading 'import'
-        rest = stripped[len("import "):]
+        rest = stripped[len("import ") :]
         # Drop optional qualifiers and take the first token as module name
         tokens = rest.replace("(", " ").replace(")", " ").split()
         filtered: list[str] = []
@@ -382,7 +389,7 @@ class HaskellMapping(BaseMapping):
         stripped = " ".join((text or "").strip().split())
         if not stripped.lower().startswith("module "):
             return "module_unknown"
-        rest = stripped[len("module "):]
+        rest = stripped[len("module ") :]
         # Up to the first 'where'
         if " where" in rest:
             rest = rest.split(" where", 1)[0]

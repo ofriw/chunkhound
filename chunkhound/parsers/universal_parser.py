@@ -955,10 +955,14 @@ class UniversalParser:
             # Check for semantic incompatibility within same concept type
             # For example, Makefile variables and rules are both DEFINITION but shouldn't merge
             semantic_mismatch = False
-            if current_chunk.concept == next_chunk.concept == UniversalConcept.DEFINITION:
+            if (
+                current_chunk.concept
+                == next_chunk.concept
+                == UniversalConcept.DEFINITION
+            ):
                 # Check if both chunks have 'kind' metadata
-                current_kind = current_chunk.metadata.get('kind')
-                next_kind = next_chunk.metadata.get('kind')
+                current_kind = current_chunk.metadata.get("kind")
+                next_kind = next_chunk.metadata.get("kind")
 
                 # Don't merge if kinds are different (e.g., variable vs rule)
                 if current_kind and next_kind and current_kind != next_kind:
@@ -966,7 +970,7 @@ class UniversalParser:
 
                 # Don't merge rules with each other - each rule is a discrete semantic unit
                 # (but variables can merge with each other)
-                if current_kind == 'rule' and next_kind == 'rule':
+                if current_kind == "rule" and next_kind == "rule":
                     semantic_mismatch = True
 
             # Determine maximum allowed gap based on chunk types
@@ -975,8 +979,10 @@ class UniversalParser:
             max_gap = 5  # Default: allow reasonable gaps for related code
             if current_chunk.concept != next_chunk.concept:
                 # Cross-concept merge - check if either is COMMENT
-                if (current_chunk.concept == UniversalConcept.COMMENT or
-                    next_chunk.concept == UniversalConcept.COMMENT):
+                if (
+                    current_chunk.concept == UniversalConcept.COMMENT
+                    or next_chunk.concept == UniversalConcept.COMMENT
+                ):
                     max_gap = 1  # Strict: only merge immediately adjacent comments/code
 
             # Simple merge condition: fits in size limit and close proximity
@@ -1129,7 +1135,7 @@ class UniversalParser:
                 # Exempt specific languages from identical content deduplication
                 # Vue: Needs both directives (DEFINITION) and elements (BLOCK) preserved
                 # Haskell: Complex type class nesting requires preserving all chunks
-                if self.language_name.lower() in ['vue', 'vue_template', 'haskell']:
+                if self.language_name.lower() in ["vue", "vue_template", "haskell"]:
                     # Keep all chunks with identical content for these languages
                     result.extend(chunk_group)
                 else:
@@ -1161,7 +1167,7 @@ class UniversalParser:
             # Exempt specific languages from substring deduplication
             # Vue: Needs both directives (DEFINITION) and elements (BLOCK) preserved
             # Haskell: Complex type class nesting requires preserving all BLOCK chunks
-            if self.language_name.lower() in ['vue', 'vue_template', 'haskell']:
+            if self.language_name.lower() in ["vue", "vue_template", "haskell"]:
                 final_result.append(chunk_i)
                 continue
 

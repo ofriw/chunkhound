@@ -27,7 +27,9 @@ class ParsedFileResult:
     error: str | None = None
 
 
-def process_file_batch(file_paths: list[Path], config_dict: dict) -> list[ParsedFileResult]:
+def process_file_batch(
+    file_paths: list[Path], config_dict: dict
+) -> list[ParsedFileResult]:
     """Process a batch of files in a worker process.
 
     This function runs in a separate process via ProcessPoolExecutor.

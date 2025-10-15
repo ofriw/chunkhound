@@ -309,9 +309,7 @@ def extract_symbols_from_chunk(chunk: Chunk) -> list[VueSymbol]:
 
         if destructured:
             # Destructured: const { user, login } = useUser()
-            var_names = [
-                v.strip() for v in destructured.split(",") if v.strip()
-            ]
+            var_names = [v.strip() for v in destructured.split(",") if v.strip()]
             for var_name in var_names:
                 # Remove any aliases (e.g., "user: userData" -> "user")
                 if ":" in var_name:

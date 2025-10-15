@@ -674,7 +674,10 @@ class PythonMapping(BaseMapping):
                 metadata["node_type"] = def_node.type
 
                 # For functions
-                if def_node.type in ("function_definition", "async_function_definition"):
+                if def_node.type in (
+                    "function_definition",
+                    "async_function_definition",
+                ):
                     if def_node.type == "async_function_definition":
                         metadata["is_async"] = True
                         metadata["kind"] = "async_function"
@@ -745,8 +748,10 @@ class PythonMapping(BaseMapping):
                     # Remove triple quotes and clean up
                     clean_text = comment_text.strip()
                     for quotes in ['"""', "'''", '"', "'"]:
-                        if clean_text.startswith(quotes) and clean_text.endswith(quotes):
-                            clean_text = clean_text[len(quotes):-len(quotes)]
+                        if clean_text.startswith(quotes) and clean_text.endswith(
+                            quotes
+                        ):
+                            clean_text = clean_text[len(quotes) : -len(quotes)]
                             break
                     metadata["raw_content"] = clean_text.strip()
 
