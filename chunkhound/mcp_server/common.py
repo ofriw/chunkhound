@@ -17,6 +17,7 @@ from .tools import TOOL_REGISTRY, execute_tool
 if TYPE_CHECKING:
     from chunkhound.database_factory import DatabaseServices
     from chunkhound.embeddings import EmbeddingManager
+    from chunkhound.llm_manager import LLMManager
 
 T = TypeVar("T")
 
@@ -130,6 +131,7 @@ async def handle_tool_call(
     initialization_complete: asyncio.Event,
     debug_mode: bool = False,
     scan_progress: dict | None = None,
+    llm_manager: LLMManager | None = None,
 ) -> list[types.TextContent]:
     """Unified tool call handler for all MCP servers.
 
@@ -144,6 +146,7 @@ async def handle_tool_call(
         initialization_complete: Event to wait for server initialization
         debug_mode: Whether to include stack traces in error responses
         scan_progress: Optional scan progress from MCPServerBase
+        llm_manager: Optional LLM manager for code_research
 
     Returns:
         List containing a single TextContent with JSON-formatted response
@@ -174,6 +177,7 @@ async def handle_tool_call(
             embedding_manager=embedding_manager,
             arguments=parsed_args,
             scan_progress=scan_progress,
+            llm_manager=llm_manager,
         )
 
         # Format response

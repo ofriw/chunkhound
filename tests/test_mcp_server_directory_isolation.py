@@ -646,7 +646,7 @@ def quicksort(arr):
             
             try:
                 # Test semantic search with services (no subprocess needed)
-                from chunkhound.mcp.tools import execute_tool
+                from chunkhound.mcp_server.tools import execute_tool
                 
                 # Search for sorting algorithms semantically
                 semantic_response = await execute_tool(

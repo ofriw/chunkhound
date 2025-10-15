@@ -11,7 +11,7 @@ from chunkhound.core.config.config import Config
 from chunkhound.core.config.embedding_factory import EmbeddingProviderFactory
 from chunkhound.database_factory import create_services
 from chunkhound.embeddings import EmbeddingManager
-from chunkhound.mcp.tools import search_regex_impl, search_semantic_impl
+from chunkhound.mcp_server.tools import search_regex_impl, search_semantic_impl
 from chunkhound.registry import configure_registry
 
 from ..utils.rich_output import RichOutputFormatter

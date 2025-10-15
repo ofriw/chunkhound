@@ -124,7 +124,7 @@ async def main() -> None:
     import sys
 
     from chunkhound.api.cli.utils.config_factory import create_validated_config
-    from chunkhound.mcp.common import add_common_mcp_arguments
+    from chunkhound.mcp_server.common import add_common_mcp_arguments
 
     parser = argparse.ArgumentParser(
         description="ChunkHound MCP HTTP server (FastMCP 2.0)",

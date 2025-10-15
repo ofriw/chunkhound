@@ -21,6 +21,7 @@ from chunkhound.core.config import EmbeddingProviderFactory
 from chunkhound.core.config.config import Config
 from chunkhound.database_factory import DatabaseServices, create_services
 from chunkhound.embeddings import EmbeddingManager
+from chunkhound.llm_manager import LLMManager
 from chunkhound.services.directory_indexing_service import DirectoryIndexingService
 from chunkhound.services.realtime_indexing_service import RealtimeIndexingService
 
@@ -55,6 +56,7 @@ class MCPServerBase(ABC):
         # Service components - initialized lazily or eagerly based on subclass
         self.services: DatabaseServices | None = None
         self.embedding_manager: EmbeddingManager | None = None
+        self.llm_manager: LLMManager | None = None
         self.realtime_indexing: RealtimeIndexingService | None = None
 
         # Initialization state
@@ -134,6 +136,22 @@ class MCPServerBase(ABC):
             except Exception as e:
                 # Unexpected error - log but continue
                 self.debug_log(f"Unexpected error setting up embedding provider: {e}")
+
+            # Initialize LLM manager with dual providers (optional - continue if it fails)
+            try:
+                if self.config.llm:
+                    utility_config, synthesis_config = self.config.llm.get_provider_configs()
+                    self.llm_manager = LLMManager(utility_config, synthesis_config)
+                    self.debug_log(
+                        f"LLM providers registered: {self.config.llm.provider} "
+                        f"(utility: {utility_config['model']}, synthesis: {synthesis_config['model']})"
+                    )
+            except ValueError as e:
+                # API key or configuration issue - expected if LLM not needed
+                self.debug_log(f"LLM provider setup skipped: {e}")
+            except Exception as e:
+                # Unexpected error - log but continue
+                self.debug_log(f"Unexpected error setting up LLM provider: {e}")
 
             # Create services using unified factory
             self.services = create_services(

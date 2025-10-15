@@ -93,6 +93,7 @@ class StdioMCPServer(MCPServerBase):
                 initialization_complete=self._initialization_complete,
                 debug_mode=self.debug_mode,
                 scan_progress=self._scan_progress,
+                llm_manager=self.llm_manager,
             )
 
         self._register_list_tools()
@@ -195,7 +196,7 @@ async def main(args: Any = None) -> None:
     import argparse
 
     from chunkhound.api.cli.utils.config_factory import create_validated_config
-    from chunkhound.mcp.common import add_common_mcp_arguments
+    from chunkhound.mcp_server.common import add_common_mcp_arguments
 
     if args is None:
         # Direct invocation - parse arguments

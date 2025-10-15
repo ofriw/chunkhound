@@ -20,6 +20,8 @@ except (ImportError, AttributeError):
 
 from chunkhound.database_factory import DatabaseServices
 from chunkhound.embeddings import EmbeddingManager
+from chunkhound.llm_manager import LLMManager
+from chunkhound.services.deep_research_service import DeepResearchService
 from chunkhound.version import __version__
 
 # Response size limits (tokens)
@@ -305,6 +307,65 @@ async def health_check_impl(
     return cast(HealthStatus, health_status)
 
 
+async def deep_research_impl(
+    services: DatabaseServices,
+    embedding_manager: EmbeddingManager,
+    llm_manager: LLMManager,
+    query: str,
+) -> dict[str, Any]:
+    """Core deep research implementation.
+
+    Args:
+        services: Database services bundle
+        embedding_manager: Embedding manager instance
+        llm_manager: LLM manager instance
+        query: Research query
+
+    Returns:
+        Dict with answer, follow_up_suggestions, and metadata
+
+    Raises:
+        Exception: If LLM or reranker not configured
+    """
+    # Validate LLM is configured
+    if not llm_manager or not llm_manager.is_configured():
+        raise Exception(
+            "LLM not configured. Configure an LLM provider via:\n"
+            "1. Create .chunkhound.json with llm configuration, OR\n"
+            "2. Set CHUNKHOUND_LLM_API_KEY environment variable"
+        )
+
+    # Validate reranker is configured
+    if not embedding_manager or not embedding_manager.list_providers():
+        raise Exception(
+            "No embedding providers available. Code research requires reranking support."
+        )
+
+    embedding_provider = embedding_manager.get_provider()
+    if not (
+        hasattr(embedding_provider, "supports_reranking")
+        and embedding_provider.supports_reranking()
+    ):
+        raise Exception(
+            "Code research requires a provider with reranking support. "
+            "Configure a rerank_model in your embedding configuration."
+        )
+
+    # Create code research service with dynamic tool name
+    # This ensures followup suggestions automatically update if tool is renamed
+    research_service = DeepResearchService(
+        database_services=services,
+        embedding_manager=embedding_manager,
+        llm_manager=llm_manager,
+        tool_name="code_research",  # Matches tool registration below
+    )
+
+    # Perform code research
+    result = await research_service.deep_research(query)
+
+    return result
+
+
 @dataclass
 class Tool:
     """Tool definition with metadata and implementation."""
@@ -340,7 +401,7 @@ TOOL_DEFINITIONS = [
     ),
     Tool(
         name="search_regex",
-        description="Search code chunks using regex patterns with pagination support.",
+        description="Find exact code patterns using regular expressions. Use when searching for specific syntax (function definitions, variable names, import statements), exact text matches, or code structure patterns. Best for precise searches where you know the exact pattern.",
         parameters={
             "properties": {
                 "pattern": {
@@ -375,7 +436,7 @@ TOOL_DEFINITIONS = [
     ),
     Tool(
         name="search_semantic",
-        description="Search code using semantic similarity with pagination support.",
+        description="Find code by meaning and concept rather than exact syntax. Use when searching by description (e.g., 'authentication logic', 'error handling'), looking for similar functionality, or when you're unsure of exact keywords. Understands intent and context beyond literal text matching.",
         parameters={
             "properties": {
                 "query": {
@@ -422,6 +483,22 @@ TOOL_DEFINITIONS = [
         implementation=search_semantic_impl,
         requires_embeddings=True,
     ),
+    Tool(
+        name="code_research",
+        description="Perform deep code research to answer complex questions about your codebase. Use this tool when you need to understand architecture, discover existing implementations, trace relationships between components, or find patterns across multiple files. Returns comprehensive answers with follow-up suggestions for further exploration.",
+        parameters={
+            "properties": {
+                "query": {
+                    "description": "Research query to investigate",
+                    "type": "string",
+                },
+            },
+            "required": ["query"],
+            "type": "object",
+        },
+        implementation=deep_research_impl,
+        requires_embeddings=True,
+    ),
 ]
 
 # Create registry as a dict for easy lookup
@@ -434,6 +511,7 @@ async def execute_tool(
     embedding_manager: Any,
     arguments: dict[str, Any],
     scan_progress: dict | None = None,
+    llm_manager: Any = None,
 ) -> dict[str, Any]:
     """Execute a tool from the registry with proper argument handling.
 
@@ -443,6 +521,7 @@ async def execute_tool(
         embedding_manager: EmbeddingManager instance
         arguments: Tool arguments from the request
         scan_progress: Optional scan progress from MCPServerBase
+        llm_manager: Optional LLMManager instance for deep_research
 
     Returns:
         Tool execution result
@@ -492,6 +571,17 @@ async def execute_tool(
         )
         max_tokens = arguments.get("max_response_tokens", 20000)
         return dict(limit_response_size(result, max_tokens))
+
+    elif tool_name == "code_research":
+        # Code research - return markdown answer only, metadata in logs
+        result = await tool.implementation(
+            services=services,
+            embedding_manager=embedding_manager,
+            llm_manager=llm_manager,
+            query=arguments["query"],
+        )
+        # Return dict with answer field (not raw string - needs JSON object structure)
+        return {"answer": result["answer"]}
 
     else:
         raise ValueError(f"Tool {tool_name} not implemented in execute_tool")
