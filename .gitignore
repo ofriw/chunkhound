@@ -245,6 +245,8 @@ test_output.log
 manual_test_*.py
 debug_test_*.py
 temp_test_*.py
+test_deep_research.py
+test_code_research_performance.py
 
 # CLI distribution artifacts
 chunkhound-cli-dist/
@@ -267,3 +269,6 @@ config.json
 .chunkhound/
 *.lancedb/
 *.lance
+
+# Development logs
+logs/
