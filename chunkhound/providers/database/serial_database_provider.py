@@ -256,11 +256,31 @@ class SerialDatabaseProvider(ABC):
         offset: int = 0,
         path_filter: str | None = None,
     ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-        """Perform regex search if supported."""
+        """Perform regex search if supported (synchronous)."""
         if not hasattr(self, "_executor_search_regex"):
             return [], {"error": "Regex search not supported by this provider"}
 
         return self._execute_in_db_thread_sync(
+            "search_regex", pattern, page_size, offset, path_filter
+        )
+
+    async def search_regex_async(
+        self,
+        pattern: str,
+        page_size: int = 10,
+        offset: int = 0,
+        path_filter: str | None = None,
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+        """Perform regex search if supported (asynchronous).
+
+        This method uses async execution to avoid blocking the event loop,
+        allowing other concurrent operations to proceed while waiting for
+        database operations.
+        """
+        if not hasattr(self, "_executor_search_regex"):
+            return [], {"error": "Regex search not supported by this provider"}
+
+        return await self._execute_in_db_thread(
             "search_regex", pattern, page_size, offset, path_filter
         )
 

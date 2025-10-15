@@ -445,7 +445,7 @@ class SearchService(BaseService):
         offset: int = 0,
         path_filter: str | None = None,
     ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-        """Perform regex search on code content.
+        """Perform regex search on code content (synchronous).
 
         Args:
             pattern: Regular expression pattern to search for
@@ -481,6 +481,54 @@ class SearchService(BaseService):
 
         except Exception as e:
             logger.error(f"Regex search failed: {e}")
+            raise
+
+    async def search_regex_async(
+        self,
+        pattern: str,
+        page_size: int = 10,
+        offset: int = 0,
+        path_filter: str | None = None,
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+        """Perform regex search on code content (asynchronous).
+
+        This method uses async execution to avoid blocking the event loop,
+        enabling better concurrency when performing multiple searches in parallel.
+
+        Args:
+            pattern: Regular expression pattern to search for
+            page_size: Number of results per page
+            offset: Starting position for pagination
+            path_filter: Optional relative path to limit search scope
+                (e.g., 'src/', 'tests/')
+
+        Returns:
+            Tuple of (results, pagination_metadata)
+        """
+        try:
+            logger.debug(f"Performing async regex search for pattern: '{pattern}'")
+
+            # Perform async regex search
+            results, pagination = await self._db.search_regex_async(
+                pattern=pattern,
+                page_size=page_size,
+                offset=offset,
+                path_filter=path_filter,
+            )
+
+            # Enhance results with additional metadata
+            enhanced_results = []
+            for result in results:
+                enhanced_result = self._enhance_search_result(result)
+                enhanced_results.append(enhanced_result)
+
+            logger.info(
+                f"Async regex search completed: {len(enhanced_results)} results found"
+            )
+            return enhanced_results, pagination
+
+        except Exception as e:
+            logger.error(f"Async regex search failed: {e}")
             raise
 
     async def search_hybrid(
