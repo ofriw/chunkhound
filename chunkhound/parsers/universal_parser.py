@@ -423,8 +423,123 @@ class UniversalParser:
             # Chunk fits within both limits
             return [chunk]
         else:
+            # Don't split Makefile rules unless they're excessively large
+            # Splitting would break the target/recipe relationship, but extremely
+            # large rules (>1.2x limit) need to be split to avoid token limit issues
+            if chunk.metadata.get("kind") == "rule":
+                # Allow up to 1.2x the limit (matching cAST algorithm tolerance)
+                # before forcing a split to maintain consistency with other chunks
+                tolerance = 1.2
+                if (
+                    metrics.non_whitespace_chars
+                    <= self.cast_config.max_chunk_size * tolerance
+                ):
+                    # Keep moderately large rules intact for semantic coherence
+                    return [chunk]
+                # For very large rules, use Makefile-specific splitting
+                # that preserves semantic coherence (target + recipe relationship)
+                return self._split_makefile_rule(chunk, content)
+
             # Too large, apply recursive splitting
             return self._recursive_split_chunk(chunk, content)
+
+    def _split_makefile_rule(
+        self, chunk: UniversalChunk, content: str
+    ) -> list[UniversalChunk]:
+        """Split a Makefile rule while preserving semantic coherence.
+
+        Each split chunk will contain:
+        - The target line (e.g., "install: all")
+        - A subset of recipe lines that fit within the size limit
+
+        This ensures that each chunk is semantically valid - recipe lines
+        always have their associated target.
+
+        Args:
+            chunk: The Makefile rule chunk to split
+            content: Original source content
+
+        Returns:
+            List of split chunks, each with target + recipe subset
+        """
+        lines = chunk.content.split("\n")
+
+        # Find the target line (contains ':' and not a comment)
+        target_line_idx = -1
+        target_line = ""
+        for i, line in enumerate(lines):
+            if ":" in line and not line.strip().startswith("#"):
+                target_line_idx = i
+                target_line = line
+                break
+
+        if target_line_idx == -1:
+            # No target found - fall back to regular splitting
+            return self._recursive_split_chunk(chunk, content)
+
+        # Extract recipe lines (lines after target)
+        recipe_lines = lines[target_line_idx + 1 :]
+
+        if not recipe_lines:
+            # No recipe - just return the target
+            return [chunk]
+
+        # Split recipe lines into groups that fit within size limit
+        # Each group gets the target line prepended
+        result_chunks = []
+        current_recipe_group = []
+        part_num = 1
+
+        for recipe_line in recipe_lines:
+            # Calculate size with target + current group + this line
+            test_lines = [target_line] + current_recipe_group + [recipe_line]
+            test_content = "\n".join(test_lines)
+            test_metrics = ChunkMetrics.from_content(test_content)
+
+            if test_metrics.non_whitespace_chars <= self.cast_config.max_chunk_size:
+                # Fits - add to current group
+                current_recipe_group.append(recipe_line)
+            else:
+                # Doesn't fit - finalize current group and start new one
+                if current_recipe_group:
+                    # Create chunk with target + current group
+                    chunk_content = "\n".join([target_line] + current_recipe_group)
+                    chunk_lines = len(current_recipe_group) + 1
+
+                    result_chunks.append(
+                        UniversalChunk(
+                            concept=chunk.concept,
+                            name=f"{chunk.name}_part{part_num}",
+                            content=chunk_content,
+                            start_line=chunk.start_line,
+                            end_line=chunk.start_line + chunk_lines - 1,
+                            metadata=chunk.metadata.copy(),
+                            language_node_type=chunk.language_node_type,
+                        )
+                    )
+                    part_num += 1
+
+                # Start new group with this line
+                current_recipe_group = [recipe_line]
+
+        # Don't forget the last group
+        if current_recipe_group:
+            chunk_content = "\n".join([target_line] + current_recipe_group)
+            chunk_lines = len(current_recipe_group) + 1
+
+            result_chunks.append(
+                UniversalChunk(
+                    concept=chunk.concept,
+                    name=f"{chunk.name}_part{part_num}",
+                    content=chunk_content,
+                    start_line=chunk.start_line,
+                    end_line=chunk.start_line + chunk_lines - 1,
+                    metadata=chunk.metadata.copy(),
+                    language_node_type=chunk.language_node_type,
+                )
+            )
+
+        return result_chunks if result_chunks else [chunk]
 
     def _chunk_blocks(
         self, chunks: list[UniversalChunk], content: str
@@ -942,6 +1057,19 @@ class UniversalParser:
                     result.append(current_chunk)
                     current_chunk = next_chunk
                     continue
+
+            # Don't merge if next_chunk is nested inside current_chunk
+            # True nesting means the entire range of next_chunk is within current_chunk
+            # (e.g., methods inside classes, inner classes, functions in namespaces)
+            # Adjacent chunks (where end_line == start_line) should still be mergeable
+            is_nested = (
+                next_chunk.start_line > current_chunk.start_line  # Strict inequality
+                and next_chunk.end_line <= current_chunk.end_line
+            )
+            if is_nested:
+                result.append(current_chunk)
+                current_chunk = next_chunk
+                continue
 
             # Simple merge logic: only if content is different and fits size limit
             if next_chunk.content.strip() not in current_chunk.content:
