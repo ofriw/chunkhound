@@ -56,7 +56,7 @@ MAX_SYNTHESIS_TOKENS = 600
 
 # Single-pass synthesis constants (new architecture)
 SINGLE_PASS_MAX_TOKENS = 150_000  # Total budget for single-pass synthesis (input + output)
-SINGLE_PASS_OUTPUT_TOKENS = 30_000  # Synthesis output target
+SINGLE_PASS_OUTPUT_TOKENS = 30_000  # Target/max tokens for synthesis output
 SINGLE_PASS_OVERHEAD_TOKENS = 5_000  # Prompt template and overhead
 SINGLE_PASS_TIMEOUT_SECONDS = 600  # 10 minutes timeout for large synthesis calls
 # Available for code/chunks: 150k - 30k - 5k = 115k tokens
@@ -126,11 +126,14 @@ class DeepResearchService:
     async def deep_research(self, query: str) -> dict[str, Any]:
         """Perform deep research on a query.
 
+        Removed user-facing follow-up suggestions from output for cleaner responses.
+        Internal BFS exploration still generates follow-ups to drive multi-level search.
+
         Args:
             query: Research query
 
         Returns:
-            Dictionary with answer, follow_up_suggestions, and metadata
+            Dictionary with answer and metadata (no follow_up_suggestions)
         """
         logger.info(f"Starting deep research for query: '{query}'")
 
@@ -230,11 +233,6 @@ class DeepResearchService:
         # Validate citations in answer
         answer = self._validate_citations(answer, root.chunks)
 
-        # Generate follow-up suggestions
-        follow_ups = await self._generate_continuation_suggestions(
-            root, answer, context, all_nodes
-        )
-
         # Calculate metadata
         metadata = {
             "depth_reached": max(node.depth for node in all_nodes),
@@ -248,7 +246,6 @@ class DeepResearchService:
 
         return {
             "answer": answer,
-            "follow_up_suggestions": follow_ups,
             "metadata": metadata,
         }
 
@@ -1586,6 +1583,7 @@ Generate {target_count} synthesized questions:"""
         llm = self._llm_manager.get_utility_provider()
 
         # Calculate available tokens for code content
+        # Total budget - output budget - overhead = input budget
         available_tokens = (
             SINGLE_PASS_MAX_TOKENS
             - SINGLE_PASS_OUTPUT_TOKENS
@@ -1831,13 +1829,7 @@ You have access to the COMPLETE set of code discovered during BFS exploration. T
 - Be direct and confident - state facts from the code
 - Focus on what developers need to know to work with this codebase"""
 
-        # Build ancestor context for prompt
-        ancestor_context = ""
-        if context.ancestors:
-            ancestor_path = " → ".join(context.ancestors[-5:])  # Last 5 for context
-            ancestor_context = f"\nExploration path: {ancestor_path}"
-
-        prompt = f"""Question: {root_query}{ancestor_context}
+        prompt = f"""Question: {root_query}
 
 Complete Code Context:
 {code_context}
@@ -2081,331 +2073,6 @@ Maximum {MAX_FOLLOWUP_QUESTIONS} questions."""
             logger.warning(f"Follow-up filtering failed: {e}, using all questions")
 
         return questions[:MAX_FOLLOWUP_QUESTIONS]
-
-    async def _classify_research_completeness(
-        self,
-        answer: str,
-        unanswered_aspects: list[str],
-        root_query: str,
-        depth_reached: int,
-        max_depth: int,
-    ) -> dict[str, Any]:
-        """Classify if major unanswered questions remain after BFS completion.
-
-        This is a pure classification step - determines WHETHER followup is needed,
-        not WHAT the followup should be.
-
-        Args:
-            answer: Complete generated answer
-            unanswered_aspects: List of all unanswered aspects from BFS walk
-            root_query: Original root query
-            depth_reached: Maximum depth reached in BFS
-            max_depth: Maximum depth allowed for this repository
-
-        Returns:
-            Dictionary with:
-                - needs_followup (bool): Whether followup research is warranted
-                - gap_type (str): Type of gap if followup needed (e.g., "data_flow", "error_handling")
-                - reasoning (str): Explanation of the decision
-        """
-        llm = self._llm_manager.get_utility_provider()
-
-        # Build unanswered aspects summary
-        unanswered_summary = "None explicitly identified"
-        if unanswered_aspects:
-            unique_aspects = list(dict.fromkeys(unanswered_aspects))[:5]
-            unanswered_summary = "\n".join(f"- {aspect}" for aspect in unique_aspects)
-
-        # Build depth context
-        depth_context = ""
-        if depth_reached >= max_depth:
-            depth_context = f"\n- BFS hit depth limit ({max_depth}) with potential unexplored branches"
-
-        system = """You are a senior research architect evaluating research completeness.
-Your task is to classify WHETHER additional deep research would significantly improve understanding.
-
-You will output ONLY a JSON object with three fields.
-No additional text, no markdown formatting."""
-
-        prompt = f"""Original Query: {root_query}
-
-Research Completed:
-- Depth reached: {depth_reached}/{max_depth}{depth_context}
-- Answer length: {len(answer)} characters
-
-Unanswered Aspects:
-{unanswered_summary}
-
-Answer Excerpt (first 1000 chars):
-{answer[:1000]}
-
----
-
-CLASSIFICATION TASK:
-
-Evaluate if the answer has CRITICAL ARCHITECTURAL GAPS that warrant another deep_research call.
-
-Critical gaps include:
-- Data flow unclear (how data moves between components)
-- Component interactions missing (how modules collaborate)
-- Error handling architecture unclear
-- Key architectural patterns unexplained
-
-NOT critical (answer is comprehensive):
-- Minor implementation details
-- Edge cases
-- Optimizations
-- Documentation gaps
-
-OUTPUT FORMAT (JSON only, no markdown):
-{{
-  "needs_followup": boolean,
-  "gap_type": "data_flow" | "component_interaction" | "error_handling" | "architectural_pattern" | "none",
-  "reasoning": "Brief explanation (1-2 sentences) of why followup is/isn't needed"
-}}
-
-Output JSON:"""
-
-        try:
-            response = await llm.complete(
-                prompt, system=system, max_completion_tokens=500
-            )
-
-            # Parse JSON response
-            import json
-            import re
-
-            # Extract JSON from response (handle markdown code blocks if present)
-            content = response.content.strip()
-            # Remove markdown code blocks if present
-            if content.startswith("```"):
-                content = re.sub(r'^```(?:json)?\s*\n', '', content)
-                content = re.sub(r'\n```\s*$', '', content)
-
-            classification = json.loads(content)
-
-            # Validate structure
-            if not isinstance(classification.get("needs_followup"), bool):
-                raise ValueError("needs_followup must be boolean")
-            if "gap_type" not in classification or "reasoning" not in classification:
-                raise ValueError("Missing required fields")
-
-            logger.info(
-                f"Research completeness classification: needs_followup={classification['needs_followup']}, "
-                f"gap_type={classification['gap_type']}"
-            )
-
-            return classification
-
-        except (json.JSONDecodeError, ValueError, KeyError) as e:
-            logger.warning(
-                f"Classification parsing failed: {e}, defaulting to no followup"
-            )
-            # Safe fallback: assume comprehensive
-            return {
-                "needs_followup": False,
-                "gap_type": "none",
-                "reasoning": f"Classification parsing failed: {e}",
-            }
-        except Exception as e:
-            logger.warning(
-                f"Classification failed: {e}, defaulting to no followup"
-            )
-            return {
-                "needs_followup": False,
-                "gap_type": "none",
-                "reasoning": f"Classification error: {e}",
-            }
-
-    async def _synthesize_followup_question(
-        self,
-        classification: dict[str, Any],
-        unanswered_aspects: list[str],
-        answer: str,
-        root_query: str,
-    ) -> str:
-        """Synthesize a comprehensive followup question based on identified gaps.
-
-        This is a pure generation step - only called when classification determines
-        followup is needed. Focuses on creating ONE targeted, searchable question.
-
-        Args:
-            classification: Classification result with gap_type and reasoning
-            unanswered_aspects: List of unanswered aspects from BFS walk
-            answer: Complete generated answer
-            root_query: Original root query
-
-        Returns:
-            Synthesized comprehensive followup question
-        """
-        llm = self._llm_manager.get_utility_provider()
-
-        gap_type = classification["gap_type"]
-        gap_reasoning = classification["reasoning"]
-
-        # Build unanswered aspects context
-        unanswered_context = ""
-        if unanswered_aspects:
-            unique_aspects = list(dict.fromkeys(unanswered_aspects))[:10]
-            aspects_list = "\n".join(f"- {aspect}" for aspect in unique_aspects)
-            unanswered_context = f"""
-
-Unanswered Aspects from BFS Walk:
-{aspects_list}"""
-
-        system = """You are a senior research architect synthesizing followup research questions.
-Your task is to generate ONE comprehensive, searchable question that addresses the most critical gap."""
-
-        # Tailor prompt based on gap type
-        gap_focus = {
-            "data_flow": "Focus on how data moves between components, transformations, and state changes",
-            "component_interaction": "Focus on how modules/components collaborate, interfaces, and dependencies",
-            "error_handling": "Focus on error propagation, handling strategies, and recovery mechanisms",
-            "architectural_pattern": "Focus on design patterns, architectural decisions, and system organization",
-        }.get(gap_type, "Focus on the most significant architectural understanding gap")
-
-        prompt = f"""Original Query: {root_query}
-
-Gap Identified: {gap_type}
-Reasoning: {gap_reasoning}
-
-Answer Excerpt (first 1500 chars):
-{answer[:1500]}{unanswered_context}
-
----
-
-SYNTHESIS TASK:
-
-Generate ONE comprehensive, searchable research question that:
-1. Addresses the {gap_type} gap
-2. {gap_focus}
-3. References specific code elements or components mentioned in the answer
-4. Is concrete and immediately actionable (not vague)
-5. Would provide maximum architectural insight if investigated
-
-GOOD EXAMPLES:
-- "How does the authentication system integrate session management with cookie handling across AuthMiddleware, SessionStore, and CookieManager?"
-- "What is the complete error propagation path from input validation in RequestValidator through ErrorHandler to the client response?"
-- "How does the BFS exploration coordinate embedding generation, search service calls, and LLM synthesis across the deep research pipeline?"
-
-BAD EXAMPLES (too vague):
-- "How does error handling work?"
-- "What are the components?"
-- "Can you explain the architecture?"
-
-Output the synthesized question (just the question, no explanation):"""
-
-        try:
-            response = await llm.complete(
-                prompt, system=system, max_completion_tokens=500
-            )
-
-            question = response.content.strip()
-
-            # Basic validation: ensure question ends with ? and is substantive
-            if not question.endswith("?"):
-                question += "?"
-            if len(question) < 20:
-                raise ValueError(f"Generated question too short: {question}")
-
-            logger.info(f"Synthesized followup question ({gap_type}): {question[:100]}...")
-
-            return question
-
-        except Exception as e:
-            logger.error(f"Followup question synthesis failed: {e}")
-            # Fallback: construct question from gap type
-            fallback_question = f"How does the {gap_type.replace('_', ' ')} work in the context of {root_query}?"
-            logger.warning(f"Using fallback question: {fallback_question}")
-            return fallback_question
-
-    async def _generate_continuation_suggestions(
-        self,
-        root: BFSNode,
-        answer: str,
-        context: ResearchContext,
-        all_nodes: list[BFSNode],
-    ) -> list[str]:
-        """Generate suggestions for follow-up research calls.
-
-        Uses a two-step process:
-        1. Classification: Determine if major gaps exist (needs_followup)
-        2. Generation: Synthesize followup question (only if step 1 says yes)
-
-        This separation follows 2024-2025 best practices for agentic workflows.
-
-        Args:
-            root: Root BFS node
-            answer: Complete generated answer
-            context: Research context
-            all_nodes: All BFS nodes explored (for collecting unanswered aspects)
-
-        Returns:
-            List with single formatted followup suggestion, or empty if comprehensive
-        """
-        # Collect ALL unanswered aspects from entire BFS walk
-        all_unanswered = []
-        for node in all_nodes:
-            all_unanswered.extend(node.unanswered_aspects)
-
-        # Calculate metadata
-        depth_reached = max(node.depth for node in all_nodes)
-        max_depth = self._calculate_max_depth()
-
-        # Quick deterministic checks before expensive LLM classification
-        if not all_unanswered and len(answer) > 3000:
-            # Answer is substantial and no explicit unanswered aspects
-            logger.info(
-                "Skipping followup generation: substantial answer with no unanswered aspects"
-            )
-            return []
-
-        # STEP 1: Classification - Determine if followup is needed
-        logger.debug("Step 1: Classifying research completeness")
-        classification = await self._classify_research_completeness(
-            answer=answer,
-            unanswered_aspects=all_unanswered,
-            root_query=root.query,
-            depth_reached=depth_reached,
-            max_depth=max_depth,
-        )
-
-        # Check classification result
-        if not classification["needs_followup"]:
-            logger.info(
-                f"No followup needed: {classification['reasoning']}"
-            )
-            return []
-
-        # STEP 2: Generation - Synthesize followup question
-        logger.debug(
-            f"Step 2: Synthesizing followup question (gap_type: {classification['gap_type']})"
-        )
-        try:
-            question = await self._synthesize_followup_question(
-                classification=classification,
-                unanswered_aspects=all_unanswered,
-                answer=answer,
-                root_query=root.query,
-            )
-
-            # Format for user display
-            formatted = f"""---
-Additional research opportunity identified:
-
-{question}
-
-To explore this further, execute: `{self._tool_name}('{question}')`
----"""
-
-            logger.info(f"Generated followup suggestion for {classification['gap_type']} gap")
-            return [formatted]
-
-        except Exception as e:
-            logger.error(f"Followup synthesis failed after classification: {e}")
-            # Don't fallback to a generic question - if synthesis fails, return empty
-            # This is safer than suggesting a low-quality followup
-            return []
 
     def _calculate_max_depth(self) -> int:
         """Calculate max depth based on repository size.
