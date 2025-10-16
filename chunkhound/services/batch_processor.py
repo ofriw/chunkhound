@@ -11,6 +11,7 @@ from multiprocessing.connection import Connection
 from dataclasses import dataclass
 from pathlib import Path
 
+from chunkhound.core.detection import detect_language
 from chunkhound.core.types.common import FileId, Language
 from time import perf_counter
 
@@ -147,7 +148,7 @@ def _init_timeout_semaphore(max_concurrent: int) -> None:
 
 
 def process_file_batch(
-    file_info_list: list[tuple[Path, str | None]],
+    file_info_list: list[Path] | list[tuple[Path, str | None]],
     config_dict: dict,
 ) -> list[ParsedFileResult]:
     """Process a batch of files in a worker process.
@@ -178,13 +179,21 @@ def process_file_batch(
         max_concurrent_timeouts = 32
     _init_timeout_semaphore(max_concurrent_timeouts)
 
-    for file_path, precomputed_hash in file_info_list:
+    # Normalize inputs to list of (Path, hash)
+    normalized: list[tuple[Path, str | None]] = []
+    for item in file_info_list:
+        if isinstance(item, tuple):
+            normalized.append(item)
+        else:
+            normalized.append((item, None))
+
+    for file_path, precomputed_hash in normalized:
         try:
             # Get file metadata
             file_stat = os.stat(file_path)
 
-            # Detect language from file extension
-            language = Language.from_file_extension(file_path)
+            # Detect language (content-aware for ambiguous extensions)
+            language = detect_language(file_path)
             _dbg_log(
                 f"START file={file_path} size_kb={file_stat.st_size/1024:.1f} lang={language.value} "
                 f"tmo_s={timeout_s} min_kb={timeout_min_kb} threshold_kb={config_dict.get('config_file_size_threshold_kb')}"
