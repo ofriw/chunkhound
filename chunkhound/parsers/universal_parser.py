@@ -1071,6 +1071,16 @@ class UniversalParser:
                 current_chunk = next_chunk
                 continue
 
+            # Don't merge if either chunk explicitly prevents merging
+            # This respects language-specific metadata that marks chunks as semantically
+            # independent (e.g., HCL attributes and blocks that should remain separate)
+            current_prevents_merge = current_chunk.metadata.get("prevent_merge_across_concepts", False)
+            next_prevents_merge = next_chunk.metadata.get("prevent_merge_across_concepts", False)
+            if current_prevents_merge or next_prevents_merge:
+                result.append(current_chunk)
+                current_chunk = next_chunk
+                continue
+
             # Simple merge logic: only if content is different and fits size limit
             if next_chunk.content.strip() not in current_chunk.content:
                 combined_content = current_chunk.content + "\n" + next_chunk.content
@@ -1403,6 +1413,26 @@ class UniversalParser:
         Returns:
             Appropriate ChunkType for the concept
         """
+        # FIRST: Check for explicit chunk_type_hint in metadata (highest priority)
+        # This allows language mappings to override default behavior
+        chunk_type_hint = metadata.get("chunk_type_hint", "").lower()
+        if chunk_type_hint:
+            # Map string hints to ChunkType enum values
+            hint_map = {
+                "table": ChunkType.TABLE,
+                "key_value": ChunkType.KEY_VALUE,
+                "array": ChunkType.ARRAY,
+                "function": ChunkType.FUNCTION,
+                "class": ChunkType.CLASS,
+                "method": ChunkType.METHOD,
+                "block": ChunkType.BLOCK,
+                "comment": ChunkType.COMMENT,
+                "namespace": ChunkType.NAMESPACE,
+            }
+            if chunk_type_hint in hint_map:
+                return hint_map[chunk_type_hint]
+
+        # SECOND: Fallback to concept-based mapping with metadata inspection
         if concept == UniversalConcept.DEFINITION:
             # Check metadata for more specific type information
             # Prefer "kind" field (semantic type) over "node_type" (AST node type)
