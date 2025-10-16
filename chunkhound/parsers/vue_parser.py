@@ -26,7 +26,50 @@ if TYPE_CHECKING:
 
 
 class VueParser:
-    """Parser for Vue Single File Components."""
+    """Parser for Vue Single File Components.
+
+    Architecture: Custom Orchestration (Non-Standard)
+    ================================================
+
+    VueParser uses custom orchestration instead of UniversalParser because:
+
+    1. Multi-Language Sections:
+       - <script>: JavaScript/TypeScript (uses TypeScript tree-sitter grammar)
+       - <template>: Vue template syntax (uses Vue tree-sitter grammar)
+       - <style>: CSS/SCSS (extracted as text chunks)
+
+    2. Section Extraction Required:
+       - Must split file BEFORE parsing (regex or tree-sitter-vue)
+       - Each section needs different parser instance
+
+    3. Cross-Reference Post-Processing:
+       - Template variables link to script symbols
+       - Example: {{ userName }} → const userName = ref('')
+       - Requires both sections parsed before linking
+
+    4. Line Number Adjustments:
+       - Chunks must show position in original file, not section position
+       - Template at line 50 in file, line 1 in section → report line 50
+
+    Standard UniversalParser Pattern (Other Languages):
+    ---------------------------------------------------
+    ParserFactory → UniversalParser(TreeSitterEngine, Mapping) → Chunks
+
+    Vue Pattern:
+    -----------
+    ParserFactory → VueParser → [
+        UniversalParser(TypeScript) for script,
+        UniversalParser(VueTemplate) for template,
+        add_cross_references(script_chunks, template_chunks)
+    ] → Chunks
+
+    Why Not UniversalParser:
+    - Assumes single language per file
+    - Cannot split multi-section files
+    - No cross-language reference linking
+
+    See: vue_cross_ref.py for reference linking implementation
+    """
 
     def __init__(self, cast_config: CASTConfig | None = None):
         """Initialize Vue parser.

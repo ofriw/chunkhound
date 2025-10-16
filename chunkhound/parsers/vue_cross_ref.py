@@ -148,34 +148,236 @@ JS_KEYWORDS = {
 }
 
 
-def build_symbol_table(
-    script_chunks: list[Chunk], script_content: str | None = None
-) -> VueSymbolTable:
-    """Build a symbol table from script section chunks and/or full script content.
+def _is_reactive(code: str) -> bool:
+    """Quick check for Vue reactivity patterns.
+
+    Uses simple string containment checks instead of regex for performance.
+
+    Args:
+        code: Source code to check
+
+    Returns:
+        True if code contains reactive patterns (ref, reactive, computed)
+    """
+    return any(pattern in code for pattern in ["ref(", "reactive(", "computed("])
+
+
+def _extract_vue_macro_symbols(
+    script_chunks: list[Chunk], symbol_table: VueSymbolTable
+) -> None:
+    """Extract Vue macro symbols (defineProps, defineEmits, etc.) from chunks.
+
+    Vue macros are compile-time transforms that aren't in the TypeScript AST,
+    so they still need special handling.
 
     Args:
         script_chunks: List of chunks from script section
-        script_content: Optional full script content for better symbol extraction
+        symbol_table: Symbol table to add extracted symbols to
+    """
+    for chunk in script_chunks:
+        # Check if chunk has vue_macros metadata
+        if not chunk.metadata or "vue_macros" not in chunk.metadata:
+            continue
+
+        # Handle defineProps
+        if "defineProps" in chunk.metadata["vue_macros"]:
+            props = extract_props_from_define_props(chunk.code)
+            for prop_name in props:
+                symbol = VueSymbol(
+                    name=prop_name,
+                    type="prop",
+                    chunk_symbol=chunk.symbol,
+                    start_line=chunk.start_line,
+                    end_line=chunk.end_line,
+                    is_reactive=True,  # Props are reactive
+                    metadata={"source": "defineProps"},
+                )
+                symbol_table.add_symbol(symbol)
+
+
+def build_symbol_table_from_chunks(script_chunks: list[Chunk]) -> VueSymbolTable:
+    """Build symbol table from TypeScript-parsed chunks.
+
+    Leverages chunk.symbol, chunk.chunk_type, and chunk.metadata from the
+    TypeScript parser instead of re-parsing with regex. This is more efficient
+    and accurate than regex-based extraction.
+
+    Args:
+        script_chunks: List of chunks from TypeScript parser
 
     Returns:
         VueSymbolTable containing all extracted symbols
     """
     symbol_table = VueSymbolTable()
 
-    # Strategy: Extract symbols from both individual chunks AND from full script content
-    # - Individual chunks may have important metadata (vue_macros, etc.)
-    # - Full script content catches all variable declarations which may not be chunked
+    # Map ChunkType to VueSymbol type
+    chunk_type_to_symbol_type = {
+        "function": "function",
+        "method": "function",
+        "class": "class",
+        "variable": "variable",
+        "constant": "constant",
+    }
 
-    # First, extract from individual chunks (catches functions and macros with metadata)
     for chunk in script_chunks:
-        symbols = extract_symbols_from_chunk(chunk)
-        for symbol in symbols:
-            symbol_table.add_symbol(symbol)
+        # Skip chunks without symbols
+        if not chunk.symbol or chunk.symbol.startswith("<"):
+            continue
 
-    # Second, if full script content is provided, extract from it
-    # This catches variable declarations that may not be in individual chunks
+        # Get the chunk type as string (ChunkType enum has a value attribute)
+        chunk_type_str = chunk.chunk_type.value if hasattr(chunk.chunk_type, 'value') else str(chunk.chunk_type)
+
+        # Determine symbol type from chunk type
+        symbol_type = chunk_type_to_symbol_type.get(chunk_type_str.lower(), "variable")
+
+        # Check for Vue reactivity
+        is_reactive = _is_reactive(chunk.code)
+
+        # Check if this is a computed property
+        if is_reactive and "computed(" in chunk.code:
+            symbol_type = "computed"
+
+        # Check if this is a composable call
+        # Pattern: const { x, y } = useComposable() or const data = useComposable()
+        is_composable = False
+        composable_name = None
+        if "= use" in chunk.code:
+            # This looks like a composable
+            is_composable = True
+            # Try to extract composable name
+            for match in COMPOSABLE_PATTERN.finditer(chunk.code):
+                composable_name = match.group(3)
+                is_reactive = True  # Composables return reactive data
+                break
+
+        # Create symbol from chunk metadata
+        symbol = VueSymbol(
+            name=chunk.symbol,
+            type="composable" if is_composable else symbol_type,
+            chunk_symbol=chunk.symbol,
+            start_line=chunk.start_line,
+            end_line=chunk.end_line,
+            is_reactive=is_reactive,
+            metadata=chunk.metadata.copy() if chunk.metadata else {}
+        )
+
+        # Add composable name to metadata if detected
+        if is_composable and composable_name:
+            symbol.metadata["composable"] = composable_name
+
+        symbol_table.add_symbol(symbol)
+
+        # Extract function parameters as symbols (for template access)
+        if chunk.metadata and "parameters" in chunk.metadata:
+            parameters = chunk.metadata["parameters"]
+            # Handle both list of dicts and list of strings
+            if isinstance(parameters, list):
+                for param in parameters:
+                    if isinstance(param, dict):
+                        param_name = param.get("name", "")
+                    elif isinstance(param, str):
+                        param_name = param
+                    else:
+                        continue
+
+                    if param_name and param_name not in JS_KEYWORDS:
+                        param_symbol = VueSymbol(
+                            name=param_name,
+                            type="parameter",
+                            chunk_symbol=chunk.symbol,
+                            start_line=chunk.start_line,
+                            end_line=chunk.end_line,
+                            is_reactive=False,
+                            metadata={"parent": chunk.symbol}
+                        )
+                        symbol_table.add_symbol(param_symbol)
+
+        # For composables with destructuring, extract destructured names
+        if is_composable and "{" in chunk.code:
+            # Extract destructured variables using the existing regex
+            for match in COMPOSABLE_PATTERN.finditer(chunk.code):
+                destructured = match.group(1)
+                composable_name = match.group(3)
+
+                if destructured:
+                    # Parse destructured variables
+                    var_names = [v.strip() for v in destructured.split(",") if v.strip()]
+                    for var_name in var_names:
+                        # Remove any aliases (e.g., "user: userData" -> "user")
+                        if ":" in var_name:
+                            var_name = var_name.split(":")[0].strip()
+
+                        # Skip the main symbol (already added)
+                        if var_name == chunk.symbol:
+                            continue
+
+                        # Add destructured variable as a separate symbol
+                        destructured_symbol = VueSymbol(
+                            name=var_name,
+                            type="composable",
+                            chunk_symbol=chunk.symbol,
+                            start_line=chunk.start_line,
+                            end_line=chunk.end_line,
+                            is_reactive=True,
+                            metadata={"composable": composable_name, "parent": chunk.symbol}
+                        )
+                        symbol_table.add_symbol(destructured_symbol)
+
+    # Handle Vue-specific macros
+    _extract_vue_macro_symbols(script_chunks, symbol_table)
+
+    return symbol_table
+
+
+def build_symbol_table(
+    script_chunks: list[Chunk], script_content: str | None = None
+) -> VueSymbolTable:
+    """Build a symbol table from script section chunks.
+
+    Uses an optimized implementation that leverages TypeScript parser output
+    for real parsed chunks, with fallback to regex for simple test chunks.
+
+    Args:
+        script_chunks: List of chunks from TypeScript parser
+        script_content: Optional full script content for fallback regex extraction
+
+    Returns:
+        VueSymbolTable containing all extracted symbols
+    """
+    symbol_table = VueSymbolTable()
+
+    # Process each chunk
+    for chunk in script_chunks:
+        # Determine if this chunk looks like it came from the TypeScript parser
+        # or if it's a test chunk with a generic symbol
+        is_real_parsed_chunk = (
+            chunk.symbol
+            and not chunk.symbol.startswith("<")
+            and (
+                # Real parsed chunks have the symbol name in the code
+                chunk.symbol in chunk.code
+                # Or have TypeScript parser metadata
+                or (chunk.metadata and any(k in chunk.metadata for k in ["parameters", "return_type", "decorators"]))
+                # Or are recognizable chunk types
+                or chunk.chunk_type.value in ["function", "method", "class"]
+            )
+        )
+
+        if is_real_parsed_chunk:
+            # Use optimized extraction for real TypeScript-parsed chunks
+            chunk_table = build_symbol_table_from_chunks([chunk])
+            for symbol in chunk_table.get_all_symbols().values():
+                if not symbol_table.find_symbol(symbol.name):
+                    symbol_table.add_symbol(symbol)
+        else:
+            # Use regex extraction for test chunks or chunks without proper metadata
+            regex_symbols = extract_symbols_from_chunk(chunk)
+            for sym in regex_symbols:
+                if not symbol_table.find_symbol(sym.name):
+                    symbol_table.add_symbol(sym)
+
+    # Also handle full script content if provided (for comprehensive coverage)
     if script_content and script_chunks:
-        # Create a temporary chunk with the full script
         first_chunk = script_chunks[0]
         last_chunk = script_chunks[-1] if len(script_chunks) > 1 else first_chunk
         temp_chunk = Chunk(
@@ -187,16 +389,14 @@ def build_symbol_table(
             file_id=first_chunk.file_id,
             language=first_chunk.language,
             file_path=first_chunk.file_path,
-            metadata=first_chunk.metadata,  # May contain vue_macros
+            metadata=first_chunk.metadata,
         )
 
-        # Extract symbols from full script
-        symbols = extract_symbols_from_chunk(temp_chunk)
-        for symbol in symbols:
-            # Only add if not already in table (avoid duplicates)
-            existing = symbol_table.find_symbol(symbol.name)
-            if not existing:
-                symbol_table.add_symbol(symbol)
+        # Extract symbols from full script using regex
+        regex_symbols = extract_symbols_from_chunk(temp_chunk)
+        for sym in regex_symbols:
+            if not symbol_table.find_symbol(sym.name):
+                symbol_table.add_symbol(sym)
 
     return symbol_table
 

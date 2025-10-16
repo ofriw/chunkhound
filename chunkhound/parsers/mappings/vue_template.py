@@ -267,15 +267,25 @@ class VueTemplateMapping(BaseMapping):
 
                 # Handle different directive types
                 if directive in ("v-if", "v-else-if"):
-                    expr = self._get_expression_preview(
-                        captures, "condition_expr", source
-                    )
+                    if "condition_expr" in captures:
+                        expr_text = self.get_node_text(captures["condition_expr"], source).strip()
+                        expr = self.get_expression_preview(expr_text, max_length=20)
+                    else:
+                        expr = "expr"
                     return f"v-if_{expr}"
                 elif directive == "v-for":
-                    expr = self._get_expression_preview(captures, "loop_expr", source)
+                    if "loop_expr" in captures:
+                        expr_text = self.get_node_text(captures["loop_expr"], source).strip()
+                        expr = self.get_expression_preview(expr_text, max_length=20)
+                    else:
+                        expr = "expr"
                     return f"v-for_{expr}"
                 elif directive == "v-model":
-                    expr = self._get_expression_preview(captures, "model_expr", source)
+                    if "model_expr" in captures:
+                        expr_text = self.get_node_text(captures["model_expr"], source).strip()
+                        expr = self.get_expression_preview(expr_text, max_length=20)
+                    else:
+                        expr = "expr"
                     return f"v-model_{expr}"
 
             # Handle event handlers
@@ -335,36 +345,6 @@ class VueTemplateMapping(BaseMapping):
                 return f"Component_{component}"
 
         return "unnamed"
-
-    def _get_expression_preview(
-        self, captures: dict[str, "TSNode"], key: str, source: str, max_length: int = 20
-    ) -> str:
-        """Get a preview of an expression for naming.
-
-        Args:
-            captures: Dictionary of capture names to tree-sitter nodes
-            key: The capture key to extract
-            source: Source code string
-            max_length: Maximum length of preview
-
-        Returns:
-            Preview string suitable for chunk naming
-        """
-        if key not in captures:
-            return "expr"
-
-        expr_node = captures[key]
-        expr = self.get_node_text(expr_node, source).strip()
-
-        # Simplify the expression for naming
-        # Remove quotes, whitespace, etc.
-        expr = expr.replace('"', "").replace("'", "").replace(" ", "_")
-
-        # Truncate if too long
-        if len(expr) > max_length:
-            expr = expr[: max_length - 3] + "..."
-
-        return expr if expr else "expr"
 
     def extract_content(
         self, concept: UniversalConcept, captures: dict[str, "TSNode"], content: bytes
