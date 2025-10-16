@@ -485,7 +485,7 @@ TOOL_DEFINITIONS = [
     ),
     Tool(
         name="code_research",
-        description="Perform deep code research to answer complex questions about your codebase. Use this tool when you need to understand architecture, discover existing implementations, trace relationships between components, or find patterns across multiple files. Returns comprehensive answers with follow-up suggestions for further exploration.",
+        description="Perform deep code research to answer complex questions about your codebase. Use this tool when you need to understand architecture, discover existing implementations, trace relationships between components, or find patterns across multiple files. Returns comprehensive markdown analysis.",
         parameters={
             "properties": {
                 "query": {
@@ -573,15 +573,15 @@ async def execute_tool(
         return dict(limit_response_size(result, max_tokens))
 
     elif tool_name == "code_research":
-        # Code research - return markdown answer only, metadata in logs
+        # Code research - return raw markdown directly (not wrapped in JSON)
         result = await tool.implementation(
             services=services,
             embedding_manager=embedding_manager,
             llm_manager=llm_manager,
             query=arguments["query"],
         )
-        # Return dict with answer field (not raw string - needs JSON object structure)
-        return {"answer": result["answer"]}
+        # Return raw markdown string
+        return result.get("answer", f"Research incomplete: Unable to analyze '{arguments['query']}'. Try a more specific query or check that relevant code exists.")
 
     else:
         raise ValueError(f"Tool {tool_name} not implemented in execute_tool")
