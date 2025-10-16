@@ -5,6 +5,7 @@ from typing import Any
 
 from loguru import logger
 
+from chunkhound.core.detection import detect_language
 from chunkhound.core.types.common import Language
 
 from .tree_cache import TreeCache, get_default_cache
@@ -63,8 +64,8 @@ class CodeParser:
         Raises:
             RuntimeError: If registry is not available or parser not found
         """
-        # Determine file type using core Language enum
-        language = Language.from_file_extension(file_path)
+        # Determine file type (with content-based detection for ambiguous extensions)
+        language = detect_language(file_path)
 
         # Initialize registry if not already done
         if self._registry is None:
@@ -124,7 +125,7 @@ class CodeParser:
         try:
             from tree_sitter_language_pack import get_parser
 
-            language = Language.from_file_extension(file_path)
+            language = detect_language(file_path)
 
             # Simple direct parsing without cache
             if language == Language.PYTHON:

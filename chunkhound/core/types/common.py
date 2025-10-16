@@ -78,7 +78,8 @@ class ChunkType(Enum):
 
     @classmethod
     def from_string(cls, value: str) -> "ChunkType":
-        """Convert string to ChunkType enum, defaulting to UNKNOWN for invalid values."""
+        """Convert string to ChunkType enum, defaulting to UNKNOWN for
+        invalid values."""
         try:
             return cls(value)
         except ValueError:
@@ -148,6 +149,7 @@ class Language(Enum):
     CPP = "cpp"
     MATLAB = "matlab"
     HCL = "hcl"
+    OBJC = "objc"
 
     # Documentation languages
     MARKDOWN = "markdown"
@@ -225,7 +227,8 @@ class Language(Enum):
             ".h++": cls.CPP,
             ".rs": cls.RUST,
             ".zig": cls.ZIG,
-            ".m": cls.MATLAB,
+            ".m": cls.MATLAB,  # Note: .m is ambiguous, will use content detection
+            ".mm": cls.OBJC,
         }
 
         return extension_map.get(extension, cls.UNKNOWN)
@@ -259,6 +262,7 @@ class Language(Enum):
             Language.C,
             Language.CPP,
             Language.MATLAB,
+            Language.OBJC,
         }
 
     @property
@@ -275,6 +279,7 @@ class Language(Enum):
             Language.GO,
             Language.CPP,
             Language.MATLAB,
+            Language.OBJC,
         }
 
     @property
@@ -349,6 +354,7 @@ class Language(Enum):
             ".h++",
             ".rs",
             ".m",
+            ".mm",
         }
 
         extensions.update(extension_map)

@@ -21,6 +21,7 @@ from .hcl import HclMapping
 from .makefile import MakefileMapping
 from .markdown import MarkdownMapping
 from .matlab import MatlabMapping
+from .objc import ObjCMapping
 from .pdf import PDFMapping
 from .python import PythonMapping
 from .rust import RustMapping
@@ -49,6 +50,7 @@ __all__ = [
     "MakefileMapping",
     "MarkdownMapping",
     "MatlabMapping",
+    "ObjCMapping",
     "PDFMapping",
     "PythonMapping",
     "RustMapping",

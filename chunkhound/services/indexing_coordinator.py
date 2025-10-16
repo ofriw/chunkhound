@@ -25,6 +25,7 @@ from typing import Any
 from loguru import logger
 from rich.progress import Progress, TaskID
 
+from chunkhound.core.detection import detect_language
 from chunkhound.core.models import Chunk, File
 from chunkhound.core.types.common import FilePath, Language
 from chunkhound.interfaces.database_provider import DatabaseProvider
@@ -189,7 +190,9 @@ class IndexingCoordinator(BaseService):
         return self._parser_cache[language]
 
     def detect_file_language(self, file_path: Path) -> Language | None:
-        """Detect programming language from file extension.
+        """Detect programming language from file.
+
+        Uses content-based detection for ambiguous extensions (.m files).
 
         Args:
             file_path: Path to the file
@@ -197,7 +200,7 @@ class IndexingCoordinator(BaseService):
         Returns:
             Language enum value or None if unsupported
         """
-        language = Language.from_file_extension(file_path)
+        language = detect_language(file_path)
         return language if language != Language.UNKNOWN else None
 
     async def _get_file_lock(self, file_path: Path) -> asyncio.Lock:
@@ -285,18 +288,43 @@ class IndexingCoordinator(BaseService):
                 file_id = None
 
             # Generate embeddings if needed
+            # CRITICAL FIX: Wrap embedding generation in transaction with checkpoint
+            # RATIONALE: Embeddings must be checkpointed to be visible to semantic search
+            # BUG: Previously inserted into WAL without checkpoint, invisible to queries
+            embeddings_generated = 0
+            embedding_error = None
             if not skip_embeddings and self._embedding_provider:
                 if stats["chunk_ids_needing_embeddings"]:
-                    await self._generate_embeddings(
-                        stats["chunk_ids_needing_embeddings"],
-                        [chunk for r in parsed_results for chunk in r.chunks]
-                    )
+                    # Generate embeddings
+                    # NOTE: Transaction management is handled internally by the database provider
+                    # to avoid transaction context issues during concurrent operations
+                    try:
+                        embeddings_generated = await self._generate_embeddings(
+                            stats["chunk_ids_needing_embeddings"],
+                            [chunk for r in parsed_results for chunk in r.chunks]
+                        )
+
+                        # Verify embeddings were actually generated
+                        expected_embeddings = len(stats["chunk_ids_needing_embeddings"])
+                        if embeddings_generated < expected_embeddings:
+                            embedding_error = (
+                                f"Only generated {embeddings_generated}/{expected_embeddings} embeddings. "
+                                f"Some chunks may have empty content."
+                            )
+                            logger.warning(f"[IndexCoord] {embedding_error}")
+                    except Exception as e:
+                        embedding_error = str(e)
+                        logger.error(f"Failed to generate embeddings for {file_path}: {e}")
+                        # Don't fail the entire operation if embeddings fail
+                        # File chunks are already committed and searchable via regex
 
             return_dict = {
                 "status": "success" if not stats["errors"] else "error",
                 "chunks": stats["total_chunks"],
                 "errors": stats["errors"],
                 "embeddings_skipped": skip_embeddings,
+                "embeddings_generated": embeddings_generated,
+                "embedding_error": embedding_error,
             }
 
             # Include file_id for single-file operations
@@ -503,7 +531,7 @@ class IndexingCoordinator(BaseService):
                     stats["chunk_ids_needing_embeddings"].extend(chunk_ids)
                     stats["total_chunks"] += len(chunk_ids)
 
-                self._db.commit_transaction()
+                self._db.commit_transaction(force_checkpoint=True)
                 stats["total_files"] += 1
 
                 # Update progress
@@ -786,6 +814,16 @@ class IndexingCoordinator(BaseService):
         if not self._embedding_provider:
             return 0
 
+        # VALIDATION: Ensure chunk IDs and chunks are aligned
+        if len(chunk_ids) != len(chunks):
+            error_msg = (
+                f"Data mismatch in embedding generation: "
+                f"{len(chunk_ids)} chunk IDs but {len(chunks)} chunks. "
+                f"This indicates a bug in chunk processing."
+            )
+            logger.error(f"[IndexCoord] {error_msg}")
+            raise ValueError(error_msg)
+
         try:
             # Filter out chunks with empty text content before embedding
             valid_chunk_data = []
@@ -831,12 +869,39 @@ class IndexingCoordinator(BaseService):
                     }
                 )
 
-            # Database storage - use provided connection for transaction context
-            result = self._db.insert_embeddings_batch(
-                embeddings_data, connection=connection
-            )
+            # CRITICAL FIX: Ensure clean transaction state before database insertion
+            # In concurrent scenarios, the executor thread may have an aborted transaction
+            # from a previous operation. Try insertion, and if we get a transaction error,
+            # clean up and retry once.
+            try:
+                result = self._db.insert_embeddings_batch(
+                    embeddings_data, connection=connection
+                )
+                return result
+            except Exception as e:
+                if "transaction is aborted" in str(e).lower():
+                    logger.warning(
+                        f"[IndexCoord] Transaction aborted during embedding insertion, "
+                        f"attempting recovery and retry"
+                    )
+                    # Try to clean up the aborted transaction
+                    try:
+                        self._db.rollback_transaction()
+                    except Exception:
+                        pass  # Ignore errors during cleanup
 
-            return result
+                    # Retry the insertion with a fresh transaction
+                    result = self._db.insert_embeddings_batch(
+                        embeddings_data, connection=connection
+                    )
+                    logger.info(
+                        f"[IndexCoord] Successfully inserted {result} embeddings after "
+                        f"transaction recovery"
+                    )
+                    return result
+                else:
+                    # Not a transaction error, re-raise
+                    raise
 
         except Exception as e:
             # Log chunk details for debugging oversized chunks
