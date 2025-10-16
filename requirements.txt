@@ -35,6 +35,7 @@ readchar>=4.2.0
 pymupdf>=1.26.0
 
 # Tree-sitter language support
+tree-sitter-hcl>=1.2.0
 tree-sitter-bash>=0.23.0
 tree-sitter-c>=0.21.0
 tree-sitter-cpp>=0.23.0

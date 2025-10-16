@@ -9,8 +9,6 @@ global state management.
 
 from typing import Any
 
-from fastmcp import FastMCP
-
 from chunkhound.core.config.config import Config
 
 from .base import MCPServerBase
@@ -36,7 +34,8 @@ class HttpMCPServer(MCPServerBase):
         super().__init__(config)
         self.port = port
 
-        # Create FastMCP instance
+        # Create FastMCP instance (lazy import to avoid hard dep at module import time)
+        from fastmcp import FastMCP  # noqa: WPS433
         self.app: FastMCP = FastMCP("ChunkHound Code Search")
 
         # Register tools with the server
