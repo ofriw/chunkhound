@@ -79,8 +79,13 @@ class HttpMCPServer(MCPServerBase):
 
                     # Convert TextContent list to dict for FastMCP
                     if result and isinstance(result[0], types.TextContent):
-                        parsed_result: dict[str, Any] = json.loads(result[0].text)
-                        return parsed_result
+                        try:
+                            # Try parsing as JSON first (for structured responses)
+                            parsed_result: dict[str, Any] = json.loads(result[0].text)
+                            return parsed_result
+                        except json.JSONDecodeError:
+                            # Plain text response (e.g., markdown from code_research)
+                            return {"content": result[0].text}
                     return {"error": "Invalid response format"}
 
                 # Set the handler's name and docstring from tool definition

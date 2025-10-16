@@ -180,8 +180,15 @@ async def handle_tool_call(
             llm_manager=llm_manager,
         )
 
-        # Format response
-        response_text = format_tool_response(result, format_type="json")
+        # Format response based on result type
+        # - code_research tool returns raw markdown string (for rich formatting)
+        # - All other tools return dicts (formatted as JSON)
+        if isinstance(result, str):
+            # Raw string response - pass through directly
+            response_text = result
+        else:
+            # Dict response - format as JSON for MCP protocol
+            response_text = format_tool_response(result, format_type="json")
         return [types.TextContent(type="text", text=response_text)]
 
     except Exception as e:
