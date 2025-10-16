@@ -867,7 +867,15 @@ class UniversalParser:
         """Final greedy merge pass to maximize information density.
 
         This is the final optimization step of the cAST algorithm.
+
+        HCL note: HCL config files intentionally preserve fine‑grained
+        KEY_VALUE/TABLE units. To avoid collapsing individual attributes,
+        we skip the greedy merge when parsing HCL.
         """
+        # Preserve attribute-level granularity for HCL configs.
+        if getattr(self, "language_name", "").lower() == "hcl":
+            return chunks
+
         if len(chunks) <= 1:
             return chunks
 
@@ -877,6 +885,7 @@ class UniversalParser:
         current_chunk = sorted_chunks[0]
 
         for next_chunk in sorted_chunks[1:]:
+
             # Simple merge logic: only if content is different and fits size limit
             if next_chunk.content.strip() not in current_chunk.content:
                 combined_content = current_chunk.content + "\n" + next_chunk.content
@@ -979,6 +988,13 @@ class UniversalParser:
         Returns:
             Appropriate ChunkType for the concept
         """
+        # Prefer explicit typing hints from mapping metadata when available.
+        chunk_type_hint = metadata.get("chunk_type_hint")
+        if chunk_type_hint == "key_value":
+            return ChunkType.KEY_VALUE
+        elif chunk_type_hint == "table":
+            return ChunkType.TABLE
+
         if concept == UniversalConcept.DEFINITION:
             # Check metadata for more specific type information
             # Prefer "kind" field (semantic type) over "node_type" (AST node type)

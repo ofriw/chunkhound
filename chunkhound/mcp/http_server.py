@@ -12,7 +12,6 @@ import os
 
 # Lazy import FastMCP at runtime to avoid hard import dependency at module import time
 FastMCP = None  # type: ignore
-
 from chunkhound.core.config.config import Config
 
 from .base import MCPServerBase
@@ -41,7 +40,7 @@ class HttpMCPServer(MCPServerBase):
         # Create FastMCP instance lazily to avoid import errors during smoke import
         global FastMCP  # noqa: PLW0603
         if FastMCP is None:  # type: ignore
-            from fastmcp import FastMCP as _FastMCP  # local import
+            from fastmcp import FastMCP as _FastMCP  # noqa: WPS433
             FastMCP = _FastMCP  # type: ignore
         self.app: Any = FastMCP("ChunkHound Code Search")  # type: ignore
 
@@ -194,6 +193,8 @@ async def main() -> None:
     # Mark process as MCP mode so downstream code avoids interactive prompts
     os.environ["CHUNKHOUND_MCP_MODE"] = "1"
 
+    # Mark MCP mode and create/validate configuration
+    os.environ["CHUNKHOUND_MCP_MODE"] = "1"
     # Create and validate configuration
     config, validation_errors = create_validated_config(args, "mcp")
 

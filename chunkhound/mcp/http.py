@@ -43,7 +43,7 @@ class HttpMCPServer(MCPServerBase):
         # Create FastMCP instance lazily
         global FastMCP  # noqa: PLW0603
         if FastMCP is None:  # type: ignore
-            from fastmcp import FastMCP as _FastMCP
+            from fastmcp import FastMCP as _FastMCP  # noqa: WPS433
             FastMCP = _FastMCP  # type: ignore
         self.app: Any = FastMCP("ChunkHound Code Search")  # type: ignore
 
@@ -55,7 +55,7 @@ class HttpMCPServer(MCPServerBase):
         import asyncio
         import json
 
-        import mcp.types as types
+        import mcp.types as types  # noqa: WPS433
 
         # Auto-register all tools from registry
         for tool_name, tool_def in TOOL_REGISTRY.items():
