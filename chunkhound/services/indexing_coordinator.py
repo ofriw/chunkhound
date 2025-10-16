@@ -900,11 +900,13 @@ class IndexingCoordinator(BaseService):
                 agg_errors.extend(stats_part.get("errors", []))
 
             # Parse files (streaming progress as batches complete and store concurrently)
-            # Pass only file paths to support monkeypatched tests that override this method
-            _dispatch_files: list[Path] = [fp if isinstance(fp, Path) else fp for fp, _ in files_to_process] if files_to_process else []  # type: ignore
-            if not _dispatch_files and isinstance(files_to_process, list) and files_to_process:
-                # Fallback if files_to_process was still a list[Path]
-                _dispatch_files = files_to_process  # type: ignore[assignment]
+            # Build a pure list[Path] to support monkeypatched tests that override this method
+            _dispatch_files: list[Path] = []
+            for item in files_to_process:
+                if isinstance(item, tuple):
+                    _dispatch_files.append(item[0])
+                else:
+                    _dispatch_files.append(item)
             parsed_results = await self._process_files_in_batches(
                 _dispatch_files, config_file_size_threshold_kb, parse_task, on_batch=_on_batch_store
             )
