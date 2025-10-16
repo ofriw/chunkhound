@@ -105,10 +105,24 @@ async def run_command(args: argparse.Namespace, config: Config) -> None:
             skipped_timeouts = []
             if hasattr(stats, "skipped_due_to_timeout"):
                 skipped_timeouts = stats.skipped_due_to_timeout or []
+
+            # Never prompt in MCP mode (stdio must not emit prompts/output)
+            if skipped_timeouts and os.environ.get("CHUNKHOUND_MCP_MODE") == "1":
+                formatter.info(
+                    f"{len(skipped_timeouts)} files timed out. "
+                    "Prompts are disabled in MCP mode. To exclude them, add to .chunkhound.json under indexing.exclude."
+                )
+                return
+
+            # Respect explicit no-prompts
+            if skipped_timeouts and os.environ.get("CHUNKHOUND_NO_PROMPTS") == "1":
+                formatter.info(
+                    f"{len(skipped_timeouts)} files timed out (prompts disabled)."
+                )
+                return
+
             # Only prompt in interactive TTY and when there are timeouts
-            if skipped_timeouts and sys.stdin.isatty() and not bool(
-                os.environ.get("CHUNKHOUND_NO_PROMPTS")
-            ):
+            if skipped_timeouts and sys.stdin.isatty():
                 base_dir = Path(args.path).resolve() if hasattr(args, "path") else Path.cwd().resolve()
 
                 # Convert to unique relative paths within the project
@@ -127,9 +141,7 @@ async def run_command(args: argparse.Namespace, config: Config) -> None:
                 formatter.info(
                     f"{len(rel_paths)} timed-out files can be excluded from future runs."
                 )
-                reply = input(
-                    "Add these to indexing.exclude in .chunkhound.json? [y/N]: "
-                ).strip().lower()
+                reply = input("Add these to indexing.exclude in .chunkhound.json? [y/N]: ").strip().lower()
                 if reply in ("y", "yes"):
                     local_config_path = base_dir / ".chunkhound.json"
                     # Load or initialize config data

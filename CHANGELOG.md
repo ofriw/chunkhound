@@ -511,3 +511,13 @@ For more information, visit: https://github.com/chunkhound/chunkhound
 [1.0.0]: https://github.com/chunkhound/chunkhound/releases/tag/v1.0.0
 ### Changed
 - Default per-file timeout is now enabled by default: `indexing.per_file_timeout_seconds=3.0` (previously `0`, disabled). Set to `0` to disable.
+### MCP & Performance
+- Fix: Disable interactive prompts in MCP mode to preserve JSON-RPC protocol.
+  - CLI now checks `CHUNKHOUND_MCP_MODE=1` and never calls `input()` in that mode.
+  - MCP stdio/http servers set `CHUNKHOUND_MCP_MODE=1` at startup.
+- Perf: Single‑read checksum verification.
+  - When `indexing.verify_checksum_when_mtime_equal=true`, we compute the sample hash once during change detection and carry it through storage, eliminating the post‑parse re‑read.
+  - Reduces file I/O in the verify‑equal path and removes a small race window.
+- Safety: Cap concurrent timeout children per worker.
+  - Worker processes use a semaphore to limit timeout child processes.
+  - The cap auto‑scales to `min(num_workers*2, 32)`; in restricted CI sandboxes without SemLock, the limiter falls back gracefully.

@@ -15,6 +15,6 @@ def test_process_file_batch_timeout(monkeypatch, tmp_path: Path):
     # Monkeypatch the worker timeout function to simulate timeout
     monkeypatch.setattr(bp, "_parse_file_with_timeout", lambda *a, **k: ("timeout", None))
 
-    results = bp.process_file_batch([f], cfg)
+    results = bp.process_file_batch([(f, None)], cfg)
     assert results and results[0].status == "skipped"
     assert results[0].error == "timeout"

@@ -8,6 +8,7 @@ ARCHITECTURE: Global state required for stdio communication model
 """
 
 import asyncio
+import os
 import logging
 import sys
 import warnings
@@ -207,6 +208,9 @@ async def main(args: Any = None) -> None:
         add_common_mcp_arguments(parser)
         # Parse arguments
         args = parser.parse_args()
+
+    # Mark process as MCP mode so downstream code avoids interactive prompts
+    os.environ["CHUNKHOUND_MCP_MODE"] = "1"
 
     # Create and validate configuration
     config, validation_errors = create_validated_config(args, "mcp")

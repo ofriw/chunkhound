@@ -40,6 +40,7 @@ class ParsedFileResult:
     file_mtime: float
     status: str
     error: str | None = None
+    content_hash: str | None = None
 
 
 def _parse_file_worker(file_path_str: str, language_value: str, conn: Connection) -> None:
@@ -129,7 +130,26 @@ def _parse_file_with_timeout(
             pass
 
 
-def process_file_batch(file_paths: list[Path], config_dict: dict) -> list[ParsedFileResult]:
+# Semaphore to cap concurrent timeout children per worker process
+_timeout_semaphore: object | None = None
+
+
+def _init_timeout_semaphore(max_concurrent: int) -> None:
+    """Initialize a shared semaphore limiting concurrent timeout children in a worker."""
+    global _timeout_semaphore
+    if max_concurrent and _timeout_semaphore is None:
+        try:
+            ctx = multiprocessing.get_context("spawn")
+            _timeout_semaphore = ctx.Semaphore(int(max_concurrent))
+        except Exception:
+            # CI sandboxes may deny SemLock; fall back to unlimited
+            _timeout_semaphore = None
+
+
+def process_file_batch(
+    file_info_list: list[tuple[Path, str | None]],
+    config_dict: dict,
+) -> list[ParsedFileResult]:
     """Process a batch of files in a worker process.
 
     This function runs in a separate process via ProcessPoolExecutor.
@@ -152,8 +172,13 @@ def process_file_batch(file_paths: list[Path], config_dict: dict) -> list[Parsed
         timeout_min_kb = int(config_dict.get("per_file_timeout_min_size_kb", 128))
     except Exception:
         timeout_min_kb = 128
+    try:
+        max_concurrent_timeouts = int(config_dict.get("max_concurrent_timeouts", 32))
+    except Exception:
+        max_concurrent_timeouts = 32
+    _init_timeout_semaphore(max_concurrent_timeouts)
 
-    for file_path in file_paths:
+    for file_path, precomputed_hash in file_info_list:
         try:
             # Get file metadata
             file_stat = os.stat(file_path)
@@ -204,7 +229,15 @@ def process_file_batch(file_paths: list[Path], config_dict: dict) -> list[Parsed
 
             # Parse file and generate chunks (with optional per-file timeout)
             if timeout_s > 0 and ((file_stat.st_size / 1024) >= timeout_min_kb):
-                status, payload = _parse_file_with_timeout(file_path, language, timeout_s)
+                if _timeout_semaphore is not None:
+                    with _timeout_semaphore:
+                        status, payload = _parse_file_with_timeout(
+                            file_path, language, timeout_s
+                        )
+                else:
+                    status, payload = _parse_file_with_timeout(
+                        file_path, language, timeout_s
+                    )
                 if status == "timeout":
                     # Defer user notification to final summary; avoid live console noise
                     results.append(
@@ -214,6 +247,7 @@ def process_file_batch(file_paths: list[Path], config_dict: dict) -> list[Parsed
                             language=language,
                             file_size=file_stat.st_size,
                             file_mtime=file_stat.st_mtime,
+                            content_hash=precomputed_hash,
                             status="skipped",
                             error="timeout",
                         )
@@ -228,6 +262,7 @@ def process_file_batch(file_paths: list[Path], config_dict: dict) -> list[Parsed
                             language=language,
                             file_size=file_stat.st_size,
                             file_mtime=file_stat.st_mtime,
+                            content_hash=precomputed_hash,
                             status="error",
                             error=str(payload),
                         )
@@ -264,6 +299,7 @@ def process_file_batch(file_paths: list[Path], config_dict: dict) -> list[Parsed
                     language=language,
                     file_size=file_stat.st_size,
                     file_mtime=file_stat.st_mtime,
+                    content_hash=precomputed_hash,
                     status="success",
                 )
             )

@@ -266,7 +266,7 @@ class IndexingCoordinator(BaseService):
         file_lock = await self._get_file_lock(file_path)
         async with file_lock:
             # Use batch processor with single file for consistency
-            parsed_results = await self._process_files_in_batches([file_path])
+            parsed_results = await self._process_files_in_batches([(file_path, None)])
 
             if not parsed_results:
                 return {"status": "error", "chunks": 0, "error": "No results from batch processor"}
@@ -313,7 +313,7 @@ class IndexingCoordinator(BaseService):
 
     async def _process_files_in_batches(
         self,
-        files: list[Path],
+        files: list[tuple[Path, str | None]] | list[Path],
         config_file_size_threshold_kb: int = 20,
         parse_task: TaskID | None = None,
         on_batch: Any | None = None,
@@ -389,7 +389,14 @@ class IndexingCoordinator(BaseService):
             target_secs = 60.0
             per_file_cap = max(4, int(target_secs / max(0.001, timeout_s_probe)))
             batch_size = min(batch_size, per_file_cap)
-        file_batches = [files[i : i + batch_size] for i in range(0, len(files), batch_size)]
+        # Normalize input to list[tuple[Path, str|None]]
+        norm: list[tuple[Path, str | None]] = []
+        for item in files:
+            if isinstance(item, tuple):
+                norm.append(item)
+            else:
+                norm.append((item, None))
+        file_batches = [norm[i : i + batch_size] for i in range(0, len(norm), batch_size)]
 
         # Process batches in parallel using ProcessPoolExecutor
         loop = asyncio.get_running_loop()
@@ -421,6 +428,8 @@ class IndexingCoordinator(BaseService):
                 "config_file_size_threshold_kb": config_file_size_threshold_kb,
                 "per_file_timeout_seconds": timeout_s,
                 "per_file_timeout_min_size_kb": min_timeout_kb,
+                # Cap concurrent timeout children to avoid resource exhaustion
+                "max_concurrent_timeouts": min(num_workers * 2, 32),
             }
             futures = [
                 loop.run_in_executor(executor, process_file_batch, batch, config_dict)
@@ -530,6 +539,13 @@ class IndexingCoordinator(BaseService):
 
                 file_stat = StatResult(result.file_size, result.file_mtime)
                 file_id = self._store_file_record(result.file_path, file_stat, language)
+                # If we carried a precomputed content hash, persist it immediately
+                try:
+                    if getattr(result, "content_hash", None):
+                        self._db.update_file(file_id, content_hash=result.content_hash)
+                except Exception:
+                    # Provider may not support content_hash; ignore silently
+                    pass
 
                 # Track file_id for single-file case
                 file_ids.append(file_id)
@@ -754,17 +770,23 @@ class IndexingCoordinator(BaseService):
                                             from chunkhound.utils.hashing import sample_file_hash
                                             cur_hash = sample_file_hash(f, sample_kb)
                                             if cur_hash != db_hash:
-                                                files_to_process.append(f)
+                                                files_to_process.append((f, cur_hash))
                                                 reasons["mtime"] += 1
                                                 continue
+                                            else:
+                                                skipped_unchanged += 1
+                                                reasons["ok"] += 1
+                                                continue
                                         except Exception:
-                                            files_to_process.append(f)
+                                            files_to_process.append((f, None))
                                             reasons["error"] += 1
                                             continue
                                     else:
-                                        files_to_process.append(f)  # populate checksum once (only if provider supports it)
+                                        # No db hash yet; schedule processing and compute it later
+                                        files_to_process.append((f, None))
                                         reasons["not_found"] += 1
                                         continue
+                                # If not verifying checksum and both size & mtime match, skip
                                 skipped_unchanged += 1
                                 reasons["ok"] += 1
                             else:
@@ -772,12 +794,12 @@ class IndexingCoordinator(BaseService):
                                     reasons["size"] += 1
                                 elif not same_mtime:
                                     reasons["mtime"] += 1
-                                files_to_process.append(f)
+                                files_to_process.append((f, None))
                         else:
-                            files_to_process.append(f)
+                            files_to_process.append((f, None))
                             reasons["not_found"] += 1
                     except Exception:
-                        files_to_process.append(f)
+                        files_to_process.append((f, None))
                         reasons["error"] += 1
                     finally:
                         if change_task is not None and self.progress:
@@ -878,26 +900,8 @@ class IndexingCoordinator(BaseService):
                 logger.debug("Optimizing database tables after bulk operations...")
                 self._db.optimize_tables()
 
-            # For files we processed, update their content_hash if verification is enabled
-            if files_to_process and verify_checksum:
-                try:
-                    for result in parsed_results:
-                        if result.status == "success":
-                            try:
-                                from chunkhound.utils.hashing import sample_file_hash
-
-                                h = sample_file_hash(result.file_path, sample_kb)
-                                # Get file_id by path
-                                relp = self._get_relative_path(result.file_path).as_posix()
-                                db_rec = self._db.get_file_by_path(relp, as_model=False)
-                                if db_rec and isinstance(db_rec, dict) and "id" in db_rec:
-                                    # Only attempt to persist if provider supports content_hash
-                                    if "content_hash" in db_rec:
-                                        self._db.update_file(db_rec["id"], content_hash=h)
-                            except Exception:
-                                pass
-                except Exception:
-                    pass
+            # No post-parse checksum pass; when enabled we carry a precomputed
+            # content hash from change detection to storage to avoid extra I/O.
 
             return {
                 "status": "success",

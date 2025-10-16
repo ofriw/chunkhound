@@ -112,11 +112,24 @@ CHUNKHOUND_INDEXING__VERIFY_CHECKSUM_WHEN_MTIME_EQUAL=true
 CHUNKHOUND_INDEXING__CHECKSUM_SAMPLE_KB=64
 CHUNKHOUND_INDEXING__CONFIG_FILE_SIZE_THRESHOLD_KB=0
 CHUNKHOUND_DB_EXECUTE_TIMEOUT=60
+
+# MCP mode disables interactive prompts to preserve JSON‑RPC
+CHUNKHOUND_MCP_MODE=1
 ```
 
 Notes:
 - For deterministic CI runs, consider `CHUNKHOUND_INDEXING__PER_FILE_TIMEOUT_SECONDS=0` and `CHUNKHOUND_INDEXING__CONFIG_FILE_SIZE_THRESHOLD_KB=0`.
 - Avoid committing API keys to `.chunkhound.json`. Use `CHUNKHOUND_EMBEDDING__API_KEY` or your secret manager.
+
+### MCP Mode (Stdio/HTTP)
+- MCP stdio and HTTP servers set `CHUNKHOUND_MCP_MODE=1`. In this mode, the CLI and services will not prompt on stdin or emit interactive messages that could break JSON‑RPC.
+  - End‑of‑run timeouts are summarized, but no `input()` prompt is shown; you can still add exclusions manually in `.chunkhound.json`.
+  - You can also disable prompts explicitly in any environment with `CHUNKHOUND_NO_PROMPTS=1`.
+
+### Timeout Concurrency Safety
+- To prevent resource exhaustion on large repos, the per‑file timeout guard spawns child processes under a cap that auto‑scales with worker count.
+  - Default cap: `min(num_workers*2, 32)` per worker process.
+  - In restricted CI sandboxes without OS semaphores, the limiter falls back gracefully while maintaining correctness.
 
 ## Real-Time Indexing
 
