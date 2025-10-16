@@ -26,6 +26,7 @@ from chunkhound.parsers.mappings import (
     GoMapping,
     GroovyMapping,
     HaskellMapping,
+    HclMapping,
     JavaMapping,
     JavaScriptMapping,
     JsonMapping,
@@ -249,6 +250,31 @@ except ImportError:
     ts_toml = None
     TOML_AVAILABLE = False
 
+# HCL (Terraform) language
+try:
+    import tree_sitter_hcl as ts_hcl
+
+    HCL_AVAILABLE = True
+except ImportError:
+    ts_hcl = None
+    HCL_AVAILABLE = False
+
+if not HCL_AVAILABLE:
+    try:
+        from tree_sitter_language_pack import get_language as _get_language_hcl
+
+        _hcl_lang = _get_language_hcl("hcl")
+        if _hcl_lang:
+
+            class _HclLanguageWrapper:
+                def language(self):
+                    return _hcl_lang
+
+            ts_hcl = _HclLanguageWrapper()
+            HCL_AVAILABLE = True
+    except ImportError:
+        pass
+
 try:
     import tree_sitter_markdown as ts_markdown
 
@@ -421,6 +447,7 @@ LANGUAGE_CONFIGS: dict[Language, LanguageConfig] = {
     Language.JSON: LanguageConfig(ts_json, JsonMapping, JSON_AVAILABLE, "json"),
     Language.YAML: LanguageConfig(ts_yaml, YamlMapping, YAML_AVAILABLE, "yaml"),
     Language.TOML: LanguageConfig(ts_toml, TomlMapping, TOML_AVAILABLE, "toml"),
+    Language.HCL: LanguageConfig(ts_hcl, HclMapping, HCL_AVAILABLE, "hcl"),
     Language.MARKDOWN: LanguageConfig(
         ts_markdown, MarkdownMapping, MARKDOWN_AVAILABLE, "markdown"
     ),
@@ -507,6 +534,9 @@ EXTENSION_TO_LANGUAGE: dict[str, Language] = {
     ".yaml": Language.YAML,
     ".yml": Language.YAML,
     ".toml": Language.TOML,
+    ".hcl": Language.HCL,
+    ".tf": Language.HCL,
+    ".tfvars": Language.HCL,
     ".md": Language.MARKDOWN,
     ".markdown": Language.MARKDOWN,
     ".mdown": Language.MARKDOWN,
