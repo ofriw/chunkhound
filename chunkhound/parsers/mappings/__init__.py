@@ -23,12 +23,15 @@ from .markdown import MarkdownMapping
 from .matlab import MatlabMapping
 from .objc import ObjCMapping
 from .pdf import PDFMapping
+from .php import PHPMapping
 from .python import PythonMapping
 from .rust import RustMapping
 from .text import TextMapping
 from .toml import TomlMapping
 from .tsx import TSXMapping
 from .typescript import TypeScriptMapping
+from .vue import VueMapping
+from .vue_template import VueTemplateMapping
 from .yaml import YamlMapping
 from .zig import ZigMapping
 
@@ -52,12 +55,15 @@ __all__ = [
     "MatlabMapping",
     "ObjCMapping",
     "PDFMapping",
+    "PHPMapping",
     "PythonMapping",
     "RustMapping",
     "TextMapping",
     "TomlMapping",
     "TSXMapping",
     "TypeScriptMapping",
+    "VueMapping",
+    "VueTemplateMapping",
     "YamlMapping",
     "ZigMapping",
 ]

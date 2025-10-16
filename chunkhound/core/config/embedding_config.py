@@ -81,7 +81,8 @@ class EmbeddingConfig(BaseSettings):
         description="Internal concurrency (auto-detected from provider if not set)",
     )
     optimization_batch_frequency: int = Field(
-        default=1000, description="Internal optimization frequency (runs every N batches during indexing)"
+        default=1000,
+        description="Internal optimization frequency (runs every N batches during indexing)",
     )
 
     @field_validator("model")

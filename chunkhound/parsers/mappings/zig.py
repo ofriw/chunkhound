@@ -145,9 +145,9 @@ class ZigMapping(BaseMapping):
 
         # STRUCTURE not needed for Zig - only for structured text formats
         # elif concept == UniversalConcept.STRUCTURE:
-            #     return """
-            #     (source_file) @definition
-            #     """
+        #     return """
+        #     (source_file) @definition
+        #     """
 
         return None
 
@@ -166,7 +166,10 @@ class ZigMapping(BaseMapping):
                 name = self.get_node_text(name_node, source).strip()
 
                 # For test declarations with string names, strip quotes
-                if "definition" in captures and captures["definition"].type == "test_declaration":
+                if (
+                    "definition" in captures
+                    and captures["definition"].type == "test_declaration"
+                ):
                     if name_node.type == "string":
                         name = name.strip('"')
 
@@ -289,7 +292,9 @@ class ZigMapping(BaseMapping):
                 # Extract import path from string literal in call
                 for child in self.walk_tree(call_node):
                     if child and child.type == "string_literal":
-                        import_path = self.get_node_text(child, source).strip().strip('"')
+                        import_path = (
+                            self.get_node_text(child, source).strip().strip('"')
+                        )
                         metadata["import_path"] = import_path
                         break
 
@@ -319,7 +324,10 @@ class ZigMapping(BaseMapping):
         """Check if a declaration has pub visibility."""
         # For function_declaration and variable_declaration, pub is a direct child
         for child in node.children:
-            if child.type == "pub" or self.get_node_text(child, source).strip() == "pub":
+            if (
+                child.type == "pub"
+                or self.get_node_text(child, source).strip() == "pub"
+            ):
                 return True
         return False
 
@@ -330,6 +338,9 @@ class ZigMapping(BaseMapping):
         max_children_to_check = min(3, len(node.children)) if node.children else 0
         for i in range(max_children_to_check):
             child = node.children[i]
-            if child and (child.type == "const" or self.get_node_text(child, source).strip() == "const"):
+            if child and (
+                child.type == "const"
+                or self.get_node_text(child, source).strip() == "const"
+            ):
                 return True
         return False

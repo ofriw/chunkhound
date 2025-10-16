@@ -64,7 +64,7 @@ def _is_ambiguous_extension(file_path: Path) -> bool:
     - .h: (future) C vs C++ vs Objective-C headers
     - .pl: (future) Perl vs Prolog
     """
-    return file_path.suffix.lower() in {'.m'}
+    return file_path.suffix.lower() in {".m"}
 
 
 def _detect_from_content(file_path: Path) -> Language | None:
@@ -83,7 +83,7 @@ def _detect_from_content(file_path: Path) -> Language | None:
     """
     ext = file_path.suffix.lower()
 
-    if ext == '.m':
+    if ext == ".m":
         return _detect_objc_vs_matlab(file_path)
 
     return None
@@ -105,20 +105,20 @@ def _detect_objc_vs_matlab(file_path: Path) -> Language:
         Language.OBJC or Language.MATLAB
     """
     try:
-        with open(file_path, 'rb') as f:
+        with open(file_path, "rb") as f:
             header = f.read(CONTENT_DETECTION_READ_BYTES).decode(
-                'utf-8', errors='ignore'
+                "utf-8", errors="ignore"
             )
 
         # Objective-C markers (highly distinctive)
         # These directives are unique to Objective-C and never appear in MATLAB
-        objc_markers = ['@interface', '@implementation', '@protocol', '@class']
+        objc_markers = ["@interface", "@implementation", "@protocol", "@class"]
         if any(marker in header for marker in objc_markers):
             logger.debug(f"Detected Objective-C in {file_path.name} via @-directive")
             return Language.OBJC
 
         # #import is Objective-C convention (MATLAB uses % for imports)
-        if '#import' in header:
+        if "#import" in header:
             logger.debug(f"Detected Objective-C in {file_path.name} via #import")
             return Language.OBJC
 

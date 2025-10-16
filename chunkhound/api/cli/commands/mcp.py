@@ -112,6 +112,7 @@ def _show_mcp_setup_instructions_if_first_run(args: argparse.Namespace) -> None:
         return
 
     import time
+
     file_age_seconds = time.time() - config_path.stat().st_mtime
     if file_age_seconds > 300:  # More than 5 minutes old
         return
@@ -133,7 +134,9 @@ def _show_mcp_setup_instructions_if_first_run(args: argparse.Namespace) -> None:
         pass
 
 
-def _show_mcp_setup_instructions(args: argparse.Namespace, force_display: bool = False) -> None:
+def _show_mcp_setup_instructions(
+    args: argparse.Namespace, force_display: bool = False
+) -> None:
     """Show comprehensive MCP setup instructions for all MCP clients.
 
     Args:
@@ -154,7 +157,9 @@ def _show_mcp_setup_instructions(args: argparse.Namespace, force_display: bool =
     _safe_print("=" * 70)
 
     if is_http:
-        _safe_print(f"\nHTTP Transport Mode: http://localhost:{getattr(args, 'port', 3000)}")
+        _safe_print(
+            f"\nHTTP Transport Mode: http://localhost:{getattr(args, 'port', 3000)}"
+        )
     else:
         _safe_print("\nStdio Transport Mode (default)")
 
@@ -169,19 +174,20 @@ def _show_mcp_setup_instructions(args: argparse.Namespace, force_display: bool =
 
     if is_tool_installed:
         claude_code_config = {
-            "mcpServers": {
-                "ChunkHound": {
-                    "command": "chunkhound",
-                    "args": ["mcp"]
-                }
-            }
+            "mcpServers": {"ChunkHound": {"command": "chunkhound", "args": ["mcp"]}}
         }
     else:
         claude_code_config = {
             "mcpServers": {
                 "ChunkHound": {
                     "command": "uv",
-                    "args": ["--directory", str(project_path.absolute()), "run", "chunkhound", "mcp"]
+                    "args": [
+                        "--directory",
+                        str(project_path.absolute()),
+                        "run",
+                        "chunkhound",
+                        "mcp",
+                    ],
                 }
             }
         }
@@ -198,7 +204,7 @@ def _show_mcp_setup_instructions(args: argparse.Namespace, force_display: bool =
             "mcpServers": {
                 "chunkhound": {
                     "command": "chunkhound",
-                    "args": ["mcp", str(project_path.absolute())]
+                    "args": ["mcp", str(project_path.absolute())],
                 }
             }
         }
@@ -207,7 +213,14 @@ def _show_mcp_setup_instructions(args: argparse.Namespace, force_display: bool =
             "mcpServers": {
                 "chunkhound": {
                     "command": "uv",
-                    "args": ["--directory", str(project_path.absolute()), "run", "chunkhound", "mcp", str(project_path.absolute())]
+                    "args": [
+                        "--directory",
+                        str(project_path.absolute()),
+                        "run",
+                        "chunkhound",
+                        "mcp",
+                        str(project_path.absolute()),
+                    ],
                 }
             }
         }
@@ -225,7 +238,7 @@ def _show_mcp_setup_instructions(args: argparse.Namespace, force_display: bool =
                 "ChunkHound": {
                     "type": "stdio",
                     "command": "chunkhound",
-                    "args": ["mcp"]
+                    "args": ["mcp"],
                 }
             }
         }
@@ -235,7 +248,13 @@ def _show_mcp_setup_instructions(args: argparse.Namespace, force_display: bool =
                 "ChunkHound": {
                     "type": "stdio",
                     "command": "uv",
-                    "args": ["--directory", str(project_path.absolute()), "run", "chunkhound", "mcp"]
+                    "args": [
+                        "--directory",
+                        str(project_path.absolute()),
+                        "run",
+                        "chunkhound",
+                        "mcp",
+                    ],
                 }
             }
         }
@@ -260,7 +279,9 @@ def _show_mcp_setup_instructions(args: argparse.Namespace, force_display: bool =
     _safe_print("• Global configs (~/.claude/) require absolute path")
 
     if is_http:
-        _safe_print(f"\n• HTTP mode: Server accessible at http://localhost:{getattr(args, 'port', 3000)}")
+        _safe_print(
+            f"\n• HTTP mode: Server accessible at http://localhost:{getattr(args, 'port', 3000)}"
+        )
         _safe_print("• HTTP mode can print setup instructions safely")
 
     # Documentation link
@@ -273,10 +294,13 @@ def _show_mcp_setup_instructions(args: argparse.Namespace, force_display: bool =
     # Try to copy the most common config (Claude Code) to clipboard
     try:
         import pyperclip
+
         pyperclip.copy(json.dumps(claude_code_config, indent=2))
         _safe_print("\n✓ Claude Code config copied to clipboard!")
     except (ImportError, Exception):
-        _safe_print("\n• Install pyperclip to enable clipboard copy: pip install pyperclip")
+        _safe_print(
+            "\n• Install pyperclip to enable clipboard copy: pip install pyperclip"
+        )
 
     _safe_print("\n" + "=" * 70 + "\n")
 

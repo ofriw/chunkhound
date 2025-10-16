@@ -45,8 +45,8 @@ Purpose: Transform codebases into searchable knowledge bases for AI assistants
 # Development
 lint: uv run ruff check chunkhound
 typecheck: uv run mypy chunkhound
-test: uv run pytest tests/
-smoke: uv run pytest tests/test_smoke.py -v  # ALWAYS run before commits
+test: uv run pytest tests/ -n auto
+smoke: uv run pytest tests/test_smoke.py -v -n auto # ALWAYS run before commits
 format: uv run ruff format chunkhound
 
 # Version management
@@ -84,8 +84,8 @@ chunkhound/
 ## TECHNOLOGY_STACK
 - Python 3.10+ (async/await patterns)
 - uv (package manager - ALWAYS use this)
-- DuckDB (primary) / LanceDB (alternative) 
-- Tree-sitter (20+ language parsers)
+- DuckDB (primary) / LanceDB (alternative)
+- Tree-sitter (24 language parsers: Python, JavaScript, TypeScript, JSX, TSX, Java, Kotlin, Groovy, C, C++, C#, Go, Rust, Bash, MATLAB, Makefile, Objective-C, PHP, Vue, Zig, JSON, YAML, TOML, Markdown)
 - OpenAI/Ollama embeddings
 - MCP protocol (stdio and HTTP)
 - Pydantic (configuration validation)
