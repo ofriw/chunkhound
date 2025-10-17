@@ -84,35 +84,27 @@ class SimpleEventHandler(FileSystemEventHandler):
             logger.warning(f"Failed to queue event for {file_path}: {e}")
 
     def _should_index(self, file_path: Path) -> bool:
-        """Check if file should be indexed based on config patterns."""
+        """Check if file should be indexed based on config patterns.
+
+        Uses config-based filtering if available, otherwise falls back to
+        Language enum which derives all patterns from parser_factory.
+        This ensures realtime indexing supports all languages without
+        requiring manual updates.
+        """
         if not self.config:
-            # Fallback to extension-based filtering if no config
-            supported_extensions = {
-                ".py",
-                ".js",
-                ".ts",
-                ".tsx",
-                ".jsx",
-                ".java",
-                ".cpp",
-                ".c",
-                ".h",
-                ".hpp",
-                ".cs",
-                ".go",
-                ".rs",
-                ".rb",
-                ".php",
-                ".swift",
-                ".kt",
-                ".scala",
-                ".r",
-                ".m",
-                ".mm",
-                ".md",
-                ".txt",
-            }
-            return file_path.suffix.lower() in supported_extensions
+            # Fallback: derive from Language enum (which derives from parser_factory)
+            # Uses lazy import to avoid heavyweight startup cost
+            from chunkhound.core.types.common import Language
+
+            # Check extension-based patterns
+            if file_path.suffix.lower() in Language.get_all_extensions():
+                return True
+
+            # Check filename-based patterns (Makefile, Dockerfile, etc.)
+            if file_path.name.lower() in Language.get_all_filename_patterns():
+                return True
+
+            return False
 
         # Use config-based pattern matching
         from fnmatch import fnmatch
