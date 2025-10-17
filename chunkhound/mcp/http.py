@@ -8,6 +8,9 @@ global state management.
 """
 
 from typing import Any
+import os
+# Lazy import to avoid hard dependency during module import in smoke tests
+FastMCP = None  # type: ignore
 
 from chunkhound.core.config.config import Config
 
@@ -34,9 +37,15 @@ class HttpMCPServer(MCPServerBase):
         super().__init__(config)
         self.port = port
 
-        # Create FastMCP instance (lazy import; avoid hard dep at module import time)
-        from fastmcp import FastMCP  # noqa: WPS433
-        self.app: FastMCP = FastMCP("ChunkHound Code Search")
+        # Mark process as MCP mode so downstream code avoids interactive prompts
+        os.environ["CHUNKHOUND_MCP_MODE"] = "1"
+
+        # Create FastMCP instance lazily
+        global FastMCP  # noqa: PLW0603
+        if FastMCP is None:  # type: ignore
+            from fastmcp import FastMCP as _FastMCP  # noqa: WPS433
+            FastMCP = _FastMCP  # type: ignore
+        self.app: Any = FastMCP("ChunkHound Code Search")  # type: ignore
 
         # Register tools with the server
         self._register_tools()

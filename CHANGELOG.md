@@ -8,6 +8,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Per-file timeout controls: `indexing.per_file_timeout_seconds`, `indexing.per_file_timeout_min_size_kb`, CLI flags and env overrides.
+- Change-detection and optional checksum verification for unchanged files (`indexing.verify_checksum_when_mtime_equal`, `indexing.checksum_sample_kb`).
+- DuckDB schema: `files.content_hash` column (idempotent migration via `ALTER TABLE IF NOT EXISTS`).
+- Progress improvements: split "Parsing files" vs "Handling files" with live cumulative info.
+- Post-run prompt to add timed-out files to `indexing.exclude` in `.chunkhound.json` when interactive.
+- Env override for DB executor timeout: `CHUNKHOUND_DB_EXECUTE_TIMEOUT`.
+
+### Fixed
+- DuckDB `get_file_by_path(as_model=True)` now returns epoch-float `mtime` and correct `size_bytes` for accurate skip checks.
+- Skipped counts broken out into `Unchanged` and `Filtered` buckets for clarity.
+
+### Security
+- Removed embedded API key from `.chunkhound.json`. Use environment variables instead (e.g., `CHUNKHOUND_EMBEDDING__API_KEY`).
+
+### Changed
+- Default per-file timeout is now enabled by default: `indexing.per_file_timeout_seconds=3.0` (previously `0`, disabled). Set to `0` to disable.
+- When timeouts are enabled and no explicit concurrency is set, parser workers auto‑scale to `cpu_count` (capped at 32). Override via `indexing.max_concurrent`, `--max-concurrent`, or `CHUNKHOUND_INDEXING__MAX_CONCURRENT`.
 - PHP language support with comprehensive tree-sitter parsing for classes, interfaces, traits, functions, methods, namespaces, and PHPDoc comments
 - Vue.js Single File Component (SFC) support with specialized parsing for template, script, and style sections
 - Cross-reference tracking between Vue template elements and script definitions for enhanced semantic understanding
@@ -499,3 +516,15 @@ For more information, visit: https://github.com/chunkhound/chunkhound
 [1.1.0]: https://github.com/chunkhound/chunkhound/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/chunkhound/chunkhound/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/chunkhound/chunkhound/releases/tag/v1.0.0
+### Changed
+- Default per-file timeout is now enabled by default: `indexing.per_file_timeout_seconds=3.0` (previously `0`, disabled). Set to `0` to disable.
+### MCP & Performance
+- Fix: Disable interactive prompts in MCP mode to preserve JSON-RPC protocol.
+  - CLI now checks `CHUNKHOUND_MCP_MODE=1` and never calls `input()` in that mode.
+  - MCP stdio/http servers set `CHUNKHOUND_MCP_MODE=1` at startup.
+- Perf: Single‑read checksum verification.
+  - When `indexing.verify_checksum_when_mtime_equal=true`, we compute the sample hash once during change detection and carry it through storage, eliminating the post‑parse re‑read.
+  - Reduces file I/O in the verify‑equal path and removes a small race window.
+- Safety: Cap concurrent timeout children per worker.
+  - Worker processes use a semaphore to limit timeout child processes.
+  - The cap auto‑scales to `min(num_workers*2, 32)`; in restricted CI sandboxes without SemLock, the limiter falls back gracefully.

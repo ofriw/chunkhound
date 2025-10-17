@@ -52,14 +52,18 @@ from chunkhound.utils.file_patterns import (
 # - Windows/macOS already use 'spawn' by default
 # - Python 3.14 will make 'spawn' the default on all platforms
 # - See: https://github.com/chunkhound/chunkhound/pull/47
-if multiprocessing.get_start_method(allow_none=True) != "spawn":
+desired_mp_method = os.getenv("CHUNKHOUND_MP_START_METHOD", "spawn")
+current_mp_method = multiprocessing.get_start_method(allow_none=True)
+if current_mp_method != desired_mp_method:
     try:
-        multiprocessing.set_start_method("spawn", force=True)
-        logger.debug("Set multiprocessing start method to 'spawn' (was fork)")
-    except RuntimeError:
-        # Already set by another module - log but continue
+        multiprocessing.set_start_method(desired_mp_method, force=True)
         logger.debug(
-            f"Multiprocessing start method already set to: {multiprocessing.get_start_method()}"
+            f"Set multiprocessing start method to '{desired_mp_method}' (was {current_mp_method})"
+        )
+    except RuntimeError:
+        # Start method may already be set elsewhere; log and continue
+        logger.debug(
+            f"Multiprocessing start method remains '{multiprocessing.get_start_method()}'; desired '{desired_mp_method}'"
         )
 
 
@@ -269,7 +273,7 @@ class IndexingCoordinator(BaseService):
         file_lock = await self._get_file_lock(file_path)
         async with file_lock:
             # Use batch processor with single file for consistency
-            parsed_results = await self._process_files_in_batches([file_path])
+            parsed_results = await self._process_files_in_batches([(file_path, None)])
 
             if not parsed_results:
                 return {
@@ -346,7 +350,11 @@ class IndexingCoordinator(BaseService):
             return return_dict
 
     async def _process_files_in_batches(
-        self, files: list[Path], config_file_size_threshold_kb: int = 20
+        self,
+        files: list[tuple[Path, str | None]] | list[Path],
+        config_file_size_threshold_kb: int = 20,
+        parse_task: TaskID | None = None,
+        on_batch: Any | None = None,
     ) -> list[ParsedFileResult]:
         """Process files in parallel batches across CPU cores.
 
@@ -372,41 +380,129 @@ class IndexingCoordinator(BaseService):
         # Calculate optimal worker count based on file count
         cpu_count = os.cpu_count() or DEFAULT_CPU_COUNT
         file_count = len(files)
-        num_workers = _calculate_worker_count(file_count, cpu_count)
 
-        logger.debug(f"Parsing {file_count} files with {num_workers} workers")
+        # Determine timeout settings early to adjust worker count and batch sizing
+        timeout_s_probe = 0.0
+        try:
+            if self.config and getattr(self.config, "indexing", None):
+                timeout_s_probe = float(
+                    getattr(self.config.indexing, "per_file_timeout_seconds", 0.0) or 0.0
+                )
+        except Exception:
+            timeout_s_probe = 0.0
 
-        # Split files into batches for parallel processing
-        batch_size = math.ceil(len(files) / num_workers)
-        file_batches = [
-            files[i : i + batch_size] for i in range(0, len(files), batch_size)
-        ]
+        # Inspect explicit concurrency override
+        max_concurrent = 0
+        try:
+            if self.config and getattr(self.config, "indexing", None):
+                max_concurrent = int(getattr(self.config.indexing, "max_concurrent", 0) or 0)
+        except Exception:
+            max_concurrent = 0
+
+        # Default behavior:
+        # - If timeouts are enabled and no explicit max_concurrent given,
+        #   auto-scale to cpu_count (clamped to a safe upper bound).
+        # - Otherwise, use heuristic based on file count with existing caps.
+        SAFE_MAX = 32
+        if timeout_s_probe > 0 and max_concurrent <= 0:
+            num_workers = max(1, min(cpu_count, SAFE_MAX))
+        else:
+            num_workers = _calculate_worker_count(file_count, cpu_count)
+            if max_concurrent > 0:
+                num_workers = max(1, min(num_workers, max_concurrent))
+
+        logger.debug(f"Parsing {file_count} files with {num_workers} workers (timeout={timeout_s_probe}s, max_concurrent={max_concurrent or 'auto'})")
+
+        # Heuristic: increase batch granularity when per-file timeouts are enabled to avoid long silent stalls
+        # (long stalls happen when large batches contain many files that each hit the timeout)
+        dynamic_factor = 8 if timeout_s_probe > 0 else 4
+        target_batches = max(num_workers * dynamic_factor, 1)
+        # Compute base size from target_batches then clamp to [MIN_BATCH, file_count]
+        # Use smaller minimum when timeouts are enabled to surface progress more frequently
+        MIN_BATCH = 16 if timeout_s_probe > 0 else 128
+        base = max(1, math.ceil(len(files) / target_batches))
+        batch_size = min(len(files), max(MIN_BATCH, base))
+        # Additional clamp: target ~60s worst-case batch wall time when timeouts are enabled
+        if timeout_s_probe > 0:
+            target_secs = 60.0
+            per_file_cap = max(4, int(target_secs / max(0.001, timeout_s_probe)))
+            batch_size = min(batch_size, per_file_cap)
+        # Normalize input to list[tuple[Path, str|None]]
+        norm: list[tuple[Path, str | None]] = []
+        for item in files:
+            if isinstance(item, tuple):
+                norm.append(item)
+            else:
+                norm.append((item, None))
+        file_batches = [norm[i : i + batch_size] for i in range(0, len(norm), batch_size)]
 
         # Process batches in parallel using ProcessPoolExecutor
         loop = asyncio.get_running_loop()
         with ProcessPoolExecutor(max_workers=num_workers) as executor:
             # Submit all batches for concurrent processing
             # Pass config for structured file size filtering (JSON/YAML/TOML)
+            # Include optional per-file timeout (seconds) if configured
+            timeout_s = 0.0
+            try:
+                if self.config and getattr(self.config, "indexing", None):
+                    timeout_s = float(
+                        getattr(self.config.indexing, "per_file_timeout_seconds", 0.0)
+                        or 0.0
+                    )
+            except Exception:
+                timeout_s = 0.0
+
+            min_timeout_kb = 128
+            try:
+                if self.config and getattr(self.config, "indexing", None):
+                    # Respect explicit 0 so users can apply timeout to all file sizes.
+                    min_timeout_kb = int(
+                        getattr(self.config.indexing, "per_file_timeout_min_size_kb", 128)
+                    )
+            except Exception:
+                min_timeout_kb = 128
+
             config_dict = {
-                "config_file_size_threshold_kb": config_file_size_threshold_kb
+                "config_file_size_threshold_kb": config_file_size_threshold_kb,
+                "per_file_timeout_seconds": timeout_s,
+                "per_file_timeout_min_size_kb": min_timeout_kb,
+                # Cap concurrent timeout children to avoid resource exhaustion
+                "max_concurrent_timeouts": min(num_workers * 2, 32),
             }
             futures = [
                 loop.run_in_executor(executor, process_file_batch, batch, config_dict)
                 for batch in file_batches
             ]
 
-            # Wait for all batches to complete
-            batch_results = await asyncio.gather(*futures)
-
-        # Flatten results from all batches
-        all_results = []
-        for batch_result in batch_results:
-            all_results.extend(batch_result)
+            # Consume results as they complete to stream progress
+            all_results: list[ParsedFileResult] = []
+            completed_files = 0
+            for fut in asyncio.as_completed(futures):
+                batch_result = await fut
+                all_results.extend(batch_result)
+                # Update parse progress
+                if parse_task is not None and self.progress:
+                    inc = len(batch_result)
+                    completed_files += inc
+                    self.progress.advance(parse_task, inc)
+                    self.progress.update(parse_task, info=f"{completed_files} parsed")
+                # Stream results to storage if callback provided
+                if on_batch is not None:
+                    try:
+                        if asyncio.iscoroutinefunction(on_batch):
+                            await on_batch(batch_result)
+                        else:
+                            on_batch(batch_result)
+                    except Exception as e:
+                        logger.warning(f"on_batch handler failed: {e}")
 
         return all_results
 
     async def _store_parsed_results(
-        self, results: list[ParsedFileResult], file_task: TaskID | None = None
+        self,
+        results: list[ParsedFileResult],
+        file_task: TaskID | None = None,
+        cumulative_counters: dict[str, int] | None = None,
     ) -> dict[str, Any] | tuple[dict[str, Any], int]:
         """Store all parsed results in database (single-threaded).
 
@@ -436,6 +532,13 @@ class IndexingCoordinator(BaseService):
                 )
                 if file_task is not None and self.progress:
                     self.progress.advance(file_task, 1)
+                    if cumulative_counters is not None:
+                        cumulative_counters['errors'] = cumulative_counters.get('errors', 0) + 1
+                        stored = cumulative_counters.get('stored', 0)
+                        skipped = cumulative_counters.get('skipped', 0)
+                        errs = cumulative_counters.get('errors', 0)
+                        chunks_so_far = cumulative_counters.get('chunks', 0)
+                        self.progress.update(file_task, info=f"stored {stored} | skipped {skipped} | err {errs} | {chunks_so_far} chunks")
                 continue
 
             # Handle skipped files
@@ -445,6 +548,13 @@ class IndexingCoordinator(BaseService):
                     stats["skip_reason"] = result.error
                 if file_task is not None and self.progress:
                     self.progress.advance(file_task, 1)
+                    if cumulative_counters is not None:
+                        cumulative_counters['skipped'] = cumulative_counters.get('skipped', 0) + 1
+                        stored = cumulative_counters.get('stored', 0)
+                        skipped = cumulative_counters.get('skipped', 0)
+                        errs = cumulative_counters.get('errors', 0)
+                        chunks_so_far = cumulative_counters.get('chunks', 0)
+                        self.progress.update(file_task, info=f"stored {stored} | skipped {skipped} | err {errs} | {chunks_so_far} chunks")
                 continue
 
             # Detect language for storage
@@ -467,6 +577,13 @@ class IndexingCoordinator(BaseService):
 
                 file_stat = StatResult(result.file_size, result.file_mtime)
                 file_id = self._store_file_record(result.file_path, file_stat, language)
+                # If we carried a precomputed content hash, persist it immediately
+                try:
+                    if getattr(result, "content_hash", None):
+                        self._db.update_file(file_id, content_hash=result.content_hash)
+                except Exception:
+                    # Provider may not support content_hash; ignore silently
+                    pass
 
                 # Track file_id for single-file case
                 file_ids.append(file_id)
@@ -547,21 +664,40 @@ class IndexingCoordinator(BaseService):
                     stats["chunk_ids_needing_embeddings"].extend(chunk_ids)
                     stats["total_chunks"] += len(chunk_ids)
 
-                self._db.commit_transaction(force_checkpoint=True)
+                # Commit transaction; provider may ignore internal checkpointing
+                try:
+                    self._db.commit_transaction()
+                except TypeError:
+                    # Back-compat: some providers accept a force_checkpoint kwarg
+                    try:
+                        self._db.commit_transaction(force_checkpoint=True)
+                    except Exception:
+                        pass
                 stats["total_files"] += 1
 
                 # Update progress
                 if file_task is not None and self.progress:
                     self.progress.advance(file_task, 1)
-                    self.progress.update(
-                        file_task, info=f"{stats['total_chunks']} chunks"
-                    )
+                    if cumulative_counters is not None:
+                        cumulative_counters['stored'] = cumulative_counters.get('stored', 0) + 1
+                        # Display cumulative chunk count across batches if provided
+                        base = int(cumulative_counters.get('chunks', 0))
+                        display_chunks = base + stats["total_chunks"]
+                        stored = cumulative_counters.get('stored', 0)
+                        skipped = cumulative_counters.get('skipped', 0)
+                        errs = cumulative_counters.get('errors', 0)
+                        self.progress.update(file_task, info=f"stored {stored} | skipped {skipped} | err {errs} | {display_chunks} chunks")
 
             except Exception as e:
                 self._db.rollback_transaction()
                 stats["errors"].append({"file": str(result.file_path), "error": str(e)})
                 if file_task is not None and self.progress:
                     self.progress.advance(file_task, 1)
+
+        # Update external cumulative counters
+        if cumulative_counters is not None:
+            cumulative_counters['chunks'] = cumulative_counters.get('chunks', 0) + stats["total_chunks"]
+            cumulative_counters['files'] = cumulative_counters.get('files', 0) + stats["total_files"]
 
         # Return file_id for single-file case
         if len(results) == 1 and file_ids and file_ids[0] is not None:
@@ -594,29 +730,219 @@ class IndexingCoordinator(BaseService):
                 return {"status": "no_files", "files_processed": 0, "total_chunks": 0}
 
             # Phase 2: Reconciliation - Ensure database consistency by removing orphaned files
-            cleaned_files = self._cleanup_orphaned_files(
-                directory, files, exclude_patterns
-            )
+            cleaned_files = 0
+            try:
+                do_cleanup = True
+                if self.config and getattr(self.config, "indexing", None) is not None:
+                    do_cleanup = bool(getattr(self.config.indexing, "cleanup", True))
+                if do_cleanup:
+                    cleaned_files = self._cleanup_orphaned_files(
+                        directory, files, exclude_patterns
+                    )
+                else:
+                    logger.debug("Skipping orphaned file cleanup (cleanup disabled)")
+            except Exception as e:
+                logger.warning(f"Cleanup phase skipped due to error: {e}")
 
             logger.debug(
                 f"Directory consistency: {len(files)} files discovered, {cleaned_files} orphaned files cleaned"
             )
 
-            # Phase 3: Update - Process files in parallel batches
-            # Create progress task for file processing
-            file_task: TaskID | None = None
+            # Phase 2.5: Change detection (skip unchanged files unless force_reindex)
+            force_reindex = False
+            try:
+                if self.config and getattr(self.config, "indexing", None):
+                    force_reindex = bool(getattr(self.config.indexing, "force_reindex", False))
+            except Exception:
+                force_reindex = False
+
+            files_to_process: list[Path] = files
+            skipped_unchanged = 0
+            # Ensure defaults regardless of force_reindex branch
+            verify_checksum = False
+            sample_kb = 64
+            if not force_reindex:
+                change_task: TaskID | None = None
+                if self.progress:
+                    change_task = self.progress.add_task(
+                        "  └─ Scanning changes", total=len(files), speed="", info=""
+                    )
+
+                debug_skip = bool(os.getenv("CHUNKHOUND_DEBUG_SKIP"))
+                reasons = {"not_found": 0, "size": 0, "mtime": 0, "ok": 0, "error": 0}
+                # Configurable tolerances
+                mtime_eps = 0.01
+                try:
+                    if self.config and getattr(self.config, "indexing", None):
+                        mtime_eps = float(getattr(self.config.indexing, "mtime_epsilon_seconds", 0.01) or 0.01)
+                except Exception:
+                    mtime_eps = 0.01
+                try:
+                    if self.config and getattr(self.config, "indexing", None):
+                        verify_checksum = bool(getattr(self.config.indexing, "verify_checksum_when_mtime_equal", False))
+                        sample_kb = int(getattr(self.config.indexing, "checksum_sample_kb", 64) or 64)
+                except Exception:
+                    pass
+
+                files_to_process = []
+                precomputed_hashes: dict[str, str] = {}
+                warned_no_checksum_support = False
+                for f in files:
+                    try:
+                        rel = self._get_relative_path(f).as_posix()
+                        db_file = self._db.get_file_by_path(rel, as_model=False)
+                        st = f.stat()
+                        if db_file and isinstance(db_file, dict) and ("modified_time" in db_file or "mtime" in db_file):
+                            db_size = int(db_file.get("size", db_file.get("size_bytes", -1)))
+                            same_size = db_size == int(st.st_size)
+                            try:
+                                stored_mtime = db_file.get("modified_time", db_file.get("mtime", -1.0))
+                                if hasattr(stored_mtime, "timestamp"):
+                                    stored_mtime = float(stored_mtime.timestamp())
+                                else:
+                                    stored_mtime = float(stored_mtime)
+                            except Exception:
+                                stored_mtime = -1.0
+                            same_mtime = abs(stored_mtime - float(st.st_mtime)) <= mtime_eps
+                            if same_size and same_mtime:
+                                if verify_checksum:
+                                    # If provider doesn't expose content_hash at all, gracefully skip checksum verify
+                                    if "content_hash" not in db_file:
+                                        if not warned_no_checksum_support:
+                                            logger.debug("Provider has no content_hash field; skipping checksum verification.")
+                                            warned_no_checksum_support = True
+                                        skipped_unchanged += 1
+                                        reasons["ok"] += 1
+                                        continue
+
+                                    db_hash = db_file.get("content_hash")
+                                    if db_hash:
+                                        try:
+                                            from chunkhound.utils.hashing import sample_file_hash
+                                            cur_hash = sample_file_hash(f, sample_kb)
+                                            if cur_hash != db_hash:
+                                                precomputed_hashes[str(f.resolve())] = cur_hash
+                                                files_to_process.append((f, cur_hash))
+                                                reasons["mtime"] += 1
+                                                continue
+                                            else:
+                                                skipped_unchanged += 1
+                                                reasons["ok"] += 1
+                                                continue
+                                        except Exception:
+                                            files_to_process.append((f, None))
+                                            reasons["error"] += 1
+                                            continue
+                                    else:
+                                        # No db hash yet: compute once now and carry forward
+                                        try:
+                                            from chunkhound.utils.hashing import sample_file_hash
+                                            cur_hash = sample_file_hash(f, sample_kb)
+                                            precomputed_hashes[str(f.resolve())] = cur_hash
+                                            files_to_process.append((f, cur_hash))
+                                        except Exception:
+                                            files_to_process.append((f, None))
+                                        reasons["not_found"] += 1
+                                        continue
+                                # If not verifying checksum and both size & mtime match, skip
+                                skipped_unchanged += 1
+                                reasons["ok"] += 1
+                            else:
+                                if not same_size:
+                                    reasons["size"] += 1
+                                elif not same_mtime:
+                                    reasons["mtime"] += 1
+                                files_to_process.append((f, None))
+                        else:
+                            files_to_process.append((f, None))
+                            reasons["not_found"] += 1
+                    except Exception:
+                        files_to_process.append((f, None))
+                        reasons["error"] += 1
+                    finally:
+                        if change_task is not None and self.progress:
+                            self.progress.advance(change_task, 1)
+
+                if change_task is not None and self.progress:
+                    task = self.progress.tasks[change_task]
+                    if task.total:
+                        self.progress.update(change_task, completed=task.total)
+                if debug_skip:
+                    logger.warning(
+                        f"Skip-check summary: ok={reasons['ok']} not_found={reasons['not_found']} "
+                        f"size_mismatch={reasons['size']} mtime_mismatch={reasons['mtime']} error={reasons['error']} "
+                        f"mtime_eps={mtime_eps} files_to_process={len(files_to_process)} total={len(files)}"
+                    )
+
+            # Phase 3: Parse + Store
+            parse_task: TaskID | None = None
+            store_task: TaskID | None = None
             if self.progress:
-                file_task = self.progress.add_task(
-                    "  └─ Processing files", total=len(files), speed="", info=""
+                parse_task = self.progress.add_task(
+                    "  └─ Parsing files", total=len(files_to_process), speed="", info=""
+                )
+                store_task = self.progress.add_task(
+                    "  └─ Handling files", total=len(files_to_process), speed="", info=""
                 )
 
-            # Parse files in parallel batches across CPU cores
+            # Aggregators for streamed storage
+            agg_total_files = 0
+            agg_total_chunks = 0
+            agg_errors: list[dict[str, Any]] = []
+            agg_skipped = 0
+            agg_skipped_timeout: list[str] = []
+
+            store_progress_counters = {"chunks": 0, "files": 0, "stored": 0, "skipped": 0, "errors": 0}
+
+            async def _on_batch_store(batch: list[ParsedFileResult]) -> None:
+                nonlocal agg_total_files, agg_total_chunks, agg_errors, agg_skipped, agg_skipped_timeout
+                # Update skip counters from parse results
+                for r in batch:
+                    if r.status == "skipped":
+                        agg_skipped += 1
+                        if (r.error or "").lower() == "timeout":
+                            agg_skipped_timeout.append(str(r.file_path))
+
+                # Store this batch immediately
+                stats_part = await self._store_parsed_results(
+                    batch, store_task, cumulative_counters=store_progress_counters
+                )
+                if isinstance(stats_part, tuple):
+                    stats_part = stats_part[0]
+                agg_total_files += stats_part.get("total_files", 0)
+                agg_total_chunks += stats_part.get("total_chunks", 0)
+                agg_errors.extend(stats_part.get("errors", []))
+
+            # Parse files (streaming progress as batches complete and store concurrently)
+            # Build a pure list[Path] to support monkeypatched tests that override this method
+            _dispatch_files: list[Path] = []
+            for item in files_to_process:
+                if isinstance(item, tuple):
+                    _dispatch_files.append(item[0])
+                else:
+                    _dispatch_files.append(item)
             parsed_results = await self._process_files_in_batches(
-                files, config_file_size_threshold_kb
+                _dispatch_files, config_file_size_threshold_kb, parse_task, on_batch=_on_batch_store
             )
 
-            # Store results in database (single-threaded for safety)
-            stats = await self._store_parsed_results(parsed_results, file_task)
+            # Mark parse task complete
+            if parse_task is not None and self.progress:
+                task = self.progress.tasks[parse_task]
+                if task.total:
+                    self.progress.update(parse_task, completed=task.total)
+
+            # At this point, all parsed results have been stored via _on_batch_store
+            stats = {
+                "total_files": agg_total_files,
+                "total_chunks": agg_total_chunks,
+                "errors": agg_errors,
+            }
+
+            # Track skipped files (including timeouts)
+            skipped_total = agg_skipped
+            skipped_due_to_timeout = agg_skipped_timeout
+            # Split parse-time skips into timeout vs other (filtered/unsupported/config)
+            skipped_filtered = max(0, skipped_total - len(skipped_due_to_timeout))
 
             total_files = stats["total_files"]
             total_chunks = stats["total_chunks"]
@@ -626,10 +952,10 @@ class IndexingCoordinator(BaseService):
                 logger.warning(f"Failed to process {error['file']}: {error['error']}")
 
             # Complete the file processing progress bar
-            if file_task is not None and self.progress:
-                task = self.progress.tasks[file_task]
+            if store_task is not None and self.progress:
+                task = self.progress.tasks[store_task]
                 if task.total:
-                    self.progress.update(file_task, completed=task.total)
+                    self.progress.update(store_task, completed=task.total)
 
             # Note: Embedding generation is handled separately via generate_missing_embeddings()
             # to provide a unified progress experience
@@ -639,10 +965,28 @@ class IndexingCoordinator(BaseService):
                 logger.debug("Optimizing database tables after bulk operations...")
                 self._db.optimize_tables()
 
+            # Persist precomputed hashes for successfully processed files (provider permitting)
+            try:
+                if verify_checksum and precomputed_hashes:
+                    for result in parsed_results:
+                        if result.status == "success":
+                            h = result.content_hash or precomputed_hashes.get(str(result.file_path.resolve()))
+                            if h:
+                                relp = self._get_relative_path(result.file_path).as_posix()
+                                db_rec = self._db.get_file_by_path(relp, as_model=False)
+                                if db_rec and isinstance(db_rec, dict) and "id" in db_rec and "content_hash" in db_rec:
+                                    self._db.update_file(db_rec["id"], content_hash=h)
+            except Exception:
+                pass
+
             return {
                 "status": "success",
                 "files_processed": total_files,
                 "total_chunks": total_chunks,
+                "skipped": skipped_total + skipped_unchanged,
+                "skipped_due_to_timeout": skipped_due_to_timeout,
+                "skipped_unchanged": skipped_unchanged,
+                "skipped_filtered": skipped_filtered,
             }
 
         except Exception as e:

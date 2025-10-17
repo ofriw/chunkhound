@@ -554,8 +554,10 @@ class TestTypeAnnotations:
 
         problematic_files = []
 
-        # Find all Python files in chunkhound
+        # Find all Python files in chunkhound, excluding test files themselves
         for py_file in glob.glob("chunkhound/**/*.py", recursive=True):
+            if "/tests/" in py_file.replace("\\", "/"):
+                continue
             with open(py_file, "r", encoding="utf-8") as f:
                 content = f.read()
 

@@ -22,6 +22,9 @@ class IndexingStats:
     cleanup_deleted_files: int = 0
     cleanup_deleted_chunks: int = 0
     errors_encountered: list[str] = field(default_factory=list)
+    skipped_due_to_timeout: list[str] = field(default_factory=list)
+    skipped_unchanged: int = 0
+    skipped_filtered: int = 0
 
 
 class DirectoryIndexingService:
@@ -151,6 +154,9 @@ class DirectoryIndexingService:
         stats.files_skipped = result.get("skipped", 0)
         stats.files_errors = result.get("errors", 0)
         stats.chunks_created = result.get("total_chunks", 0)
+        stats.skipped_due_to_timeout = result.get("skipped_due_to_timeout", [])
+        stats.skipped_unchanged = result.get("skipped_unchanged", 0)
+        stats.skipped_filtered = result.get("skipped_filtered", 0)
 
         # Cleanup statistics
         cleanup = result.get("cleanup", {})

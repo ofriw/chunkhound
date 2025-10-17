@@ -1,6 +1,7 @@
 """Run command module - handles directory indexing operations."""
 
 import argparse
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -98,6 +99,89 @@ async def run_command(args: argparse.Namespace, config: Config) -> None:
 
         # Display results
         _print_completion_summary(stats, formatter)
+
+        # Offer to add timed-out files to exclusion list in local config
+        try:
+            skipped_timeouts = []
+            if hasattr(stats, "skipped_due_to_timeout"):
+                skipped_timeouts = stats.skipped_due_to_timeout or []
+
+            # Never prompt in MCP mode (stdio must not emit prompts/output)
+            if skipped_timeouts and os.environ.get("CHUNKHOUND_MCP_MODE") == "1":
+                formatter.info(
+                    f"{len(skipped_timeouts)} files timed out. "
+                    "Prompts are disabled in MCP mode. To exclude them, add to .chunkhound.json under indexing.exclude."
+                )
+                return
+
+            # Respect explicit no-prompts
+            if skipped_timeouts and os.environ.get("CHUNKHOUND_NO_PROMPTS") == "1":
+                formatter.info(
+                    f"{len(skipped_timeouts)} files timed out (prompts disabled)."
+                )
+                return
+
+            # Only prompt in interactive TTY and when there are timeouts
+            if skipped_timeouts and sys.stdin.isatty():
+                base_dir = Path(args.path).resolve() if hasattr(args, "path") else Path.cwd().resolve()
+
+                # Convert to unique relative paths within the project
+                rel_paths: list[str] = []
+                seen: set[str] = set()
+                for p in skipped_timeouts:
+                    try:
+                        rel = Path(p).resolve().relative_to(base_dir).as_posix()
+                    except Exception:
+                        # If not under base_dir, keep as-is (rare)
+                        rel = Path(p).as_posix()
+                    if rel not in seen:
+                        seen.add(rel)
+                        rel_paths.append(rel)
+
+                formatter.info(
+                    f"{len(rel_paths)} timed-out files can be excluded from future runs."
+                )
+                reply = input("Add these to indexing.exclude in .chunkhound.json? [y/N]: ").strip().lower()
+                if reply in ("y", "yes"):
+                    local_config_path = base_dir / ".chunkhound.json"
+                    # Load or initialize config data
+                    data = {}
+                    if local_config_path.exists():
+                        import json
+
+                        try:
+                            data = json.loads(local_config_path.read_text())
+                        except Exception:
+                            data = {}
+
+                    # Ensure structure exists
+                    indexing = data.get("indexing") or {}
+                    exclude_list = list(indexing.get("exclude") or [])
+
+                    # Merge unique entries
+                    existing = set(exclude_list)
+                    added = 0
+                    for rel in rel_paths:
+                        if rel not in existing:
+                            exclude_list.append(rel)
+                            existing.add(rel)
+                            added += 1
+
+                    if added > 0:
+                        indexing["exclude"] = exclude_list
+                        data["indexing"] = indexing
+                        import json
+
+                        local_config_path.write_text(
+                            json.dumps(data, indent=2, sort_keys=False) + "\n"
+                        )
+                        formatter.success(
+                            f"Added {added} file(s) to indexing.exclude in {local_config_path}"
+                        )
+                    else:
+                        formatter.info("All timed-out files already excluded.")
+        except Exception as e:
+            formatter.warning(f"Failed to offer exclusion prompt: {e}")
 
         formatter.success("Run command completed successfully")
 

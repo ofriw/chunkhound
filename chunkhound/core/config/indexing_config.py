@@ -55,6 +55,43 @@ class IndexingConfig(BaseModel):
     min_chunk_size: int = Field(default=50, description="Internal min chunk size")
     max_chunk_size: int = Field(default=2000, description="Internal max chunk size")
 
+    # File parsing safety
+    per_file_timeout_seconds: float = Field(
+        default=3.0,
+        description=
+        "Maximum seconds to spend parsing a single file (0 disables timeout)",
+    )
+    per_file_timeout_min_size_kb: int = Field(
+        default=128,
+        description=(
+            "Only apply timeout to files at or above this size (KB) to avoid "
+            "overhead on small files"
+        ),
+    )
+    mtime_epsilon_seconds: float = Field(
+        default=0.01,
+        description=(
+            "Tolerance when comparing file mtimes with the database (seconds). "
+            "Increase on filesystems with coarse timestamp precision."
+        ),
+    )
+
+    # Content verification (optional)
+    verify_checksum_when_mtime_equal: bool = Field(
+        default=False,
+        description=(
+            "When size and mtime are equal, verify content via checksum. "
+            "If DB has no checksum for a file, the file will be reprocessed once to populate it."
+        ),
+    )
+    checksum_sample_kb: int = Field(
+        default=64,
+        description=(
+            "Sample size (KB) from file start and end used to compute a fast checksum. "
+            "Set to 0 for full-file checksum (slower)."
+        ),
+    )
+
     # Parallel discovery settings
     parallel_discovery: bool = Field(
         default=True,
@@ -215,6 +252,75 @@ class IndexingConfig(BaseModel):
             help="File patterns to exclude (can be specified multiple times)",
         )
 
+        parser.add_argument(
+            "--no-cleanup",
+            action="store_true",
+            help="Skip cleanup of orphaned database records for files no longer present",
+        )
+
+        parser.add_argument(
+            "--max-concurrent",
+            type=int,
+            default=None,
+            help=(
+                "Maximum concurrent parser workers (processes). "
+                "Overrides auto-detected concurrency and internal caps."
+            ),
+        )
+
+        parser.add_argument(
+            "--file-timeout",
+            type=float,
+            default=None,
+            help=(
+                "Maximum seconds to spend on any single file before skipping it "
+                "(default: 0, disabled)"
+            ),
+        )
+        parser.add_argument(
+            "--file-timeout-min-size-kb",
+            type=int,
+            default=None,
+            help=(
+                "Only apply the per-file timeout to files >= this size (KB). "
+                "Default: 128"
+            ),
+        )
+        parser.add_argument(
+            "--mtime-epsilon-seconds",
+            type=float,
+            default=None,
+            help=(
+                "Tolerance for mtime comparisons when skipping unchanged files. "
+                "Default: 0.01"
+            ),
+        )
+        parser.add_argument(
+            "--verify-checksum",
+            action="store_true",
+            help=(
+                "Verify unchanged files by checksum when size and mtime are equal. "
+                "May reprocess once to populate checksums."
+            ),
+        )
+        parser.add_argument(
+            "--checksum-sample-kb",
+            type=int,
+            default=None,
+            help=(
+                "Sample size in KB for checksum (0 = full file). Default: 64"
+            ),
+        )
+        parser.add_argument(
+            "--config-file-size-threshold-kb",
+            type=int,
+            default=None,
+            help=(
+                "Structured config (JSON/YAML/TOML) larger than this KB are skipped. "
+                "Set to 0 to disable. Default: 20"
+            ),
+        )
+
     @classmethod
     def load_from_env(cls) -> dict[str, Any]:
         """Load indexing config from environment variables."""
@@ -228,6 +334,52 @@ class IndexingConfig(BaseModel):
             config["include"] = include.split(",")
         if exclude := os.getenv("CHUNKHOUND_INDEXING__EXCLUDE"):
             config["exclude"] = exclude.split(",")
+
+        # Per-file timeout (seconds)
+        if per_file_timeout := os.getenv(
+            "CHUNKHOUND_INDEXING__PER_FILE_TIMEOUT_SECONDS"
+        ):
+            try:
+                config["per_file_timeout_seconds"] = float(per_file_timeout)
+            except ValueError:
+                # Ignore invalid env values and keep default
+                pass
+        if per_file_timeout_min := os.getenv(
+            "CHUNKHOUND_INDEXING__PER_FILE_TIMEOUT_MIN_SIZE_KB"
+        ):
+            try:
+                config["per_file_timeout_min_size_kb"] = int(per_file_timeout_min)
+            except ValueError:
+                pass
+        if mtime_eps := os.getenv("CHUNKHOUND_INDEXING__MTIME_EPSILON_SECONDS"):
+            try:
+                config["mtime_epsilon_seconds"] = float(mtime_eps)
+            except ValueError:
+                pass
+        # Structured config file size threshold
+        if cfg_sz := os.getenv("CHUNKHOUND_INDEXING__CONFIG_FILE_SIZE_THRESHOLD_KB"):
+            try:
+                config["config_file_size_threshold_kb"] = int(cfg_sz)
+            except ValueError:
+                pass
+        if verify := os.getenv("CHUNKHOUND_INDEXING__VERIFY_CHECKSUM_WHEN_MTIME_EQUAL"):
+            config["verify_checksum_when_mtime_equal"] = verify.lower() in ("true", "1", "yes")
+        if sample := os.getenv("CHUNKHOUND_INDEXING__CHECKSUM_SAMPLE_KB"):
+            try:
+                config["checksum_sample_kb"] = int(sample)
+            except ValueError:
+                pass
+
+        # Cleanup orphaned records toggle
+        if cleanup := os.getenv("CHUNKHOUND_INDEXING__CLEANUP"):
+            config["cleanup"] = cleanup.lower() in ("true", "1", "yes")
+
+        # Concurrency cap for parser workers
+        if maxc := os.getenv("CHUNKHOUND_INDEXING__MAX_CONCURRENT"):
+            try:
+                config["max_concurrent"] = int(maxc)
+            except ValueError:
+                pass
 
         return config
 
@@ -244,6 +396,53 @@ class IndexingConfig(BaseModel):
             overrides["include"] = args.include
         if hasattr(args, "exclude") and args.exclude:
             overrides["exclude"] = args.exclude
+
+        # Per-file timeout override
+        if hasattr(args, "file_timeout") and args.file_timeout is not None:
+            try:
+                overrides["per_file_timeout_seconds"] = float(args.file_timeout)
+            except (TypeError, ValueError):
+                # Ignore invalid values; validation not strict here
+                pass
+        if (
+            hasattr(args, "file_timeout_min_size_kb")
+            and args.file_timeout_min_size_kb is not None
+        ):
+            try:
+                overrides["per_file_timeout_min_size_kb"] = int(
+                    args.file_timeout_min_size_kb
+                )
+            except (TypeError, ValueError):
+                pass
+        if hasattr(args, "mtime_epsilon_seconds") and args.mtime_epsilon_seconds is not None:
+            try:
+                overrides["mtime_epsilon_seconds"] = float(args.mtime_epsilon_seconds)
+            except (TypeError, ValueError):
+                pass
+        if hasattr(args, "verify_checksum") and args.verify_checksum:
+            overrides["verify_checksum_when_mtime_equal"] = True
+        if hasattr(args, "checksum_sample_kb") and args.checksum_sample_kb is not None:
+            try:
+                overrides["checksum_sample_kb"] = int(args.checksum_sample_kb)
+            except (TypeError, ValueError):
+                pass
+        # Structured config file size threshold override via CLI
+        if hasattr(args, "config_file_size_threshold_kb") and args.config_file_size_threshold_kb is not None:
+            try:
+                overrides["config_file_size_threshold_kb"] = int(args.config_file_size_threshold_kb)
+            except (TypeError, ValueError):
+                pass
+
+        # Cleanup toggle via CLI
+        if hasattr(args, "no_cleanup") and args.no_cleanup:
+            overrides["cleanup"] = False
+
+        # Concurrency override via CLI
+        if hasattr(args, "max_concurrent") and args.max_concurrent is not None:
+            try:
+                overrides["max_concurrent"] = int(args.max_concurrent)
+            except (TypeError, ValueError):
+                pass
 
         return overrides
 

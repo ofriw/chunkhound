@@ -75,6 +75,62 @@ chunkhound index
 
 **For configuration, IDE setup, and advanced usage, see the [documentation](https://chunkhound.github.io).**
 
+### New Indexing Options (Bail on Slow Files)
+
+- `indexing.per_file_timeout_seconds` (float): Hard wall‑clock timeout per file (seconds). Default: 3.0 (set `0` to disable). Example: `5.0`.
+- `indexing.per_file_timeout_min_size_kb` (int): Apply timeout only to files ≥ this size in KB (reduces overhead on small files). Default: 128. Use `0` to apply the timeout to all file sizes.
+- `indexing.mtime_epsilon_seconds` (float): Tolerance for comparing filesystem mtimes with DB mtimes. Default: 0.01.
+- `indexing.verify_checksum_when_mtime_equal` (bool): When true, verify content of “unchanged” files via a fast checksum (head+tail sampling). Default: false.
+- `indexing.checksum_sample_kb` (int): Sample size in KB for checksum (0 = full file). Default: 64.
+- `indexing.config_file_size_threshold_kb` (int): Skip structured configs (JSON/YAML/TOML) larger than this KB. Default: 20. Set to 0 to disable filtering.
+- `indexing.force_reindex` (bool): Force re-parse all included files even if unchanged (bypasses mtime/checksum). Default: false.
+
+Concurrency (parsing workers)
+- Auto‑scaling: When `per_file_timeout_seconds > 0` and no explicit concurrency is set, ChunkHound now defaults to `cpu_count` workers (clamped to 32) to process slow files in parallel.
+- Override: `indexing.max_concurrent` in config/JSON, `--max-concurrent` CLI, or `CHUNKHOUND_INDEXING__MAX_CONCURRENT` env.
+
+CLI overrides include:
+
+```
+--file-timeout FLOAT
+--file-timeout-min-size-kb INT
+--mtime-epsilon-seconds FLOAT
+--verify-checksum
+--checksum-sample-kb INT
+--config-file-size-threshold-kb INT
+--force-reindex
+--no-cleanup
+```
+
+Environment overrides (examples):
+
+```
+CHUNKHOUND_INDEXING__PER_FILE_TIMEOUT_SECONDS=5.0
+CHUNKHOUND_INDEXING__PER_FILE_TIMEOUT_MIN_SIZE_KB=128
+CHUNKHOUND_INDEXING__MTIME_EPSILON_SECONDS=0.01
+CHUNKHOUND_INDEXING__VERIFY_CHECKSUM_WHEN_MTIME_EQUAL=true
+CHUNKHOUND_INDEXING__CHECKSUM_SAMPLE_KB=64
+CHUNKHOUND_INDEXING__CONFIG_FILE_SIZE_THRESHOLD_KB=0
+CHUNKHOUND_DB_EXECUTE_TIMEOUT=60
+
+# MCP mode disables interactive prompts to preserve JSON‑RPC
+CHUNKHOUND_MCP_MODE=1
+```
+
+Notes:
+- For deterministic CI runs, consider `CHUNKHOUND_INDEXING__PER_FILE_TIMEOUT_SECONDS=0` and `CHUNKHOUND_INDEXING__CONFIG_FILE_SIZE_THRESHOLD_KB=0`.
+- Avoid committing API keys to `.chunkhound.json`. Use `CHUNKHOUND_EMBEDDING__API_KEY` or your secret manager.
+
+### MCP Mode (Stdio/HTTP)
+- MCP stdio and HTTP servers set `CHUNKHOUND_MCP_MODE=1`. In this mode, the CLI and services will not prompt on stdin or emit interactive messages that could break JSON‑RPC.
+  - End‑of‑run timeouts are summarized, but no `input()` prompt is shown; you can still add exclusions manually in `.chunkhound.json`.
+  - You can also disable prompts explicitly in any environment with `CHUNKHOUND_NO_PROMPTS=1`.
+
+### Timeout Concurrency Safety
+- To prevent resource exhaustion on large repos, the per‑file timeout guard spawns child processes under a cap that auto‑scales with worker count.
+  - Default cap: `min(num_workers*2, 32)` per worker process.
+  - In restricted CI sandboxes without OS semaphores, the limiter falls back gracefully while maintaining correctness.
+
 ## Real-Time Indexing
 
 **Automatic File Watching**: MCP servers monitor your codebase and update the index automatically as you edit files. No manual re-indexing required.

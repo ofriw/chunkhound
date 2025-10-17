@@ -1,8 +1,9 @@
 """Lightweight MCP package initializer with lazy imports.
 
-We avoid importing heavy transport dependencies (e.g., FastMCP) at import time
-to prevent environment-specific import issues during test collection. Server
-classes are resolved lazily either via getters or module-level __getattr__.
+Avoid importing heavy transport dependencies (e.g., FastMCP, MCP SDK) at import
+time to prevent environment-specific failures during test collection.
+Transport servers are resolved lazily either via getters or module-level
+__getattr__.
 """
 
 from typing import TYPE_CHECKING
@@ -10,9 +11,9 @@ from typing import TYPE_CHECKING
 from .base import MCPServerBase
 from .tools import TOOL_REGISTRY
 
-if TYPE_CHECKING:  # type checkers only; avoids runtime imports
-    from .http_server import HttpMCPServer as _HttpMCPServer
-    from .stdio import StdioMCPServer as _StdioMCPServer
+if TYPE_CHECKING:  # type checkers only; avoid runtime hard deps
+    from .http_server import HttpMCPServer as _HttpMCPServer  # noqa: F401
+    from .stdio import StdioMCPServer as _StdioMCPServer  # noqa: F401
 
 
 def get_http_server_class():
