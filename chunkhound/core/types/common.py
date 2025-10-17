@@ -150,6 +150,8 @@ class Language(Enum):
     MATLAB = "matlab"
     HCL = "hcl"
     OBJC = "objc"
+    PHP = "php"
+    VUE = "vue"
 
     # Documentation languages
     MARKDOWN = "markdown"
@@ -229,6 +231,13 @@ class Language(Enum):
             ".zig": cls.ZIG,
             ".m": cls.MATLAB,  # Note: .m is ambiguous, will use content detection
             ".mm": cls.OBJC,
+            ".php": cls.PHP,
+            ".phtml": cls.PHP,
+            ".php3": cls.PHP,
+            ".php4": cls.PHP,
+            ".php5": cls.PHP,
+            ".phps": cls.PHP,
+            ".vue": cls.VUE,
         }
 
         return extension_map.get(extension, cls.UNKNOWN)
@@ -263,6 +272,8 @@ class Language(Enum):
             Language.CPP,
             Language.MATLAB,
             Language.OBJC,
+            Language.PHP,
+            Language.VUE,
         }
 
     @property
@@ -280,6 +291,8 @@ class Language(Enum):
             Language.CPP,
             Language.MATLAB,
             Language.OBJC,
+            Language.PHP,
+            Language.VUE,
         }
 
     @property
@@ -290,6 +303,8 @@ class Language(Enum):
             Language.CSHARP,
             Language.TYPESCRIPT,
             Language.TSX,
+            Language.PHP,
+            Language.VUE,
         }
 
     @property
@@ -306,73 +321,64 @@ class Language(Enum):
 
     @classmethod
     def get_all_extensions(cls) -> set[str]:
-        """Get all supported file extensions."""
-        extensions = set()
+        """Get all supported file extensions.
 
-        # Extension-based mappings
-        extension_map = {
-            ".py",
-            ".java",
-            ".cs",
-            ".ts",
-            ".js",
-            ".tsx",
-            ".jsx",
-            ".groovy",
-            ".gvy",
-            ".gy",
-            ".kt",
-            ".kts",
-            ".go",
-            ".hs",
-            ".lhs",
-            ".hs-boot",
-            ".hsig",
-            ".hsc",
-            ".sh",
-            ".bash",
-            ".zsh",
-            ".mk",
-            ".make",
-            ".md",
-            ".markdown",
-            ".hcl",
-            ".tf",
-            ".tfvars",
-            ".json",
-            ".yaml",
-            ".yml",
-            ".toml",
-            ".txt",
-            ".c",
-            ".h",
-            ".cpp",
-            ".cxx",
-            ".cc",
-            ".hpp",
-            ".hxx",
-            ".h++",
-            ".rs",
-            ".m",
-            ".mm",
-        }
+        Returns all extensions from the parser system's EXTENSION_TO_LANGUAGE mapping.
+        This ensures consistency between language detection and file pattern matching.
+        Uses lazy import to avoid circular dependency (parser_factory imports Language).
+        """
+        # Lazy import to avoid circular dependency at module load time
+        from chunkhound.parsers.parser_factory import EXTENSION_TO_LANGUAGE
 
-        extensions.update(extension_map)
+        # Extract all extensions (keys starting with '.')
+        # Filter out filename patterns like "Makefile" which don't start with '.'
+        extensions = {ext for ext in EXTENSION_TO_LANGUAGE.keys() if ext.startswith('.')}
+
         return extensions
 
     @classmethod
+    def get_all_filename_patterns(cls) -> set[str]:
+        """Get all supported filename patterns (non-extension based).
+
+        Returns filename patterns like "Makefile", "GNUmakefile", "Dockerfile" that are
+        detected by exact filename match rather than file extension. All patterns are
+        normalized to lowercase for case-insensitive matching.
+
+        Uses lazy import to avoid circular dependency (parser_factory imports Language).
+        """
+        # Lazy import to avoid circular dependency at module load time
+        from chunkhound.parsers.parser_factory import EXTENSION_TO_LANGUAGE
+
+        # Extract filename patterns (keys not starting with '.')
+        # Normalize to lowercase for case-insensitive filesystem compatibility
+        patterns = {
+            key.lower()
+            for key in EXTENSION_TO_LANGUAGE.keys()
+            if not key.startswith(".")
+        }
+        return patterns
+
+    @classmethod
     def get_file_patterns(cls) -> list[str]:
-        """Get glob patterns for all supported file types."""
+        """Get glob patterns for all supported file types.
+
+        Derives patterns from parser_factory.EXTENSION_TO_LANGUAGE to ensure
+        consistency. Handles both extension-based patterns (.py) and filename-based
+        patterns (Makefile) from the parser system.
+        """
+        # Lazy import to avoid circular dependency at module load time
+        from chunkhound.parsers.parser_factory import EXTENSION_TO_LANGUAGE
+
         patterns = []
 
-        # Add extension-based patterns
-        for ext in cls.get_all_extensions():
-            patterns.append(f"**/*{ext}")
-
-        # Add filename-based patterns (for Makefiles)
-        patterns.extend(
-            ["**/Makefile", "**/makefile", "**/GNUmakefile", "**/gnumakefile"]
-        )
+        # Add patterns for all keys in EXTENSION_TO_LANGUAGE
+        for key in EXTENSION_TO_LANGUAGE.keys():
+            if key.startswith('.'):
+                # Extension-based pattern (e.g., ".py" -> "**/*.py")
+                patterns.append(f"**/*{key}")
+            else:
+                # Filename-based pattern (e.g., "Makefile" -> "**/Makefile")
+                patterns.append(f"**/{key}")
 
         return patterns
 

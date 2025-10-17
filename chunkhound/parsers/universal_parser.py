@@ -1,4 +1,4 @@
-"""Universal parser implementation that unifies all language mappings with cAST algorithm.
+"""Universal parser that unifies all language mappings with cAST algorithm.
 
 This module provides the UniversalParser class that brings together:
 1. TreeSitterEngine - Universal tree-sitter parsing engine
@@ -105,7 +105,7 @@ class UniversalParser:
 
         Args:
             engine: TreeSitterEngine for this language
-            mapping: BaseMapping implementation for this language (will be adapted if needed)
+            mapping: BaseMapping for this language (adapted if needed)
             cast_config: Configuration for cAST algorithm
         """
         self.engine = engine
@@ -169,7 +169,8 @@ class UniversalParser:
                 )
             # PDF files require a mapping with parse_pdf_content method
             raise RuntimeError(
-                f"PDF parsing requires a mapping with parse_pdf_content method, got {type(self.base_mapping)}"
+                f"PDF parsing requires parse_pdf_content method, "
+                f"got {type(self.base_mapping)}"
             )
 
         try:
@@ -188,7 +189,7 @@ class UniversalParser:
                 ) from e
 
         # Normalize content for consistent parsing and chunk comparison
-        # Skip for binary and protocol-specific files where CRLF might be semantically significant
+        # Skip for binary/protocol files where CRLF is semantic
         if file_path.suffix.lower() not in [
             ".pdf",
             ".png",
@@ -238,7 +239,8 @@ class UniversalParser:
                     )
                 # PDF files require a mapping with parse_pdf_content method
                 raise RuntimeError(
-                    f"PDF parsing requires a mapping with parse_pdf_content method, got {type(self.base_mapping)}"
+                    f"PDF parsing requires parse_pdf_content method, "
+                    f"got {type(self.base_mapping)}"
                 )
             return self._parse_text_content(content, file_path, file_id)
 
@@ -353,6 +355,11 @@ class UniversalParser:
         if not universal_chunks:
             return []
 
+        # NEW: Deduplicate chunks with identical content before processing
+        # This prevents issues where the same source code is extracted multiple
+        # times as different concepts (e.g., function as DEFINITION, COMMENT, STRUCTURE)
+        universal_chunks = self._deduplicate_overlapping_chunks(universal_chunks)
+
         # Group chunks by concept type for structured processing
         chunks_by_concept: dict[UniversalConcept, list[UniversalChunk]] = {}
         for chunk in universal_chunks:
@@ -390,7 +397,7 @@ class UniversalParser:
     ) -> list[UniversalChunk]:
         """Apply cAST chunking to definition chunks (functions, classes, etc.).
 
-        Definitions should ideally remain intact as they represent complete semantic units.
+        Definitions remain intact as complete semantic units.
         Only split if they exceed the maximum chunk size significantly.
         """
         result = []
@@ -416,8 +423,123 @@ class UniversalParser:
             # Chunk fits within both limits
             return [chunk]
         else:
+            # Don't split Makefile rules unless they're excessively large
+            # Splitting would break the target/recipe relationship, but extremely
+            # large rules (>1.2x limit) need to be split to avoid token limit issues
+            if chunk.metadata.get("kind") == "rule":
+                # Allow up to 1.2x the limit (matching cAST algorithm tolerance)
+                # before forcing a split to maintain consistency with other chunks
+                tolerance = 1.2
+                if (
+                    metrics.non_whitespace_chars
+                    <= self.cast_config.max_chunk_size * tolerance
+                ):
+                    # Keep moderately large rules intact for semantic coherence
+                    return [chunk]
+                # For very large rules, use Makefile-specific splitting
+                # that preserves semantic coherence (target + recipe relationship)
+                return self._split_makefile_rule(chunk, content)
+
             # Too large, apply recursive splitting
             return self._recursive_split_chunk(chunk, content)
+
+    def _split_makefile_rule(
+        self, chunk: UniversalChunk, content: str
+    ) -> list[UniversalChunk]:
+        """Split a Makefile rule while preserving semantic coherence.
+
+        Each split chunk will contain:
+        - The target line (e.g., "install: all")
+        - A subset of recipe lines that fit within the size limit
+
+        This ensures that each chunk is semantically valid - recipe lines
+        always have their associated target.
+
+        Args:
+            chunk: The Makefile rule chunk to split
+            content: Original source content
+
+        Returns:
+            List of split chunks, each with target + recipe subset
+        """
+        lines = chunk.content.split("\n")
+
+        # Find the target line (contains ':' and not a comment)
+        target_line_idx = -1
+        target_line = ""
+        for i, line in enumerate(lines):
+            if ":" in line and not line.strip().startswith("#"):
+                target_line_idx = i
+                target_line = line
+                break
+
+        if target_line_idx == -1:
+            # No target found - fall back to regular splitting
+            return self._recursive_split_chunk(chunk, content)
+
+        # Extract recipe lines (lines after target)
+        recipe_lines = lines[target_line_idx + 1 :]
+
+        if not recipe_lines:
+            # No recipe - just return the target
+            return [chunk]
+
+        # Split recipe lines into groups that fit within size limit
+        # Each group gets the target line prepended
+        result_chunks = []
+        current_recipe_group = []
+        part_num = 1
+
+        for recipe_line in recipe_lines:
+            # Calculate size with target + current group + this line
+            test_lines = [target_line] + current_recipe_group + [recipe_line]
+            test_content = "\n".join(test_lines)
+            test_metrics = ChunkMetrics.from_content(test_content)
+
+            if test_metrics.non_whitespace_chars <= self.cast_config.max_chunk_size:
+                # Fits - add to current group
+                current_recipe_group.append(recipe_line)
+            else:
+                # Doesn't fit - finalize current group and start new one
+                if current_recipe_group:
+                    # Create chunk with target + current group
+                    chunk_content = "\n".join([target_line] + current_recipe_group)
+                    chunk_lines = len(current_recipe_group) + 1
+
+                    result_chunks.append(
+                        UniversalChunk(
+                            concept=chunk.concept,
+                            name=f"{chunk.name}_part{part_num}",
+                            content=chunk_content,
+                            start_line=chunk.start_line,
+                            end_line=chunk.start_line + chunk_lines - 1,
+                            metadata=chunk.metadata.copy(),
+                            language_node_type=chunk.language_node_type,
+                        )
+                    )
+                    part_num += 1
+
+                # Start new group with this line
+                current_recipe_group = [recipe_line]
+
+        # Don't forget the last group
+        if current_recipe_group:
+            chunk_content = "\n".join([target_line] + current_recipe_group)
+            chunk_lines = len(current_recipe_group) + 1
+
+            result_chunks.append(
+                UniversalChunk(
+                    concept=chunk.concept,
+                    name=f"{chunk.name}_part{part_num}",
+                    content=chunk_content,
+                    start_line=chunk.start_line,
+                    end_line=chunk.start_line + chunk_lines - 1,
+                    metadata=chunk.metadata.copy(),
+                    language_node_type=chunk.language_node_type,
+                )
+            )
+
+        return result_chunks if result_chunks else [chunk]
 
     def _chunk_blocks(
         self, chunks: list[UniversalChunk], content: str
@@ -461,10 +583,43 @@ class UniversalParser:
     ) -> list[UniversalChunk]:
         """Apply cAST chunking to comment chunks.
 
-        Comments can be merged aggressively or attached to nearby code chunks.
+        Comments are merged conservatively - only consecutive comments (gap <= 1)
+        are merged together. This prevents merging comments that have code between
+        them, preserving standalone comments while allowing multi-line comment blocks.
         """
-        # For now, treat comments similar to blocks
-        return self._chunk_blocks(chunks, content)
+        if not chunks:
+            return []
+
+        # Sort comments by line position
+        sorted_chunks = sorted(chunks, key=lambda c: c.start_line)
+        result = []
+        current_group = [sorted_chunks[0]]
+
+        for chunk in sorted_chunks[1:]:
+            # Only merge if comments are consecutive or adjacent (gap <= 1)
+            last_chunk = current_group[-1]
+            line_gap = chunk.start_line - last_chunk.end_line
+
+            if line_gap <= 1:
+                # Comments are consecutive - can merge
+                current_group.append(chunk)
+            else:
+                # Gap is too large - finalize current group and start new one
+                merged = self._merge_chunk_group(current_group, content)
+                result.extend(merged)
+                current_group = [chunk]
+
+        # Don't forget the last group
+        if current_group:
+            merged = self._merge_chunk_group(current_group, content)
+            result.extend(merged)
+
+        # Final validation: ensure all chunks meet size constraints
+        validated_result = []
+        for chunk in result:
+            validated_result.extend(self._validate_and_split_chunk(chunk, content))
+
+        return validated_result
 
     def _chunk_generic(
         self, chunks: list[UniversalChunk], content: str
@@ -716,7 +871,7 @@ class UniversalParser:
         content_start_pos: int = 0,
         total_content_length: int = 0,
     ) -> UniversalChunk:
-        """Create a split chunk from emergency splitting with simple proportional line calculation."""
+        """Create a split chunk from emergency splitting with proportional lines."""
 
         # Simple proportional line calculation based on content position
         original_line_span = original.end_line - original.start_line + 1
@@ -798,6 +953,8 @@ class UniversalParser:
                 (UniversalConcept.DEFINITION, UniversalConcept.COMMENT),
                 (UniversalConcept.BLOCK, UniversalConcept.COMMENT),
                 (UniversalConcept.COMMENT, UniversalConcept.BLOCK),
+                (UniversalConcept.DEFINITION, UniversalConcept.STRUCTURE),
+                (UniversalConcept.STRUCTURE, UniversalConcept.DEFINITION),
             }
             if (last_chunk.concept, candidate.concept) not in compatible_pairs:
                 return False
@@ -867,15 +1024,7 @@ class UniversalParser:
         """Final greedy merge pass to maximize information density.
 
         This is the final optimization step of the cAST algorithm.
-
-        HCL note: HCL config files intentionally preserve fine‑grained
-        KEY_VALUE/TABLE units. To avoid collapsing individual attributes,
-        we skip the greedy merge when parsing HCL.
         """
-        # Preserve attribute-level granularity for HCL configs.
-        if getattr(self, "language_name", "").lower() == "hcl":
-            return chunks
-
         if len(chunks) <= 1:
             return chunks
 
@@ -885,6 +1034,52 @@ class UniversalParser:
         current_chunk = sorted_chunks[0]
 
         for next_chunk in sorted_chunks[1:]:
+            # Check concept compatibility before merging
+            # Only merge chunks with compatible concept types to preserve
+            # semantic boundaries
+            if current_chunk.concept != next_chunk.concept:
+                # Define compatible concept pairs that can be safely merged
+                # These pairs preserve semantic meaning when combined:
+                # - COMMENT + DEFINITION: Docstrings with functions/classes
+                # - BLOCK + COMMENT: Comments within code blocks
+                # - DEFINITION + STRUCTURE: Definitions with file structure
+                compatible_pairs = {
+                    (UniversalConcept.COMMENT, UniversalConcept.DEFINITION),
+                    (UniversalConcept.DEFINITION, UniversalConcept.COMMENT),
+                    (UniversalConcept.BLOCK, UniversalConcept.COMMENT),
+                    (UniversalConcept.COMMENT, UniversalConcept.BLOCK),
+                    (UniversalConcept.DEFINITION, UniversalConcept.STRUCTURE),
+                    (UniversalConcept.STRUCTURE, UniversalConcept.DEFINITION),
+                }
+
+                # If concepts are not compatible, don't merge
+                if (current_chunk.concept, next_chunk.concept) not in compatible_pairs:
+                    result.append(current_chunk)
+                    current_chunk = next_chunk
+                    continue
+
+            # Don't merge if next_chunk is nested inside current_chunk
+            # True nesting means the entire range of next_chunk is within current_chunk
+            # (e.g., methods inside classes, inner classes, functions in namespaces)
+            # Adjacent chunks (where end_line == start_line) should still be mergeable
+            is_nested = (
+                next_chunk.start_line > current_chunk.start_line  # Strict inequality
+                and next_chunk.end_line <= current_chunk.end_line
+            )
+            if is_nested:
+                result.append(current_chunk)
+                current_chunk = next_chunk
+                continue
+
+            # Don't merge if either chunk explicitly prevents merging
+            # This respects language-specific metadata that marks chunks as semantically
+            # independent (e.g., HCL attributes and blocks that should remain separate)
+            current_prevents_merge = current_chunk.metadata.get("prevent_merge_across_concepts", False)
+            next_prevents_merge = next_chunk.metadata.get("prevent_merge_across_concepts", False)
+            if current_prevents_merge or next_prevents_merge:
+                result.append(current_chunk)
+                current_chunk = next_chunk
+                continue
 
             # Simple merge logic: only if content is different and fits size limit
             if next_chunk.content.strip() not in current_chunk.content:
@@ -895,24 +1090,83 @@ class UniversalParser:
             metrics = ChunkMetrics.from_content(combined_content)
             estimated_tokens = self._estimate_tokens(combined_content)
 
+            # Check for semantic incompatibility within same concept type
+            # For example, Makefile variables and rules are both DEFINITION but shouldn't merge
+            semantic_mismatch = False
+            if (
+                current_chunk.concept
+                == next_chunk.concept
+                == UniversalConcept.DEFINITION
+            ):
+                # Check if both chunks have 'kind' metadata
+                current_kind = current_chunk.metadata.get("kind")
+                next_kind = next_chunk.metadata.get("kind")
+
+                # Don't merge if kinds are different (e.g., variable vs rule)
+                if current_kind and next_kind and current_kind != next_kind:
+                    semantic_mismatch = True
+
+                # Don't merge rules with each other - each rule is a discrete semantic unit
+                # (but variables can merge with each other)
+                if current_kind == "rule" and next_kind == "rule":
+                    semantic_mismatch = True
+
+            # Determine maximum allowed gap based on chunk types
+            # For cross-concept merges involving COMMENT, require strict adjacency (gap <= 1)
+            # to preserve standalone comments while allowing immediate docstrings to merge
+            max_gap = 5  # Default: allow reasonable gaps for related code
+            if current_chunk.concept != next_chunk.concept:
+                # Cross-concept merge - check if either is COMMENT
+                if (
+                    current_chunk.concept == UniversalConcept.COMMENT
+                    or next_chunk.concept == UniversalConcept.COMMENT
+                ):
+                    max_gap = 1  # Strict: only merge immediately adjacent comments/code
+
             # Simple merge condition: fits in size limit and close proximity
             can_merge = (
-                metrics.non_whitespace_chars <= self.cast_config.max_chunk_size
+                not semantic_mismatch
+                and metrics.non_whitespace_chars <= self.cast_config.max_chunk_size
                 and estimated_tokens <= self.cast_config.safe_token_limit
-                and next_chunk.start_line - current_chunk.end_line
-                <= 5  # Allow reasonable gaps
+                and next_chunk.start_line - current_chunk.end_line <= max_gap
             )
 
             if can_merge:
+                # When merging chunks with different concepts, prefer the more specific one
+                # (e.g., DEFINITION over COMMENT) for name and concept
+                if current_chunk.concept != next_chunk.concept:
+                    # Determine which chunk is more specific
+                    current_spec = self._get_chunk_specificity(current_chunk)
+                    next_spec = self._get_chunk_specificity(next_chunk)
+
+                    if next_spec > current_spec:
+                        # Next chunk is more specific - use its name and concept
+                        merged_concept = next_chunk.concept
+                        merged_name = next_chunk.name
+                        merged_metadata = next_chunk.metadata.copy()
+                        merged_language_node_type = next_chunk.language_node_type
+                    else:
+                        # Current chunk is more specific - keep its attributes
+                        merged_concept = current_chunk.concept
+                        merged_name = current_chunk.name
+                        merged_metadata = current_chunk.metadata.copy()
+                        merged_language_node_type = current_chunk.language_node_type
+                else:
+                    # Same concept - keep current chunk's attributes
+                    merged_concept = current_chunk.concept
+                    merged_name = current_chunk.name
+                    merged_metadata = current_chunk.metadata.copy()
+                    merged_language_node_type = current_chunk.language_node_type
+
                 # Simple merge without complex metadata
                 current_chunk = UniversalChunk(
-                    concept=current_chunk.concept,
-                    name=current_chunk.name,  # Keep original name
+                    concept=merged_concept,
+                    name=merged_name,
                     content=combined_content,
                     start_line=current_chunk.start_line,
                     end_line=next_chunk.end_line,
-                    metadata=current_chunk.metadata.copy(),
-                    language_node_type=current_chunk.language_node_type,
+                    metadata=merged_metadata,
+                    language_node_type=merged_language_node_type,
                 )
             else:
                 # Cannot merge, finalize current chunk
@@ -923,6 +1177,177 @@ class UniversalParser:
         result.append(current_chunk)
 
         return result
+
+    def _get_chunk_specificity(self, chunk: UniversalChunk) -> int:
+        """Get specificity ranking for a chunk's concept.
+
+        More specific concepts are preferred when deduplicating overlapping chunks.
+        This implements a semantic hierarchy where definitions (functions, classes)
+        are more valuable than generic structures (file organization).
+
+        Args:
+            chunk: The chunk to evaluate
+
+        Returns:
+            Specificity score (higher = more specific)
+
+        Specificity Ranking:
+        - DEFINITION (4): Functions, classes, methods - most semantically valuable
+        - IMPORT (3): Import statements - specific but less central
+        - COMMENT (2): Documentation - useful but supplementary
+        - BLOCK (1): Generic code blocks - least specific
+        - STRUCTURE (0): File-level organization - least specific
+        """
+        specificity = {
+            UniversalConcept.DEFINITION: 4,
+            UniversalConcept.IMPORT: 3,
+            UniversalConcept.COMMENT: 2,
+            UniversalConcept.BLOCK: 1,
+            UniversalConcept.STRUCTURE: 0,
+        }
+        return specificity.get(chunk.concept, -1)
+
+    def _deduplicate_overlapping_chunks(
+        self, chunks: list[UniversalChunk]
+    ) -> list[UniversalChunk]:
+        """Remove duplicate and overlapping chunks.
+
+        When tree-sitter extraction creates multiple chunks for the same or overlapping
+        source code (e.g., a function extracted as both DEFINITION and STRUCTURE, or a
+        BLOCK chunk whose content is contained within a DEFINITION), keep only the most
+        semantically specific chunk.
+
+        This handles common duplication patterns:
+        - Python: Function extracted as function, comment (docstring), namespace, block
+        - Vue: Similar content extracted at different AST levels
+        - All languages: Same semantic unit captured by multiple queries
+        - Overlapping: BLOCK chunks contained within DEFINITION chunks
+
+        The deduplication handles two cases:
+        1. Identical content: Chunks with exactly the same content
+        2. Substring content: Chunks whose content is fully contained in another chunk
+
+        Args:
+            chunks: List of chunks potentially containing duplicates
+
+        Returns:
+            Deduplicated list with only the most specific chunk for each unique content
+
+        Example:
+            Input: [
+                UniversalChunk(concept=DEFINITION, content="def foo():\n    return 1"),
+                UniversalChunk(concept=BLOCK, content="return 1"),  # substring
+                UniversalChunk(concept=STRUCTURE, content="def foo():\n    return 1"),
+            ]
+            Output: [
+                UniversalChunk(concept=DEFINITION, content="def foo():\n    return 1"),
+            ]
+            (Keeps DEFINITION as most specific, removes both BLOCK and STRUCTURE)
+        """
+        if not chunks:
+            return []
+
+        # Group chunks by normalized content (exact match required)
+        content_groups: dict[str, list[UniversalChunk]] = {}
+
+        for chunk in chunks:
+            # Normalize content for comparison (strip whitespace)
+            normalized_content = chunk.content.strip()
+
+            # Skip empty chunks (should already be filtered, but defensive)
+            if not normalized_content:
+                continue
+
+            # Group by exact content match
+            if normalized_content not in content_groups:
+                content_groups[normalized_content] = []
+            content_groups[normalized_content].append(chunk)
+
+        # For each content group with exact matches, keep only the most specific
+        result = []
+        for chunk_group in content_groups.values():
+            if len(chunk_group) == 1:
+                # No duplicates - keep the single chunk
+                result.append(chunk_group[0])
+            else:
+                # Exempt specific languages from identical content deduplication
+                # Vue: Needs both directives (DEFINITION) and elements (BLOCK) preserved
+                # Haskell: Complex type class nesting requires preserving all chunks
+                if self.language_name.lower() in ["vue", "vue_template", "haskell"]:
+                    # Keep all chunks with identical content for these languages
+                    result.extend(chunk_group)
+                else:
+                    # Multiple chunks with identical content - select most specific
+                    # Use max() with specificity key to find best chunk
+                    best_chunk = max(
+                        chunk_group,
+                        key=lambda c: (
+                            self._get_chunk_specificity(c),
+                            -(c.end_line - c.start_line),  # Smaller spans preferred
+                        ),
+                    )
+                    result.append(best_chunk)
+
+        # Second pass: Remove BLOCK chunks whose content is a substring
+        # of DEFINITION/STRUCTURE chunks AND have overlapping line ranges
+        # This handles BLOCK chunks contained within DEFINITION chunks
+        final_result = []
+        for i, chunk_i in enumerate(result):
+            is_substring = False
+            normalized_i = chunk_i.content.strip()
+
+            # Only apply substring deduplication to BLOCK chunks
+            # This prevents removing DEFINITION chunks sharing text
+            if chunk_i.concept != UniversalConcept.BLOCK:
+                final_result.append(chunk_i)
+                continue
+
+            # Exempt specific languages from substring deduplication
+            # Vue: Needs both directives (DEFINITION) and elements (BLOCK) preserved
+            # Haskell: Complex type class nesting requires preserving all BLOCK chunks
+            if self.language_name.lower() in ["vue", "vue_template", "haskell"]:
+                final_result.append(chunk_i)
+                continue
+
+            for j, chunk_j in enumerate(result):
+                if i == j:
+                    continue
+
+                normalized_j = chunk_j.content.strip()
+
+                # Only deduplicate BLOCKs contained in DEFINITION or STRUCTURE chunks
+                if chunk_j.concept not in (
+                    UniversalConcept.DEFINITION,
+                    UniversalConcept.STRUCTURE,
+                ):
+                    continue
+
+                # Check if chunks have overlapping line ranges
+                lines_overlap = not (
+                    chunk_i.end_line < chunk_j.start_line
+                    or chunk_i.start_line > chunk_j.end_line
+                )
+
+                # Check if chunk_i's content is substring of chunk_j
+                # Only deduplicate if:
+                # 1. chunk_i BLOCK, chunk_j DEFINITION or STRUCTURE
+                # 2. Content is substring
+                # 3. Lines overlap (same source location)
+                # 4. chunk_j has higher specificity (DEFINITION/STRUCTURE > BLOCK)
+                if (
+                    normalized_i in normalized_j
+                    and len(normalized_i) < len(normalized_j)
+                    and lines_overlap
+                ):
+                    # BLOCK chunk is contained within DEFINITION/STRUCTURE chunk
+                    # at the same source location - remove the BLOCK
+                    is_substring = True
+                    break
+
+            if not is_substring:
+                final_result.append(chunk_i)
+
+        return final_result
 
     def _convert_to_chunks(
         self,
@@ -988,13 +1413,26 @@ class UniversalParser:
         Returns:
             Appropriate ChunkType for the concept
         """
-        # Prefer explicit typing hints from mapping metadata when available.
-        chunk_type_hint = metadata.get("chunk_type_hint")
-        if chunk_type_hint == "key_value":
-            return ChunkType.KEY_VALUE
-        elif chunk_type_hint == "table":
-            return ChunkType.TABLE
+        # FIRST: Check for explicit chunk_type_hint in metadata (highest priority)
+        # This allows language mappings to override default behavior
+        chunk_type_hint = metadata.get("chunk_type_hint", "").lower()
+        if chunk_type_hint:
+            # Map string hints to ChunkType enum values
+            hint_map = {
+                "table": ChunkType.TABLE,
+                "key_value": ChunkType.KEY_VALUE,
+                "array": ChunkType.ARRAY,
+                "function": ChunkType.FUNCTION,
+                "class": ChunkType.CLASS,
+                "method": ChunkType.METHOD,
+                "block": ChunkType.BLOCK,
+                "comment": ChunkType.COMMENT,
+                "namespace": ChunkType.NAMESPACE,
+            }
+            if chunk_type_hint in hint_map:
+                return hint_map[chunk_type_hint]
 
+        # SECOND: Fallback to concept-based mapping with metadata inspection
         if concept == UniversalConcept.DEFINITION:
             # Check metadata for more specific type information
             # Prefer "kind" field (semantic type) over "node_type" (AST node type)
@@ -1009,11 +1447,14 @@ class UniversalParser:
             elif kind == "method" or "method" in node_type:
                 return ChunkType.METHOD
             elif kind == "struct" or "struct" in node_type:
-                return ChunkType.CLASS  # Structs map to CLASS in languages like Zig, Rust, Go
+                # Structs map to CLASS in languages like Zig, Rust, Go
+                return ChunkType.CLASS
             elif kind == "enum" or "enum" in node_type:
                 return ChunkType.ENUM
             elif kind == "interface" or "interface" in node_type:
                 return ChunkType.INTERFACE
+            elif kind == "trait" or "trait" in node_type:
+                return ChunkType.TRAIT
             else:
                 return ChunkType.FUNCTION  # Default for definitions
 

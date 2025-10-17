@@ -327,6 +327,46 @@ class BaseMapping(ABC):
 
         return cleaned.strip()
 
+    def get_expression_preview(
+        self, expr: str, max_length: int = 20, safe_chars: bool = True
+    ) -> str:
+        """Get truncated expression for chunk naming.
+
+        This method provides a consistent way to generate safe, readable
+        preview strings from expressions across different language mappings.
+
+        Args:
+            expr: Expression to truncate
+            max_length: Maximum length before truncation
+            safe_chars: Replace quotes/spaces with underscores for safe naming
+
+        Returns:
+            Safe, truncated expression suitable for chunk naming
+
+        Examples:
+            >>> self.get_expression_preview('user.name.first')
+            'user_name_first'
+            >>> self.get_expression_preview('"hello"', safe_chars=True)
+            'hello'
+            >>> self.get_expression_preview('very_long_variable_name', max_length=10)
+            'very_lo...'
+        """
+        if not expr:
+            return "expr"
+
+        # Clean up the expression if safe_chars is enabled
+        if safe_chars:
+            # Remove quotes
+            expr = expr.replace('"', "").replace("'", "")
+            # Replace spaces with underscores
+            expr = expr.replace(" ", "_")
+
+        # Truncate if too long
+        if len(expr) > max_length:
+            expr = expr[:max_length - 3] + "..."
+
+        return expr if expr else "expr"
+
     def get_fallback_name(self, node: TSNode | None, prefix: str) -> str:
         """Generate a fallback name for a node when extraction fails.
 

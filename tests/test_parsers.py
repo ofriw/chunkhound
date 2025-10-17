@@ -37,6 +37,8 @@ LANGUAGE_SAMPLES = {
     Language.TEXT: "hello world",
     Language.PDF: "hello world",  # PDF parser handles text content
     Language.ZIG: "fn main() void { }",
+    Language.VUE: '<template><div>{{ message }}</div></template>\n<script setup lang="ts">\nconst message = "hello"\n</script>',
+    Language.PHP: '<?php\nfunction hello() {\n  return "world";\n}\n?>',
 }
 
 

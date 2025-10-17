@@ -177,8 +177,12 @@ def load_gitignore_patterns(dir_path: Path, root_dir: Path) -> list[str]:
                     patterns_from_gitignore.append(f"{line[1:]}/**")
                 else:
                     # In subdirectory
-                    patterns_from_gitignore.append((rel_from_root / line[1:]).as_posix())
-                    patterns_from_gitignore.append(f"{(rel_from_root / line[1:]).as_posix()}/**")
+                    patterns_from_gitignore.append(
+                        (rel_from_root / line[1:]).as_posix()
+                    )
+                    patterns_from_gitignore.append(
+                        f"{(rel_from_root / line[1:]).as_posix()}/**"
+                    )
             else:
                 # Recursive pattern
                 rel_from_root = dir_path.relative_to(root_dir)
@@ -189,7 +193,9 @@ def load_gitignore_patterns(dir_path: Path, root_dir: Path) -> list[str]:
                     else:
                         patterns_from_gitignore.append(line)
                 else:
-                    patterns_from_gitignore.append(f"{rel_from_root.as_posix()}/**/{line}")
+                    patterns_from_gitignore.append(
+                        f"{rel_from_root.as_posix()}/**/{line}"
+                    )
                     patterns_from_gitignore.append(f"{rel_from_root.as_posix()}/{line}")
 
         return patterns_from_gitignore
@@ -222,7 +228,9 @@ def scan_directory_files(
         for item in directory.iterdir():
             if item.is_file():
                 # Check against exclude patterns
-                if should_exclude_path(item, directory, exclude_patterns, pattern_cache):
+                if should_exclude_path(
+                    item, directory, exclude_patterns, pattern_cache
+                ):
                     continue
 
                 # Check against gitignore patterns
@@ -394,6 +402,8 @@ def walk_subtree_worker(
         return [], errors
     except Exception as e:
         # Unexpected error - capture for debugging
-        error_msg = f"Unexpected error in worker for {subtree_path}: {type(e).__name__}: {e}"
+        error_msg = (
+            f"Unexpected error in worker for {subtree_path}: {type(e).__name__}: {e}"
+        )
         errors.append(error_msg)
         return [], errors

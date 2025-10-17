@@ -25,6 +25,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Default per-file timeout is now enabled by default: `indexing.per_file_timeout_seconds=3.0` (previously `0`, disabled). Set to `0` to disable.
 - When timeouts are enabled and no explicit concurrency is set, parser workers auto‑scale to `cpu_count` (capped at 32). Override via `indexing.max_concurrent`, `--max-concurrent`, or `CHUNKHOUND_INDEXING__MAX_CONCURRENT`.
+- PHP language support with comprehensive tree-sitter parsing for classes, interfaces, traits, functions, methods, namespaces, and PHPDoc comments
+- Vue.js Single File Component (SFC) support with specialized parsing for template, script, and style sections
+- Cross-reference tracking between Vue template elements and script definitions for enhanced semantic understanding
+- Vue template directive and event handler parsing with full metadata extraction
+
+### Enhanced
+- Embedding performance settings (`batch_size`, `timeout`, `max_concurrent_batches`) are now documented as user-configurable via `.chunkhound.json` and environment variables for custom endpoints like Ollama
 
 ## [3.3.1] - 2025-09-25
 

@@ -37,12 +37,14 @@ from chunkhound.parsers.mappings import (
     MatlabMapping,
     ObjCMapping,
     PDFMapping,
+    PHPMapping,
     PythonMapping,
     RustMapping,
     TextMapping,
     TomlMapping,
     TSXMapping,
     TypeScriptMapping,
+    VueMapping,
     YamlMapping,
     ZigMapping,
 )
@@ -198,6 +200,14 @@ try:
 except ImportError:
     ts_objc = None
     OBJC_AVAILABLE = False
+
+try:
+    import tree_sitter_php as ts_php
+
+    PHP_AVAILABLE = True
+except ImportError:
+    ts_php = None
+    PHP_AVAILABLE = False
 
 if not HASKELL_AVAILABLE:
     try:
@@ -384,6 +394,11 @@ class LanguageConfig:
             lang_func = self.tree_sitter_module.language_javascript
             result = lang_func() if callable(lang_func) else lang_func
             return self._handle_language_result(result)
+        elif self.language_name == "php":
+            # PHP uses language_php instead of language
+            lang_func = self.tree_sitter_module.language_php
+            result = lang_func() if callable(lang_func) else lang_func
+            return self._handle_language_result(result)
         else:
             # Standard case - most tree-sitter modules use .language function
             lang_func = self.tree_sitter_module.language
@@ -425,6 +440,10 @@ LANGUAGE_CONFIGS: dict[Language, LanguageConfig] = {
         ts_matlab, MatlabMapping, MATLAB_AVAILABLE, "matlab"
     ),
     Language.OBJC: LanguageConfig(ts_objc, ObjCMapping, OBJC_AVAILABLE, "objc"),
+    Language.PHP: LanguageConfig(ts_php, PHPMapping, PHP_AVAILABLE, "php"),
+    Language.VUE: LanguageConfig(
+        ts_typescript, VueMapping, TYPESCRIPT_AVAILABLE, "vue"
+    ),  # Vue uses TypeScript parser for script sections
     Language.JSON: LanguageConfig(ts_json, JsonMapping, JSON_AVAILABLE, "json"),
     Language.YAML: LanguageConfig(ts_yaml, YamlMapping, YAML_AVAILABLE, "yaml"),
     Language.TOML: LanguageConfig(ts_toml, TomlMapping, TOML_AVAILABLE, "toml"),
@@ -502,6 +521,14 @@ EXTENSION_TO_LANGUAGE: dict[str, Language] = {
     # Note: .m is ambiguous, content detection used in File.from_path()
     ".m": Language.MATLAB,
     ".mm": Language.OBJC,
+    # PHP
+    ".php": Language.PHP,
+    ".phtml": Language.PHP,
+    ".php3": Language.PHP,
+    ".php4": Language.PHP,
+    ".php5": Language.PHP,
+    ".phps": Language.PHP,
+    ".vue": Language.VUE,
     # Config & Data
     ".json": Language.JSON,
     ".yaml": Language.YAML,
@@ -568,6 +595,12 @@ class ParserFactory:
             SetupError: If the required tree-sitter module is not available
             ValueError: If the language is not supported
         """
+        # Special case: Vue uses custom parser
+        if language == Language.VUE:
+            from chunkhound.parsers.vue_parser import VueParser
+
+            return VueParser(cast_config)
+
         # Use cache to avoid recreating parsers
         cache_key = language
         if cache_key in self._parser_cache:

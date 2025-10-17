@@ -95,7 +95,7 @@ distclean: clean
     assert len(variable_chunks) <= 2, f"Variables not merged efficiently: {len(variable_chunks)} chunks"
     
     # VERIFY: Medium chunks stay intact
-    all_chunks = [c for c in chunks if c.symbol and 'all' in c.symbol]
+    all_chunks = [c for c in chunks if c.symbol == 'all']
     assert len(all_chunks) == 1, f"Simple 'all' target should stay intact: {len(all_chunks)}"
     
     # VERIFY: Chunk size constraints respected  

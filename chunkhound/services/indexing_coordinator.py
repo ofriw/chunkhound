@@ -71,11 +71,15 @@ if current_mp_method != desired_mp_method:
 # RATIONALE: Balance parallelism overhead vs throughput for different workload sizes
 
 # File parsing batch sizes
-SMALL_FILE_COUNT_THRESHOLD = 100  # Below this: use minimal workers (overhead not worth it)
+SMALL_FILE_COUNT_THRESHOLD = (
+    100  # Below this: use minimal workers (overhead not worth it)
+)
 MEDIUM_FILE_COUNT_THRESHOLD = 1000  # Above this: scale up for enterprise monorepos
 MAX_WORKERS_SMALL_BATCH = 4  # Worker cap for small file batches
 MAX_WORKERS_MEDIUM_BATCH = 8  # Worker cap for medium file batches (original behavior)
-MAX_WORKERS_LARGE_BATCH = 16  # Worker cap for large file batches (prevents resource exhaustion)
+MAX_WORKERS_LARGE_BATCH = (
+    16  # Worker cap for large file batches (prevents resource exhaustion)
+)
 
 # Fallback CPU count when os.cpu_count() returns None
 DEFAULT_CPU_COUNT = 4
@@ -272,7 +276,11 @@ class IndexingCoordinator(BaseService):
             parsed_results = await self._process_files_in_batches([(file_path, None)])
 
             if not parsed_results:
-                return {"status": "error", "chunks": 0, "error": "No results from batch processor"}
+                return {
+                    "status": "error",
+                    "chunks": 0,
+                    "error": "No results from batch processor",
+                }
 
             result = parsed_results[0]
 
@@ -307,7 +315,7 @@ class IndexingCoordinator(BaseService):
                     try:
                         embeddings_generated = await self._generate_embeddings(
                             stats["chunk_ids_needing_embeddings"],
-                            [chunk for r in parsed_results for chunk in r.chunks]
+                            [chunk for r in parsed_results for chunk in r.chunks],
                         )
 
                         # Verify embeddings were actually generated
@@ -320,7 +328,9 @@ class IndexingCoordinator(BaseService):
                             logger.warning(f"[IndexCoord] {embedding_error}")
                     except Exception as e:
                         embedding_error = str(e)
-                        logger.error(f"Failed to generate embeddings for {file_path}: {e}")
+                        logger.error(
+                            f"Failed to generate embeddings for {file_path}: {e}"
+                        )
                         # Don't fail the entire operation if embeddings fail
                         # File chunks are already committed and searchable via regex
 
@@ -596,7 +606,9 @@ class IndexingCoordinator(BaseService):
 
                 if existing_file:
                     # Get existing chunks for diffing
-                    existing_chunks = self._db.get_chunks_by_file_id(file_id, as_model=True)
+                    existing_chunks = self._db.get_chunks_by_file_id(
+                        file_id, as_model=True
+                    )
 
                     # Convert result chunks to Chunk models using from_dict()
                     new_chunk_models = [
@@ -637,7 +649,9 @@ class IndexingCoordinator(BaseService):
                         stats["total_chunks"] += len(result.chunks)
                     else:
                         # No existing chunks - store all as new (pass models directly)
-                        chunk_ids = self._store_chunks(file_id, new_chunk_models, language)
+                        chunk_ids = self._store_chunks(
+                            file_id, new_chunk_models, language
+                        )
                         stats["chunk_ids_needing_embeddings"].extend(chunk_ids)
                         stats["total_chunks"] += len(chunk_ids)
                 else:
@@ -977,6 +991,7 @@ class IndexingCoordinator(BaseService):
 
         except Exception as e:
             import traceback
+
             logger.error(f"Failed to process directory {directory}: {e}")
             logger.error(f"Traceback: {traceback.format_exc()}")
             return {"status": "error", "error": str(e)}
@@ -1354,9 +1369,7 @@ class IndexingCoordinator(BaseService):
         # Determine number of workers for directory discovery
         # Scale based on number of subtrees and available cores
         # Use config value if available, otherwise use default of 16
-        max_workers = (
-            self.config.indexing.max_discovery_workers if self.config else 16
-        )
+        max_workers = self.config.indexing.max_discovery_workers if self.config else 16
         num_workers = min(
             os.cpu_count() or DEFAULT_CPU_COUNT, len(top_level_items), max_workers
         )
@@ -1493,6 +1506,7 @@ class IndexingCoordinator(BaseService):
             except Exception as e:
                 # Preserve full error context for debugging large repo issues
                 import traceback
+
                 error_traceback = traceback.format_exc()
                 logger.warning(
                     f"Parallel discovery failed for {directory}, falling back to sequential:\n"
@@ -1510,7 +1524,11 @@ class IndexingCoordinator(BaseService):
         return sorted(discovered_files)
 
     def _walk_directory_with_excludes(
-        self, directory: Path, patterns: list[str], exclude_patterns: list[str], use_inode_ordering: bool = False
+        self,
+        directory: Path,
+        patterns: list[str],
+        exclude_patterns: list[str],
+        use_inode_ordering: bool = False,
     ) -> list[Path]:
         """Optimized directory walker using os.walk() with optional inode ordering.
 
